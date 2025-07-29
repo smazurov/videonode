@@ -1,0 +1,51 @@
+# VideoNode Configuration File
+# All settings can be overridden via environment variables
+# using the format: VIDEONODE_<SECTION>_<KEY>
+# For example: VIDEONODE_SERVER_PORT=:8080
+
+[server]
+# Port for the server to listen on
+port = ":8090"
+
+[streams]
+# Configuration file for stream definitions
+config_file = "streams.toml"
+
+# MediaMTX configuration file
+mediamtx_config = "mediamtx.yml"
+
+[obs]
+# Observability settings
+# Maximum retention duration for metrics and logs
+retention_duration = "12h"
+
+# Maximum points per time series
+max_points_per_series = 43200
+
+# Maximum number of time series
+max_series = 5000
+
+# Worker count for data processing
+worker_count = 1
+
+# Collection interval for system metrics
+system_metrics_interval = "30s"
+
+# Enable Prometheus exporter
+prometheus_enabled = true
+
+# Enable SSE (Server-Sent Events) exporter
+sse_enabled = true
+
+[encoders]
+# Validation output file
+validation_output = "validated_encoders.toml"
+
+[capture]
+# Default capture delay in milliseconds
+default_delay_ms = 3000
+
+[auth]
+# Basic HTTP authentication credentials
+username = "pinball"
+password = "ilovepinball"

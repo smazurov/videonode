@@ -1,0 +1,25 @@
+api: true
+apiAddress: :9997
+rtspAddress: :8554
+webrtcAddress: :8889
+metrics: true
+metricsAddress: :9998
+paths:
+    device-test-1:
+        runOnInit: ffmpeg -progress unix:///tmp/ffmpeg-progress-device-test-1-1753653230.sock -f v4l2 -input_format yuyv422 -video_size 1280x720 -framerate 30 -i /dev/video0 -c:v h264 -vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -qp 20 -tune zerolatency -g 30 -keyint_min 15 -sc_threshold 0 -f rtsp rtsp://localhost:8554/$MTX_PATH
+        runOnInitRestart: true
+    device-test-2:
+        runOnInit: ffmpeg -progress unix:///tmp/ffmpeg-progress-device-test-2-1753653242.sock -f v4l2 -input_format yuyv422 -video_size 1280x720 -framerate 30 -i /dev/video0 -c:v h264 -vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -qp 20 -tune zerolatency -g 30 -keyint_min 15 -sc_threshold 0 -f rtsp rtsp://localhost:8554/$MTX_PATH
+        runOnInitRestart: true
+    huge-res-test:
+        runOnInit: ffmpeg -progress unix:///tmp/ffmpeg-progress-huge-res-test-1753653285.sock -f v4l2 -input_format yuyv422 -video_size 99999x99999 -framerate 30 -i /dev/video0 -c:v h264 -vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -qp 20 -tune zerolatency -g 30 -keyint_min 15 -sc_threshold 0 -f rtsp rtsp://localhost:8554/$MTX_PATH
+        runOnInitRestart: true
+    my-stream-001:
+        runOnInit: ffmpeg -progress unix:///tmp/ffmpeg-progress-my-stream-001-1753652737.sock -f v4l2 -input_format yuyv422 -video_size 1920x1080 -framerate 30 -i /dev/video4 -c:v h264 -vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -qp 20 -tune zerolatency -g 30 -keyint_min 15 -sc_threshold 0 -f rtsp rtsp://localhost:8554/$MTX_PATH
+        runOnInitRestart: true
+    status-test-stream:
+        runOnInit: ffmpeg -progress unix:///tmp/ffmpeg-progress-status-test-stream-1753652432.sock -f v4l2 -input_format yuyv422 -video_size 1280x720 -framerate 30 -i /dev/video0 -c:v h264 -vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -qp 20 -tune zerolatency -g 30 -keyint_min 15 -sc_threshold 0 -f rtsp rtsp://localhost:8554/$MTX_PATH
+        runOnInitRestart: true
+    stream-1753651969:
+        runOnInit: ffmpeg -progress unix:///tmp/ffmpeg-progress-stream-1753651969-1753651969.sock -f v4l2 -input_format yuyv422 -video_size 1920x1080 -framerate 30 -i /dev/video4 -c:v h264 -vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -qp 20 -tune zerolatency -g 30 -keyint_min 15 -sc_threshold 0 -f rtsp rtsp://localhost:8554/$MTX_PATH
+        runOnInitRestart: true

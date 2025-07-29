@@ -1,0 +1,169 @@
+package models
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/smazurov/videonode/v4l2_detector"
+)
+
+// VideoFormat represents supported video format names
+type VideoFormat string
+
+// Single source of truth - all definitions here
+const (
+	FormatYUYV422 VideoFormat = "yuyv422"
+	FormatNV12    VideoFormat = "nv12"
+	FormatH264    VideoFormat = "h264"
+	FormatMJPEG   VideoFormat = "mjpeg"
+	FormatYU12    VideoFormat = "yu12"
+	FormatYV12    VideoFormat = "yv12"
+)
+
+// Pixel format mappings - single source of truth
+var videoFormatToPixelFormat = map[VideoFormat]uint32{
+	FormatYUYV422: 1448695129, // YUYV
+	FormatNV12:    842094158,  // NV12
+	FormatH264:    875967048,  // H264
+	FormatMJPEG:   1196444237, // MJPEG
+	FormatYU12:    842093913,  // YU12/I420
+	FormatYV12:    842094169,  // YV12
+}
+
+// Implement SchemaProvider for dynamic enum validation
+func (VideoFormat) Schema(r huma.Registry) *huma.Schema {
+	// Generate enum values dynamically from our map
+	enumValues := make([]any, 0, len(videoFormatToPixelFormat))
+	for format := range videoFormatToPixelFormat {
+		enumValues = append(enumValues, string(format))
+	}
+	
+	return &huma.Schema{
+		Type:        huma.TypeString,
+		Enum:        enumValues,
+		Description: "Supported video format names",
+	}
+}
+
+// Utility methods derived from the map
+func (vf VideoFormat) ToPixelFormat() (uint32, error) {
+	if pf, exists := videoFormatToPixelFormat[vf]; exists {
+		return pf, nil
+	}
+	return 0, fmt.Errorf("unsupported format: %s", vf)
+}
+
+func (vf VideoFormat) IsValid() bool {
+	_, exists := videoFormatToPixelFormat[vf]
+	return exists
+}
+
+
+// pixelFormatToHumanReadable converts V4L2 pixel format codes to human-readable names
+func pixelFormatToHumanReadable(pixelFormat uint32) string {
+	// Reverse lookup in our map
+	for format, code := range videoFormatToPixelFormat {
+		if code == pixelFormat {
+			return string(format)
+		}
+	}
+	
+	log.Printf("Unknown pixel format code: %d", pixelFormat)
+	return "unknown"
+}
+
+// DeviceInfo represents a video device with snake_case fields
+type DeviceInfo struct {
+	DevicePath   string   `json:"device_path" example:"/dev/video0" doc:"System device path"`
+	DeviceName   string   `json:"device_name" example:"USB Camera" doc:"Device name"`
+	DeviceId     string   `json:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
+	Caps         uint32   `json:"caps" example:"84000001" doc:"Raw V4L2 capability flags"`
+	Capabilities []string `json:"capabilities" example:"[\"Video Capture\", \"Streaming I/O\"]" doc:"Device capabilities"`
+}
+
+// FormatInfo represents a video format with human-readable format names and snake_case fields
+type FormatInfo struct {
+	FormatName   string `json:"format_name" example:"yuyv422" doc:"Human-readable format name"`
+	OriginalName string `json:"original_name" example:"YUYV 4:2:2" doc:"Original V4L2 format name"`
+	Emulated     bool   `json:"emulated" example:"false" doc:"Whether format is emulated"`
+}
+
+// Resolution represents video resolution with snake_case fields
+type Resolution struct {
+	Width  uint32 `json:"width" example:"1920" doc:"Video width in pixels"`
+	Height uint32 `json:"height" example:"1080" doc:"Video height in pixels"`
+}
+
+// Framerate represents video framerate with snake_case fields  
+type Framerate struct {
+	Numerator   uint32  `json:"numerator" example:"1" doc:"Framerate fraction numerator"`
+	Denominator uint32  `json:"denominator" example:"30" doc:"Framerate fraction denominator"`
+	Fps         float64 `json:"fps" example:"30.0" doc:"Frames per second"`
+}
+
+// Device API response models
+type DeviceData struct {
+	Devices []DeviceInfo `json:"devices" doc:"List of available video devices"`
+	Count   int          `json:"count" example:"2" doc:"Number of devices found"`
+}
+
+type DeviceResponse struct {
+	Body DeviceData
+}
+
+type DeviceCapabilitiesData struct {
+	DevicePath string       `json:"device_path" example:"/dev/video0" doc:"Path to the video device"`
+	Formats    []FormatInfo `json:"formats" doc:"Supported video formats"`
+}
+
+type DeviceCapabilitiesResponse struct {
+	Body DeviceCapabilitiesData
+}
+
+type DeviceResolutionsData struct {
+	Resolutions []Resolution `json:"resolutions" doc:"Supported resolutions for the format"`
+}
+
+type DeviceResolutionsResponse struct {
+	Body DeviceResolutionsData
+}
+
+type DeviceFrameratesData struct {
+	Framerates []Framerate `json:"framerates" doc:"Supported framerates for the format and resolution"`
+}
+
+type DeviceFrameratesResponse struct {
+	Body DeviceFrameratesData
+}
+
+// ConvertV4L2FormatInfo converts v4l2_detector.FormatInfo to our API FormatInfo
+func ConvertV4L2FormatInfo(v4l2Format v4l2_detector.FormatInfo) FormatInfo {
+	return FormatInfo{
+		FormatName:   pixelFormatToHumanReadable(v4l2Format.PixelFormat),
+		OriginalName: v4l2Format.FormatName,
+		Emulated:     v4l2Format.Emulated,
+	}
+}
+
+// ConvertV4L2Resolution converts v4l2_detector.Resolution to our API Resolution
+func ConvertV4L2Resolution(v4l2Res v4l2_detector.Resolution) Resolution {
+	return Resolution{
+		Width:  v4l2Res.Width,
+		Height: v4l2Res.Height,
+	}
+}
+
+// ConvertV4L2Framerate converts v4l2_detector.Framerate to our API Framerate
+func ConvertV4L2Framerate(v4l2Rate v4l2_detector.Framerate) Framerate {
+	var fps float64
+	if v4l2Rate.Numerator != 0 {
+		fps = float64(v4l2Rate.Denominator) / float64(v4l2Rate.Numerator)
+	}
+	
+	return Framerate{
+		Numerator:   v4l2Rate.Numerator,
+		Denominator: v4l2Rate.Denominator,
+		Fps:         fps,
+	}
+}

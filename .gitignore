@@ -1,0 +1,5 @@
+videonode
+.vscode/
+vendor/
+tmp/
+.env
