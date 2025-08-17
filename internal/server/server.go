@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -46,116 +45,6 @@ func GetDevicesDataForSSE() (sse.DeviceResponse, error) {
 	}, nil
 }
 
-// GetChartConfigs provides chart configurations for the SSE manager (obs compatible)
-func GetChartConfigs() []map[string]interface{} {
-	configs := []map[string]interface{}{}
-
-	// System metrics charts (from obs)
-	cpuConfig := map[string]interface{}{
-		"id":         "obs-cpu_usage_percent-chart",
-		"type":       "line",
-		"title":      "CPU Usage",
-		"yAxisLabel": "Percentage",
-		"yAxisStart": "zero",
-		"maxPoints":  60,
-		"datasets": []map[string]interface{}{
-			{
-				"label":           "CPU Usage (%)",
-				"borderColor":     "#F59E0B",
-				"backgroundColor": "#F59E0B20",
-			},
-		},
-	}
-	configs = append(configs, cpuConfig)
-
-	memoryConfig := map[string]interface{}{
-		"id":         "obs-memory_usage_percent-chart",
-		"type":       "line",
-		"title":      "Memory Usage",
-		"yAxisLabel": "Percentage",
-		"yAxisStart": "zero",
-		"maxPoints":  60,
-		"datasets": []map[string]interface{}{
-			{
-				"label":           "Memory Usage (%)",
-				"borderColor":     "#8B5CF6",
-				"backgroundColor": "#8B5CF620",
-			},
-		},
-	}
-	configs = append(configs, memoryConfig)
-
-	// WiFi chart config (from obs system metrics)
-	wifiConfig := map[string]interface{}{
-		"id":         "obs-wifi_signal_strength_dbm-chart",
-		"type":       "line",
-		"title":      "WiFi Signal Quality",
-		"yAxisLabel": "Signal / Quality",
-		"yAxisStart": "auto",
-		"maxPoints":  60,
-		"datasets": []map[string]interface{}{
-			{
-				"label":           "Signal Strength (dBm)",
-				"borderColor":     "#10B981",
-				"backgroundColor": "#10B98120",
-			},
-		},
-	}
-	configs = append(configs, wifiConfig)
-
-	// Stream chart configs for existing streams (MediaMTX metrics from obs)
-	deviceStreamsMutex.RLock()
-	for streamID := range deviceStreams {
-		streamConfig := map[string]interface{}{
-			"id":         fmt.Sprintf("obs-paths_bytes_received-%s-chart", streamID),
-			"type":       "line",
-			"title":      fmt.Sprintf("Stream %s Network Traffic", streamID),
-			"yAxisLabel": "Bytes",
-			"yAxisStart": "zero",
-			"maxPoints":  60,
-			"datasets": []map[string]interface{}{
-				{
-					"label":           "Bytes Received",
-					"borderColor":     "#3B82F6",
-					"backgroundColor": "#3B82F620",
-				},
-				{
-					"label":           "Bytes Sent",
-					"borderColor":     "#EF4444",
-					"backgroundColor": "#EF444420",
-				},
-			},
-		}
-		configs = append(configs, streamConfig)
-
-		// FFmpeg progress chart
-		ffmpegConfig := map[string]interface{}{
-			"id":         fmt.Sprintf("obs-ffmpeg_fps-%s-chart", streamID),
-			"type":       "line",
-			"title":      fmt.Sprintf("FFmpeg %s Performance", streamID),
-			"yAxisLabel": "FPS / Speed",
-			"yAxisStart": "zero",
-			"maxPoints":  60,
-			"datasets": []map[string]interface{}{
-				{
-					"label":           "FPS",
-					"borderColor":     "#F59E0B",
-					"backgroundColor": "#F59E0B20",
-				},
-				{
-					"label":           "Processing Speed",
-					"borderColor":     "#8B5CF6",
-					"backgroundColor": "#8B5CF620",
-				},
-			},
-		}
-		configs = append(configs, ffmpegConfig)
-	}
-	deviceStreamsMutex.RUnlock()
-
-	return configs
-}
-
 // updateMediaMTXConfigFromStreams generates MediaMTX config from stream configurations
 func updateMediaMTXConfigFromStreams() error {
 	const mediamtxConfigPath = "mediamtx.yml"
@@ -182,7 +71,6 @@ func StartServer(serverPort string) {
 	sseManager := sse.New(
 		sse.DefaultConfig(),
 		GetDevicesDataForSSE,
-		GetChartConfigs,
 	)
 	// Initialize observability system
 	if err := InitializeObservability(sseManager); err != nil {
@@ -232,7 +120,6 @@ func StartServer(serverPort string) {
 	// Clients will connect to /events/{channel_name}
 	// e.g., /events/updates for the default channel
 	r.Handle("/events/*", sseManager.GetHandler())
-
 
 	// Start SSE manager (includes device monitoring)
 	if err := sseManager.Start(); err != nil {

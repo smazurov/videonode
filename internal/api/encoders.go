@@ -150,9 +150,7 @@ func (s *Server) registerEncoderRoutes() {
 		Summary:     "List Encoders",
 		Description: "List validated video and audio encoders available in the system",
 		Tags:        []string{"encoders"},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
+		Security: withAuth(),
 		Errors: []int{400, 401, 500},
 	}, func(ctx context.Context, input *struct{}) (*models.EncodersResponse, error) {
 		data, err := GetEncodersData()

@@ -357,25 +357,7 @@ func (p *PrometheusCollector) sendPrometheusMetric(dataChan chan<- obs.DataPoint
 
 // sendScrapeMetrics sends metrics about the scrape operation itself
 func (p *PrometheusCollector) sendScrapeMetrics(dataChan chan<- obs.DataPoint, scrapeStart time.Time, metricCount int, success bool) {
-	timestamp := time.Now()
-	duration := timestamp.Sub(scrapeStart)
-
-	baseLabels := obs.Labels{
-		"endpoint": p.endpoint,
-	}
-
-	// Scrape duration
-	p.sendMetric(dataChan, "prometheus_scrape_duration_seconds", duration.Seconds(), baseLabels, timestamp)
-
-	// Scrape success
-	successValue := 0.0
-	if success {
-		successValue = 1.0
-	}
-	p.sendMetric(dataChan, "prometheus_scrape_success", successValue, baseLabels, timestamp)
-
-	// Metrics scraped count
-	p.sendMetric(dataChan, "prometheus_metrics_scraped_total", float64(metricCount), baseLabels, timestamp)
+	// Scrape metadata metrics removed - not reported via SSE
 }
 
 // getMetricUnit determines the unit for a metric based on name and type

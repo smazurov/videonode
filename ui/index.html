@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- These are the fonts used in the app -->
+    <link
+      rel="preload"
+      href="/fonts/CircularXXWeb-Medium.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/CircularXXWeb-Book.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <title>VideoNode</title>
+    <link rel="stylesheet" href="/fonts/fonts.css" />
+    <link rel="icon" href="/favicon.ico" />
+    <script>
+      // Initial theme setup
+      document.documentElement.classList.toggle(
+        "dark",
+        localStorage.theme === "dark" ||
+          (!("theme" in localStorage) &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches),
+      );
+
+      // Listen for system theme changes
+      window
+        .matchMedia("(prefers-color-scheme: dark)")
+        .addEventListener("change", ({ matches }) => {
+          if (!("theme" in localStorage)) {
+            // Only auto-switch if user hasn't manually set a theme
+            document.documentElement.classList.toggle("dark", matches);
+          }
+        });
+    </script>
+  </head>
+  <body
+    class="h-full w-full bg-[#f3f9ff] font-sans text-sm antialiased dark:bg-slate-900 md:text-base"
+  >
+    <div id="root" class="w-full h-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
