@@ -53,7 +53,6 @@ func deviceResolver(stableID string) string {
 
 // regenerateMediaMTXConfig generates MediaMTX config from TOML stream configurations
 func regenerateMediaMTXConfig() error {
-	const mediamtxConfigPath = "mediamtx.yml"
 
 	if GlobalStreamManager == nil {
 		return fmt.Errorf("stream manager not initialized")
@@ -270,29 +269,7 @@ func createStreamHandler(sseManager *sse.Manager) http.HandlerFunc {
 				ProgressSocket: socketPath, // Save the actual socket path used
 			}
 
-			// Send stream chart config for this specific stream
-			streamChartConfig := map[string]interface{}{
-				"id":         fmt.Sprintf("stream-%s-chart", pathName),
-				"type":       "line",
-				"title":      fmt.Sprintf("Stream %s Bytes Over Time", pathName),
-				"yAxisLabel": "Bytes",
-				"yAxisStart": "zero",
-				"maxPoints":  60,
-				"datasets": []map[string]interface{}{
-					{
-						"label":           "Bytes Received",
-						"borderColor":     "#3B82F6",
-						"backgroundColor": "#3B82F620",
-					},
-					{
-						"label":           "Bytes Sent",
-						"borderColor":     "#10B981",
-						"backgroundColor": "#10B98120",
-					},
-				},
-			}
-			sseManager.BroadcastCustomEvent("chart-config", streamChartConfig)
-			log.Printf("Sent stream chart config for stream %s", pathName)
+			log.Printf("Created stream %s", pathName)
 
 			if err := GlobalStreamManager.AddStream(streamConfigTOML); err != nil {
 				log.Printf("Warning: Failed to save stream to TOML config: %v", err)
@@ -335,7 +312,6 @@ func createStreamHandler(sseManager *sse.Manager) http.HandlerFunc {
 		} else {
 			log.Printf("Started FFmpeg progress monitoring for stream %s on socket: %s", pathName, socketPath)
 		}
-
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
@@ -397,11 +373,7 @@ func stopStreamFromParamsHandler(sseManager *sse.Manager) http.HandlerFunc {
 
 		// Also remove from TOML config for persistence
 		if GlobalStreamManager != nil {
-			// Send chart removal event for this specific stream
-			sseManager.BroadcastCustomEvent("chart-remove", map[string]interface{}{
-				"chartId": fmt.Sprintf("stream-%s-chart", pathName),
-			})
-			log.Printf("Sent stream chart removal event for stream %s", pathName)
+			log.Printf("Removing stream %s", pathName)
 
 			if err := GlobalStreamManager.RemoveStream(pathName); err != nil {
 				log.Printf("Warning: Failed to remove stream from TOML config: %v", err)
@@ -418,7 +390,6 @@ func stopStreamFromParamsHandler(sseManager *sse.Manager) http.HandlerFunc {
 		}
 
 		log.Printf("Stopped stream: %s", pathName)
-
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(ApiResponse{

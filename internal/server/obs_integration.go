@@ -39,6 +39,7 @@ func setupForVideoNode(promRegistry *prometheus.Registry, sseBroadcaster exporte
 		DataChanSize:  5000,
 		WorkerCount:   2,
 		FlushInterval: 5 * time.Second,
+		LogLevel:      "info", // Default for legacy server
 	}
 
 	manager := obs.NewManager(config)
@@ -54,6 +55,8 @@ func setupForVideoNode(promRegistry *prometheus.Registry, sseBroadcaster exporte
 	if err := manager.AddCollector(systemCollector); err != nil {
 		return nil, err
 	}
+
+	// MediaMTX metrics are collected via Prometheus scraping
 
 	// Add Prometheus scraper for MediaMTX
 	promCollector := collectors.NewPrometheusCollector("http://localhost:9998/metrics")
@@ -79,6 +82,7 @@ func setupForVideoNode(promRegistry *prometheus.Registry, sseBroadcaster exporte
 	// Add SSE exporter to broadcast to existing SSE system
 	if sseBroadcaster != nil {
 		sseExporter := exporters.NewSSEExporter(sseBroadcaster)
+		sseExporter.SetLogLevel("info") // Default level for legacy server
 		if err := manager.AddExporter(sseExporter); err != nil {
 			return nil, err
 		}

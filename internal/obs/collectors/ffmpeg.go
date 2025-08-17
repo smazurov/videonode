@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/obs"
@@ -20,6 +21,8 @@ type FFmpegCollector struct {
 	logPath    string
 	streamID   string
 	listener   net.Listener
+	cancelFunc context.CancelFunc
+	stopOnce   sync.Once
 }
 
 // NewFFmpegCollector creates a new FFmpeg collector
@@ -48,18 +51,22 @@ func NewFFmpegCollector(socketPath, logPath, streamID string) *FFmpegCollector {
 func (f *FFmpegCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoint) error {
 	f.SetRunning(true)
 
+	// Create a cancellable context for this collector
+	collectorCtx, cancel := context.WithCancel(ctx)
+	f.cancelFunc = cancel
+
 	// Start socket listener for progress data
 	if f.socketPath != "" {
-		go f.startSocketListener(ctx, dataChan)
+		go f.startSocketListener(collectorCtx, dataChan)
 	}
 
 	// Start log file monitoring
 	if f.logPath != "" {
-		go f.startLogMonitoring(ctx, dataChan)
+		go f.startLogMonitoring(collectorCtx, dataChan)
 	}
 
 	// Wait for context cancellation
-	<-ctx.Done()
+	<-collectorCtx.Done()
 	f.SetRunning(false)
 	return nil
 }
@@ -82,37 +89,63 @@ func (f *FFmpegCollector) startSocketListener(ctx context.Context, dataChan chan
 	f.listener = listener
 	defer func() {
 		listener.Close()
-		// Do NOT delete socket file - FFmpeg may still be sending data
+		// Clean up socket file when we're done
+		os.Remove(f.socketPath)
+		f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Cleaned up socket file: %s", f.socketPath), time.Now())
 	}()
 
 	f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Started FFmpeg progress listener for stream '%s' on socket: %s", f.streamID, f.socketPath), time.Now())
 
+	// Create a channel to signal when Accept should stop
+	acceptDone := make(chan struct{})
+	defer close(acceptDone)
+
 	// Accept connections loop
 	for {
+		// Check if context is done before trying to accept
 		select {
 		case <-ctx.Done():
-			f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Accept loop stopping for stream '%s'", f.streamID), time.Now())
+			f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Socket listener stopping for stream '%s' - context cancelled", f.streamID), time.Now())
 			return
 		default:
-			f.sendLog(dataChan, obs.LogLevelDebug, fmt.Sprintf("Waiting for FFmpeg connection on stream '%s'...", f.streamID), time.Now())
+		}
 
-			// Accept connection
-			conn, err := listener.Accept()
-			if err != nil {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					f.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Error accepting connection on socket %s: %v", f.socketPath, err), time.Now())
-					continue
-				}
+		// Set a deadline on the listener to periodically check context
+		if tcpListener, ok := listener.(*net.UnixListener); ok {
+			tcpListener.SetDeadline(time.Now().Add(1 * time.Second))
+		}
+
+		f.sendLog(dataChan, obs.LogLevelDebug, fmt.Sprintf("Waiting for FFmpeg connection on stream '%s'...", f.streamID), time.Now())
+
+		// Accept connection
+		conn, err := listener.Accept()
+		if err != nil {
+			// Check if it's a timeout error
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				// Timeout is expected, just continue to check context
+				continue
 			}
 
-			f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("FFmpeg connected to socket %s - Local: %s, Remote: %s", f.socketPath, conn.LocalAddr(), conn.RemoteAddr()), time.Now())
-
-			// Handle connection
-			f.handleConnection(ctx, conn, dataChan)
+			// Check if context was cancelled
+			select {
+			case <-ctx.Done():
+				f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Socket listener stopping for stream '%s' - accept interrupted", f.streamID), time.Now())
+				return
+			default:
+				// Check if it's because the listener was closed
+				if strings.Contains(err.Error(), "use of closed network connection") {
+					f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Socket listener closed for stream '%s'", f.streamID), time.Now())
+					return
+				}
+				f.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Error accepting connection on socket %s: %v", f.socketPath, err), time.Now())
+				continue
+			}
 		}
+
+		f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("FFmpeg connected to socket %s - Local: %s, Remote: %s", f.socketPath, conn.LocalAddr(), conn.RemoteAddr()), time.Now())
+
+		// Handle connection in a goroutine
+		go f.handleConnection(ctx, conn, dataChan)
 	}
 }
 
@@ -407,10 +440,26 @@ func (f *FFmpegCollector) parseFFmpegDuration(durationStr string) (time.Duration
 
 // Stop stops the FFmpeg collector
 func (f *FFmpegCollector) Stop() error {
-	if f.listener != nil {
-		f.listener.Close()
-	}
-	return f.BaseCollector.Stop()
+	var stopErr error
+
+	// Use sync.Once to ensure we only stop once
+	f.stopOnce.Do(func() {
+		// Cancel the context first to stop all goroutines
+		if f.cancelFunc != nil {
+			f.cancelFunc()
+		}
+
+		// Close the listener if it exists
+		if f.listener != nil {
+			f.listener.Close()
+			f.listener = nil
+		}
+
+		// Call base Stop
+		stopErr = f.BaseCollector.Stop()
+	})
+
+	return stopErr
 }
 
 // Helper methods
