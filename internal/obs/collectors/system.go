@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -13,9 +12,11 @@ import (
 	"github.com/smazurov/videonode/internal/obs"
 )
 
-// SystemCollector collects system metrics like CPU, memory, disk, and network
+// SystemCollector collects essential system metrics: load average and network stats
 type SystemCollector struct {
 	*obs.BaseCollector
+	allowedInterfaces map[string]bool
+	primaryInterface  string
 }
 
 // NewSystemCollector creates a new system metrics collector
@@ -27,7 +28,22 @@ func NewSystemCollector() *SystemCollector {
 	}
 
 	return &SystemCollector{
-		BaseCollector: obs.NewBaseCollector("system", config),
+		BaseCollector:     obs.NewBaseCollector("system", config),
+		allowedInterfaces: make(map[string]bool),
+	}
+}
+
+// SetNetworkInterfaces sets the allowed network interfaces to monitor
+func (s *SystemCollector) SetNetworkInterfaces(interfaces []string) {
+	s.allowedInterfaces = make(map[string]bool)
+	for _, iface := range interfaces {
+		if strings.TrimSpace(iface) != "" {
+			s.allowedInterfaces[strings.TrimSpace(iface)] = true
+			// Set first interface as primary
+			if s.primaryInterface == "" {
+				s.primaryInterface = strings.TrimSpace(iface)
+			}
+		}
 	}
 }
 
@@ -57,194 +73,71 @@ func (s *SystemCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoi
 	}
 }
 
-// collectMetrics collects all system metrics
+// collectMetrics collects essential system metrics: load average and network stats
 func (s *SystemCollector) collectMetrics(dataChan chan<- obs.DataPoint) {
 	timestamp := time.Now()
 
-	// Collect CPU metrics
-	s.collectCPUMetrics(dataChan, timestamp)
+	// Collect load average and network stats for primary interface
+	loadAvg := s.getLoadAverage()
+	networkStats := s.getNetworkStats()
 
-	// Collect memory metrics
-	s.collectMemoryMetrics(dataChan, timestamp)
-
-	// Collect disk metrics
-	s.collectDiskMetrics(dataChan, timestamp)
-
-	// Collect network metrics
-	s.collectNetworkMetrics(dataChan, timestamp)
-
-	// Collect load average
-	s.collectLoadAverage(dataChan, timestamp)
+	// Send as single consolidated metric
+	if loadAvg != nil && networkStats != nil {
+		s.sendSystemMetrics(dataChan, loadAvg, networkStats, timestamp)
+	}
 }
 
-// collectCPUMetrics collects CPU usage statistics
-func (s *SystemCollector) collectCPUMetrics(dataChan chan<- obs.DataPoint, timestamp time.Time) {
-	// Read /proc/stat for CPU usage
-	file, err := os.Open("/proc/stat")
+// LoadAverageData holds load average values
+type LoadAverageData struct {
+	OneMin     float64
+	FiveMin    float64
+	FifteenMin float64
+}
+
+// NetworkStatsData holds network interface statistics
+type NetworkStatsData struct {
+	Interface string
+	RxBytes   float64
+	TxBytes   float64
+	RxPackets float64
+	TxPackets float64
+}
+
+// getLoadAverage reads load average from /proc/loadavg
+func (s *SystemCollector) getLoadAverage() *LoadAverageData {
+	file, err := os.Open("/proc/loadavg")
 	if err != nil {
-		s.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Failed to read /proc/stat: %v", err), timestamp)
-		return
+		return nil
 	}
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "cpu ") {
-			fields := strings.Fields(line)
-			if len(fields) < 8 {
-				continue
-			}
-
-			// Parse CPU times
-			user, _ := strconv.ParseFloat(fields[1], 64)
-			nice, _ := strconv.ParseFloat(fields[2], 64)
-			system, _ := strconv.ParseFloat(fields[3], 64)
-			idle, _ := strconv.ParseFloat(fields[4], 64)
-			iowait, _ := strconv.ParseFloat(fields[5], 64)
-			irq, _ := strconv.ParseFloat(fields[6], 64)
-			softirq, _ := strconv.ParseFloat(fields[7], 64)
-
-			total := user + nice + system + idle + iowait + irq + softirq
-
-			// Calculate percentages
-			if total > 0 {
-				s.sendMetric(dataChan, "cpu_user_percent", (user/total)*100, obs.Labels{"type": "user"}, timestamp)
-				s.sendMetric(dataChan, "cpu_system_percent", (system/total)*100, obs.Labels{"type": "system"}, timestamp)
-				s.sendMetric(dataChan, "cpu_idle_percent", (idle/total)*100, obs.Labels{"type": "idle"}, timestamp)
-				s.sendMetric(dataChan, "cpu_iowait_percent", (iowait/total)*100, obs.Labels{"type": "iowait"}, timestamp)
-				s.sendMetric(dataChan, "cpu_usage_percent", ((total-idle)/total)*100, obs.Labels{"type": "total"}, timestamp)
-			}
-			break
-		}
-	}
-}
-
-// collectMemoryMetrics collects memory usage statistics
-func (s *SystemCollector) collectMemoryMetrics(dataChan chan<- obs.DataPoint, timestamp time.Time) {
-	// Read /proc/meminfo
-	file, err := os.Open("/proc/meminfo")
-	if err != nil {
-		s.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Failed to read /proc/meminfo: %v", err), timestamp)
-		return
-	}
-	defer file.Close()
-
-	memInfo := make(map[string]float64)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			key := strings.TrimSuffix(fields[0], ":")
-			value, err := strconv.ParseFloat(fields[1], 64)
-			if err == nil {
-				memInfo[key] = value * 1024 // Convert kB to bytes
-			}
-		}
-	}
-
-	// Send memory metrics
-	if total, ok := memInfo["MemTotal"]; ok {
-		s.sendMetric(dataChan, "memory_total_bytes", total, obs.Labels{"type": "total"}, timestamp)
-
-		if available, ok := memInfo["MemAvailable"]; ok {
-			s.sendMetric(dataChan, "memory_available_bytes", available, obs.Labels{"type": "available"}, timestamp)
-			s.sendMetric(dataChan, "memory_usage_percent", ((total-available)/total)*100, obs.Labels{"type": "usage"}, timestamp)
-		}
-
-		if free, ok := memInfo["MemFree"]; ok {
-			s.sendMetric(dataChan, "memory_free_bytes", free, obs.Labels{"type": "free"}, timestamp)
-		}
-
-		if buffers, ok := memInfo["Buffers"]; ok {
-			s.sendMetric(dataChan, "memory_buffers_bytes", buffers, obs.Labels{"type": "buffers"}, timestamp)
-		}
-
-		if cached, ok := memInfo["Cached"]; ok {
-			s.sendMetric(dataChan, "memory_cached_bytes", cached, obs.Labels{"type": "cached"}, timestamp)
-		}
-	}
-
-	// Swap metrics
-	if swapTotal, ok := memInfo["SwapTotal"]; ok {
-		s.sendMetric(dataChan, "swap_total_bytes", swapTotal, obs.Labels{"type": "total"}, timestamp)
-
-		if swapFree, ok := memInfo["SwapFree"]; ok {
-			s.sendMetric(dataChan, "swap_free_bytes", swapFree, obs.Labels{"type": "free"}, timestamp)
-			if swapTotal > 0 {
-				s.sendMetric(dataChan, "swap_usage_percent", ((swapTotal-swapFree)/swapTotal)*100, obs.Labels{"type": "usage"}, timestamp)
-			}
-		}
-	}
-}
-
-// collectDiskMetrics collects disk usage and I/O statistics
-func (s *SystemCollector) collectDiskMetrics(dataChan chan<- obs.DataPoint, timestamp time.Time) {
-	// Get disk usage for root filesystem
-	cmd := exec.Command("df", "-B1", "/")
-	output, err := cmd.Output()
-	if err == nil {
-		lines := strings.Split(string(output), "\n")
-		if len(lines) >= 2 {
-			fields := strings.Fields(lines[1])
-			if len(fields) >= 6 {
-				total, _ := strconv.ParseFloat(fields[1], 64)
-				used, _ := strconv.ParseFloat(fields[2], 64)
-				available, _ := strconv.ParseFloat(fields[3], 64)
-
-				labels := obs.Labels{"device": "root", "mountpoint": "/"}
-				s.sendMetric(dataChan, "disk_total_bytes", total, labels, timestamp)
-				s.sendMetric(dataChan, "disk_used_bytes", used, labels, timestamp)
-				s.sendMetric(dataChan, "disk_available_bytes", available, labels, timestamp)
-				if total > 0 {
-					s.sendMetric(dataChan, "disk_usage_percent", (used/total)*100, labels, timestamp)
-				}
-			}
-		}
-	}
-
-	// Read disk I/O stats from /proc/diskstats
-	file, err := os.Open("/proc/diskstats")
-	if err != nil {
-		return
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
+	if scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) >= 14 {
-			device := fields[2]
+		if len(fields) >= 3 {
+			load1, _ := strconv.ParseFloat(fields[0], 64)
+			load5, _ := strconv.ParseFloat(fields[1], 64)
+			load15, _ := strconv.ParseFloat(fields[2], 64)
 
-			// Skip loop devices and partitions (keep only main devices)
-			if strings.HasPrefix(device, "loop") ||
-				strings.Contains(device, "ram") ||
-				(len(device) > 3 && device[len(device)-1] >= '0' && device[len(device)-1] <= '9') {
-				continue
+			return &LoadAverageData{
+				OneMin:     load1,
+				FiveMin:    load5,
+				FifteenMin: load15,
 			}
-
-			readsCompleted, _ := strconv.ParseFloat(fields[3], 64)
-			readsSectors, _ := strconv.ParseFloat(fields[5], 64)
-			writesCompleted, _ := strconv.ParseFloat(fields[7], 64)
-			writesSectors, _ := strconv.ParseFloat(fields[9], 64)
-
-			labels := obs.Labels{"device": device}
-			s.sendMetric(dataChan, "disk_reads_total", readsCompleted, labels, timestamp)
-			s.sendMetric(dataChan, "disk_writes_total", writesCompleted, labels, timestamp)
-			s.sendMetric(dataChan, "disk_read_bytes_total", readsSectors*512, labels, timestamp) // 512 bytes per sector
-			s.sendMetric(dataChan, "disk_write_bytes_total", writesSectors*512, labels, timestamp)
 		}
 	}
+	return nil
 }
 
-// collectNetworkMetrics collects network interface statistics
-func (s *SystemCollector) collectNetworkMetrics(dataChan chan<- obs.DataPoint, timestamp time.Time) {
-	// Read /proc/net/dev
+// getNetworkStats reads network statistics for the primary interface
+func (s *SystemCollector) getNetworkStats() *NetworkStatsData {
+	if s.primaryInterface == "" {
+		return nil
+	}
+
 	file, err := os.Open("/proc/net/dev")
 	if err != nil {
-		s.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Failed to read /proc/net/dev: %v", err), timestamp)
-		return
+		return nil
 	}
 	defer file.Close()
 
@@ -261,104 +154,53 @@ func (s *SystemCollector) collectNetworkMetrics(dataChan chan<- obs.DataPoint, t
 		}
 
 		interfaceName := strings.TrimSpace(line[:colonIndex])
-		fields := strings.Fields(line[colonIndex+1:])
+		if interfaceName != s.primaryInterface {
+			continue
+		}
 
+		fields := strings.Fields(line[colonIndex+1:])
 		if len(fields) >= 16 {
 			rxBytes, _ := strconv.ParseFloat(fields[0], 64)
 			rxPackets, _ := strconv.ParseFloat(fields[1], 64)
-			rxErrors, _ := strconv.ParseFloat(fields[2], 64)
-			rxDropped, _ := strconv.ParseFloat(fields[3], 64)
-
 			txBytes, _ := strconv.ParseFloat(fields[8], 64)
 			txPackets, _ := strconv.ParseFloat(fields[9], 64)
-			txErrors, _ := strconv.ParseFloat(fields[10], 64)
-			txDropped, _ := strconv.ParseFloat(fields[11], 64)
 
-			labels := obs.Labels{"interface": interfaceName}
-			s.sendMetric(dataChan, "network_receive_bytes_total", rxBytes, labels, timestamp)
-			s.sendMetric(dataChan, "network_receive_packets_total", rxPackets, labels, timestamp)
-			s.sendMetric(dataChan, "network_receive_errors_total", rxErrors, labels, timestamp)
-			s.sendMetric(dataChan, "network_receive_dropped_total", rxDropped, labels, timestamp)
-
-			s.sendMetric(dataChan, "network_transmit_bytes_total", txBytes, labels, timestamp)
-			s.sendMetric(dataChan, "network_transmit_packets_total", txPackets, labels, timestamp)
-			s.sendMetric(dataChan, "network_transmit_errors_total", txErrors, labels, timestamp)
-			s.sendMetric(dataChan, "network_transmit_dropped_total", txDropped, labels, timestamp)
+			return &NetworkStatsData{
+				Interface: interfaceName,
+				RxBytes:   rxBytes,
+				TxBytes:   txBytes,
+				RxPackets: rxPackets,
+				TxPackets: txPackets,
+			}
 		}
 	}
+	return nil
 }
 
-// collectLoadAverage collects system load average
-func (s *SystemCollector) collectLoadAverage(dataChan chan<- obs.DataPoint, timestamp time.Time) {
-	// Read /proc/loadavg
-	file, err := os.Open("/proc/loadavg")
-	if err != nil {
-		s.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Failed to read /proc/loadavg: %v", err), timestamp)
-		return
+// sendSystemMetrics sends consolidated system metrics as a single data point
+func (s *SystemCollector) sendSystemMetrics(dataChan chan<- obs.DataPoint, loadAvg *LoadAverageData, networkStats *NetworkStatsData, timestamp time.Time) {
+	labels := obs.Labels{
+		"load_1m":        fmt.Sprintf("%.2f", loadAvg.OneMin),
+		"load_5m":        fmt.Sprintf("%.2f", loadAvg.FiveMin),
+		"load_15m":       fmt.Sprintf("%.2f", loadAvg.FifteenMin),
+		"net_interface":  networkStats.Interface,
+		"net_rx_bytes":   fmt.Sprintf("%.0f", networkStats.RxBytes),
+		"net_tx_bytes":   fmt.Sprintf("%.0f", networkStats.TxBytes),
+		"net_rx_packets": fmt.Sprintf("%.0f", networkStats.RxPackets),
+		"net_tx_packets": fmt.Sprintf("%.0f", networkStats.TxPackets),
 	}
-	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
-	if scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) >= 3 {
-			load1, _ := strconv.ParseFloat(fields[0], 64)
-			load5, _ := strconv.ParseFloat(fields[1], 64)
-			load15, _ := strconv.ParseFloat(fields[2], 64)
-
-			s.sendMetric(dataChan, "load_average", load1, obs.Labels{"period": "1m"}, timestamp)
-			s.sendMetric(dataChan, "load_average", load5, obs.Labels{"period": "5m"}, timestamp)
-			s.sendMetric(dataChan, "load_average", load15, obs.Labels{"period": "15m"}, timestamp)
-		}
-	}
-}
-
-// Helper methods
-
-func (s *SystemCollector) sendMetric(dataChan chan<- obs.DataPoint, name string, value float64, labels obs.Labels, timestamp time.Time) {
 	point := &obs.MetricPoint{
-		Name:       name,
-		Value:      value,
+		Name:       "system_metrics",
+		Value:      1.0, // Indicator metric
 		LabelsMap:  s.AddLabels(labels),
 		Timestamp_: timestamp,
-		Unit:       s.getMetricUnit(name),
+		Unit:       "info",
 	}
 
 	select {
 	case dataChan <- point:
 	default:
 		// Channel full, skip this point
-	}
-}
-
-func (s *SystemCollector) sendLog(dataChan chan<- obs.DataPoint, level obs.LogLevel, message string, timestamp time.Time) {
-	point := &obs.LogEntry{
-		Message:    message,
-		Level:      level,
-		LabelsMap:  s.AddLabels(obs.Labels{"source": "system_collector"}),
-		Fields:     make(map[string]interface{}),
-		Timestamp_: timestamp,
-		Source:     "system_collector",
-	}
-
-	select {
-	case dataChan <- point:
-	default:
-		// Channel full, skip this point
-	}
-}
-
-func (s *SystemCollector) getMetricUnit(name string) string {
-	switch {
-	case strings.Contains(name, "_bytes"):
-		return "bytes"
-	case strings.Contains(name, "_percent"):
-		return "percent"
-	case strings.Contains(name, "_total"):
-		return "count"
-	case strings.Contains(name, "load_average"):
-		return "ratio"
-	default:
-		return ""
 	}
 }

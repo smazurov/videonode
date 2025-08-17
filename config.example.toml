@@ -1,0 +1,32 @@
+# VideoNode Configuration Example
+
+[server]
+port = ":8090"
+
+[streams]
+config_file = "streams.toml"
+mediamtx_config = "mediamtx.yml"
+
+[obs]
+retention_duration = "12h"
+max_points_per_series = 43200
+max_series = 5000
+worker_count = 2
+system_metrics_interval = "30s"
+network_interfaces = "lo,wlp12s0,enp14s0"
+prometheus_enabled = true
+sse_enabled = true
+
+[encoders]
+validation_output = "validated_encoders.toml"
+
+[capture]
+default_delay_ms = 3000
+
+[auth]
+username = "pinball"
+password = "ilovepinball"
+
+[logging]
+# Observability logging level: debug, info, warn, error
+obs = "info"

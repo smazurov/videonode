@@ -14,6 +14,7 @@ func CreateValidatorRegistry() *validation.ValidatorRegistry {
 	registry.Register(validation.NewVideoToolboxValidator())
 	registry.Register(validation.NewRkmppValidator())
 	registry.Register(validation.NewV4l2m2mValidator())
+	registry.Register(validation.NewVulkanValidator())  // Vulkan video acceleration
 	registry.Register(validation.NewGenericValidator()) // Fallback validator last
 
 	return registry

@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@config "../tailwind.config.js";
+
+@plugin "@tailwindcss/typography";
+@plugin "@tailwindcss/forms";
+@plugin "@headlessui/tailwindcss";
+
+/* Dark mode uses CSS selector instead of prefers-color-scheme */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Circular", sans-serif;
+  --font-display: "Circular", sans-serif;
+  --font-serif: "Circular", serif;
+  --font-mono: "Source Code Pro Variable", monospace;
+
+  /* Migrated animations */
+  --animate-enter: enter 0.2s ease-out;
+  --animate-leave: leave 0.15s ease-in forwards;
+
+  /* Migrated keyframes */
+  @keyframes enter {
+    0% {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes leave {
+    0% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+  }
+}
+
+html {
+  @apply scroll-smooth;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overflow: auto;
+}

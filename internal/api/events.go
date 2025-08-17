@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/sse"
 	"github.com/smazurov/videonode/internal/api/models"
+	"github.com/smazurov/videonode/internal/obs/exporters"
 )
 
 // SSE Event Types for Huma v2 native SSE
@@ -160,23 +161,31 @@ func (s *Server) registerSSERoutes() {
 		Summary:     "Server-Sent Events Stream",
 		Description: "Real-time event stream for capture results, device changes, and system status",
 		Tags:        []string{"events"},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
-		Errors: []int{401},
-	}, map[string]any{
-		"capture-success":   CaptureSuccessEvent{},
-		"capture-error":     CaptureErrorEvent{},
-		"device-discovery":  DeviceDiscoveryEvent{},
-		"system-status":     SystemStatusEvent{},
-	}, func(ctx context.Context, input *struct{}, send sse.Sender) {
+		Security:    withAuth(),
+		Errors:      []int{401},
+	}, func() map[string]any {
+		// Combine API events with OBS events
+		eventTypes := map[string]any{
+			"capture-success":  CaptureSuccessEvent{},
+			"capture-error":    CaptureErrorEvent{},
+			"device-discovery": DeviceDiscoveryEvent{},
+			"system-status":    SystemStatusEvent{},
+		}
+
+		// Add OBS event types
+		for eventName, eventType := range exporters.GetEventTypes() {
+			eventTypes[eventName] = eventType
+		}
+
+		return eventTypes
+	}(), func(ctx context.Context, input *struct{}, send sse.Sender) {
 		// Create event channel for this connection
 		eventCh := make(chan interface{}, 10)
-		
+
 		// Subscribe to global event broadcaster
 		globalEventBroadcaster.Subscribe(eventCh)
 		defer globalEventBroadcaster.Unsubscribe(eventCh)
-		
+
 		// Keep connection alive and forward events
 		for {
 			select {

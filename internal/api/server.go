@@ -10,7 +10,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/smazurov/videonode/internal/api/models"
-	streamconfig "github.com/smazurov/videonode/internal/config"
 	"github.com/smazurov/videonode/internal/monitoring"
 	"github.com/smazurov/videonode/internal/streams"
 )
@@ -22,69 +21,75 @@ type Server struct {
 	streamService streams.StreamService
 	options       *Options
 	udevMonitor   *monitoring.UdevMonitor
-}
-
-// Options holds the configuration options
-type Options struct {
-	StreamsConfigFile     string
-	MediamtxConfig        string
-	AuthUsername          string
-	AuthPassword          string
-	CaptureDefaultDelayMs int
+	obsSSEAdapter *OBSSSEAdapter
 }
 
 // basicAuthMiddleware creates middleware for HTTP basic authentication
 func (s *Server) basicAuthMiddleware(username, password string) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
-		// Allow health endpoint through without auth
-		if ctx.Operation().Path == "/api/health" {
+		// Skip auth for operations without security requirements
+		op := ctx.Operation()
+		if op != nil && len(op.Security) == 0 {
 			next(ctx)
 			return
 		}
 
+		// Try Authorization header first
 		authHeader := ctx.Header("Authorization")
+		var credentials string
+		var parts []string
 
-		if authHeader == "" {
-			ctx.SetStatus(http.StatusUnauthorized)
-			ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
-			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Authentication required", fmt.Errorf("missing authorization header"))
-			return
+		if authHeader != "" {
+			// Parse "Basic <credentials>" format
+			const prefix = "Basic "
+			if !strings.HasPrefix(authHeader, prefix) {
+				ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
+				huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid authentication type")
+				return
+			}
+
+			// Decode base64 credentials
+			encoded := authHeader[len(prefix):]
+			decoded, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil {
+				ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
+				huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials format", err)
+				return
+			}
+
+			credentials = string(decoded)
+		} else {
+			// For SSE endpoints, try query parameters as fallback
+			queryAuth := ctx.Query("auth")
+			if queryAuth != "" {
+				decoded, err := base64.StdEncoding.DecodeString(queryAuth)
+				if err != nil {
+					ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
+					huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials format", err)
+					return
+				}
+				credentials = string(decoded)
+			}
 		}
 
-		// Parse "Basic <credentials>" format
-		const prefix = "Basic "
-		if !strings.HasPrefix(authHeader, prefix) {
-			ctx.SetStatus(http.StatusUnauthorized)
+		if credentials == "" {
 			ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
-			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid authentication type", fmt.Errorf("expected basic auth"))
-			return
-		}
-
-		// Decode base64 credentials
-		encoded := authHeader[len(prefix):]
-		decoded, err := base64.StdEncoding.DecodeString(encoded)
-		if err != nil {
-			ctx.SetStatus(http.StatusUnauthorized)
-			ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
-			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials format", err)
+			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Authentication required")
 			return
 		}
 
 		// Split username:password
-		credentials := string(decoded)
-		parts := strings.SplitN(credentials, ":", 2)
+		parts = strings.SplitN(credentials, ":", 2)
 		if len(parts) != 2 {
-			ctx.SetStatus(http.StatusUnauthorized)
 			ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
-			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials format", fmt.Errorf("expected username:password"))
+			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials format")
 			return
 		}
 
 		// Validate credentials
 		if parts[0] != username || parts[1] != password {
-			ctx.SetStatus(http.StatusUnauthorized)
 			ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
-			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials", fmt.Errorf("authentication failed"))
+			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials")
 			return
 		}
 
@@ -93,9 +98,23 @@ func (s *Server) basicAuthMiddleware(username, password string) func(huma.Contex
 	}
 }
 
+// Options represents the main application options (imported from main package)
+type Options struct {
+	AuthUsername          string
+	AuthPassword          string
+	CaptureDefaultDelayMs int
+	StreamService         streams.StreamService
+}
+
 // NewServer creates a new API server with Huma v2 using Go 1.22+ native routing
 func NewServer(opts *Options) *Server {
 	mux := http.NewServeMux()
+
+	// Configure CORS
+	corsConfig := DefaultCORSConfig()
+
+	// Add CORS preflight handler for all OPTIONS requests
+	AddCORSHandler(mux, corsConfig)
 
 	// Create Huma API with Go standard library adapter
 	config := huma.DefaultConfig("VideoNode API", "1.0.0")
@@ -114,26 +133,20 @@ func NewServer(opts *Options) *Server {
 
 	api := humago.New(mux, config)
 
-	// Initialize stream manager
-	streamManager := streamconfig.NewStreamManager(opts.StreamsConfigFile)
-	if err := streamManager.Load(); err != nil {
-		fmt.Printf("Warning: Failed to load stream config: %v\n", err)
-	}
-
-	// Initialize stream service
-	streamService := streams.NewStreamService(streamManager, opts.MediamtxConfig)
-
 	// Load existing streams from TOML config into memory
-	if err := streamService.LoadStreamsFromConfig(); err != nil {
+	if err := opts.StreamService.LoadStreamsFromConfig(); err != nil {
 		fmt.Printf("Warning: Failed to load existing streams from config: %v\n", err)
 	}
 
 	server := &Server{
 		api:           api,
 		mux:           mux,
-		streamService: streamService,
+		streamService: opts.StreamService,
 		options:       opts,
 	}
+
+	// Apply CORS middleware first (before auth)
+	api.UseMiddleware(NewCORSMiddleware(corsConfig))
 
 	// Apply basic auth middleware globally if credentials are provided
 	if opts.AuthUsername != "" && opts.AuthPassword != "" {
@@ -178,7 +191,7 @@ func (s *Server) Start(addr string) error {
 
 // registerRoutes sets up all API endpoints
 func (s *Server) registerRoutes() {
-	// Health check endpoint
+	// Health check endpoint - no auth required
 	huma.Register(s.api, huma.Operation{
 		OperationID: "health-check",
 		Method:      http.MethodGet,
@@ -186,6 +199,7 @@ func (s *Server) registerRoutes() {
 		Summary:     "Health",
 		Description: "Check API health status",
 		Tags:        []string{"health"},
+		Security:    []map[string][]string{}, // Empty security = no auth required
 	}, func(ctx context.Context, input *struct{}) (*models.HealthResponse, error) {
 		return &models.HealthResponse{
 			Body: models.HealthData{
@@ -206,4 +220,11 @@ func (s *Server) registerRoutes() {
 
 	// SSE endpoints
 	s.registerSSERoutes()
+}
+
+// withAuth returns security requirement for basic auth
+func withAuth() []map[string][]string {
+	return []map[string][]string{
+		{"basicAuth": {}},
+	}
 }

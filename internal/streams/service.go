@@ -8,6 +8,7 @@ import (
 	"time"
 
 	streamconfig "github.com/smazurov/videonode/internal/config"
+	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/mediamtx"
 	"github.com/smazurov/videonode/v4l2_detector"
 )
@@ -24,12 +25,12 @@ type StreamService interface {
 
 // StreamServiceImpl implements the StreamService interface
 type StreamServiceImpl struct {
-	streamManager   *streamconfig.StreamManager
-	streams         map[string]*Stream
-	streamsMutex    sync.RWMutex
-	mediamtxConfig  string
-	obsIntegration  func(string, string, string) error  // Function to add OBS monitoring
-	obsRemoval      func(string) error                  // Function to remove OBS monitoring
+	streamManager  *streamconfig.StreamManager
+	streams        map[string]*Stream
+	streamsMutex   sync.RWMutex
+	mediamtxConfig string
+	obsIntegration func(string, string, string) error // Function to add OBS monitoring
+	obsRemoval     func(string) error                 // Function to remove OBS monitoring
 }
 
 // NewStreamService creates a new stream service
@@ -42,7 +43,7 @@ func NewStreamService(streamManager *streamconfig.StreamManager, mediamtxConfigP
 }
 
 // NewStreamServiceWithOBS creates a new stream service with OBS monitoring integration
-func NewStreamServiceWithOBS(streamManager *streamconfig.StreamManager, mediamtxConfigPath string, 
+func NewStreamServiceWithOBS(streamManager *streamconfig.StreamManager, mediamtxConfigPath string,
 	obsIntegration func(string, string, string) error, obsRemoval func(string) error) StreamService {
 	return &StreamServiceImpl{
 		streamManager:  streamManager,
@@ -58,7 +59,7 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 	// Validate device ID
 	devicePath := s.resolveDeviceID(params.DeviceID)
 	if devicePath == "" {
-		return nil, NewStreamError(ErrCodeDeviceNotFound, 
+		return nil, NewStreamError(ErrCodeDeviceNotFound,
 			fmt.Sprintf("device %s not found or not available", params.DeviceID), nil)
 	}
 
@@ -69,16 +70,16 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 	s.streamsMutex.RLock()
 	_, exists := s.streams[streamID]
 	s.streamsMutex.RUnlock()
-	
+
 	if exists {
-		return nil, NewStreamError(ErrCodeStreamExists, 
+		return nil, NewStreamError(ErrCodeStreamExists,
 			fmt.Sprintf("stream %s already exists", streamID), nil)
 	}
 
 	// Load MediaMTX configuration
 	config, err := mediamtx.LoadFromFile(s.mediamtxConfig)
 	if err != nil {
-		return nil, NewStreamError(ErrCodeMediaMTXError, 
+		return nil, NewStreamError(ErrCodeMediaMTXError,
 			"failed to load MediaMTX configuration", err)
 	}
 
@@ -98,25 +99,34 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 		fps = fmt.Sprintf("%d", *params.Framerate)
 	}
 
+	// Map API codec to FFmpeg encoder
+	encoderConfig, err := encoders.MapAPICodec(params.Codec)
+	if err != nil {
+		return nil, NewStreamError(ErrCodeInvalidCodec,
+			fmt.Sprintf("failed to map codec %s: %v", params.Codec, err), nil)
+	}
+
 	// Add stream to MediaMTX configuration
 	streamConfig := mediamtx.StreamConfig{
 		DevicePath:     devicePath,
 		Resolution:     resolution,
 		FPS:            fps,
-		Codec:          params.Codec,
+		Codec:          encoderConfig.EncoderName,
 		ProgressSocket: socketPath,
+		GlobalArgs:     encoderConfig.Settings.GlobalArgs,
+		EncoderParams:  encoderConfig.Settings.OutputParams,
+		VideoFilters:   encoderConfig.Settings.VideoFilters,
 	}
-
 	err = config.AddStream(streamID, streamConfig)
 	if err != nil {
-		return nil, NewStreamError(ErrCodeMediaMTXError, 
+		return nil, NewStreamError(ErrCodeMediaMTXError,
 			"failed to configure stream", err)
 	}
 
 	// Write updated configuration to file
 	err = config.WriteToFile(s.mediamtxConfig)
 	if err != nil {
-		return nil, NewStreamError(ErrCodeMediaMTXError, 
+		return nil, NewStreamError(ErrCodeMediaMTXError,
 			"failed to save MediaMTX configuration", err)
 	}
 
@@ -182,14 +192,14 @@ func (s *StreamServiceImpl) DeleteStream(ctx context.Context, streamID string) e
 	s.streamsMutex.RUnlock()
 
 	if !exists {
-		return NewStreamError(ErrCodeStreamNotFound, 
+		return NewStreamError(ErrCodeStreamNotFound,
 			fmt.Sprintf("stream %s not found", streamID), nil)
 	}
 
 	// Load MediaMTX configuration
 	config, err := mediamtx.LoadFromFile(s.mediamtxConfig)
 	if err != nil {
-		return NewStreamError(ErrCodeMediaMTXError, 
+		return NewStreamError(ErrCodeMediaMTXError,
 			"failed to load MediaMTX configuration", err)
 	}
 
@@ -199,7 +209,7 @@ func (s *StreamServiceImpl) DeleteStream(ctx context.Context, streamID string) e
 	// Write updated configuration to file
 	err = config.WriteToFile(s.mediamtxConfig)
 	if err != nil {
-		return NewStreamError(ErrCodeMediaMTXError, 
+		return NewStreamError(ErrCodeMediaMTXError,
 			"failed to save MediaMTX configuration", err)
 	}
 
@@ -239,7 +249,7 @@ func (s *StreamServiceImpl) GetStream(ctx context.Context, streamID string) (*St
 	s.streamsMutex.RUnlock()
 
 	if !exists {
-		return nil, NewStreamError(ErrCodeStreamNotFound, 
+		return nil, NewStreamError(ErrCodeStreamNotFound,
 			fmt.Sprintf("stream %s not found", streamID), nil)
 	}
 
@@ -270,7 +280,7 @@ func (s *StreamServiceImpl) GetStreamStatus(ctx context.Context, streamID string
 	s.streamsMutex.RUnlock()
 
 	if !exists {
-		return nil, NewStreamError(ErrCodeStreamNotFound, 
+		return nil, NewStreamError(ErrCodeStreamNotFound,
 			fmt.Sprintf("stream %s not found", streamID), nil)
 	}
 

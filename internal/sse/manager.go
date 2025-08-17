@@ -25,9 +25,6 @@ const (
 	EventCaptureSuccess  EventType = "capture-success"
 	EventCaptureError    EventType = "capture-error"
 	EventMetricsUpdate   EventType = "metrics-update"
-	EventChartConfig     EventType = "chart-config"
-	EventChartData       EventType = "chart-data"
-	EventChartRemove     EventType = "chart-remove"
 )
 
 // DeviceResponse represents device information response
@@ -57,8 +54,7 @@ type Manager struct {
 	pollingInterval time.Duration
 
 	// Dependencies
-	getDevicesData  func() (DeviceResponse, error)
-	getChartConfigs func() []map[string]interface{}
+	getDevicesData func() (DeviceResponse, error)
 }
 
 // Config holds configuration for the SSE manager
@@ -76,7 +72,7 @@ func DefaultConfig() Config {
 }
 
 // New creates a new SSE manager
-func New(config Config, getDevicesFunc func() (DeviceResponse, error), getChartsFunc func() []map[string]interface{}) *Manager {
+func New(config Config, getDevicesFunc func() (DeviceResponse, error)) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	manager := &Manager{
@@ -86,7 +82,6 @@ func New(config Config, getDevicesFunc func() (DeviceResponse, error), getCharts
 		defaultChannel:  config.DefaultChannel,
 		pollingInterval: config.PollingInterval,
 		getDevicesData:  getDevicesFunc,
-		getChartConfigs: getChartsFunc,
 	}
 
 	// Configure the OnSession callback
@@ -98,9 +93,6 @@ func New(config Config, getDevicesFunc func() (DeviceResponse, error), getCharts
 // handleNewSession handles new SSE client connections
 func (m *Manager) handleNewSession(w http.ResponseWriter, r *http.Request) (topics []string, ok bool) {
 	log.Printf("SSE: New session request from %s for path %s", r.RemoteAddr, r.URL.Path)
-
-	// Send initial chart configurations when client connects
-	go m.sendInitialChartConfigs()
 
 	return []string{m.defaultChannel}, true
 }

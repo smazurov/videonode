@@ -31,6 +31,10 @@ worker_count = 1
 # Collection interval for system metrics
 system_metrics_interval = "30s"
 
+# Network interfaces to monitor (comma-separated string for humacli compatibility)
+# Only these interfaces will have network metrics collected
+network_interfaces = "lo,wlp12s0,enp14s0"
+
 # Enable Prometheus exporter
 prometheus_enabled = true
 

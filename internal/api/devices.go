@@ -36,13 +36,16 @@ type DeviceResolutionInput struct {
 	Height string `query:"height" example:"1080" doc:"Video height in pixels"`
 }
 
-// Device capture input
+// DeviceCaptureBody represents the request body for device capture
+type DeviceCaptureBody struct {
+	Resolution string  `json:"resolution,omitempty" example:"1920x1080" doc:"Optional resolution in format widthxheight"`
+	Delay      float64 `json:"delay,omitempty" example:"2.0" doc:"Optional delay in seconds before capturing"`
+}
+
+// DeviceCaptureInput combines path parameters and request body
 type DeviceCaptureInput struct {
 	DevicePathInput
-	Body struct {
-		Resolution string  `json:"resolution,omitempty" example:"1920x1080" doc:"Optional resolution in format widthxheight"`
-		Delay      float64 `json:"delay,omitempty" example:"2.0" doc:"Optional delay in seconds before capturing"`
-	}
+	Body DeviceCaptureBody
 }
 
 // deviceIDToPath converts device ID (e.g., 0) to device path (e.g., "/dev/video0")
@@ -224,10 +227,8 @@ func (s *Server) registerDeviceRoutes() {
 		Summary:     "List Devices",
 		Description: "List all available V4L2 video devices",
 		Tags:        []string{"devices"},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
-		Errors: []int{401, 500},
+		Security:    withAuth(),
+		Errors:      []int{401, 500},
 	}, func(ctx context.Context, input *struct{}) (*models.DeviceResponse, error) {
 		data, err := GetDevicesData()
 		if err != nil {
@@ -245,10 +246,8 @@ func (s *Server) registerDeviceRoutes() {
 		Summary:     "Formats",
 		Description: "List supported formats for a specific device",
 		Tags:        []string{"devices"},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
-		Errors: []int{401, 500},
+		Security:    withAuth(),
+		Errors:      []int{401, 500},
 	}, func(ctx context.Context, input *DevicePathInput) (*models.DeviceCapabilitiesResponse, error) {
 		// Convert device ID to device path
 		devicePath := deviceIDToPath(input.DeviceID)
@@ -269,10 +268,8 @@ func (s *Server) registerDeviceRoutes() {
 		Summary:     "Resolutions",
 		Description: "List supported resolutions for a specific format",
 		Tags:        []string{"devices"},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
-		Errors: []int{400, 401, 500},
+		Security:    withAuth(),
+		Errors:      []int{400, 401, 500},
 	}, func(ctx context.Context, input *DeviceFormatInput) (*models.DeviceResolutionsResponse, error) {
 		// Convert device ID to device path
 		devicePath := deviceIDToPath(input.DeviceID)
@@ -307,10 +304,8 @@ func (s *Server) registerDeviceRoutes() {
 		Summary:     "Framerates",
 		Description: "List supported framerates for a specific format and resolution",
 		Tags:        []string{"devices"},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
-		Errors: []int{400, 401, 500},
+		Security:    withAuth(),
+		Errors:      []int{400, 401, 500},
 	}, func(ctx context.Context, input *DeviceResolutionInput) (*models.DeviceFrameratesResponse, error) {
 		// Convert device ID to device path
 		devicePath := deviceIDToPath(input.DeviceID)
@@ -356,10 +351,8 @@ func (s *Server) registerDeviceRoutes() {
 		Description:   "Capture a screenshot from the device. Results are sent via SSE events.",
 		Tags:          []string{"devices"},
 		DefaultStatus: http.StatusAccepted, // 202 Accepted
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
-		Errors: []int{401, 404},
+		Security:      withAuth(),
+		Errors:        []int{401, 404},
 	}, func(ctx context.Context, input *DeviceCaptureInput) (*models.CaptureResponse, error) {
 		// Convert device ID to device path
 		devicePath := deviceIDToPath(input.DeviceID)

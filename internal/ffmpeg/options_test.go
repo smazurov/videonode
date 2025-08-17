@@ -18,11 +18,11 @@ func TestNewCommandBuilder(t *testing.T) {
 func TestBuildEncodersListCommand(t *testing.T) {
 	builder := NewCommandBuilder()
 	cmd, err := builder.BuildEncodersListCommand()
-	
+
 	if err != nil {
 		t.Fatalf("BuildEncodersListCommand() failed: %v", err)
 	}
-	
+
 	expected := "ffmpeg -encoders"
 	if cmd != expected {
 		t.Errorf("BuildEncodersListCommand() = %q, want %q", cmd, expected)
@@ -31,7 +31,7 @@ func TestBuildEncodersListCommand(t *testing.T) {
 
 func TestBuildProbeCommand(t *testing.T) {
 	builder := NewCommandBuilder()
-	
+
 	tests := []struct {
 		name       string
 		devicePath string
@@ -55,19 +55,19 @@ func TestBuildProbeCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd, err := builder.BuildProbeCommand(tt.devicePath)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("BuildProbeCommand() expected error but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("BuildProbeCommand() unexpected error: %v", err)
 				return
 			}
-			
+
 			if cmd != tt.want {
 				t.Errorf("BuildProbeCommand() = %q, want %q", cmd, tt.want)
 			}
@@ -77,7 +77,7 @@ func TestBuildProbeCommand(t *testing.T) {
 
 func TestBuildCaptureCommand(t *testing.T) {
 	builder := NewCommandBuilder()
-	
+
 	tests := []struct {
 		name    string
 		config  CaptureConfig
@@ -141,19 +141,19 @@ func TestBuildCaptureCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd, err := builder.BuildCaptureCommand(tt.config)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("BuildCaptureCommand() expected error but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("BuildCaptureCommand() unexpected error: %v", err)
 				return
 			}
-			
+
 			// Check that all expected strings are present
 			for _, check := range tt.checks {
 				if !strings.Contains(cmd, check) {
@@ -166,7 +166,7 @@ func TestBuildCaptureCommand(t *testing.T) {
 
 func TestBuildStreamCommand(t *testing.T) {
 	builder := NewCommandBuilder()
-	
+
 	tests := []struct {
 		name    string
 		config  StreamConfig
@@ -236,6 +236,26 @@ func TestBuildStreamCommand(t *testing.T) {
 			},
 		},
 		{
+			name: "VAAPI encoder with full settings",
+			config: StreamConfig{
+				DevicePath:    "/dev/video0",
+				Codec:         "h264_vaapi",
+				GlobalArgs:    []string{"-vaapi_device", "/dev/dri/renderD128"},
+				VideoFilters:  "format=nv12,hwupload",
+				EncoderParams: map[string]string{"qp": "20"},
+			},
+			wantErr: false,
+			checks: []string{
+				"ffmpeg",
+				"-vaapi_device /dev/dri/renderD128",
+				"-f v4l2",
+				"-i /dev/video0",
+				"-vf format=nv12,hwupload",
+				"-c:v h264_vaapi",
+				"-qp 20",
+			},
+		},
+		{
 			name: "empty device path",
 			config: StreamConfig{
 				DevicePath: "",
@@ -247,26 +267,31 @@ func TestBuildStreamCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd, err := builder.BuildStreamCommand(tt.config)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("BuildStreamCommand() expected error but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("BuildStreamCommand() unexpected error: %v", err)
 				return
 			}
-			
+
+			// Print the command for VAAPI test
+			if tt.name == "VAAPI encoder with full settings" {
+				t.Logf("Generated command: %s", cmd)
+			}
+
 			// Check that all expected strings are present
 			for _, check := range tt.checks {
 				if !strings.Contains(cmd, check) {
 					t.Errorf("BuildStreamCommand() missing expected string %q in command: %s", check, cmd)
 				}
 			}
-			
+
 			// For hardware encoders, make sure zerolatency is NOT present
 			if tt.name == "hardware encoder (no zerolatency)" {
 				if strings.Contains(cmd, "-tune zerolatency") {
@@ -314,14 +339,14 @@ func TestApplyOptionsToCommand(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var builder strings.Builder
 			applied := ApplyOptionsToCommand(tt.options, &builder)
-			
+
 			result := builder.String()
-			
+
 			// Check applied options count
 			if len(applied) != len(tt.options) {
 				t.Errorf("ApplyOptionsToCommand() applied %d options, want %d", len(applied), len(tt.options))
 			}
-			
+
 			// Check that expected strings are present
 			for _, want := range tt.want {
 				if !strings.Contains(result, want) {
@@ -334,12 +359,12 @@ func TestApplyOptionsToCommand(t *testing.T) {
 
 func TestGetDefaultOptions(t *testing.T) {
 	defaults := GetDefaultOptions()
-	
+
 	// Check that we get some default options
 	if len(defaults) == 0 {
 		t.Error("GetDefaultOptions() returned no default options")
 	}
-	
+
 	// Check that OptionGeneratePTS is included (it's marked as AppDefault: true)
 	found := false
 	for _, opt := range defaults {
@@ -392,7 +417,7 @@ func TestValidateOptions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateOptions(tt.options)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("ValidateOptions() expected error but got none")
@@ -416,12 +441,12 @@ func TestGenerateCommandBackwardCompatibility(t *testing.T) {
 		DevicePath: "/dev/video0",
 		Codec:      "libx264",
 	}
-	
+
 	cmd, err := GenerateCommand(config)
 	if err != nil {
 		t.Fatalf("GenerateCommand() failed: %v", err)
 	}
-	
+
 	if !strings.Contains(cmd, "ffmpeg") {
 		t.Errorf("GenerateCommand() should generate ffmpeg command, got: %s", cmd)
 	}

@@ -11,8 +11,11 @@ package v4l2_detector
 import "C"
 import (
 	"fmt"
+	"sync"
 	"unsafe"
 )
+
+var findDevicesMutex sync.Mutex
 
 // Go representation of C.struct_v4l2_device_info
 type DeviceInfo struct {
@@ -61,6 +64,9 @@ type MenuItem struct {
 }
 
 func FindDevices() ([]DeviceInfo, error) {
+	findDevicesMutex.Lock()
+	defer findDevicesMutex.Unlock()
+	
 	var cDevices *C.struct_v4l2_device_info
 	var cCount C.size_t
 
@@ -68,11 +74,17 @@ func FindDevices() ([]DeviceInfo, error) {
 	if ret != 0 {
 		return nil, fmt.Errorf("v4l2_find_devices failed with code: %d", ret)
 	}
+
+	// Handle case where no devices found or NULL returned
+	if cDevices == nil || cCount == 0 {
+		return []DeviceInfo{}, nil
+	}
+
 	// Defer freeing the C array of device_info structs
 	defer C.v4l2_free_devices(cDevices, cCount)
 
 	goDevices := make([]DeviceInfo, cCount)
-	// Convert C array pointer to a Go slice header
+	// Convert C array pointer to a Go slice header - now safe after NULL check
 	cDeviceSlice := (*[1 << 30]C.struct_v4l2_device_info)(unsafe.Pointer(cDevices))[:cCount:cCount]
 
 	for i := range cDeviceSlice {

@@ -2,12 +2,56 @@ package exporters
 
 import (
 	"context"
-	"fmt"
+	"log"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/obs"
 )
+
+// OBS SSE Event Types - these should be registered with Huma SSE
+type MediaMTXMetricsEvent struct {
+	Type      string                   `json:"type"`
+	Timestamp string                   `json:"timestamp"`
+	Count     int                      `json:"count"`
+	Metrics   []map[string]interface{} `json:"metrics"`
+}
+
+type OBSAlertEvent struct {
+	Type      string                 `json:"type"`
+	Timestamp string                 `json:"timestamp"`
+	Level     string                 `json:"level"`
+	Message   string                 `json:"message"`
+	Details   map[string]interface{} `json:"details"`
+}
+
+type SystemMetricsEvent struct {
+	Type        string `json:"type"`
+	Timestamp   string `json:"timestamp"`
+	LoadAverage struct {
+		OneMin     float64 `json:"1m"`
+		FiveMin    float64 `json:"5m"`
+		FifteenMin float64 `json:"15m"`
+	} `json:"load_average"`
+	Network struct {
+		Interface string  `json:"interface"`
+		RxBytes   float64 `json:"rx_bytes"`
+		TxBytes   float64 `json:"tx_bytes"`
+		RxPackets float64 `json:"rx_packets"`
+		TxPackets float64 `json:"tx_packets"`
+	} `json:"network"`
+}
+
+// GetEventTypes returns a map of event names to their corresponding struct types
+// This should be used when registering with Huma SSE
+func GetEventTypes() map[string]any {
+	return map[string]any{
+		"mediamtx-metrics": MediaMTXMetricsEvent{},
+		"obs-alert":        OBSAlertEvent{},
+		"system-metrics":   SystemMetricsEvent{},
+	}
+}
 
 // SSEBroadcaster defines the interface for broadcasting SSE events
 type SSEBroadcaster interface {
@@ -23,6 +67,7 @@ type SSEExporter struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
+	logLevel    string
 }
 
 // NewSSEExporter creates a new SSE exporter
@@ -43,7 +88,13 @@ func NewSSEExporter(broadcaster SSEBroadcaster) *SSEExporter {
 		buffer:      make([]obs.DataPoint, 0, config.BufferSize),
 		ctx:         ctx,
 		cancel:      cancel,
+		logLevel:    "info", // Default log level
 	}
+}
+
+// SetLogLevel sets the logging level for observability logs
+func (s *SSEExporter) SetLogLevel(level string) {
+	s.logLevel = level
 }
 
 // Name returns the exporter name
@@ -139,9 +190,9 @@ func (s *SSEExporter) sendBufferedData() {
 		s.sendMetricsUpdate(metrics)
 	}
 
-	// Send logs update
+	// Log entries instead of broadcasting them
 	if len(logs) > 0 {
-		s.sendLogsUpdate(logs)
+		s.logEntries(logs)
 	}
 
 	// Clear buffer
@@ -150,130 +201,100 @@ func (s *SSEExporter) sendBufferedData() {
 
 // sendMetricsUpdate sends metrics data via SSE
 func (s *SSEExporter) sendMetricsUpdate(metrics []*obs.MetricPoint) {
-	// Group metrics by name for chart data
-	chartData := s.groupMetricsForCharts(metrics)
-
-	// Send individual chart updates
-	for chartID, data := range chartData {
-		event := map[string]interface{}{
-			"type":      "data",
-			"timestamp": time.Now().Format(time.RFC3339),
-			"values":    data.Values,
-			"labels":    data.Labels,
-		}
-
-		if err := s.broadcaster.BroadcastEvent(chartID, event); err != nil {
-			// Log error but continue
-			continue
-		}
-	}
-
-	// Send general metrics update
-	metricsEvent := map[string]interface{}{
-		"type":      "metrics_update",
-		"timestamp": time.Now().Format(time.RFC3339),
-		"count":     len(metrics),
-		"metrics":   s.formatMetricsForSSE(metrics),
-	}
-
-	s.broadcaster.BroadcastEvent("obs-metrics", metricsEvent)
-}
-
-// sendLogsUpdate sends logs data via SSE
-func (s *SSEExporter) sendLogsUpdate(logs []*obs.LogEntry) {
-	// Group logs by level
-	logsByLevel := make(map[obs.LogLevel][]*obs.LogEntry)
-	for _, log := range logs {
-		logsByLevel[log.Level] = append(logsByLevel[log.Level], log)
-	}
-
-	// Send logs update
-	logsEvent := map[string]interface{}{
-		"type":      "logs_update",
-		"timestamp": time.Now().Format(time.RFC3339),
-		"count":     len(logs),
-		"logs":      s.formatLogsForSSE(logs),
-		"by_level":  s.formatLogsByLevel(logsByLevel),
-	}
-
-	s.broadcaster.BroadcastEvent("obs-logs", logsEvent)
-
-	// Send individual log entries for real-time display
-	for _, log := range logs {
-		if log.Level == obs.LogLevelError || log.Level == obs.LogLevelFatal {
-			logEvent := map[string]interface{}{
-				"type":      "log_entry",
-				"level":     string(log.Level),
-				"message":   log.Message,
-				"source":    log.Source,
-				"timestamp": log.Timestamp().Format(time.RFC3339),
-				"labels":    log.Labels(),
-			}
-			s.broadcaster.BroadcastEvent("obs-log-entry", logEvent)
-		}
-	}
-}
-
-// ChartData represents data for a chart
-type ChartData struct {
-	Values []float64  `json:"values"`
-	Labels obs.Labels `json:"labels"`
-}
-
-// groupMetricsForCharts groups metrics into chart-friendly format
-func (s *SSEExporter) groupMetricsForCharts(metrics []*obs.MetricPoint) map[string]ChartData {
-	charts := make(map[string]ChartData)
-
-	// Group by metric name and key labels
-	metricGroups := make(map[string][]*obs.MetricPoint)
+	// Handle system metrics specially
 	for _, metric := range metrics {
-		key := s.getChartKey(metric)
-		metricGroups[key] = append(metricGroups[key], metric)
+		if metric.Name == "system_metrics" {
+			s.sendSystemMetricsEvent(metric)
+			continue
+		}
 	}
 
-	// Convert to chart data
-	for chartID, metricList := range metricGroups {
-		if len(metricList) == 0 {
+	// Send general metrics update for non-system metrics
+	if len(metrics) > 0 {
+		metricsEvent := MediaMTXMetricsEvent{
+			Type:      "mediamtx_metrics",
+			Timestamp: time.Now().Format(time.RFC3339),
+			Count:     len(metrics),
+			Metrics:   s.formatMetricsForSSE(metrics),
+		}
+
+		s.broadcaster.BroadcastEvent("mediamtx-metrics", metricsEvent)
+	}
+}
+
+// logEntries logs the entries to standard output instead of broadcasting via SSE
+func (s *SSEExporter) logEntries(logs []*obs.LogEntry) {
+	for _, logEntry := range logs {
+		// Check if we should log this entry based on configured level
+		if !s.shouldLog(logEntry.Level) {
 			continue
 		}
 
-		// For now, just take the latest values
-		// In production, you might want to aggregate or sample
-		var values []float64
-		var labels obs.Labels
+		// Format log entry for standard logging
+		logLevel := string(logEntry.Level)
+		source := logEntry.Source
+		message := logEntry.Message
+		timestamp := logEntry.Timestamp().Format(time.RFC3339)
 
-		if len(metricList) > 0 {
-			latest := metricList[len(metricList)-1]
-			values = []float64{latest.Value}
-			labels = latest.Labels()
-		}
-
-		charts[chartID] = ChartData{
-			Values: values,
-			Labels: labels,
-		}
+		// Log the entry
+		log.Printf("[%s] %s [%s]: %s", logLevel, timestamp, source, message)
 	}
-
-	return charts
 }
 
-// getChartKey generates a chart ID for a metric
-func (s *SSEExporter) getChartKey(metric *obs.MetricPoint) string {
-	// Create chart ID based on metric name and key labels
-	chartID := fmt.Sprintf("obs-%s", metric.Name)
-
-	// Add important labels to make unique charts
-	if streamID, ok := metric.Labels()["stream_id"]; ok {
-		chartID += fmt.Sprintf("-%s", streamID)
-	}
-	if device, ok := metric.Labels()["device"]; ok {
-		chartID += fmt.Sprintf("-%s", device)
-	}
-	if source, ok := metric.Labels()["source"]; ok {
-		chartID += fmt.Sprintf("-%s", source)
+// shouldLog determines if a log entry should be logged based on the configured level
+func (s *SSEExporter) shouldLog(entryLevel obs.LogLevel) bool {
+	// Define log level hierarchy (lower number = higher priority)
+	levels := map[string]int{
+		"debug": 0,
+		"info":  1,
+		"warn":  2,
+		"error": 3,
 	}
 
-	return chartID + "-chart"
+	entryLevelStr := string(entryLevel)
+	configuredLevel := levels[s.logLevel]
+	entryLevelNum, exists := levels[entryLevelStr]
+
+	// If entry level doesn't exist, log it (safety)
+	if !exists {
+		return true
+	}
+
+	// Log if entry level is >= configured level
+	return entryLevelNum >= configuredLevel
+}
+
+// sendSystemMetricsEvent sends a structured system metrics event
+func (s *SSEExporter) sendSystemMetricsEvent(metric *obs.MetricPoint) {
+	labels := metric.Labels()
+
+	// Parse load average values
+	load1m, _ := strconv.ParseFloat(labels["load_1m"], 64)
+	load5m, _ := strconv.ParseFloat(labels["load_5m"], 64)
+	load15m, _ := strconv.ParseFloat(labels["load_15m"], 64)
+
+	// Parse network values
+	rxBytes, _ := strconv.ParseFloat(labels["net_rx_bytes"], 64)
+	txBytes, _ := strconv.ParseFloat(labels["net_tx_bytes"], 64)
+	rxPackets, _ := strconv.ParseFloat(labels["net_rx_packets"], 64)
+	txPackets, _ := strconv.ParseFloat(labels["net_tx_packets"], 64)
+
+	event := SystemMetricsEvent{
+		Type:      "system_metrics",
+		Timestamp: metric.Timestamp().Format(time.RFC3339),
+	}
+
+	event.LoadAverage.OneMin = load1m
+	event.LoadAverage.FiveMin = load5m
+	event.LoadAverage.FifteenMin = load15m
+
+	event.Network.Interface = labels["net_interface"]
+	event.Network.RxBytes = rxBytes
+	event.Network.TxBytes = txBytes
+	event.Network.RxPackets = rxPackets
+	event.Network.TxPackets = txPackets
+
+	s.broadcaster.BroadcastEvent("system-metrics", event)
 }
 
 // formatMetricsForSSE formats metrics for SSE transmission
@@ -324,32 +345,14 @@ func (s *SSEExporter) formatLogsByLevel(logsByLevel map[obs.LogLevel][]*obs.LogE
 	return result
 }
 
-// SendChartConfig sends chart configuration for a metric
-func (s *SSEExporter) SendChartConfig(metricName string, config map[string]interface{}) error {
-	chartID := fmt.Sprintf("obs-%s-chart", metricName)
-
-	configEvent := map[string]interface{}{
-		"id":    chartID,
-		"type":  "line",
-		"title": fmt.Sprintf("OBS: %s", metricName),
-	}
-
-	// Merge with provided config
-	for k, v := range config {
-		configEvent[k] = v
-	}
-
-	return s.broadcaster.BroadcastEvent("chart-config", configEvent)
-}
-
 // SendAlert sends an alert via SSE
 func (s *SSEExporter) SendAlert(level obs.LogLevel, message string, details map[string]interface{}) error {
-	alertEvent := map[string]interface{}{
-		"type":      "alert",
-		"level":     string(level),
-		"message":   message,
-		"details":   details,
-		"timestamp": time.Now().Format(time.RFC3339),
+	alertEvent := OBSAlertEvent{
+		Type:      "alert",
+		Level:     string(level),
+		Message:   message,
+		Details:   details,
+		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
 	return s.broadcaster.BroadcastEvent("obs-alert", alertEvent)
