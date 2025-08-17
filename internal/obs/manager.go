@@ -27,16 +27,17 @@ type ExporterConfig struct {
 
 // Manager coordinates collectors, store, and exporters
 type Manager struct {
-	store      *Store
-	collectors *CollectorRegistry
-	exporters  map[string]Exporter
-	dataChan   chan DataPoint
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	mutex      sync.RWMutex
-	running    bool
-	config     ManagerConfig
+	store            *Store
+	collectors       *CollectorRegistry
+	exporters        map[string]Exporter
+	dataChan         chan DataPoint
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	mutex            sync.RWMutex
+	running          bool
+	config           ManagerConfig
+	collectorCancels map[string]context.CancelFunc // Track collector cancel functions
 }
 
 // ManagerConfig represents configuration for the manager
@@ -45,6 +46,7 @@ type ManagerConfig struct {
 	DataChanSize  int           `json:"data_chan_size"`
 	WorkerCount   int           `json:"worker_count"`
 	FlushInterval time.Duration `json:"flush_interval"`
+	LogLevel      string        `json:"log_level"`
 }
 
 // DefaultManagerConfig returns a default configuration
@@ -54,6 +56,7 @@ func DefaultManagerConfig() ManagerConfig {
 		DataChanSize:  10000,
 		WorkerCount:   4,
 		FlushInterval: 5 * time.Second,
+		LogLevel:      "info",
 	}
 }
 
@@ -62,13 +65,43 @@ func NewManager(config ManagerConfig) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Manager{
-		store:      NewStore(config.StoreConfig),
-		collectors: NewCollectorRegistry(),
-		exporters:  make(map[string]Exporter),
-		dataChan:   make(chan DataPoint, config.DataChanSize),
-		ctx:        ctx,
-		cancel:     cancel,
-		config:     config,
+		store:            NewStore(config.StoreConfig),
+		collectors:       NewCollectorRegistry(),
+		exporters:        make(map[string]Exporter),
+		dataChan:         make(chan DataPoint, config.DataChanSize),
+		ctx:              ctx,
+		cancel:           cancel,
+		config:           config,
+		collectorCancels: make(map[string]context.CancelFunc),
+	}
+}
+
+// shouldLog determines if a log entry should be logged based on the configured level
+func (m *Manager) shouldLog(level string) bool {
+	levels := map[string]int{
+		"debug": 0,
+		"info":  1,
+		"warn":  2,
+		"error": 3,
+	}
+
+	configuredLevel := levels[m.config.LogLevel]
+	entryLevel := levels[level]
+
+	return entryLevel >= configuredLevel
+}
+
+// logInfo logs an info-level message if logging level permits
+func (m *Manager) logInfo(format string, args ...interface{}) {
+	if m.shouldLog("info") {
+		log.Printf(format, args...)
+	}
+}
+
+// logDebug logs a debug-level message if logging level permits
+func (m *Manager) logDebug(format string, args ...interface{}) {
+	if m.shouldLog("debug") {
+		log.Printf(format, args...)
 	}
 }
 
@@ -81,7 +114,7 @@ func (m *Manager) Start() error {
 		return NewObsError(ErrInvalidConfig, "manager already running", nil)
 	}
 
-	log.Println("OBS: Starting observability manager...")
+	m.logInfo("OBS: Starting observability manager...")
 
 	// Start data processing workers
 	for i := 0; i < m.config.WorkerCount; i++ {
@@ -100,7 +133,7 @@ func (m *Manager) Start() error {
 				log.Printf("OBS: Failed to start exporter %s: %v", name, err)
 				continue
 			}
-			log.Printf("OBS: Started exporter: %s", name)
+			m.logDebug("OBS: Started exporter: %s", name)
 		}
 	}
 
@@ -113,7 +146,7 @@ func (m *Manager) Start() error {
 	}
 
 	m.running = true
-	log.Println("OBS: Observability manager started successfully")
+	m.logInfo("OBS: Observability manager started successfully")
 	return nil
 }
 
@@ -171,7 +204,7 @@ func (m *Manager) AddCollector(collector Collector) error {
 		go m.runCollector(collector)
 		log.Printf("OBS: Added and started collector: %s", collector.Name())
 	} else {
-		log.Printf("OBS: Added collector: %s", collector.Name())
+		m.logInfo("OBS: Added collector: %s", collector.Name())
 	}
 
 	return nil
@@ -183,6 +216,28 @@ func (m *Manager) RemoveCollector(name string) error {
 	defer m.mutex.Unlock()
 
 	log.Printf("OBS: Removing collector: %s", name)
+
+	// Get the collector first
+	collector, exists := m.collectors.Get(name)
+	if !exists {
+		return NewObsError(ErrCollectorNotFound, "collector not found", map[string]interface{}{
+			"name": name,
+		})
+	}
+
+	// Cancel the collector's context to stop its goroutine
+	if cancelFunc, ok := m.collectorCancels[name]; ok {
+		log.Printf("OBS: Cancelling context for collector: %s", name)
+		cancelFunc()
+		// The cancel will be removed from the map by the deferred cleanup in runCollector
+	}
+
+	// Stop the collector (this will clean up resources)
+	if err := collector.Stop(); err != nil {
+		log.Printf("OBS: Error stopping collector %s: %v", name, err)
+	}
+
+	// Unregister from the registry
 	return m.collectors.Unregister(name)
 }
 
@@ -210,7 +265,7 @@ func (m *Manager) AddExporter(exporter Exporter) error {
 		}
 		log.Printf("OBS: Added and started exporter: %s", name)
 	} else {
-		log.Printf("OBS: Added exporter: %s", name)
+		m.logInfo("OBS: Added exporter: %s", name)
 	}
 
 	return nil
@@ -293,11 +348,23 @@ func (m *Manager) runCollector(collector Collector) {
 	defer m.wg.Done()
 
 	name := collector.Name()
-	log.Printf("OBS: Starting collector: %s", name)
+	m.logDebug("OBS: Starting collector: %s", name)
 
 	// Create a collector-specific context
 	collectorCtx, collectorCancel := context.WithCancel(m.ctx)
-	defer collectorCancel()
+
+	// Store the cancel function so we can stop this collector later
+	m.mutex.Lock()
+	m.collectorCancels[name] = collectorCancel
+	m.mutex.Unlock()
+
+	defer func() {
+		collectorCancel()
+		// Clean up the cancel function from the map
+		m.mutex.Lock()
+		delete(m.collectorCancels, name)
+		m.mutex.Unlock()
+	}()
 
 	// Start the collector
 	if err := collector.Start(collectorCtx, m.dataChan); err != nil {
@@ -314,7 +381,7 @@ func (m *Manager) runCollector(collector Collector) {
 func (m *Manager) dataWorker(id int) {
 	defer m.wg.Done()
 
-	log.Printf("OBS: Starting data worker %d", id)
+	m.logDebug("OBS: Starting data worker %d", id)
 
 	for {
 		select {
@@ -340,7 +407,7 @@ func (m *Manager) dataWorker(id int) {
 func (m *Manager) exporterWorker() {
 	defer m.wg.Done()
 
-	log.Println("OBS: Starting exporter worker")
+	m.logDebug("OBS: Starting exporter worker")
 	ticker := time.NewTicker(m.config.FlushInterval)
 	defer ticker.Stop()
 

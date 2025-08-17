@@ -50,6 +50,7 @@ func (v *VaapiValidator) GetProductionSettings(encoderName string) (*EncoderSett
 		GlobalArgs: []string{"-vaapi_device", "/dev/dri/renderD128"},
 		OutputParams: map[string]string{
 			"qp": "20",
+			"bf": "0", // Disable B-frames for WebRTC compatibility
 		},
 		VideoFilters: "format=nv12,hwupload",
 	}, nil

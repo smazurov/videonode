@@ -20,9 +20,7 @@ func (s *Server) registerStreamRoutes() {
 		Description: "Get a list of all currently active video streams",
 		Tags:        []string{"streams"},
 		Errors:      []int{401, 500},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
+		Security:    withAuth(),
 	}, func(ctx context.Context, input *struct{}) (*models.StreamListResponse, error) {
 		streams, err := s.streamService.ListStreams(ctx)
 		if err != nil {
@@ -52,15 +50,13 @@ func (s *Server) registerStreamRoutes() {
 		Description: "Create a new video stream from a device using stable device ID",
 		Tags:        []string{"streams"},
 		Errors:      []int{400, 401, 404, 409, 500},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
+		Security:    withAuth(),
 	}, func(ctx context.Context, input *models.StreamRequest) (*models.StreamResponse, error) {
 		// Convert API request to domain parameters
 		params := streams.StreamCreateParams{
 			StreamID:  input.Body.StreamID,
 			DeviceID:  input.Body.DeviceID,
-			Codec:     input.Body.Codec,
+			Codec:     string(input.Body.Codec),
 			Bitrate:   &input.Body.Bitrate,
 			Width:     &input.Body.Width,
 			Height:    &input.Body.Height,
@@ -100,9 +96,7 @@ func (s *Server) registerStreamRoutes() {
 		Description: "Delete an active video stream",
 		Tags:        []string{"streams"},
 		Errors:      []int{401, 404, 500},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
+		Security:    withAuth(),
 	}, func(ctx context.Context, input *struct {
 		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
 	}) (*struct{}, error) {
@@ -123,9 +117,7 @@ func (s *Server) registerStreamRoutes() {
 		Description: "Get details of a specific stream",
 		Tags:        []string{"streams"},
 		Errors:      []int{401, 404, 500},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
+		Security:    withAuth(),
 	}, func(ctx context.Context, input *struct {
 		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
 	}) (*models.StreamResponse, error) {
@@ -148,9 +140,7 @@ func (s *Server) registerStreamRoutes() {
 		Description: "Get runtime status of a specific stream",
 		Tags:        []string{"streams"},
 		Errors:      []int{401, 404, 500},
-		Security: []map[string][]string{
-			{"basicAuth": {}},
-		},
+		Security:    withAuth(),
 	}, func(ctx context.Context, input *struct {
 		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
 	}) (*models.StreamStatusResponse, error) {

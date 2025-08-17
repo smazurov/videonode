@@ -14,7 +14,7 @@ import (
 func LoadConfig(opts interface{}) error {
 	v := reflect.ValueOf(opts).Elem()
 	t := v.Type()
-	
+
 	// Get config file path
 	var configPath string
 	for i := 0; i < v.NumField(); i++ {
@@ -24,7 +24,7 @@ func LoadConfig(opts interface{}) error {
 			break
 		}
 	}
-	
+
 	// Load TOML file if it exists
 	if configPath != "" {
 		if data, err := os.ReadFile(configPath); err == nil {
@@ -32,12 +32,12 @@ func LoadConfig(opts interface{}) error {
 			if err := toml.Unmarshal(data, &config); err != nil {
 				return fmt.Errorf("failed to parse TOML config: %w", err)
 			}
-			
+
 			// Apply TOML values using reflection
 			for i := 0; i < v.NumField(); i++ {
 				field := v.Field(i)
 				fieldType := t.Field(i)
-				
+
 				if tomlPath := fieldType.Tag.Get("toml"); tomlPath != "" {
 					if value := getNestedValue(config, tomlPath); value != nil {
 						setFieldValue(field, value)
@@ -46,19 +46,19 @@ func LoadConfig(opts interface{}) error {
 			}
 		}
 	}
-	
+
 	// Apply environment variable overrides
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		fieldType := t.Field(i)
-		
+
 		if envKey := fieldType.Tag.Get("env"); envKey != "" {
 			if envValue := os.Getenv("VIDEONODE_" + envKey); envValue != "" {
 				setFieldValueFromString(field, envValue)
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -66,7 +66,7 @@ func LoadConfig(opts interface{}) error {
 func getNestedValue(data map[string]interface{}, path string) interface{} {
 	parts := strings.Split(path, ".")
 	current := data
-	
+
 	for i, part := range parts {
 		if i == len(parts)-1 {
 			return current[part]
@@ -85,7 +85,7 @@ func setFieldValue(field reflect.Value, value interface{}) {
 	if !field.CanSet() {
 		return
 	}
-	
+
 	switch field.Kind() {
 	case reflect.String:
 		if s, ok := value.(string); ok {
@@ -101,6 +101,18 @@ func setFieldValue(field reflect.Value, value interface{}) {
 		} else if i, ok := value.(int); ok {
 			field.SetInt(int64(i))
 		}
+	case reflect.Slice:
+		if field.Type().Elem().Kind() == reflect.String {
+			if arr, ok := value.([]interface{}); ok {
+				slice := make([]string, len(arr))
+				for i, v := range arr {
+					if s, ok := v.(string); ok {
+						slice[i] = s
+					}
+				}
+				field.Set(reflect.ValueOf(slice))
+			}
+		}
 	}
 }
 
@@ -109,7 +121,7 @@ func setFieldValueFromString(field reflect.Value, value string) {
 	if !field.CanSet() {
 		return
 	}
-	
+
 	switch field.Kind() {
 	case reflect.String:
 		field.SetString(value)
@@ -120,6 +132,16 @@ func setFieldValueFromString(field reflect.Value, value string) {
 	case reflect.Int:
 		if i, err := strconv.ParseInt(value, 10, 64); err == nil {
 			field.SetInt(i)
+		}
+	case reflect.Slice:
+		if field.Type().Elem().Kind() == reflect.String {
+			// Parse comma-separated values for env vars
+			parts := strings.Split(value, ",")
+			slice := make([]string, len(parts))
+			for i, part := range parts {
+				slice[i] = strings.TrimSpace(part)
+			}
+			field.Set(reflect.ValueOf(slice))
 		}
 	}
 }

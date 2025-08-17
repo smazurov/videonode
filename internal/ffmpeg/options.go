@@ -226,20 +226,23 @@ type StreamConfig struct {
 	FPS            string
 	Codec          string
 	Preset         string
-	Bitrate        string       // Video bitrate (e.g., "2M", "1000k")
-	FFmpegOptions  []OptionType // Strongly typed FFmpeg feature flags/options
-	ProgressSocket string       // Optional socket path for FFmpeg progress monitoring
+	Bitrate        string            // Video bitrate (e.g., "2M", "1000k")
+	FFmpegOptions  []OptionType      // Strongly typed FFmpeg feature flags/options
+	ProgressSocket string            // Optional socket path for FFmpeg progress monitoring
+	GlobalArgs     []string          // Global FFmpeg arguments (e.g., -vaapi_device)
+	EncoderParams  map[string]string // Encoder-specific parameters (e.g., qp, cq)
+	VideoFilters   string            // Video filter chain (e.g., format=nv12,hwupload)
 }
 
 // CaptureConfig represents parameters for screenshot capture
 type CaptureConfig struct {
-	DevicePath     string
-	OutputPath     string
-	InputFormat    string // FFmpeg input format (e.g., "yuyv422", "mjpeg")
-	Resolution     string
-	FPS            string
-	DelayMs        int // Delay in milliseconds before capture
-	FFmpegOptions  []OptionType
+	DevicePath    string
+	OutputPath    string
+	InputFormat   string // FFmpeg input format (e.g., "yuyv422", "mjpeg")
+	Resolution    string
+	FPS           string
+	DelayMs       int // Delay in milliseconds before capture
+	FFmpegOptions []OptionType
 }
 
 // CommandBuilder interface for generating FFmpeg commands
@@ -281,10 +284,10 @@ func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionT
 			cmd.WriteString(" -avoid_negative_ts make_zero")
 			appliedOptions = append(appliedOptions, OptionAvoidNegativeTS)
 		case OptionThreadQueue1024:
-			cmd.WriteString(" -thread_queue_size 1024")
+			// cmd.WriteString(" -thread_queue_size 1024")
 			appliedOptions = append(appliedOptions, OptionThreadQueue1024)
 		case OptionThreadQueue4096:
-			cmd.WriteString(" -thread_queue_size 4096")
+			// cmd.WriteString(" -thread_queue_size 4096")
 			appliedOptions = append(appliedOptions, OptionThreadQueue4096)
 		case OptionLowLatency:
 			cmd.WriteString(" -fflags +flush_packets")
@@ -315,6 +318,11 @@ func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (
 		cmd.WriteString(fmt.Sprintf(" -progress unix://%s", streamConfig.ProgressSocket))
 		// Log the socket path for debugging
 		fmt.Printf("[FFMPEG] FFmpeg will attempt to connect to progress socket: %s\n", streamConfig.ProgressSocket)
+	}
+
+	// Add global args BEFORE input (e.g., -vaapi_device)
+	for _, arg := range streamConfig.GlobalArgs {
+		cmd.WriteString(" " + arg)
 	}
 
 	// Input parameters
@@ -351,6 +359,11 @@ func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (
 	// Input device
 	cmd.WriteString(fmt.Sprintf(" -i %s", streamConfig.DevicePath))
 
+	// Add video filters AFTER input, BEFORE codec
+	if streamConfig.VideoFilters != "" {
+		cmd.WriteString(fmt.Sprintf(" -vf %s", streamConfig.VideoFilters))
+	}
+
 	// Use configured codec or default to libx264
 	codec := streamConfig.Codec
 	if codec == "" {
@@ -358,12 +371,17 @@ func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (
 	}
 	cmd.WriteString(fmt.Sprintf(" -c:v %s", codec))
 
-	// Add preset if specified
+	// Add encoder-specific params (qp, cq, preset, etc.)
+	for key, value := range streamConfig.EncoderParams {
+		cmd.WriteString(fmt.Sprintf(" -%s %s", key, value))
+	}
+
+	// Add preset if specified (legacy support)
 	if streamConfig.Preset != "" {
 		cmd.WriteString(fmt.Sprintf(" -preset %s", streamConfig.Preset))
 	}
 
-	// Add bitrate if specified
+	// Add bitrate if specified (legacy support)
 	if streamConfig.Bitrate != "" {
 		cmd.WriteString(fmt.Sprintf(" -b:v %s", streamConfig.Bitrate))
 	}
