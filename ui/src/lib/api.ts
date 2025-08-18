@@ -85,6 +85,11 @@ export interface StreamData {
   start_time?: string;
   webrtc_url?: string;
   rtsp_url?: string;
+  // Metrics fields
+  fps?: string;
+  dropped_frames?: string;
+  duplicate_frames?: string;
+  processing_speed?: string;
 }
 
 export interface StreamListData {
@@ -96,6 +101,7 @@ export interface StreamRequestData {
   stream_id: string;
   device_id: string;
   codec: string;
+  input_format: string;
   bitrate?: number;
   width?: number;
   height?: number;
@@ -161,6 +167,75 @@ export async function captureFromDevice(request: CaptureRequestData): Promise<Ca
   return apiPost<CaptureData>('/api/devices/capture', request);
 }
 
+// Device capabilities types
+export interface FormatInfo {
+  format_name: string;
+  original_name: string;
+  emulated: boolean;
+}
+
+export interface DeviceCapabilitiesData {
+  device_path: string;
+  formats: FormatInfo[];
+}
+
+export interface Resolution {
+  width: number;
+  height: number;
+  type: 'discrete' | 'stepwise' | 'continuous';
+  min_width?: number;
+  max_width?: number;
+  step_width?: number;
+  min_height?: number;
+  max_height?: number;
+  step_height?: number;
+}
+
+export interface DeviceResolutionsData {
+  resolutions: Resolution[];
+}
+
+export interface Framerate {
+  numerator: number;
+  denominator: number;
+  fps: number;
+  type: 'discrete' | 'stepwise' | 'continuous';
+  min_numerator?: number;
+  min_denominator?: number;
+  max_numerator?: number;
+  max_denominator?: number;
+  step_numerator?: number;
+  step_denominator?: number;
+}
+
+export interface DeviceFrameratesData {
+  framerates: Framerate[];
+}
+
+// Device capabilities API functions
+export async function getDeviceFormats(deviceId: string): Promise<DeviceCapabilitiesData> {
+  return apiGet<DeviceCapabilitiesData>(`/api/devices/${deviceId}/formats`);
+}
+
+export async function getDeviceResolutions(deviceId: string, formatName: string): Promise<DeviceResolutionsData> {
+  const params = new URLSearchParams({ format_name: formatName });
+  return apiGet<DeviceResolutionsData>(`/api/devices/${deviceId}/resolutions?${params}`);
+}
+
+export async function getDeviceFramerates(
+  deviceId: string, 
+  formatName: string, 
+  width: number, 
+  height: number
+): Promise<DeviceFrameratesData> {
+  const params = new URLSearchParams({
+    format_name: formatName,
+    width: width.toString(),
+    height: height.toString()
+  });
+  return apiGet<DeviceFrameratesData>(`/api/devices/${deviceId}/framerates?${params}`);
+}
+
 // Health API types and functions
 export interface HealthData {
   status: string;
@@ -209,6 +284,20 @@ export interface SSEStreamEvent {
   timestamp: string;
 }
 
+export interface SSEStreamCreatedEvent {
+  type: 'stream-created';
+  stream: StreamData;
+  action: 'created';
+  timestamp: string;
+}
+
+export interface SSEStreamDeletedEvent {
+  type: 'stream-deleted';
+  stream_id: string;
+  action: 'deleted';
+  timestamp: string;
+}
+
 export interface SSESystemEvent {
   type: 'system-status';
   status: 'online' | 'offline' | 'warning';
@@ -216,4 +305,15 @@ export interface SSESystemEvent {
   timestamp: string;
 }
 
-export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamEvent | SSESystemEvent;
+export interface SSEStreamMetricsEvent {
+  type: 'stream_metrics';
+  stream_id: string;
+  fps: string;
+  dropped_frames: string;
+  duplicate_frames: string;
+  processing_speed: string;
+  timestamp: string;
+}
+
+export type SSEStreamLifecycleEvent = SSEStreamCreatedEvent | SSEStreamDeletedEvent;
+export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamEvent | SSESystemEvent | SSEStreamLifecycleEvent | SSEStreamMetricsEvent;

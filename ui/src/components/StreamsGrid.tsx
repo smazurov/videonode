@@ -10,7 +10,6 @@ export interface StreamsGridProps {
   error?: string | null;
   onRefresh?: () => void;
   onDeleteStream?: (streamId: string) => void;
-  onCaptureStream?: (streamId: string) => void;
   onCreateStream?: () => void;
   viewMode?: 'grid' | 'tabs';
   onViewModeChange?: (mode: 'grid' | 'tabs') => void;
@@ -23,7 +22,6 @@ export function StreamsGrid({
   error = null,
   onRefresh,
   onDeleteStream,
-  onCaptureStream,
   onCreateStream,
   viewMode = 'grid',
   onViewModeChange,
@@ -45,7 +43,6 @@ export function StreamsGrid({
           key={stream.stream_id}
           stream={stream}
           {...(onDeleteStream && { onDelete: onDeleteStream })}
-          {...(onCaptureStream && { onCapture: onCaptureStream })}
         />
       ))}
     </div>
@@ -84,7 +81,6 @@ export function StreamsGrid({
             <StreamCard
               stream={activeStream}
               {...(onDeleteStream && { onDelete: onDeleteStream })}
-              {...(onCaptureStream && { onCapture: onCaptureStream })}
               className="w-full"
             />
           </div>

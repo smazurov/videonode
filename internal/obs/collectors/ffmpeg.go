@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -73,19 +73,22 @@ func (f *FFmpegCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoi
 
 // startSocketListener starts listening for FFmpeg progress on Unix socket
 func (f *FFmpegCollector) startSocketListener(ctx context.Context, dataChan chan<- obs.DataPoint) {
-	// Check if socket file already exists - fail if it does
-	if _, err := os.Stat(f.socketPath); err == nil {
-		f.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Socket file already exists: %s", f.socketPath), time.Now())
-		return
+	log.Printf("FFmpeg collector: Starting to listen on socket %s for stream %s", f.socketPath, f.streamID)
+
+	// Clean up any existing socket file (could be stale from previous run)
+	if err := os.Remove(f.socketPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("FFmpeg collector: Failed to clean up old socket file %s: %v", f.socketPath, err)
+		// Continue anyway - the Listen call will fail if there's a real problem
 	}
 
 	// Create Unix socket listener
 	listener, err := net.Listen("unix", f.socketPath)
 	if err != nil {
-		f.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Failed to create Unix socket listener: %v", err), time.Now())
+		log.Printf("FFmpeg collector ERROR: Failed to create Unix socket listener for %s: %v", f.socketPath, err)
 		return
 	}
 
+	log.Printf("FFmpeg collector: Successfully created listener on socket %s for stream %s", f.socketPath, f.streamID)
 	f.listener = listener
 	defer func() {
 		listener.Close()
@@ -203,83 +206,37 @@ func (f *FFmpegCollector) handleConnection(ctx context.Context, conn net.Conn, d
 
 // sendProgressMetrics converts FFmpeg progress data to metrics
 func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, progressData map[string]string, timestamp time.Time) {
-	baseLabels := obs.Labels{
-		"stream_id": f.streamID,
-		"source":    "ffmpeg_progress",
+	// Extract and clean values
+	fpsStr := progressData["fps"]
+	dropFramesStr := progressData["drop_frames"]
+	dupFramesStr := progressData["dup_frames"]
+	speedStr := progressData["speed"]
+
+	// Clean speed (remove "x" suffix)
+	if speedStr != "" {
+		speedStr = strings.TrimSuffix(speedStr, "x")
+		speedStr = strings.TrimSpace(speedStr)
 	}
 
-	// Send frame number
-	if frameStr, ok := progressData["frame"]; ok && frameStr != "" {
-		if frame, err := strconv.ParseFloat(frameStr, 64); err == nil {
-			f.sendMetric(dataChan, "ffmpeg_frame_number", frame, baseLabels, timestamp)
-		}
+	// Send consolidated stream metrics
+	streamMetrics := &obs.MetricPoint{
+		Name:  "ffmpeg_stream_metrics",
+		Value: 1.0, // Indicates stream is active
+		LabelsMap: map[string]string{
+			"stream_id":        f.streamID,
+			"fps":              fpsStr,
+			"dropped_frames":   dropFramesStr,
+			"duplicate_frames": dupFramesStr,
+			"processing_speed": speedStr,
+		},
+		Timestamp_: timestamp,
 	}
 
-	// Send FPS
-	if fpsStr, ok := progressData["fps"]; ok && fpsStr != "" {
-		if fps, err := strconv.ParseFloat(fpsStr, 64); err == nil {
-			f.sendMetric(dataChan, "ffmpeg_fps", fps, baseLabels, timestamp)
-		}
-	}
-
-	// Send bitrate (remove "kbits/s" suffix)
-	if bitrateStr, ok := progressData["bitrate"]; ok && bitrateStr != "" {
-		cleanBitrate := strings.TrimSuffix(bitrateStr, "kbits/s")
-		cleanBitrate = strings.TrimSpace(cleanBitrate)
-		if bitrate, err := strconv.ParseFloat(cleanBitrate, 64); err == nil {
-			f.sendMetric(dataChan, "ffmpeg_bitrate_kbps", bitrate, baseLabels, timestamp)
-		}
-	}
-
-	// Send total size
-	if totalSizeStr, ok := progressData["total_size"]; ok && totalSizeStr != "" {
-		if totalSize, err := strconv.ParseFloat(totalSizeStr, 64); err == nil {
-			f.sendMetric(dataChan, "ffmpeg_total_size_bytes", totalSize, baseLabels, timestamp)
-		}
-	}
-
-	// Send processing speed (remove "x" suffix)
-	if speedStr, ok := progressData["speed"]; ok && speedStr != "" {
-		cleanSpeed := strings.TrimSuffix(speedStr, "x")
-		cleanSpeed = strings.TrimSpace(cleanSpeed)
-		if speed, err := strconv.ParseFloat(cleanSpeed, 64); err == nil {
-			f.sendMetric(dataChan, "ffmpeg_processing_speed", speed, baseLabels, timestamp)
-		}
-	}
-
-	// Send dropped frames
-	if dropFramesStr, ok := progressData["drop_frames"]; ok && dropFramesStr != "" {
-		if dropFrames, err := strconv.ParseFloat(dropFramesStr, 64); err == nil {
-			f.sendMetric(dataChan, "ffmpeg_dropped_frames", dropFrames, baseLabels, timestamp)
-		}
-	}
-
-	// Send duplicate frames
-	if dupFramesStr, ok := progressData["dup_frames"]; ok && dupFramesStr != "" {
-		if dupFrames, err := strconv.ParseFloat(dupFramesStr, 64); err == nil {
-			f.sendMetric(dataChan, "ffmpeg_duplicate_frames", dupFrames, baseLabels, timestamp)
-		}
-	}
-
-	// Send out time (duration processed)
-	if outTimeStr, ok := progressData["out_time"]; ok && outTimeStr != "" {
-		if duration, err := f.parseFFmpegDuration(outTimeStr); err == nil {
-			f.sendMetric(dataChan, "ffmpeg_out_time_seconds", duration.Seconds(), baseLabels, timestamp)
-		}
-	}
-
-	// Send progress status
-	if progressStr, ok := progressData["progress"]; ok && progressStr != "" {
-		var progressValue float64
-		switch progressStr {
-		case "continue":
-			progressValue = 1
-		case "end":
-			progressValue = 0
-		default:
-			progressValue = -1 // Unknown status
-		}
-		f.sendMetric(dataChan, "ffmpeg_progress_status", progressValue, baseLabels, timestamp)
+	select {
+	case dataChan <- streamMetrics:
+		// Successfully sent stream metrics
+	default:
+		log.Printf("FFmpeg: WARNING - Data channel full, metrics dropped!")
 	}
 }
 
@@ -408,36 +365,6 @@ func (f *FFmpegCollector) extractMetricsFromLogLine(dataChan chan<- obs.DataPoin
 	}
 }
 
-// parseFFmpegDuration parses FFmpeg duration format (HH:MM:SS.mmm)
-func (f *FFmpegCollector) parseFFmpegDuration(durationStr string) (time.Duration, error) {
-	// Handle format like "00:01:23.45"
-	parts := strings.Split(durationStr, ":")
-	if len(parts) != 3 {
-		return 0, fmt.Errorf("invalid duration format: %s", durationStr)
-	}
-
-	hours, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, err
-	}
-
-	minutes, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return 0, err
-	}
-
-	seconds, err := strconv.ParseFloat(parts[2], 64)
-	if err != nil {
-		return 0, err
-	}
-
-	total := time.Duration(hours)*time.Hour +
-		time.Duration(minutes)*time.Minute +
-		time.Duration(seconds*float64(time.Second))
-
-	return total, nil
-}
-
 // Stop stops the FFmpeg collector
 func (f *FFmpegCollector) Stop() error {
 	var stopErr error
@@ -499,22 +426,8 @@ func (f *FFmpegCollector) sendLog(dataChan chan<- obs.DataPoint, level obs.LogLe
 
 func (f *FFmpegCollector) getMetricUnit(name string) string {
 	switch {
-	case strings.Contains(name, "_bytes"):
-		return "bytes"
-	case strings.Contains(name, "_kbps"):
-		return "kbps"
-	case strings.Contains(name, "_fps"):
-		return "fps"
-	case strings.Contains(name, "_frames"):
-		return "count"
-	case strings.Contains(name, "_seconds"):
-		return "seconds"
 	case strings.Contains(name, "_total"):
 		return "count"
-	case strings.Contains(name, "_speed"):
-		return "ratio"
-	case strings.Contains(name, "_status"):
-		return "enum"
 	default:
 		return ""
 	}

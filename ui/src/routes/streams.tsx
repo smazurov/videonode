@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../hooks/useAuthStore';
+import { useStreamStore } from '../hooks/useStreamStore';
+import { useSSEManager } from '../hooks/useSSEManager';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { InfoBar } from '../components/InfoBar';
 import { StreamsGrid } from '../components/StreamsGrid';
@@ -7,60 +9,60 @@ import { StreamCreation } from '../components/StreamCreation';
 import { StatsSidebar } from '../components/StatsSidebar';
 import { Button } from '../components/Button';
 import { 
-  StreamData, 
-  StreamRequestData, 
-  getStreams, 
-  createStream, 
-  deleteStream
+  StreamRequestData,
+  SSEStreamLifecycleEvent,
+  SSEStreamMetricsEvent
 } from '../lib/api';
-import { ApiError } from '../lib/api';
 
 export default function Streams() {
   const { logout } = useAuthStore();
+  const { 
+    loading, 
+    error,
+    fetchStreams,
+    createStream,
+    deleteStream,
+    addStreamFromSSE,
+    removeStreamFromSSE,
+    updateStreamMetrics,
+    getStreamsArray
+  } = useStreamStore();
   
-  // State management
-  const [streams, setStreams] = useState<StreamData[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Local UI state
   const [viewMode, setViewMode] = useState<'grid' | 'tabs'>('grid');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [creating, setCreating] = useState(false);
   const [isStatsSidebarOpen, setIsStatsSidebarOpen] = useState(false);
 
+  // Setup SSE listener for stream lifecycle and metrics events
+  useSSEManager({
+    onStreamLifecycleEvent: (event: SSEStreamLifecycleEvent) => {
+      console.log('Received SSE stream lifecycle event:', event);
+      
+      if (event.type === 'stream-created') {
+        addStreamFromSSE(event.stream);
+      } else if (event.type === 'stream-deleted') {
+        removeStreamFromSSE(event.stream_id);
+      }
+    },
+    onStreamMetricsEvent: (event: SSEStreamMetricsEvent) => {
+      console.log('Received SSE stream metrics event:', event);
+      updateStreamMetrics(event);
+    }
+  });
+
   // Load streams on mount
   useEffect(() => {
-    loadStreams();
+    fetchStreams();
   }, []);
-
-  const loadStreams = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const streamData = await getStreams();
-      setStreams(streamData.streams);
-    } catch (error) {
-      console.error('Failed to load streams:', error);
-      if (error instanceof ApiError) {
-        setError(error.message);
-      } else {
-        setError('Failed to load streams');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleCreateStream = async (streamData: StreamRequestData) => {
     setCreating(true);
     
     try {
-      const newStream = await createStream(streamData);
-      setStreams(prev => [...prev, newStream]);
+      await createStream(streamData);
       setShowCreateForm(false);
-      
-      // Refresh the streams list to get the latest data
-      setTimeout(loadStreams, 1000);
+      // SSE event will update the UI
     } catch (error) {
       console.error('Failed to create stream:', error);
       throw error; // Re-throw to let the form handle the error display
@@ -72,38 +74,12 @@ export default function Streams() {
   const handleDeleteStream = async (streamId: string) => {
     try {
       await deleteStream(streamId);
-      setStreams(prev => prev.filter(s => s.stream_id !== streamId));
+      // SSE event will update the UI
     } catch (error) {
       console.error('Failed to delete stream:', error);
       throw error;
     }
   };
-
-  const handleCaptureStream = async (streamId: string) => {
-    try {
-      // Find the stream to get device info
-      const stream = streams.find(s => s.stream_id === streamId);
-      if (!stream) {
-        throw new Error('Stream not found');
-      }
-
-      // We need to get the device path from the stream's device_id
-      // For now, we'll just log this as a placeholder
-      console.log('Capturing from stream:', streamId, 'device:', stream.device_id);
-      
-      // In a real implementation, you'd need to:
-      // 1. Get device info from device_id to find the device_path
-      // 2. Call captureFromDevice with the device_path
-      // 3. Handle the returned screenshot data
-      
-      // Placeholder implementation:
-      alert(`Capture functionality not fully implemented yet for stream: ${streamId}`);
-    } catch (error) {
-      console.error('Failed to capture from stream:', error);
-      throw error;
-    }
-  };
-
 
   const handleLogout = () => {
     logout();
@@ -156,12 +132,11 @@ export default function Streams() {
           </div>
         ) : (
           <StreamsGrid
-            streams={streams}
+            streams={getStreamsArray()}
             loading={loading}
             error={error}
-            onRefresh={loadStreams}
+            onRefresh={fetchStreams}
             onDeleteStream={handleDeleteStream}
-            onCaptureStream={handleCaptureStream}
             onCreateStream={() => setShowCreateForm(true)}
             viewMode={viewMode}
             onViewModeChange={setViewMode}

@@ -77,10 +77,9 @@ func main() {
 					MaxSeries:            opts.ObsMaxSeries,
 					FlushInterval:        30 * time.Second,
 				},
-				DataChanSize:  10000,
-				WorkerCount:   opts.ObsWorkerCount,
-				FlushInterval: 5 * time.Second,
-				LogLevel:      opts.LoggingObs,
+				DataChanSize: 10000,
+				WorkerCount:  opts.ObsWorkerCount,
+				LogLevel:     opts.LoggingObs,
 			}
 
 			obsManager = obs.NewManager(obsConfig)
@@ -131,7 +130,7 @@ func main() {
 
 			// Add exporters based on config
 			if opts.ObsPrometheusEnabled {
-				promExporter := exporters.NewPrometheusExporterV2()
+				promExporter := exporters.NewPrometheusExporter()
 				obsManager.AddExporter(promExporter)
 			}
 
@@ -165,6 +164,12 @@ func main() {
 				})
 		} else {
 			streamService = streams.NewStreamService(streamManager, opts.MediamtxConfig)
+		}
+
+		// Load existing streams from TOML config into memory
+		// This must happen after stream service is created so OBS callbacks are registered
+		if err := streamService.LoadStreamsFromConfig(); err != nil {
+			log.Printf("Warning: Failed to load existing streams from config: %v", err)
 		}
 
 		server := api.NewServer(&api.Options{

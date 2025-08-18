@@ -7,14 +7,12 @@ import { StreamData } from '../lib/api';
 interface StreamCardProps {
   stream: StreamData;
   onDelete?: (streamId: string) => void;
-  onCapture?: (streamId: string) => void;
   onRefresh?: (streamId: string) => void;
   className?: string;
 }
 
-export function StreamCard({ stream, onDelete, onCapture, onRefresh, className = '' }: Readonly<StreamCardProps>) {
+export function StreamCard({ stream, onDelete, onRefresh, className = '' }: Readonly<StreamCardProps>) {
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isCapturing, setIsCapturing] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleDelete = async () => {
@@ -27,26 +25,6 @@ export function StreamCard({ stream, onDelete, onCapture, onRefresh, className =
       console.error('Failed to delete stream:', error);
     } finally {
       setIsDeleting(false);
-    }
-  };
-
-  const handleCapture = async () => {
-    if (isCapturing) return;
-    
-    setIsCapturing(true);
-    try {
-      if (onCapture) {
-        await onCapture(stream.stream_id);
-      } else {
-        // Direct capture using device path if available
-        // Note: We'd need the device path, which isn't in StreamData
-        // This is a fallback implementation
-        console.log('Capturing screenshot from stream:', stream.stream_id);
-      }
-    } catch (error) {
-      console.error('Failed to capture from stream:', error);
-    } finally {
-      setIsCapturing(false);
     }
   };
 
@@ -63,34 +41,27 @@ export function StreamCard({ stream, onDelete, onCapture, onRefresh, className =
     }
   };
 
-  const formatUptime = (uptimeNs?: number) => {
-    if (!uptimeNs) return 'N/A';
-    
-    const uptimeMs = uptimeNs / 1000000;
-    const seconds = Math.floor(uptimeMs / 1000);
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = seconds % 60;
-    
-    if (hours > 0) {
-      return `${hours}h ${minutes}m ${remainingSeconds}s`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${remainingSeconds}s`;
-    } else {
-      return `${remainingSeconds}s`;
-    }
-  };
-
-  const formatStartTime = (startTime?: string) => {
+  const calculateUptime = (startTime?: string) => {
     if (!startTime) return 'N/A';
     
     try {
-      const date = new Date(startTime);
-      return date.toLocaleString();
+      const start = new Date(startTime);
+      const now = new Date();
+      const uptimeMs = now.getTime() - start.getTime();
+      
+      if (uptimeMs < 0) return 'N/A';
+      
+      const seconds = Math.floor(uptimeMs / 1000);
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const remainingSeconds = seconds % 60;
+      
+      return `${hours}h, ${minutes}m, ${remainingSeconds}s`;
     } catch {
-      return 'Invalid date';
+      return 'N/A';
     }
   };
+
 
 
 
@@ -137,16 +108,37 @@ export function StreamCard({ stream, onDelete, onCapture, onRefresh, className =
           <div className="flex justify-between">
             <span className="text-gray-600 dark:text-gray-300">Uptime:</span>
             <span className="text-gray-900 dark:text-white font-medium">
-              {formatUptime(stream.uptime)}
+              {calculateUptime(stream.start_time)}
             </span>
           </div>
           
-          <div className="flex justify-between">
-            <span className="text-gray-600 dark:text-gray-300">Started:</span>
-            <span className="text-gray-900 dark:text-white font-medium">
-              {formatStartTime(stream.start_time)}
-            </span>
-          </div>
+          {stream.fps && (
+            <div className="flex justify-between">
+              <span className="text-gray-600 dark:text-gray-300">FPS:</span>
+              <span className="text-gray-900 dark:text-white font-medium">
+                {stream.fps}
+              </span>
+            </div>
+          )}
+          
+
+          {stream.dropped_frames && (
+            <div className="flex justify-between">
+              <span className="text-gray-600 dark:text-gray-300">Dropped Frames:</span>
+              <span className="text-gray-900 dark:text-white font-medium">
+                {stream.dropped_frames}
+              </span>
+            </div>
+          )}
+          
+          {stream.processing_speed && (
+            <div className="flex justify-between">
+              <span className="text-gray-600 dark:text-gray-300">Processing Speed:</span>
+              <span className="text-gray-900 dark:text-white font-medium">
+                {stream.processing_speed}x
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Stream URLs */}
@@ -178,15 +170,6 @@ export function StreamCard({ stream, onDelete, onCapture, onRefresh, className =
 
         {/* Action Buttons */}
         <div className="flex space-x-2 pt-2">
-          <Button
-            theme="light"
-            size="SM"
-            onClick={handleCapture}
-            disabled={isCapturing}
-            className="flex-1"
-            text={isCapturing ? 'Capturing...' : 'Capture'}
-          />
-          
           {onRefresh && (
             <Button
               theme="light"
