@@ -179,7 +179,6 @@ ffmpegCollector := collectors.NewFFmpegCollector(
 
 **Metrics:**
 - `ffmpeg_fps` - Frames per second
-- `ffmpeg_bitrate_kbps` - Current bitrate
 - `ffmpeg_dropped_frames` - Dropped frame count
 - `ffmpeg_processing_speed` - Processing speed ratio
 

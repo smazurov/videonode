@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { 
   SignalIcon,
   ComputerDesktopIcon,
@@ -11,14 +11,14 @@ import {
 } from "@heroicons/react/24/outline";
 import { 
   getHealth, 
-  getStreams, 
   getEncoders,
   type HealthData,
-  type StreamListData,
   type EncoderData
 } from "../lib/api";
 import { useDeviceStore } from "../hooks/useDeviceStore";
+import { useStreamStore } from "../hooks/useStreamStore";
 import { useSSEManager } from "../hooks/useSSEManager";
+import { shallow } from "zustand/shallow";
 
 import { cn } from "../utils";
 
@@ -28,7 +28,6 @@ interface InfoBarProps {
 
 interface SystemInfo {
   health: HealthData | null;
-  streams: StreamListData | null;
   encoders: EncoderData | null;
   loading: boolean;
   error: string | null;
@@ -139,6 +138,8 @@ function formatLastUpdated(date: Date): string {
 
 export function InfoBar({ className }: Readonly<InfoBarProps>) {
   const devices = useDeviceStore((state) => state.devices);
+  const streamsMap = useStreamStore((state) => state.streams);
+  const streams = useMemo(() => Array.from(streamsMap.values()), [streamsMap]);
   
   // Debug: Log when devices change
   useEffect(() => {
@@ -147,7 +148,6 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
     health: null,
-    streams: null,
     encoders: null,
     loading: true,
     error: null,
@@ -157,26 +157,25 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
   const [connectionStatus, setConnectionStatus] = useState<'online' | 'offline' | 'warning' | 'reconnecting'>('offline');
 
   // Fetch system information
-  const fetchSystemInfo = useCallback(async (showLoading = false) => {
+  const fetchSystemInfo = async (showLoading = false) => {
     try {
       if (showLoading) {
         setSystemInfo(prev => ({ ...prev, loading: true, error: null }));
       }
       
-      const [health, streams, encoders] = await Promise.all([
+      const [health, encoders] = await Promise.all([
         getHealth().catch(() => null),
-        getStreams().catch(() => null),
         getEncoders().catch(() => null)
       ]);
 
-      // Also fetch devices if this is the initial load
+      // Also fetch devices and streams if this is the initial load
       if (showLoading) {
         useDeviceStore.getState().fetchDevices();
+        useStreamStore.getState().fetchStreams();
       }
 
       setSystemInfo({
         health,
-        streams,
         encoders,
         loading: false,
         error: null,
@@ -202,13 +201,10 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
       }));
       setConnectionStatus('offline');
     }
-  }, []);
+  };
 
   // Setup SSE connection for real-time updates
   useSSEManager({
-    onStreamEvent: () => {
-      fetchSystemInfo(false); // Refresh streams when stream events occur
-    },
     onSystemEvent: (event) => {
       if (event.type === 'system-status') {
         setConnectionStatus(event.status);
@@ -220,7 +216,7 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
   useEffect(() => {
     // Initial fetch
     fetchSystemInfo(true);
-  }, [fetchSystemInfo]);
+  }, []);
 
   const getSystemStatus = (): StatusType => {
     if (systemInfo.error) return 'offline';
@@ -271,8 +267,8 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
         <InfoItem
           icon={SignalIcon}
           label="Streams"
-          value={systemInfo.streams?.count || 0}
-          subtitle={systemInfo.streams?.count ? `${systemInfo.streams?.streams.length || 0} active` : "None active"}
+          value={streams.length}
+          subtitle={streams.length ? `${streams.length} active` : "None active"}
         />
 
         <Separator className="hidden lg:block" />

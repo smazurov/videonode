@@ -88,13 +88,14 @@ const (
 )
 
 type StreamRequestData struct {
-	StreamID  string    `json:"stream_id" pattern:"^[a-zA-Z0-9_-]+$" minLength:"1" maxLength:"50" example:"my-stream-001" doc:"User-defined stream identifier (alphanumeric, dashes, underscores only)"`
-	DeviceID  string    `json:"device_id" minLength:"1" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
-	Codec     CodecType `json:"codec" enum:"h264,h265" example:"h264" doc:"Video codec standard"`
-	Bitrate   int       `json:"bitrate,omitempty" example:"2000" doc:"Bitrate in kbps"`
-	Width     int       `json:"width,omitempty" example:"1920" doc:"Video width"`
-	Height    int       `json:"height,omitempty" example:"1080" doc:"Video height"`
-	Framerate int       `json:"framerate,omitempty" example:"30" doc:"Video framerate"`
+	StreamID    string    `json:"stream_id" pattern:"^[a-zA-Z0-9_-]+$" minLength:"1" maxLength:"50" example:"my-stream-001" doc:"User-defined stream identifier (alphanumeric, dashes, underscores only)"`
+	DeviceID    string    `json:"device_id" minLength:"1" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
+	Codec       CodecType `json:"codec" enum:"h264,h265" example:"h264" doc:"Video codec standard"`
+	InputFormat string    `json:"input_format" minLength:"1" example:"yuyv422" doc:"V4L2 input format"`
+	Bitrate     int       `json:"bitrate,omitempty" example:"2000" doc:"Bitrate in kbps"`
+	Width       int       `json:"width,omitempty" example:"1920" doc:"Video width"`
+	Height      int       `json:"height,omitempty" example:"1080" doc:"Video height"`
+	Framerate   int       `json:"framerate,omitempty" example:"30" doc:"Video framerate"`
 }
 
 type StreamRequest struct {

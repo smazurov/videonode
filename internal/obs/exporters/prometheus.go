@@ -14,22 +14,137 @@ import (
 	"github.com/smazurov/videonode/internal/obs"
 )
 
-// PrometheusExporter exports observability data in Prometheus format
-type PrometheusExporter struct {
-	config     obs.ExporterConfig
-	registry   *prometheus.Registry
-	metrics    map[string]prometheus.Collector
-	metricsMux sync.RWMutex
-	handler    http.Handler
-	buffer     []obs.DataPoint
-	bufferMux  sync.Mutex
+// DynamicMetric stores information about a metric with dynamic labels
+type DynamicMetric struct {
+	Name        string
+	Help        string
+	Type        prometheus.ValueType
+	Value       float64
+	LabelNames  []string
+	LabelValues []string
+	Timestamp   time.Time
 }
 
-// NewPrometheusExporter creates a new Prometheus exporter
-func NewPrometheusExporter(registry *prometheus.Registry) *PrometheusExporter {
-	if registry == nil {
-		registry = prometheus.NewRegistry()
+// DynamicCollector implements prometheus.Collector for dynamic metrics
+type DynamicCollector struct {
+	mutex   sync.RWMutex
+	metrics map[string]*DynamicMetric // key is metric_name + sorted label pairs
+}
+
+// NewDynamicCollector creates a new dynamic collector
+func NewDynamicCollector() *DynamicCollector {
+	return &DynamicCollector{
+		metrics: make(map[string]*DynamicMetric),
 	}
+}
+
+// Describe implements prometheus.Collector
+// We return nothing here since our metrics are dynamic
+func (d *DynamicCollector) Describe(ch chan<- *prometheus.Desc) {
+	// Dynamic metrics don't pre-declare their descriptors
+}
+
+// Collect implements prometheus.Collector
+func (d *DynamicCollector) Collect(ch chan<- prometheus.Metric) {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
+	for _, metric := range d.metrics {
+		desc := prometheus.NewDesc(
+			metric.Name,
+			metric.Help,
+			metric.LabelNames,
+			nil, // ConstLabels
+		)
+
+		m, err := prometheus.NewConstMetric(
+			desc,
+			metric.Type,
+			metric.Value,
+			metric.LabelValues...,
+		)
+		if err != nil {
+			// Log error but continue with other metrics
+			continue
+		}
+
+		ch <- m
+	}
+}
+
+// UpdateMetric updates or adds a metric
+func (d *DynamicCollector) UpdateMetric(name string, value float64, labels map[string]string, metricType prometheus.ValueType) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	// Create a unique key for this metric
+	key := d.createMetricKey(name, labels)
+
+	// Extract label names and values in sorted order
+	labelNames, labelValues := d.extractLabels(labels)
+
+	d.metrics[key] = &DynamicMetric{
+		Name:        name,
+		Help:        fmt.Sprintf("Observability metric: %s", name),
+		Type:        metricType,
+		Value:       value,
+		LabelNames:  labelNames,
+		LabelValues: labelValues,
+		Timestamp:   time.Now(),
+	}
+}
+
+// createMetricKey creates a unique key for a metric with its labels
+func (d *DynamicCollector) createMetricKey(name string, labels map[string]string) string {
+	if len(labels) == 0 {
+		return name
+	}
+
+	var pairs []string
+	for k, v := range labels {
+		pairs = append(pairs, fmt.Sprintf("%s=%s", k, v))
+	}
+	sort.Strings(pairs)
+	return fmt.Sprintf("%s{%s}", name, strings.Join(pairs, ","))
+}
+
+// extractLabels extracts label names and values in sorted order
+func (d *DynamicCollector) extractLabels(labels map[string]string) ([]string, []string) {
+	if len(labels) == 0 {
+		return []string{}, []string{}
+	}
+
+	var names []string
+	for name := range labels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	values := make([]string, len(names))
+	for i, name := range names {
+		values[i] = labels[name]
+	}
+
+	return names, values
+}
+
+// PrometheusExporter exports observability data in Prometheus format using dynamic collector
+type PrometheusExporter struct {
+	config    obs.ExporterConfig
+	registry  *prometheus.Registry
+	collector *DynamicCollector
+	handler   http.Handler
+	buffer    []obs.DataPoint
+	bufferMux sync.Mutex
+}
+
+// NewPrometheusExporter creates a new Prometheus exporter with dynamic metrics support
+func NewPrometheusExporter() *PrometheusExporter {
+	registry := prometheus.NewRegistry()
+	collector := NewDynamicCollector()
+
+	// Register our dynamic collector
+	registry.MustRegister(collector)
 
 	config := obs.ExporterConfig{
 		Name:          "prometheus",
@@ -40,11 +155,11 @@ func NewPrometheusExporter(registry *prometheus.Registry) *PrometheusExporter {
 	}
 
 	return &PrometheusExporter{
-		config:   config,
-		registry: registry,
-		metrics:  make(map[string]prometheus.Collector),
-		handler:  promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
-		buffer:   make([]obs.DataPoint, 0, config.BufferSize),
+		config:    config,
+		registry:  registry,
+		collector: collector,
+		handler:   promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
+		buffer:    make([]obs.DataPoint, 0, config.BufferSize),
 	}
 }
 
@@ -60,21 +175,13 @@ func (p *PrometheusExporter) Config() obs.ExporterConfig {
 
 // Start starts the Prometheus exporter
 func (p *PrometheusExporter) Start(ctx context.Context) error {
-	// Prometheus exporter doesn't need a background process - it serves metrics on demand
+	// Prometheus exporter doesn't need a background process
 	return nil
 }
 
 // Stop stops the Prometheus exporter
 func (p *PrometheusExporter) Stop() error {
-	// Clean up metrics
-	p.metricsMux.Lock()
-	defer p.metricsMux.Unlock()
-
-	for name, metric := range p.metrics {
-		p.registry.Unregister(metric)
-		delete(p.metrics, name)
-	}
-
+	// Nothing to stop
 	return nil
 }
 
@@ -105,139 +212,34 @@ func (p *PrometheusExporter) processBuffer() {
 		return
 	}
 
-	// Group metrics by name and labels
-	metricGroups := p.groupMetrics(p.buffer)
-
-	// Update Prometheus metrics
-	for metricKey, points := range metricGroups {
-		p.updatePrometheusMetric(metricKey, points)
-	}
-
-	// Clear buffer
-	p.buffer = p.buffer[:0]
-}
-
-// metricKey represents a unique metric identifier
-type metricKey struct {
-	name   string
-	labels string // sorted label string for consistent grouping
-}
-
-// groupMetrics groups data points by metric name and labels
-func (p *PrometheusExporter) groupMetrics(points []obs.DataPoint) map[metricKey][]obs.DataPoint {
-	groups := make(map[metricKey][]obs.DataPoint)
-
-	for _, point := range points {
+	for _, point := range p.buffer {
 		// Only process metric points for Prometheus export
 		metricPoint, ok := point.(*obs.MetricPoint)
 		if !ok {
 			continue
 		}
 
-		key := metricKey{
-			name:   metricPoint.Name,
-			labels: p.labelsToString(metricPoint.Labels()),
-		}
+		// Determine metric type
+		metricType := p.determineMetricType(metricPoint.Name)
 
-		groups[key] = append(groups[key], point)
+		// Update the metric in our dynamic collector
+		p.collector.UpdateMetric(
+			p.sanitizeMetricName(metricPoint.Name),
+			metricPoint.Value,
+			metricPoint.Labels(),
+			metricType,
+		)
 	}
 
-	return groups
+	// Clear buffer
+	p.buffer = p.buffer[:0]
 }
 
-// labelsToString converts labels to a consistent string representation
-func (p *PrometheusExporter) labelsToString(labels obs.Labels) string {
-	if len(labels) == 0 {
-		return ""
-	}
+// determineMetricType determines the Prometheus metric type based on the name
+func (p *PrometheusExporter) determineMetricType(name string) prometheus.ValueType {
+	lowerName := strings.ToLower(name)
 
-	var pairs []string
-	for k, v := range labels {
-		pairs = append(pairs, fmt.Sprintf("%s=%s", k, v))
-	}
-	sort.Strings(pairs)
-	return strings.Join(pairs, ",")
-}
-
-// updatePrometheusMetric updates or creates a Prometheus metric
-func (p *PrometheusExporter) updatePrometheusMetric(key metricKey, points []obs.DataPoint) {
-	if len(points) == 0 {
-		return
-	}
-
-	// Get the latest point for current value
-	latestPoint := points[len(points)-1].(*obs.MetricPoint)
-
-	p.metricsMux.Lock()
-	defer p.metricsMux.Unlock()
-
-	// Check if we already have this metric
-	metricID := fmt.Sprintf("%s_%s", key.name, key.labels)
-	existingMetric, exists := p.metrics[metricID]
-
-	if !exists {
-		// Create new metric
-		metric := p.createPrometheusMetric(latestPoint)
-		if metric != nil {
-			p.registry.MustRegister(metric)
-			p.metrics[metricID] = metric
-		}
-	} else {
-		// Update existing metric
-		p.updateExistingMetric(existingMetric, latestPoint)
-	}
-}
-
-// createPrometheusMetric creates a new Prometheus metric based on the data point
-func (p *PrometheusExporter) createPrometheusMetric(point *obs.MetricPoint) prometheus.Collector {
-	name := p.sanitizeMetricName(point.Name)
-	help := fmt.Sprintf("Observability metric: %s", point.Name)
-
-	// Extract label names and values
-	labelNames, labelValues := p.extractLabels(point.Labels())
-
-	// Determine metric type based on name patterns
-	if p.isCounterMetric(point.Name) {
-		// Create CounterVec
-		counter := prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: name,
-			Help: help,
-		}, labelNames)
-
-		// Set initial value
-		counter.WithLabelValues(labelValues...).Add(point.Value)
-		return counter
-	} else {
-		// Create GaugeVec (default)
-		gauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: name,
-			Help: help,
-		}, labelNames)
-
-		// Set value
-		gauge.WithLabelValues(labelValues...).Set(point.Value)
-		return gauge
-	}
-}
-
-// updateExistingMetric updates an existing Prometheus metric
-func (p *PrometheusExporter) updateExistingMetric(metric prometheus.Collector, point *obs.MetricPoint) {
-	// Extract label values
-	_, labelValues := p.extractLabels(point.Labels())
-
-	switch m := metric.(type) {
-	case *prometheus.CounterVec:
-		// For counters, we need to calculate the delta
-		// This is simplified - in production, you'd want to track previous values
-		m.WithLabelValues(labelValues...).Add(0) // Add 0 to ensure the metric exists
-
-	case *prometheus.GaugeVec:
-		m.WithLabelValues(labelValues...).Set(point.Value)
-	}
-}
-
-// isCounterMetric determines if a metric should be a counter based on its name
-func (p *PrometheusExporter) isCounterMetric(name string) bool {
+	// Check if it's a counter
 	counterPatterns := []string{
 		"_total",
 		"_count",
@@ -248,14 +250,14 @@ func (p *PrometheusExporter) isCounterMetric(name string) bool {
 		"_packets",
 	}
 
-	lowerName := strings.ToLower(name)
 	for _, pattern := range counterPatterns {
 		if strings.Contains(lowerName, pattern) {
-			return true
+			return prometheus.CounterValue
 		}
 	}
 
-	return false
+	// Default to gauge
+	return prometheus.GaugeValue
 }
 
 // sanitizeMetricName ensures the metric name is valid for Prometheus
@@ -281,29 +283,6 @@ func (p *PrometheusExporter) sanitizeMetricName(name string) string {
 	return result
 }
 
-// extractLabels extracts label names and values from the labels map
-func (p *PrometheusExporter) extractLabels(labels obs.Labels) ([]string, []string) {
-	if len(labels) == 0 {
-		return []string{}, []string{}
-	}
-
-	var names []string
-	var values []string
-
-	// Sort label names for consistency
-	for name := range labels {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	// Get values in the same order
-	for _, name := range names {
-		values = append(values, labels[name])
-	}
-
-	return names, values
-}
-
 // GetHandler returns the HTTP handler for serving Prometheus metrics
 func (p *PrometheusExporter) GetHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -324,18 +303,8 @@ func (p *PrometheusExporter) ForceFlush() {
 	p.processBuffer()
 }
 
-// GetMetricsText returns the current metrics in Prometheus text format
-func (p *PrometheusExporter) GetMetricsText() (string, error) {
-	// This would require implementing a custom text formatter
-	// For now, return a placeholder
-	return "# Prometheus metrics from obs package\n", nil
-}
-
 // Stats returns statistics about the exporter
 func (p *PrometheusExporter) Stats() map[string]interface{} {
-	p.metricsMux.RLock()
-	defer p.metricsMux.RUnlock()
-
 	p.bufferMux.Lock()
 	bufferSize := len(p.buffer)
 	p.bufferMux.Unlock()
@@ -343,7 +312,7 @@ func (p *PrometheusExporter) Stats() map[string]interface{} {
 	return map[string]interface{}{
 		"name":            p.config.Name,
 		"enabled":         p.config.Enabled,
-		"metrics_count":   len(p.metrics),
+		"metrics_count":   len(p.collector.metrics),
 		"buffer_size":     bufferSize,
 		"buffer_capacity": p.config.BufferSize,
 	}
