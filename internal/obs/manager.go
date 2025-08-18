@@ -42,21 +42,19 @@ type Manager struct {
 
 // ManagerConfig represents configuration for the manager
 type ManagerConfig struct {
-	StoreConfig   StoreConfig   `json:"store_config"`
-	DataChanSize  int           `json:"data_chan_size"`
-	WorkerCount   int           `json:"worker_count"`
-	FlushInterval time.Duration `json:"flush_interval"`
-	LogLevel      string        `json:"log_level"`
+	StoreConfig  StoreConfig `json:"store_config"`
+	DataChanSize int         `json:"data_chan_size"`
+	WorkerCount  int         `json:"worker_count"`
+	LogLevel     string      `json:"log_level"`
 }
 
 // DefaultManagerConfig returns a default configuration
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
-		StoreConfig:   DefaultStoreConfig(),
-		DataChanSize:  10000,
-		WorkerCount:   4,
-		FlushInterval: 5 * time.Second,
-		LogLevel:      "info",
+		StoreConfig:  DefaultStoreConfig(),
+		DataChanSize: 10000,
+		WorkerCount:  4,
+		LogLevel:     "info",
 	}
 }
 
@@ -121,10 +119,6 @@ func (m *Manager) Start() error {
 		m.wg.Add(1)
 		go m.dataWorker(i)
 	}
-
-	// Start exporter flushing worker
-	m.wg.Add(1)
-	go m.exporterWorker()
 
 	// Start all exporters
 	for name, exporter := range m.exporters {
@@ -396,85 +390,20 @@ func (m *Manager) dataWorker(id int) {
 				log.Printf("OBS: Failed to store data point: %v", err)
 			}
 
+			// Immediately export to all enabled exporters
+			m.mutex.RLock()
+			for name, exporter := range m.exporters {
+				if exporter.Config().Enabled {
+					if err := exporter.Export([]DataPoint{point}); err != nil {
+						log.Printf("OBS: Failed to export to %s: %v", name, err)
+					}
+				}
+			}
+			m.mutex.RUnlock()
+
 		case <-m.ctx.Done():
 			log.Printf("OBS: Data worker %d stopping - context cancelled", id)
 			return
-		}
-	}
-}
-
-// exporterWorker periodically flushes data to exporters
-func (m *Manager) exporterWorker() {
-	defer m.wg.Done()
-
-	m.logDebug("OBS: Starting exporter worker")
-	ticker := time.NewTicker(m.config.FlushInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			m.flushToExporters()
-
-		case <-m.ctx.Done():
-			log.Println("OBS: Exporter worker stopping")
-			// Final flush before stopping
-			m.flushToExporters()
-			return
-		}
-	}
-}
-
-// flushToExporters sends recent data to all exporters
-func (m *Manager) flushToExporters() {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-
-	if len(m.exporters) == 0 {
-		return
-	}
-
-	// Query recent data (last flush interval + buffer)
-	end := time.Now()
-	start := end.Add(-m.config.FlushInterval * 2)
-
-	// Get recent metrics
-	metricsResult, err := m.store.Query(QueryOptions{
-		DataType: DataTypeMetric,
-		Start:    start,
-		End:      end,
-	})
-	if err != nil {
-		log.Printf("OBS: Failed to query metrics for export: %v", err)
-		return
-	}
-
-	// Get recent logs
-	logsResult, err := m.store.Query(QueryOptions{
-		DataType: DataTypeLog,
-		Start:    start,
-		End:      end,
-	})
-	if err != nil {
-		log.Printf("OBS: Failed to query logs for export: %v", err)
-		return
-	}
-
-	// Combine all points
-	var allPoints []DataPoint
-	allPoints = append(allPoints, metricsResult.Points...)
-	allPoints = append(allPoints, logsResult.Points...)
-
-	if len(allPoints) == 0 {
-		return
-	}
-
-	// Send to all enabled exporters
-	for name, exporter := range m.exporters {
-		if exporter.Config().Enabled {
-			if err := exporter.Export(allPoints); err != nil {
-				log.Printf("OBS: Failed to export to %s: %v", name, err)
-			}
 		}
 	}
 }

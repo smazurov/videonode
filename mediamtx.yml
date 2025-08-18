@@ -4,4 +4,7 @@ rtspAddress: :8554
 webrtcAddress: :8889
 metrics: true
 metricsAddress: :9998
-paths: {}
+paths:
+    webcam:
+        runOnInit: ffmpeg -hide_banner -progress unix:///tmp/ffmpeg-progress-webcam-1755487087-230821.sock -vaapi_device /dev/dri/renderD128 -f v4l2 -thread_queue_size 1024 -input_format mjpeg -video_size 1920x1080 -framerate 30 -i /dev/video2 -copyts -start_at_zero -vf format=nv12,hwupload -c:v h264_vaapi -bf 0 -qp 20 -b:v 8000k -g 30 -keyint_min 15 -sc_threshold 0 -f rtsp rtsp://localhost:8554/$MTX_PATH
+        runOnInitRestart: true
