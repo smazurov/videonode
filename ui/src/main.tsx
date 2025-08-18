@@ -1,11 +1,12 @@
 import ReactDOM from "react-dom/client";
 import "./index.css";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 
 import Root from "./root";
 import LoginRoute from "./routes/login";
 import Streams from "./routes/streams";
+import CreateStream from "./routes/create-stream";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 
@@ -23,9 +24,21 @@ const router = createBrowserRouter([
     children: [
       {
         index: true,
+        element: <Navigate to="/streams" replace />,
+      },
+      {
+        path: "streams",
         element: (
           <ProtectedRoute>
             <Streams />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "streams/new",
+        element: (
+          <ProtectedRoute>
+            <CreateStream />
           </ProtectedRoute>
         ),
       }

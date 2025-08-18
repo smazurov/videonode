@@ -68,16 +68,6 @@ func GetFFmpegEncoders() (*EncoderList, error) {
 	return parseEncoderOutput(string(output))
 }
 
-// fallbackGetEncoders uses a direct ffmpeg command call as a fallback method
-func fallbackGetEncoders() (*EncoderList, error) {
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-encoders")
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute ffmpeg command: %v", err)
-	}
-	return parseEncoderOutput(string(output))
-}
-
 // IsFFmpegInstalled checks if ffmpeg is installed and available
 func IsFFmpegInstalled() bool {
 	_, err := exec.LookPath("ffmpeg")
