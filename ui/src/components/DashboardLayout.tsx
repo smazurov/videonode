@@ -1,6 +1,7 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { Header } from "./Header";
 import Container from "./Container";
+import { StatsSidebar } from "./StatsSidebar";
 import { cn } from "../utils";
 
 interface DashboardLayoutProps {
@@ -35,42 +36,57 @@ export function DashboardLayout({
   onToggleStats,
   className 
 }: Readonly<DashboardLayoutProps>) {
+  const [isStatsSidebarOpen, setIsStatsSidebarOpen] = useState(false);
+  
+  const handleToggleStats = () => {
+    setIsStatsSidebarOpen(!isStatsSidebarOpen);
+    onToggleStats?.();
+  };
+  
   return (
-    <div className={cn("h-screen flex flex-col bg-gray-50 dark:bg-gray-900", className)}>
-      {/* Header - fixed */}
-      <Header {...(onLogout && { onLogout })} {...(onToggleStats && { onToggleStats })} />
-      
-      {/* Main content area - scrollable */}
-      <div className="flex-1 overflow-y-auto">
-        <Container>
-          <div className="grid grid-cols-12 gap-6 py-6">
-            {/* Main content area */}
-            <div className={cn(
-              "col-span-12",
-              sidebar ? "lg:col-span-8" : "lg:col-span-12"
-            )}>
-              {children}
-            </div>
-            
-            {/* Sidebar */}
-            {sidebar && (
-              <div className="col-span-12 lg:col-span-4">
-                <div className="lg:sticky lg:top-6">
-                  {sidebar}
-                </div>
+    <>
+      <div className={cn("h-screen flex flex-col bg-gray-50 dark:bg-gray-900", className)}>
+        {/* Header - fixed */}
+        <Header {...(onLogout && { onLogout })} onToggleStats={handleToggleStats} />
+        
+        {/* Main content area - scrollable */}
+        <div className="flex-1 overflow-y-auto">
+          <Container>
+            <div className="grid grid-cols-12 gap-6 py-6">
+              {/* Main content area */}
+              <div className={cn(
+                "col-span-12",
+                sidebar ? "lg:col-span-8" : "lg:col-span-12"
+              )}>
+                {children}
               </div>
-            )}
+              
+              {/* Sidebar */}
+              {sidebar && (
+                <div className="col-span-12 lg:col-span-4">
+                  <div className="lg:sticky lg:top-6">
+                    {sidebar}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Container>
+        </div>
+        
+        {/* Bottom info bar - fixed */}
+        {bottomBar && (
+          <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 z-10">
+            {bottomBar}
           </div>
-        </Container>
+        )}
       </div>
       
-      {/* Bottom info bar - fixed */}
-      {bottomBar && (
-        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 z-10">
-          {bottomBar}
-        </div>
-      )}
-    </div>
+      {/* Stats Sidebar - managed by DashboardLayout */}
+      <StatsSidebar 
+        isOpen={isStatsSidebarOpen} 
+        onToggle={handleToggleStats}
+      />
+    </>
   );
 }
 

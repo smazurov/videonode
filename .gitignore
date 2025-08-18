@@ -5,3 +5,6 @@ tmp/
 .env
 jetkvmui/
 build/
+
+mediamtx.yml
+streams.toml
