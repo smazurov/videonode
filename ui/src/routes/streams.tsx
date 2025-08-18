@@ -1,38 +1,21 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useStreamStore } from '../hooks/useStreamStore';
 import { useSSEManager } from '../hooks/useSSEManager';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { InfoBar } from '../components/InfoBar';
 import { StreamsGrid } from '../components/StreamsGrid';
-import { StreamCreation } from '../components/StreamCreation';
-import { StatsSidebar } from '../components/StatsSidebar';
-import { Button } from '../components/Button';
 import { 
-  StreamRequestData,
   SSEStreamLifecycleEvent,
   SSEStreamMetricsEvent
 } from '../lib/api';
 
 export default function Streams() {
+  const navigate = useNavigate();
   const { logout } = useAuthStore();
-  const { 
-    loading, 
-    error,
-    fetchStreams,
-    createStream,
-    deleteStream,
-    addStreamFromSSE,
-    removeStreamFromSSE,
-    updateStreamMetrics,
-    getStreamsArray
-  } = useStreamStore();
-  
-  // Local UI state
+  const { loading, error, fetchStreams, deleteStream, getStreamsArray, addStreamFromSSE, removeStreamFromSSE, updateStreamMetrics } = useStreamStore();
   const [viewMode, setViewMode] = useState<'grid' | 'tabs'>('grid');
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [isStatsSidebarOpen, setIsStatsSidebarOpen] = useState(false);
 
   // Setup SSE listener for stream lifecycle and metrics events
   useSSEManager({
@@ -46,7 +29,6 @@ export default function Streams() {
       }
     },
     onStreamMetricsEvent: (event: SSEStreamMetricsEvent) => {
-      console.log('Received SSE stream metrics event:', event);
       updateStreamMetrics(event);
     }
   });
@@ -54,22 +36,7 @@ export default function Streams() {
   // Load streams on mount
   useEffect(() => {
     fetchStreams();
-  }, []);
-
-  const handleCreateStream = async (streamData: StreamRequestData) => {
-    setCreating(true);
-    
-    try {
-      await createStream(streamData);
-      setShowCreateForm(false);
-      // SSE event will update the UI
-    } catch (error) {
-      console.error('Failed to create stream:', error);
-      throw error; // Re-throw to let the form handle the error display
-    } finally {
-      setCreating(false);
-    }
-  };
+  }, [fetchStreams]);
 
   const handleDeleteStream = async (streamId: string) => {
     try {
@@ -81,12 +48,12 @@ export default function Streams() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleCreateStream = () => {
+    navigate('/streams/new');
   };
 
-  const handleToggleStats = () => {
-    setIsStatsSidebarOpen(!isStatsSidebarOpen);
+  const handleLogout = () => {
+    logout();
   };
 
 
@@ -95,61 +62,22 @@ export default function Streams() {
   const bottomBar = <InfoBar />;
 
   return (
-    <>
-      <DashboardLayout
-        onLogout={handleLogout}
-        onToggleStats={handleToggleStats}
-        bottomBar={bottomBar}
-      >
+    <DashboardLayout
+      onLogout={handleLogout}
+      bottomBar={bottomBar}
+    >
       <DashboardLayout.MainContent>
-        {showCreateForm ? (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  Create New Stream
-                </h1>
-                <p className="text-gray-600 dark:text-gray-300 mt-1">
-                  Configure a new video stream from your capture devices
-                </p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button
-                  theme="light"
-                  onClick={() => setShowCreateForm(false)}
-                  disabled={creating}
-                  size="SM"
-                  text="Back to Streams"
-                />
-              </div>
-            </div>
-            
-            <StreamCreation
-              onCreateStream={handleCreateStream}
-              onCancel={() => setShowCreateForm(false)}
-              isCreating={creating}
-            />
-          </div>
-        ) : (
-          <StreamsGrid
-            streams={getStreamsArray()}
-            loading={loading}
-            error={error}
-            onRefresh={fetchStreams}
-            onDeleteStream={handleDeleteStream}
-            onCreateStream={() => setShowCreateForm(true)}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-          />
-        )}
+        <StreamsGrid
+          streams={getStreamsArray()}
+          loading={loading}
+          error={error}
+          onRefresh={fetchStreams}
+          onDeleteStream={handleDeleteStream}
+          onCreateStream={handleCreateStream}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+        />
       </DashboardLayout.MainContent>
     </DashboardLayout>
-    
-    {/* Stats Sidebar */}
-    <StatsSidebar 
-      isOpen={isStatsSidebarOpen} 
-      onToggle={handleToggleStats}
-    />
-    </>
   );
 }

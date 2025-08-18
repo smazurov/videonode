@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"time"
 
@@ -15,8 +14,6 @@ import (
 	"github.com/smazurov/videonode/internal/capture"
 	"github.com/smazurov/videonode/v4l2_detector"
 )
-
-var devicePathRegex = regexp.MustCompile(`/dev/video(\d+)`)
 
 // Device path parameter input
 type DevicePathInput struct {
@@ -46,15 +43,6 @@ type DeviceCaptureBody struct {
 type DeviceCaptureInput struct {
 	DevicePathInput
 	Body DeviceCaptureBody
-}
-
-// pathToDeviceID extracts device ID from device path using compiled regex
-func pathToDeviceID(devicePath string) (int, error) {
-	matches := devicePathRegex.FindStringSubmatch(devicePath)
-	if len(matches) != 2 {
-		return 0, fmt.Errorf("invalid device path format: %s", devicePath)
-	}
-	return strconv.Atoi(matches[1])
 }
 
 // humanReadableToPixelFormat converts human-readable format names to V4L2 pixel format codes
@@ -383,9 +371,8 @@ func (s *Server) registerDeviceRoutes() {
 			imageBytes, err := capture.CaptureToBytes(devicePath, delay)
 
 			if err != nil {
-				// Broadcast system status error event via Huma SSE
-				BroadcastSystemStatus(ComponentDevice, StatusError,
-					fmt.Sprintf("Screenshot capture failed for %s: %s", devicePath, err.Error()), timestamp)
+				// Log the capture error
+				fmt.Printf("Screenshot capture failed for %s: %s\n", devicePath, err.Error())
 			} else {
 				// Broadcast success event with base64 image via Huma SSE
 				base64Image := base64.StdEncoding.EncodeToString(imageBytes)

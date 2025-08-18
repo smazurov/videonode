@@ -1,15 +1,25 @@
 import { useState, useEffect } from 'react';
-import { 
-  FormatInfo, 
-  Resolution, 
+import {
+  FormatInfo,
+  Resolution,
   Framerate,
   DeviceCapabilitiesData,
   DeviceResolutionsData,
   DeviceFrameratesData,
   getDeviceFormats,
   getDeviceResolutions,
-  getDeviceFramerates
+  getDeviceFramerates,
 } from '../lib/api';
+
+// Request deduplication and cancellation management
+const requestCache = new Map<string, Promise<unknown>>();
+const activeControllers = new Map<string, AbortController>();
+
+export interface DeviceFrameratesResult {
+  framerates: Framerate[];
+  loading: boolean;
+  error: string | null;
+}
 
 export function useDeviceFormats(deviceId: string) {
   const [formats, setFormats] = useState<FormatInfo[]>([]);
@@ -22,25 +32,39 @@ export function useDeviceFormats(deviceId: string) {
       return;
     }
 
-    let cancelled = false;
+    const cacheKey = `formats:${deviceId}`;
+    
+    // Cancel previous request
+    activeControllers.get(cacheKey)?.abort();
+    
+    const controller = new AbortController();
+    activeControllers.set(cacheKey, controller);
 
     const fetchFormats = async () => {
       setLoading(true);
       setError(null);
       
       try {
-        const data = await getDeviceFormats(deviceId);
-        if (!cancelled) {
+        // Check if request already in flight
+        if (!requestCache.has(cacheKey)) {
+          requestCache.set(cacheKey, getDeviceFormats(deviceId));
+        }
+        
+        const data = await requestCache.get(cacheKey) as DeviceCapabilitiesData;
+        
+        if (!controller.signal.aborted) {
           setFormats(data.formats);
         }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to fetch formats');
+      } catch (error_: unknown) {
+        const errorObj = error_ as { name?: string };
+        if (!controller.signal.aborted && errorObj?.name !== 'AbortError') {
+          setError(error_ instanceof Error ? error_.message : 'Failed to fetch formats');
           setFormats([]);
         }
       } finally {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setLoading(false);
+          requestCache.delete(cacheKey);
         }
       }
     };
@@ -48,7 +72,8 @@ export function useDeviceFormats(deviceId: string) {
     fetchFormats();
 
     return () => {
-      cancelled = true;
+      controller.abort();
+      activeControllers.delete(cacheKey);
     };
   }, [deviceId]);
 
@@ -63,28 +88,46 @@ export function useDeviceResolutions(deviceId: string, formatName: string) {
   useEffect(() => {
     if (!deviceId || !formatName) {
       setResolutions([]);
+      setLoading(false);
       return;
     }
 
-    let cancelled = false;
+    // Clear immediately on parameter change
+    setResolutions([]);
+    
+    const cacheKey = `resolutions:${deviceId}:${formatName}`;
+    
+    // Cancel previous request
+    activeControllers.get(cacheKey)?.abort();
+    
+    const controller = new AbortController();
+    activeControllers.set(cacheKey, controller);
 
     const fetchResolutions = async () => {
       setLoading(true);
       setError(null);
       
       try {
-        const data = await getDeviceResolutions(deviceId, formatName);
-        if (!cancelled) {
+        // Check if request already in flight
+        if (!requestCache.has(cacheKey)) {
+          requestCache.set(cacheKey, getDeviceResolutions(deviceId, formatName));
+        }
+        
+        const data = await requestCache.get(cacheKey) as DeviceResolutionsData;
+        
+        if (!controller.signal.aborted) {
           setResolutions(data.resolutions);
         }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to fetch resolutions');
+      } catch (error_: unknown) {
+        const errorObj = error_ as { name?: string };
+        if (!controller.signal.aborted && errorObj?.name !== 'AbortError') {
+          setError(error_ instanceof Error ? error_.message : 'Failed to fetch resolutions');
           setResolutions([]);
         }
       } finally {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setLoading(false);
+          requestCache.delete(cacheKey);
         }
       }
     };
@@ -92,7 +135,8 @@ export function useDeviceResolutions(deviceId: string, formatName: string) {
     fetchResolutions();
 
     return () => {
-      cancelled = true;
+      controller.abort();
+      activeControllers.delete(cacheKey);
     };
   }, [deviceId, formatName]);
 
@@ -100,40 +144,66 @@ export function useDeviceResolutions(deviceId: string, formatName: string) {
 }
 
 export function useDeviceFramerates(
-  deviceId: string, 
-  formatName: string, 
-  width: number | undefined, 
+  deviceId: string | undefined,
+  formatName: string | undefined,
+  width: number | undefined,
   height: number | undefined
-) {
+): DeviceFrameratesResult {
   const [framerates, setFramerates] = useState<Framerate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deviceId || !formatName || !width || !height) {
+    // More strict validation
+    if (!deviceId || !formatName || !width || !height || width === 0 || height === 0) {
       setFramerates([]);
+      setLoading(false);
       return;
     }
 
-    let cancelled = false;
+    const cacheKey = `framerates:${deviceId}:${formatName}:${width}x${height}`;
+    
+    // Cancel previous request
+    activeControllers.get(cacheKey)?.abort();
+    
+    const controller = new AbortController();
+    activeControllers.set(cacheKey, controller);
 
     const fetchFramerates = async () => {
       setLoading(true);
       setError(null);
       
       try {
-        const data = await getDeviceFramerates(deviceId, formatName, width, height);
-        if (!cancelled) {
+        // Check if request already in flight
+        if (!requestCache.has(cacheKey)) {
+          requestCache.set(
+            cacheKey, 
+            getDeviceFramerates(deviceId, formatName, width, height)
+          );
+        }
+        
+        const data = await requestCache.get(cacheKey) as DeviceFrameratesData;
+        
+        if (!controller.signal.aborted) {
           setFramerates(data.framerates);
         }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to fetch framerates');
-          setFramerates([]);
+      } catch (error_: unknown) {
+        const errorObj = error_ as { name?: string };
+        if (!controller.signal.aborted && errorObj?.name !== 'AbortError') {
+          // Don't set error for expected 400/500 errors (invalid resolution)
+          const errorMessage = error_ instanceof Error ? error_.message : String(error_);
+          if (errorMessage.includes('400') || errorMessage.includes('500')) {
+            setFramerates([]);
+            setError(null); // Silent fail for invalid combinations
+          } else {
+            setError(errorMessage);
+            setFramerates([]);
+          }
         }
       } finally {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setLoading(false);
+          requestCache.delete(cacheKey);
         }
       }
     };
@@ -141,7 +211,8 @@ export function useDeviceFramerates(
     fetchFramerates();
 
     return () => {
-      cancelled = true;
+      controller.abort();
+      activeControllers.delete(cacheKey);
     };
   }, [deviceId, formatName, width, height]);
 

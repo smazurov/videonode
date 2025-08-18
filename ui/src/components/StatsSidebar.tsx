@@ -122,9 +122,6 @@ export function StatsSidebar({ isOpen, onToggle, className }: Readonly<StatsSide
     onStreamEvent: (event) => {
       setRecentEvents(prev => [event, ...prev.slice(0, 9)]); // Keep last 10 events
     },
-    onSystemEvent: (event) => {
-      setRecentEvents(prev => [event, ...prev.slice(0, 9)]); // Keep last 10 events
-    },
   });
 
   useEffect(() => {

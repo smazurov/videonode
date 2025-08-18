@@ -50,36 +50,6 @@ type StreamDeletedEvent struct {
 	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
-// SystemComponent represents system component types
-type SystemComponent string
-
-const (
-	ComponentEncoder SystemComponent = "encoder"
-	ComponentDevice  SystemComponent = "device"
-	ComponentStream  SystemComponent = "stream"
-	ComponentFFmpeg  SystemComponent = "ffmpeg"
-	ComponentSystem  SystemComponent = "system"
-)
-
-// SystemStatus represents component status types
-type SystemStatus string
-
-const (
-	StatusHealthy      SystemStatus = "healthy"
-	StatusError        SystemStatus = "error"
-	StatusWarning      SystemStatus = "warning"
-	StatusInitializing SystemStatus = "initializing"
-	StatusOffline      SystemStatus = "offline"
-)
-
-// SystemStatusEvent represents general system status updates
-type SystemStatusEvent struct {
-	Component SystemComponent `json:"component" example:"encoder" doc:"System component name"`
-	Status    SystemStatus    `json:"status" example:"healthy" doc:"Component status"`
-	Message   string          `json:"message" example:"All encoders validated" doc:"Status message"`
-	Timestamp string          `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Status timestamp"`
-}
-
 // Event broadcaster for inter-handler communication
 type EventBroadcaster struct {
 	channels []chan<- interface{}
@@ -144,17 +114,6 @@ func BroadcastCaptureError(devicePath, errorMsg, timestamp string) {
 	globalEventBroadcaster.Broadcast(event)
 }
 
-// BroadcastSystemStatus sends a system status event
-func BroadcastSystemStatus(component SystemComponent, status SystemStatus, message, timestamp string) {
-	event := SystemStatusEvent{
-		Component: component,
-		Status:    status,
-		Message:   message,
-		Timestamp: timestamp,
-	}
-	globalEventBroadcaster.Broadcast(event)
-}
-
 // BroadcastDeviceDiscovery sends a device discovery event
 func BroadcastDeviceDiscovery(action string, device models.DeviceInfo, timestamp string) {
 	event := DeviceDiscoveryEvent{
@@ -203,7 +162,6 @@ func (s *Server) registerSSERoutes() {
 			"capture-success":  CaptureSuccessEvent{},
 			"capture-error":    CaptureErrorEvent{},
 			"device-discovery": DeviceDiscoveryEvent{},
-			"system-status":    SystemStatusEvent{},
 			"stream-created":   StreamCreatedEvent{},
 			"stream-deleted":   StreamDeletedEvent{},
 		}

@@ -1,5 +1,11 @@
 import { useEffect } from 'react';
-import { SSEStreamEvent, SSESystemEvent, SSEStreamLifecycleEvent, SSEStreamMetricsEvent } from '../lib/api';
+import { 
+  SSEStreamEvent, 
+  SSEStreamLifecycleEvent, 
+  SSEStreamMetricsEvent,
+  SSEStreamCreatedEvent,
+  SSEStreamDeletedEvent
+} from '../lib/api';
 
 type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
 
@@ -7,7 +13,6 @@ interface SSEManagerOptions {
   onStreamEvent?: (event: SSEStreamEvent) => void;
   onStreamLifecycleEvent?: (event: SSEStreamLifecycleEvent) => void;
   onStreamMetricsEvent?: (event: SSEStreamMetricsEvent) => void;
-  onSystemEvent?: (event: SSESystemEvent) => void;
   onConnectionStatusChange?: (status: ConnectionStatus) => void;
 }
 
@@ -25,7 +30,6 @@ const globalConnectionHandlers = new Set<(status: ConnectionStatus) => void>();
 const globalStreamEventHandlers = new Set<(event: SSEStreamEvent) => void>();
 const globalStreamLifecycleHandlers = new Set<(event: SSEStreamLifecycleEvent) => void>();
 const globalStreamMetricsHandlers = new Set<(event: SSEStreamMetricsEvent) => void>();
-const globalSystemEventHandlers = new Set<(event: SSESystemEvent) => void>();
 
 function setupGlobalSSE(): void {
   if (globalEventSource) return; // Already connected
@@ -38,14 +42,20 @@ function setupGlobalSSE(): void {
       withCredentials: false,
     });
 
+    // Connection opened successfully
+    eventSource.onopen = () => {
+      console.log('SSE connection established');
+      globalReconnectDelay = INITIAL_RECONNECT_DELAY; // Reset reconnect delay on successful connection
+      for (const handler of globalConnectionHandlers) {
+        handler('online');
+      }
+    };
+
     // Handle stream lifecycle events (create/delete)
     eventSource.addEventListener('stream-created', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string);
-        const streamEvent: SSEStreamLifecycleEvent = { 
-          type: 'stream-created',
-          ...data 
-        };
+        const data = JSON.parse(event.data as string) as SSEStreamCreatedEvent;
+        const streamEvent: SSEStreamLifecycleEvent = data;
         for (const handler of globalStreamLifecycleHandlers) {
           handler(streamEvent);
         }
@@ -56,11 +66,8 @@ function setupGlobalSSE(): void {
 
     eventSource.addEventListener('stream-deleted', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string);
-        const streamEvent: SSEStreamLifecycleEvent = { 
-          type: 'stream-deleted',
-          ...data 
-        };
+        const data = JSON.parse(event.data as string) as SSEStreamDeletedEvent;
+        const streamEvent: SSEStreamLifecycleEvent = data;
         for (const handler of globalStreamLifecycleHandlers) {
           handler(streamEvent);
         }
@@ -72,7 +79,7 @@ function setupGlobalSSE(): void {
     // Handle stream metrics events
     eventSource.addEventListener('stream-metrics', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string);
+        const data = JSON.parse(event.data as string) as Omit<SSEStreamMetricsEvent, 'type'>;
         const metricsEvent: SSEStreamMetricsEvent = { 
           type: 'stream_metrics',
           ...data 
@@ -85,19 +92,7 @@ function setupGlobalSSE(): void {
       }
     });
 
-    // Handle system events globally
-    eventSource.addEventListener('system-status', (event: MessageEvent) => {
-      console.log('SSE system-status event received:', event.data);
-      try {
-        const data = JSON.parse(event.data as string) as Omit<SSESystemEvent, 'type'>;
-        const systemEvent: SSESystemEvent = { type: 'system-status', ...data };
-        for (const handler of globalSystemEventHandlers) {
-          handler(systemEvent);
-        }
-      } catch (error) {
-        console.error('Error parsing system-status event:', error);
-      }
-    });
+
 
     eventSource.onerror = () => {
       console.error('SSE connection error');
@@ -124,13 +119,12 @@ function setupGlobalSSE(): void {
     };
 
     globalEventSource = eventSource;
-  } catch (error) {
-    console.error('Failed to setup SSE:', error);
+    } catch (error) {
+      console.error('Failed to setup SSE:', error);
       for (const handler of globalConnectionHandlers) {
-        handler('online');
+        handler('offline');
       }
-  }
-}
+    }}
 
 function disconnectGlobalSSE(): void {
   if (globalReconnectTimeout) {
@@ -144,7 +138,7 @@ function disconnectGlobalSSE(): void {
 }
 
 export function useSSEManager(options: SSEManagerOptions = {}) {
-  const { onStreamEvent, onStreamLifecycleEvent, onStreamMetricsEvent, onSystemEvent, onConnectionStatusChange } = options;
+  const { onStreamEvent, onStreamLifecycleEvent, onStreamMetricsEvent, onConnectionStatusChange } = options;
 
   useEffect(() => {
     // Register this component's handlers
@@ -159,9 +153,6 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
     }
     if (onStreamMetricsEvent) {
       globalStreamMetricsHandlers.add(onStreamMetricsEvent);
-    }
-    if (onSystemEvent) {
-      globalSystemEventHandlers.add(onSystemEvent);
     }
 
     // Start global SSE if not already started
@@ -181,20 +172,16 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
       if (onStreamMetricsEvent) {
         globalStreamMetricsHandlers.delete(onStreamMetricsEvent);
       }
-      if (onSystemEvent) {
-        globalSystemEventHandlers.delete(onSystemEvent);
-      }
 
       // Only disconnect if no handlers remain
       if (globalConnectionHandlers.size === 0 && 
           globalStreamEventHandlers.size === 0 && 
           globalStreamLifecycleHandlers.size === 0 &&
-          globalStreamMetricsHandlers.size === 0 &&
-          globalSystemEventHandlers.size === 0) {
+          globalStreamMetricsHandlers.size === 0) {
         disconnectGlobalSSE();
       }
     };
-  }, [onStreamEvent, onStreamLifecycleEvent, onStreamMetricsEvent, onSystemEvent, onConnectionStatusChange]);
+  }, [onStreamEvent, onStreamLifecycleEvent, onStreamMetricsEvent, onConnectionStatusChange]);
 
   return {
     disconnect: disconnectGlobalSSE,

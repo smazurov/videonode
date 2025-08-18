@@ -286,36 +286,6 @@ func (s *SSEExporter) formatMetricsForSSE(metrics []*obs.MetricPoint) []map[stri
 	return result
 }
 
-// formatLogsForSSE formats logs for SSE transmission
-func (s *SSEExporter) formatLogsForSSE(logs []*obs.LogEntry) []map[string]interface{} {
-	var result []map[string]interface{}
-
-	for _, log := range logs {
-		item := map[string]interface{}{
-			"level":     string(log.Level),
-			"message":   log.Message,
-			"source":    log.Source,
-			"labels":    log.Labels(),
-			"fields":    log.Fields,
-			"timestamp": log.Timestamp().Format(time.RFC3339),
-		}
-		result = append(result, item)
-	}
-
-	return result
-}
-
-// formatLogsByLevel formats logs grouped by level
-func (s *SSEExporter) formatLogsByLevel(logsByLevel map[obs.LogLevel][]*obs.LogEntry) map[string]int {
-	result := make(map[string]int)
-
-	for level, logs := range logsByLevel {
-		result[string(level)] = len(logs)
-	}
-
-	return result
-}
-
 // SendAlert sends an alert via SSE
 func (s *SSEExporter) SendAlert(level obs.LogLevel, message string, details map[string]interface{}) error {
 	alertEvent := OBSAlertEvent{

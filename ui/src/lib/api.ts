@@ -298,12 +298,7 @@ export interface SSEStreamDeletedEvent {
   timestamp: string;
 }
 
-export interface SSESystemEvent {
-  type: 'system-status';
-  status: 'online' | 'offline' | 'warning';
-  message?: string;
-  timestamp: string;
-}
+
 
 export interface SSEStreamMetricsEvent {
   type: 'stream_metrics';
@@ -316,4 +311,4 @@ export interface SSEStreamMetricsEvent {
 }
 
 export type SSEStreamLifecycleEvent = SSEStreamCreatedEvent | SSEStreamDeletedEvent;
-export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamEvent | SSESystemEvent | SSEStreamLifecycleEvent | SSEStreamMetricsEvent;
+export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamEvent | SSEStreamLifecycleEvent | SSEStreamMetricsEvent;

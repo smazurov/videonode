@@ -42,9 +42,17 @@ func SelectBestCodec(encoderList *EncoderList) *Encoder {
 	return nil
 }
 
+// CodecType represents the type of codec (h264 or h265)
+type CodecType string
+
+const (
+	CodecH264 CodecType = "h264"
+	CodecH265 CodecType = "h265"
+)
+
 // GetOptimalCodec returns the best available codec for encoding (backward compatibility)
 func GetOptimalCodec() string {
-	encoderName, _, err := GetOptimalEncoderWithSettings()
+	encoderName, _, err := GetOptimalEncoderWithSettings(CodecH264)
 	if err != nil {
 		log.Printf("Failed to get optimal encoder: %v", err)
 		return "libx264"
@@ -53,12 +61,12 @@ func GetOptimalCodec() string {
 }
 
 // GetOptimalEncoderWithSettings returns the best available encoder with its settings
-func GetOptimalEncoderWithSettings() (string, *validation.EncoderSettings, error) {
+func GetOptimalEncoderWithSettings(codecType CodecType) (string, *validation.EncoderSettings, error) {
 	registry := CreateValidatorRegistry()
 
 	// First try to load validation results and get first working encoder
-	if workingCodec := getValidatedCodec(); workingCodec != "" {
-		log.Printf("Using validated codec: %s", workingCodec)
+	if workingCodec := getValidatedCodec(codecType); workingCodec != "" {
+		log.Printf("Using validated %s codec: %s", codecType, workingCodec)
 
 		// Get settings for the validated codec using the registry
 		settings, err := getSettingsForEncoder(workingCodec)
@@ -107,7 +115,7 @@ func getSettingsForEncoder(encoderName string) (*validation.EncoderSettings, err
 }
 
 // getValidatedCodec returns the best working codec from validation results using validator registry order
-func getValidatedCodec() string {
+func getValidatedCodec(codecType CodecType) string {
 	// Try to load validation results
 	validationFile := "validated_encoders.toml"
 	if _, err := os.Stat(validationFile); os.IsNotExist(err) {
@@ -124,14 +132,18 @@ func getValidatedCodec() string {
 	registry := CreateValidatorRegistry()
 	availableValidators := registry.GetAvailableValidators()
 
-	// Collect all working encoders from validation results
-	var allWorkingEncoders []string
-	allWorkingEncoders = append(allWorkingEncoders, results.H264.Working...)
-	allWorkingEncoders = append(allWorkingEncoders, results.H265.Working...)
+	// Select working encoders based on codec type
+	var workingEncoders []string
+	if codecType == CodecH265 {
+		workingEncoders = results.H265.Working
+	} else {
+		// Default to H264 for backward compatibility
+		workingEncoders = results.H264.Working
+	}
 
 	// Create a set of working encoders for quick lookup
 	workingSet := make(map[string]bool)
-	for _, encoder := range allWorkingEncoders {
+	for _, encoder := range workingEncoders {
 		workingSet[encoder] = true
 	}
 

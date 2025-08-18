@@ -1,84 +1,45 @@
-import { useState, useEffect } from 'react';
+import { FormEvent } from 'react';
 import { Card } from '../Card';
 import { Button } from '../Button';
 import { InputField } from '../InputField';
-import { StreamRequestData } from '../../lib/api';
-import { useStreamForm } from '../../hooks/useStreamForm';
-import { useDeviceAutoSelect } from '../../hooks/useDeviceAutoSelect';
 import { useDeviceStore } from '../../hooks/useDeviceStore';
-import { DeviceSelector } from './DeviceSelector';
-import { FormatConfiguration } from './FormatConfiguration';
-import { CodecConfiguration } from './CodecConfiguration';
+import { useStreamCreation } from '../../hooks/useStreamCreation';
+import { RESOLUTION_LABELS, COMMON_BITRATES } from './constants';
 
 interface StreamCreationFormProps {
-  onCreateStream: (streamData: StreamRequestData) => Promise<void>;
+  onCreateStream: () => Promise<void>;
   onCancel?: () => void;
-  isCreating?: boolean;
   className?: string;
 }
 
-export function StreamCreationForm({ 
-  onCreateStream, 
-  onCancel, 
-  isCreating = false, 
-  className = '' 
+export function StreamCreationForm({
+  onCreateStream,
+  onCancel,
+  className = ''
 }: Readonly<StreamCreationFormProps>) {
   const devices = useDeviceStore((state) => state.devices);
-  const [selectedFormat, setSelectedFormat] = useState<string>('');
-  
   const {
-    formData,
-    formErrors,
-    setFormData,
-    updateField,
-    updateResolution,
-    validateForm
-  } = useStreamForm();
+    state,
+    formats,
+    resolutions,
+    framerates,
+    loading,
+    actions
+  } = useStreamCreation();
   
-  // Use auto-selection hook
-  useDeviceAutoSelect({
-    deviceId: formData.device_id,
-    selectedFormat,
-    formData,
-    setSelectedFormat,
-    setFormData
-  });
-  
-  // Auto-select first device when devices are loaded
-  useEffect(() => {
-    if (devices.length > 0 && !formData.device_id) {
-      updateField('device_id', devices[0]?.device_id || '');
-    }
-  }, [devices, formData.device_id, updateField]);
-  
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
-    if (!validateForm()) {
-      return;
-    }
-    
-    try {
-      await onCreateStream(formData);
-    } catch (error) {
-      console.error('Failed to create stream:', error);
+    const success = await actions.createStream();
+    if (success) {
+      // The stream data is already sent by createStream
+      // Just notify parent that creation is complete
+      await onCreateStream();
+      actions.reset();
     }
   };
   
-  const handleInputChange = (field: keyof StreamRequestData, value: string) => {
-    const numericFields = ['bitrate', 'width', 'height', 'framerate'] as const;
-    
-    let processedValue: string | number | undefined;
-    if (value === '') {
-      processedValue = undefined;
-    } else if (numericFields.includes(field as typeof numericFields[number])) {
-      processedValue = parseInt(value, 10);
-    } else {
-      processedValue = value;
-    }
-    
-    updateField(field, processedValue);
-  };
+  const isCreating = state.status === 'creating';
   
   return (
     <Card className={className}>
@@ -97,56 +58,234 @@ export function StreamCreationForm({
           <InputField
             label="Stream ID"
             type="text"
-            value={formData.stream_id}
-            onChange={(e) => handleInputChange('stream_id', e.target.value)}
+            value={state.streamId}
+            onChange={(e) => actions.setStreamId(e.target.value)}
             placeholder="my-stream-001"
-            {...(formErrors.stream_id && { error: formErrors.stream_id })}
-            disabled={isCreating}
             required
+            disabled={isCreating}
+            {...(state.errors.streamId ? { error: state.errors.streamId } : {})}
           />
           
           {/* Device Selection */}
-          <DeviceSelector
-            value={formData.device_id}
-            onChange={(deviceId) => updateField('device_id', deviceId)}
-            error={formErrors.device_id || undefined}
-            disabled={isCreating}
-            required
-          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Video Device <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={state.deviceId}
+              onChange={(e) => actions.selectDevice(e.target.value)}
+              className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+              disabled={isCreating || devices.length === 0}
+              required
+            >
+              <option value="">Select device...</option>
+              {devices.map((device) => (
+                <option key={device.device_id} value={device.device_id}>
+                  {device.device_name} ({device.device_path})
+                </option>
+              ))}
+            </select>
+            {state.errors.deviceId && (
+              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.deviceId}</p>
+            )}
+          </div>
           
           {/* Format, Resolution, and Framerate Configuration */}
-          <FormatConfiguration
-            deviceId={formData.device_id}
-            selectedFormat={selectedFormat}
-            width={formData.width}
-            height={formData.height}
-            framerate={formData.framerate}
-            onFormatChange={(format) => {
-              setSelectedFormat(format);
-              updateField('input_format', format);
-            }}
-            onResolutionChange={updateResolution}
-            onFramerateChange={(fps) => updateField('framerate', fps)}
-            disabled={isCreating}
-            errors={{
-              framerate: formErrors.framerate || undefined,
-              width: formErrors.width || undefined,
-              height: formErrors.height || undefined
-            }}
-          />
+          {state.deviceId && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Input Format */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Input Format <span className="text-red-500">*</span>
+                </label>
+                {loading.formats ? (
+                  <div className="flex items-center space-x-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-sm text-gray-600 dark:text-gray-300">Loading...</span>
+                  </div>
+                ) : (
+                  <select
+                    value={state.format}
+                    onChange={(e) => actions.selectFormat(e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+                    disabled={isCreating || formats.length === 0}
+                    required
+                  >
+                    <option value="">Select format...</option>
+                    {formats.map((format) => (
+                      <option key={format.format_name} value={format.format_name}>
+                        {format.format_name.toUpperCase()} - {format.original_name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {state.errors.format && (
+                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.format}</p>
+                )}
+              </div>
+              
+              {/* Resolution */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Resolution
+                </label>
+                {(() => {
+                  if (!state.format) {
+                    return (
+                      <select
+                        disabled
+                        className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-100 dark:bg-gray-900 cursor-not-allowed"
+                      >
+                        <option>Select format first</option>
+                      </select>
+                    );
+                  }
+                  if (loading.resolutions) {
+                    return (
+                      <div className="flex items-center space-x-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
+                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Loading...</span>
+                      </div>
+                    );
+                  }
+                  return (
+                  <select
+                    value={state.width && state.height ? `${state.width}x${state.height}` : ''}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const [w, h] = e.target.value.split('x').map(Number);
+                        if (w && h) {
+                          actions.selectResolution(w, h);
+                        }
+                      }
+                    }}
+                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+                    disabled={isCreating || resolutions.length === 0}
+                  >
+                    <option value="">Auto</option>
+                    {resolutions.map((res) => {
+                      const resString = `${res.width}x${res.height}`;
+                      const label = RESOLUTION_LABELS[resString] 
+                        ? `${resString} (${RESOLUTION_LABELS[resString]})` 
+                        : resString;
+                      
+                      return (
+                        <option key={resString} value={resString}>
+                          {label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  );
+                })()}
+                {state.errors.resolution && (
+                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.resolution}</p>
+                )}
+              </div>
+              
+              {/* Framerate */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Framerate
+                </label>
+                {(() => {
+                  if (!state.width || !state.height) {
+                    return (
+                      <select
+                        disabled
+                        className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-100 dark:bg-gray-900 cursor-not-allowed"
+                      >
+                        <option>Select resolution first</option>
+                      </select>
+                    );
+                  }
+                  if (loading.framerates) {
+                    return (
+                      <div className="flex items-center space-x-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
+                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Loading...</span>
+                      </div>
+                    );
+                  }
+                  return (
+                  <select
+                    value={state.framerate?.toString() || ''}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        actions.selectFramerate(parseInt(e.target.value, 10));
+                      }
+                    }}
+                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+                    disabled={isCreating || framerates.length === 0}
+                  >
+                    <option value="">Auto</option>
+                    {framerates.map((rate) => {
+                      const fpsValue = Math.round(rate.fps);
+                      return (
+                        <option key={`${rate.numerator}/${rate.denominator}`} value={fpsValue.toString()}>
+                          {fpsValue} FPS ({rate.numerator}/{rate.denominator})
+                        </option>
+                      );
+                    })}
+                  </select>
+                  );
+                })()}
+                {state.errors.framerate && (
+                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.framerate}</p>
+                )}
+              </div>
+            </div>
+          )}
           
           {/* Codec and Bitrate Configuration */}
-          <CodecConfiguration
-            codec={formData.codec}
-            bitrate={formData.bitrate}
-            onCodecChange={(codec) => updateField('codec', codec)}
-            onBitrateChange={(bitrate) => updateField('bitrate', bitrate)}
-            disabled={isCreating}
-            errors={{
-              codec: formErrors.codec || undefined,
-              bitrate: formErrors.bitrate || undefined
-            }}
-          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Codec <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={state.codec}
+                onChange={(e) => actions.setCodec(e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+                disabled={isCreating}
+                required
+              >
+                <option value="h264">H.264</option>
+                <option value="h265">H.265 (HEVC)</option>
+              </select>
+              {state.errors.codec && (
+                <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.codec}</p>
+              )}
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Bitrate
+              </label>
+              <select
+                value={state.bitrate?.toString() || ''}
+                onChange={(e) => actions.setBitrate(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+                disabled={isCreating}
+              >
+                {COMMON_BITRATES.map((bitrate) => (
+                  <option key={bitrate.value} value={bitrate.value}>
+                    {bitrate.label}
+                  </option>
+                ))}
+              </select>
+              {state.errors.bitrate && (
+                <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.bitrate}</p>
+              )}
+            </div>
+          </div>
+          
+          {/* Error message */}
+          {state.errors.submit && (
+            <div className="p-3 border border-red-300 dark:border-red-600 rounded-md bg-red-50 dark:bg-red-900/20">
+              <p className="text-sm text-red-600 dark:text-red-400">{state.errors.submit}</p>
+            </div>
+          )}
           
           {/* Action Buttons */}
           <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
@@ -165,7 +304,7 @@ export function StreamCreationForm({
               type="submit"
               theme="primary"
               size="MD"
-              disabled={isCreating || devices.length === 0}
+              disabled={isCreating || !state.isValid}
               text={isCreating ? 'Creating...' : 'Create Stream'}
             />
           </div>

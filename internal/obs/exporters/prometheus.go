@@ -128,8 +128,8 @@ func (d *DynamicCollector) extractLabels(labels map[string]string) ([]string, []
 	return names, values
 }
 
-// PrometheusExporter exports observability data in Prometheus format using dynamic collector
-type PrometheusExporter struct {
+// PromExporter exports observability data in Prometheus format using dynamic collector
+type PromExporter struct {
 	config    obs.ExporterConfig
 	registry  *prometheus.Registry
 	collector *DynamicCollector
@@ -138,8 +138,8 @@ type PrometheusExporter struct {
 	bufferMux sync.Mutex
 }
 
-// NewPrometheusExporter creates a new Prometheus exporter with dynamic metrics support
-func NewPrometheusExporter() *PrometheusExporter {
+// NewPromExporter creates a new Prometheus exporter with dynamic metrics support
+func NewPromExporter() *PromExporter {
 	registry := prometheus.NewRegistry()
 	collector := NewDynamicCollector()
 
@@ -154,7 +154,7 @@ func NewPrometheusExporter() *PrometheusExporter {
 		Config:        make(map[string]interface{}),
 	}
 
-	return &PrometheusExporter{
+	return &PromExporter{
 		config:    config,
 		registry:  registry,
 		collector: collector,
@@ -164,29 +164,29 @@ func NewPrometheusExporter() *PrometheusExporter {
 }
 
 // Name returns the exporter name
-func (p *PrometheusExporter) Name() string {
+func (p *PromExporter) Name() string {
 	return p.config.Name
 }
 
 // Config returns the exporter configuration
-func (p *PrometheusExporter) Config() obs.ExporterConfig {
+func (p *PromExporter) Config() obs.ExporterConfig {
 	return p.config
 }
 
 // Start starts the Prometheus exporter
-func (p *PrometheusExporter) Start(ctx context.Context) error {
+func (p *PromExporter) Start(ctx context.Context) error {
 	// Prometheus exporter doesn't need a background process
 	return nil
 }
 
 // Stop stops the Prometheus exporter
-func (p *PrometheusExporter) Stop() error {
+func (p *PromExporter) Stop() error {
 	// Nothing to stop
 	return nil
 }
 
 // Export processes and exports data points
-func (p *PrometheusExporter) Export(points []obs.DataPoint) error {
+func (p *PromExporter) Export(points []obs.DataPoint) error {
 	if len(points) == 0 {
 		return nil
 	}
@@ -207,7 +207,7 @@ func (p *PrometheusExporter) Export(points []obs.DataPoint) error {
 }
 
 // processBuffer processes buffered data points
-func (p *PrometheusExporter) processBuffer() {
+func (p *PromExporter) processBuffer() {
 	if len(p.buffer) == 0 {
 		return
 	}
@@ -236,7 +236,7 @@ func (p *PrometheusExporter) processBuffer() {
 }
 
 // determineMetricType determines the Prometheus metric type based on the name
-func (p *PrometheusExporter) determineMetricType(name string) prometheus.ValueType {
+func (p *PromExporter) determineMetricType(name string) prometheus.ValueType {
 	lowerName := strings.ToLower(name)
 
 	// Check if it's a counter
@@ -261,7 +261,7 @@ func (p *PrometheusExporter) determineMetricType(name string) prometheus.ValueTy
 }
 
 // sanitizeMetricName ensures the metric name is valid for Prometheus
-func (p *PrometheusExporter) sanitizeMetricName(name string) string {
+func (p *PromExporter) sanitizeMetricName(name string) string {
 	// Replace invalid characters with underscores
 	result := strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
@@ -284,7 +284,7 @@ func (p *PrometheusExporter) sanitizeMetricName(name string) string {
 }
 
 // GetHandler returns the HTTP handler for serving Prometheus metrics
-func (p *PrometheusExporter) GetHandler() http.Handler {
+func (p *PromExporter) GetHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Process any buffered data before serving
 		p.bufferMux.Lock()
@@ -297,14 +297,14 @@ func (p *PrometheusExporter) GetHandler() http.Handler {
 }
 
 // ForceFlush processes all buffered data immediately
-func (p *PrometheusExporter) ForceFlush() {
+func (p *PromExporter) ForceFlush() {
 	p.bufferMux.Lock()
 	defer p.bufferMux.Unlock()
 	p.processBuffer()
 }
 
 // Stats returns statistics about the exporter
-func (p *PrometheusExporter) Stats() map[string]interface{} {
+func (p *PromExporter) Stats() map[string]interface{} {
 	p.bufferMux.Lock()
 	bufferSize := len(p.buffer)
 	p.bufferMux.Unlock()

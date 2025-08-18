@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { 
   SignalIcon,
   ComputerDesktopIcon,
@@ -18,8 +18,6 @@ import {
 import { useDeviceStore } from "../hooks/useDeviceStore";
 import { useStreamStore } from "../hooks/useStreamStore";
 import { useSSEManager } from "../hooks/useSSEManager";
-import { shallow } from "zustand/shallow";
-
 import { cn } from "../utils";
 
 interface InfoBarProps {
@@ -181,17 +179,6 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
         error: null,
         lastUpdated: new Date()
       });
-
-      // Update connection status based on health
-      if (health) {
-        if (health.status === 'ok' || health.status === 'online') {
-          setConnectionStatus('online');
-        } else {
-          setConnectionStatus('warning');
-        }
-      } else {
-        setConnectionStatus('offline');
-      }
     } catch (error) {
       setSystemInfo(prev => ({
         ...prev,
@@ -199,17 +186,11 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
         error: error instanceof Error ? error.message : 'Failed to fetch system info',
         lastUpdated: new Date()
       }));
-      setConnectionStatus('offline');
     }
   };
 
   // Setup SSE connection for real-time updates
   useSSEManager({
-    onSystemEvent: (event) => {
-      if (event.type === 'system-status') {
-        setConnectionStatus(event.status);
-      }
-    },
     onConnectionStatusChange: setConnectionStatus,
   });
 
@@ -218,11 +199,7 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
     fetchSystemInfo(true);
   }, []);
 
-  const getSystemStatus = (): StatusType => {
-    if (systemInfo.error) return 'offline';
-    if (!systemInfo.health) return 'offline';
-    return connectionStatus;
-  };
+
 
   const getAvailableEncodersCount = () => {
     return systemInfo.encoders?.count || 0;
@@ -327,16 +304,19 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
           </>
         )}
 
-        {/* System Status */}
+        {/* SSE Connection Status */}
         <InfoItem
           icon={ComputerDesktopIcon}
           label="System"
           value={(() => {
-            if (systemInfo.loading) return "Loading...";
-            if (connectionStatus === 'reconnecting') return "Reconnecting";
-            return systemInfo.health?.status || "Unknown";
+            switch (connectionStatus) {
+              case 'online': return "Connected";
+              case 'offline': return "Disconnected";
+              case 'reconnecting': return "Reconnecting";
+              default: return "Unknown";
+            }
           })()}
-          status={getSystemStatus()}
+          status={connectionStatus}
           {...(systemInfo.health?.version && { subtitle: `v${systemInfo.health.version}` })}
         />
 
