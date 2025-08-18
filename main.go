@@ -10,7 +10,6 @@ import (
 	"github.com/smazurov/videonode/cmd"
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/config"
-	streamconfig "github.com/smazurov/videonode/internal/config"
 	"github.com/smazurov/videonode/internal/obs"
 	"github.com/smazurov/videonode/internal/obs/collectors"
 	"github.com/smazurov/videonode/internal/obs/exporters"
@@ -130,7 +129,7 @@ func main() {
 
 			// Add exporters based on config
 			if opts.ObsPrometheusEnabled {
-				promExporter := exporters.NewPrometheusExporter()
+				promExporter := exporters.NewPromExporter()
 				obsManager.AddExporter(promExporter)
 			}
 
@@ -138,7 +137,7 @@ func main() {
 
 		// Default command starts the server using existing API server
 		// Initialize stream manager
-		streamManager := streamconfig.NewStreamManager(opts.StreamsConfigFile)
+		streamManager := config.NewStreamManager(opts.StreamsConfigFile)
 		if err := streamManager.Load(); err != nil {
 			fmt.Printf("Warning: Failed to load stream config: %v\n", err)
 		}
@@ -181,11 +180,10 @@ func main() {
 
 		// Wire up SSE exporter if OBS is enabled and SSE is configured
 		if obsManager != nil && opts.ObsSSEEnabled {
-			if sseBroadcaster := server.GetSSEBroadcaster(); sseBroadcaster != nil {
-				sseExporter := exporters.NewSSEExporter(sseBroadcaster)
-				sseExporter.SetLogLevel(opts.LoggingObs)
-				obsManager.AddExporter(sseExporter)
-			}
+			sseBroadcaster := server.GetSSEBroadcaster()
+			sseExporter := exporters.NewSSEExporter(sseBroadcaster)
+			sseExporter.SetLogLevel(opts.LoggingObs)
+			obsManager.AddExporter(sseExporter)
 			log.Printf("Added SSE exporter to OBS manager")
 		}
 

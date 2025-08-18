@@ -414,22 +414,6 @@ func (p *PrometheusCollector) getMetricUnit(name, metricType string) string {
 
 // Helper methods
 
-func (p *PrometheusCollector) sendMetric(dataChan chan<- obs.DataPoint, name string, value float64, labels obs.Labels, timestamp time.Time) {
-	point := &obs.MetricPoint{
-		Name:       name,
-		Value:      value,
-		LabelsMap:  p.AddLabels(labels),
-		Timestamp_: timestamp,
-		Unit:       p.getMetricUnit(name, ""),
-	}
-
-	select {
-	case dataChan <- point:
-	default:
-		// Channel full, skip this point
-	}
-}
-
 func (p *PrometheusCollector) sendLog(dataChan chan<- obs.DataPoint, level obs.LogLevel, message string, timestamp time.Time) {
 	point := &obs.LogEntry{
 		Message:    message,

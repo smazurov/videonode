@@ -37,13 +37,8 @@ func ListDevices() {
 
 // getOptimalEncoder returns the best available encoder with its settings
 func getOptimalEncoder() (string, *validation.EncoderSettings, error) {
-	return encoders.GetOptimalEncoderWithSettings()
-}
-
-// getOptimalCodec returns the best available codec for encoding (backward compatibility)
-// Deprecated: Use getOptimalEncoder() instead for unified encoder settings
-func getOptimalCodec() string {
-	return encoders.GetOptimalCodec()
+	// Default to H264 for capture operations
+	return encoders.GetOptimalEncoderWithSettings(encoders.CodecH264)
 }
 
 // CaptureToBytes captures a screenshot from the specified video device
@@ -125,7 +120,7 @@ func captureDirectFrame(devicePath, outputPath string) error {
 
 	// Create a channel to receive the result
 	done := make(chan error, 1)
-	
+
 	go func() {
 		done <- cmd.Run()
 	}()

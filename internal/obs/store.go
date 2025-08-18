@@ -69,7 +69,7 @@ func (s *Series) Query(start, end time.Time, limit int) []DataPoint {
 	visited := 0
 
 	// Calculate starting position (oldest point)
-	startPos := s.head
+	var startPos int
 	if s.size == s.capacity {
 		startPos = s.head // In a full buffer, head points to oldest
 	} else {

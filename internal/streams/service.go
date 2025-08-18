@@ -111,10 +111,18 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 
 	// Get the optimal encoder based on the requested codec
 	if params.Codec == "h264" || params.Codec == "h265" {
+		// Convert string to CodecType
+		var codecType encoders.CodecType
+		if params.Codec == "h265" {
+			codecType = encoders.CodecH265
+		} else {
+			codecType = encoders.CodecH264
+		}
+
 		// Use the encoder selection logic to find the best available encoder
-		optimalEncoder, settings, err := encoders.GetOptimalEncoderWithSettings()
+		optimalEncoder, settings, err := encoders.GetOptimalEncoderWithSettings(codecType)
 		if err != nil {
-			log.Printf("Failed to get optimal encoder: %v", err)
+			log.Printf("Failed to get optimal encoder for %s: %v", codecType, err)
 			// GetOptimalEncoderWithSettings already handles fallback internally
 			encoder = encoders.GetOptimalCodec()
 		} else {
@@ -124,7 +132,7 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 				videoFilters = settings.VideoFilters
 				encoderParams = settings.OutputParams
 			}
-			log.Printf("Selected encoder %s for codec %s with hardware acceleration", encoder, params.Codec)
+			log.Printf("Selected %s encoder %s with hardware acceleration", codecType, encoder)
 		}
 
 		// Set preset for software encoders
