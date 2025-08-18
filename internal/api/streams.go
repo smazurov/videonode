@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
@@ -54,13 +55,14 @@ func (s *Server) registerStreamRoutes() {
 	}, func(ctx context.Context, input *models.StreamRequest) (*models.StreamResponse, error) {
 		// Convert API request to domain parameters
 		params := streams.StreamCreateParams{
-			StreamID:  input.Body.StreamID,
-			DeviceID:  input.Body.DeviceID,
-			Codec:     string(input.Body.Codec),
-			Bitrate:   &input.Body.Bitrate,
-			Width:     &input.Body.Width,
-			Height:    &input.Body.Height,
-			Framerate: &input.Body.Framerate,
+			StreamID:    input.Body.StreamID,
+			DeviceID:    input.Body.DeviceID,
+			Codec:       string(input.Body.Codec),
+			InputFormat: input.Body.InputFormat,
+			Bitrate:     &input.Body.Bitrate,
+			Width:       &input.Body.Width,
+			Height:      &input.Body.Height,
+			Framerate:   &input.Body.Framerate,
 		}
 
 		// Handle optional fields properly
@@ -82,8 +84,12 @@ func (s *Server) registerStreamRoutes() {
 			return nil, s.mapStreamError(err)
 		}
 
+		// Broadcast stream created event
+		apiStream := s.domainToAPIStream(*stream)
+		BroadcastStreamCreated(apiStream, time.Now().Format(time.RFC3339))
+
 		return &models.StreamResponse{
-			Body: s.domainToAPIStream(*stream),
+			Body: apiStream,
 		}, nil
 	})
 
@@ -104,6 +110,9 @@ func (s *Server) registerStreamRoutes() {
 		if err != nil {
 			return nil, s.mapStreamError(err)
 		}
+
+		// Broadcast stream deleted event
+		BroadcastStreamDeleted(input.StreamID, time.Now().Format(time.RFC3339))
 
 		return &struct{}{}, nil
 	})

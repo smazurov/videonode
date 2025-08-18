@@ -36,20 +36,6 @@ type DeviceDiscoveryEvent struct {
 	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
-// StreamCreatedEvent represents a successful stream creation
-type StreamCreatedEvent struct {
-	Stream    models.StreamData `json:"stream" doc:"Created stream data"`
-	Action    string            `json:"action" example:"created" doc:"Action type"`
-	Timestamp string            `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
-}
-
-// StreamDeletedEvent represents a successful stream deletion
-type StreamDeletedEvent struct {
-	StreamID  string `json:"stream_id" example:"stream-001" doc:"Deleted stream identifier"`
-	Action    string `json:"action" example:"deleted" doc:"Action type"`
-	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
-}
-
 // SystemComponent represents system component types
 type SystemComponent string
 
@@ -165,26 +151,6 @@ func BroadcastDeviceDiscovery(action string, device models.DeviceInfo, timestamp
 	globalEventBroadcaster.Broadcast(event)
 }
 
-// BroadcastStreamCreated sends a stream created event
-func BroadcastStreamCreated(stream models.StreamData, timestamp string) {
-	event := StreamCreatedEvent{
-		Stream:    stream,
-		Action:    "created",
-		Timestamp: timestamp,
-	}
-	globalEventBroadcaster.Broadcast(event)
-}
-
-// BroadcastStreamDeleted sends a stream deleted event
-func BroadcastStreamDeleted(streamID, timestamp string) {
-	event := StreamDeletedEvent{
-		StreamID:  streamID,
-		Action:    "deleted",
-		Timestamp: timestamp,
-	}
-	globalEventBroadcaster.Broadcast(event)
-}
-
 // registerSSERoutes registers the native Huma SSE endpoint
 func (s *Server) registerSSERoutes() {
 	// Register SSE endpoint with event type mapping
@@ -198,18 +164,16 @@ func (s *Server) registerSSERoutes() {
 		Security:    withAuth(),
 		Errors:      []int{401},
 	}, func() map[string]any {
-		// Application events
+		// Combine API events with OBS events
 		eventTypes := map[string]any{
 			"capture-success":  CaptureSuccessEvent{},
 			"capture-error":    CaptureErrorEvent{},
 			"device-discovery": DeviceDiscoveryEvent{},
 			"system-status":    SystemStatusEvent{},
-			"stream-created":   StreamCreatedEvent{},
-			"stream-deleted":   StreamDeletedEvent{},
 		}
 
-		// Add OBS events for this endpoint
-		for eventName, eventType := range exporters.GetEventTypesForEndpoint("events") {
+		// Add OBS event types
+		for eventName, eventType := range exporters.GetEventTypes() {
 			eventTypes[eventName] = eventType
 		}
 

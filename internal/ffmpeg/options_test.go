@@ -23,7 +23,7 @@ func TestBuildEncodersListCommand(t *testing.T) {
 		t.Fatalf("BuildEncodersListCommand() failed: %v", err)
 	}
 
-	expected := "ffmpeg -encoders"
+	expected := "ffmpeg -hide_banner -encoders"
 	if cmd != expected {
 		t.Errorf("BuildEncodersListCommand() = %q, want %q", cmd, expected)
 	}
@@ -41,7 +41,7 @@ func TestBuildProbeCommand(t *testing.T) {
 		{
 			name:       "valid device path",
 			devicePath: "/dev/video0",
-			want:       "ffprobe -f v4l2 -list_formats all -i /dev/video0",
+			want:       "ffprobe -hide_banner -f v4l2 -list_formats all -i /dev/video0",
 			wantErr:    false,
 		},
 		{

@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/obs"
@@ -43,6 +42,16 @@ type SystemMetricsEvent struct {
 	} `json:"network"`
 }
 
+type StreamMetricsEvent struct {
+	Type            string `json:"type"`
+	Timestamp       string `json:"timestamp"`
+	StreamID        string `json:"stream_id"`
+	FPS             string `json:"fps"`
+	DroppedFrames   string `json:"dropped_frames"`
+	DuplicateFrames string `json:"duplicate_frames"`
+	ProcessingSpeed string `json:"processing_speed"`
+}
+
 // GetEventTypes returns a map of event names to their corresponding struct types
 // This should be used when registering with Huma SSE
 func GetEventTypes() map[string]any {
@@ -50,6 +59,35 @@ func GetEventTypes() map[string]any {
 		"mediamtx-metrics": MediaMTXMetricsEvent{},
 		"obs-alert":        OBSAlertEvent{},
 		"system-metrics":   SystemMetricsEvent{},
+		"stream-metrics":   StreamMetricsEvent{},
+	}
+}
+
+// GetEventTypesForEndpoint returns event types for a specific SSE endpoint
+func GetEventTypesForEndpoint(endpoint string) map[string]any {
+	switch endpoint {
+	case "metrics":
+		return map[string]any{
+			"mediamtx-metrics": MediaMTXMetricsEvent{},
+		}
+	case "events":
+		return map[string]any{
+			"system-metrics": SystemMetricsEvent{},
+			"obs-alert":      OBSAlertEvent{},
+			"stream-metrics": StreamMetricsEvent{},
+		}
+	default:
+		return map[string]any{}
+	}
+}
+
+// GetEventRoutes returns the routing configuration for events
+func GetEventRoutes() map[string]string {
+	return map[string]string{
+		"mediamtx-metrics": "metrics",
+		"system-metrics":   "events",
+		"obs-alert":        "events",
+		"stream-metrics":   "events",
 	}
 }
 
@@ -62,32 +100,20 @@ type SSEBroadcaster interface {
 type SSEExporter struct {
 	config      obs.ExporterConfig
 	broadcaster SSEBroadcaster
-	buffer      []obs.DataPoint
-	bufferMux   sync.Mutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
 	logLevel    string
 }
 
 // NewSSEExporter creates a new SSE exporter
 func NewSSEExporter(broadcaster SSEBroadcaster) *SSEExporter {
 	config := obs.ExporterConfig{
-		Name:          "sse",
-		Enabled:       true,
-		BufferSize:    1000,
-		FlushInterval: 2 * time.Second, // Send updates every 2 seconds
-		Config:        make(map[string]interface{}),
+		Name:    "sse",
+		Enabled: true,
+		Config:  make(map[string]interface{}),
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
 
 	return &SSEExporter{
 		config:      config,
 		broadcaster: broadcaster,
-		buffer:      make([]obs.DataPoint, 0, config.BufferSize),
-		ctx:         ctx,
-		cancel:      cancel,
 		logLevel:    "info", // Default log level
 	}
 }
@@ -109,136 +135,81 @@ func (s *SSEExporter) Config() obs.ExporterConfig {
 
 // Start starts the SSE exporter
 func (s *SSEExporter) Start(ctx context.Context) error {
-	s.wg.Add(1)
-	go s.flushWorker()
+	// Nothing to start - we process immediately
 	return nil
 }
 
 // Stop stops the SSE exporter
 func (s *SSEExporter) Stop() error {
-	s.cancel()
-	s.wg.Wait()
+	// Nothing to stop - no background workers
 	return nil
 }
 
-// Export processes and exports data points
+// Export processes and exports data points immediately
 func (s *SSEExporter) Export(points []obs.DataPoint) error {
 	if len(points) == 0 {
 		return nil
 	}
 
-	s.bufferMux.Lock()
-	defer s.bufferMux.Unlock()
-
-	// Add points to buffer
+	// Process each point immediately without buffering
 	for _, point := range points {
-		if len(s.buffer) >= s.config.BufferSize {
-			// Buffer full, send immediately
-			s.sendBufferedData()
+		switch p := point.(type) {
+		case *obs.MetricPoint:
+			s.processMetricImmediately(p)
+		case *obs.LogEntry:
+			s.processLogImmediately(p)
 		}
-		s.buffer = append(s.buffer, point)
 	}
 
 	return nil
 }
 
-// flushWorker periodically flushes buffered data
-func (s *SSEExporter) flushWorker() {
-	defer s.wg.Done()
-
-	ticker := time.NewTicker(s.config.FlushInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			s.bufferMux.Lock()
-			s.sendBufferedData()
-			s.bufferMux.Unlock()
-
-		case <-s.ctx.Done():
-			// Final flush before stopping
-			s.bufferMux.Lock()
-			s.sendBufferedData()
-			s.bufferMux.Unlock()
-			return
+// processMetricImmediately processes a single metric point immediately
+func (s *SSEExporter) processMetricImmediately(metric *obs.MetricPoint) {
+	// Handle different metric types
+	switch metric.Name {
+	case "system_metrics":
+		s.sendSystemMetricsEvent(metric)
+	case "ffmpeg_stream_metrics":
+		// Send stream metrics immediately
+		labels := metric.Labels()
+		event := StreamMetricsEvent{
+			Type:            "stream_metrics",
+			Timestamp:       metric.Timestamp().Format(time.RFC3339),
+			StreamID:        labels["stream_id"],
+			FPS:             labels["fps"],
+			DroppedFrames:   labels["dropped_frames"],
+			DuplicateFrames: labels["duplicate_frames"],
+			ProcessingSpeed: labels["processing_speed"],
 		}
-	}
-}
-
-// sendBufferedData sends all buffered data via SSE
-func (s *SSEExporter) sendBufferedData() {
-	if len(s.buffer) == 0 {
-		return
-	}
-
-	// Group data by type
-	metrics := make([]*obs.MetricPoint, 0)
-	logs := make([]*obs.LogEntry, 0)
-
-	for _, point := range s.buffer {
-		switch p := point.(type) {
-		case *obs.MetricPoint:
-			metrics = append(metrics, p)
-		case *obs.LogEntry:
-			logs = append(logs, p)
-		}
-	}
-
-	// Send metrics update
-	if len(metrics) > 0 {
-		s.sendMetricsUpdate(metrics)
-	}
-
-	// Log entries instead of broadcasting them
-	if len(logs) > 0 {
-		s.logEntries(logs)
-	}
-
-	// Clear buffer
-	s.buffer = s.buffer[:0]
-}
-
-// sendMetricsUpdate sends metrics data via SSE
-func (s *SSEExporter) sendMetricsUpdate(metrics []*obs.MetricPoint) {
-	// Handle system metrics specially
-	for _, metric := range metrics {
-		if metric.Name == "system_metrics" {
-			s.sendSystemMetricsEvent(metric)
-			continue
-		}
-	}
-
-	// Send general metrics update for non-system metrics
-	if len(metrics) > 0 {
+		s.broadcaster.BroadcastEvent("stream-metrics", event)
+	default:
+		// Send other metrics as MediaMTX metrics individually
 		metricsEvent := MediaMTXMetricsEvent{
 			Type:      "mediamtx_metrics",
 			Timestamp: time.Now().Format(time.RFC3339),
-			Count:     len(metrics),
-			Metrics:   s.formatMetricsForSSE(metrics),
+			Count:     1,
+			Metrics:   s.formatMetricsForSSE([]*obs.MetricPoint{metric}),
 		}
-
 		s.broadcaster.BroadcastEvent("mediamtx-metrics", metricsEvent)
 	}
 }
 
-// logEntries logs the entries to standard output instead of broadcasting via SSE
-func (s *SSEExporter) logEntries(logs []*obs.LogEntry) {
-	for _, logEntry := range logs {
-		// Check if we should log this entry based on configured level
-		if !s.shouldLog(logEntry.Level) {
-			continue
-		}
-
-		// Format log entry for standard logging
-		logLevel := string(logEntry.Level)
-		source := logEntry.Source
-		message := logEntry.Message
-		timestamp := logEntry.Timestamp().Format(time.RFC3339)
-
-		// Log the entry
-		log.Printf("[%s] %s [%s]: %s", logLevel, timestamp, source, message)
+// processLogImmediately processes a single log entry immediately
+func (s *SSEExporter) processLogImmediately(logEntry *obs.LogEntry) {
+	// Check if we should log this entry based on configured level
+	if !s.shouldLog(logEntry.Level) {
+		return
 	}
+
+	// Format log entry for standard logging
+	logLevel := string(logEntry.Level)
+	source := logEntry.Source
+	message := logEntry.Message
+	timestamp := logEntry.Timestamp().Format(time.RFC3339)
+
+	// Log the entry
+	log.Printf("[%s] %s [%s]: %s", logLevel, timestamp, source, message)
 }
 
 // shouldLog determines if a log entry should be logged based on the configured level
@@ -358,24 +329,11 @@ func (s *SSEExporter) SendAlert(level obs.LogLevel, message string, details map[
 	return s.broadcaster.BroadcastEvent("obs-alert", alertEvent)
 }
 
-// ForceFlush immediately sends all buffered data
-func (s *SSEExporter) ForceFlush() {
-	s.bufferMux.Lock()
-	defer s.bufferMux.Unlock()
-	s.sendBufferedData()
-}
-
 // Stats returns statistics about the exporter
 func (s *SSEExporter) Stats() map[string]interface{} {
-	s.bufferMux.Lock()
-	bufferSize := len(s.buffer)
-	s.bufferMux.Unlock()
-
 	return map[string]interface{}{
-		"name":            s.config.Name,
-		"enabled":         s.config.Enabled,
-		"buffer_size":     bufferSize,
-		"buffer_capacity": s.config.BufferSize,
-		"flush_interval":  s.config.FlushInterval.String(),
+		"name":    s.config.Name,
+		"enabled": s.config.Enabled,
+		"mode":    "immediate", // No buffering
 	}
 }

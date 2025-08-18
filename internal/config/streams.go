@@ -11,27 +11,97 @@ import (
 	"github.com/smazurov/videonode/internal/mediamtx"
 )
 
-// StreamConfig represents a single stream configuration
+// FFmpegConfig contains all FFmpeg-specific settings for a stream.
+// This structure holds everything needed to build the complete FFmpeg command,
+// including hardware acceleration settings, encoder parameters, and filters.
+type FFmpegConfig struct {
+	// InputFormat specifies the V4L2 pixel format to request from the device
+	// Common values: "yuyv422" (uncompressed), "mjpeg" (compressed)
+	// This is passed as -input_format to FFmpeg
+	InputFormat string `toml:"input_format,omitempty" json:"input_format,omitempty"`
+
+	// Resolution specifies the video dimensions in WIDTHxHEIGHT format
+	// Example: "1920x1080", "1280x720"
+	// This is passed as -video_size to FFmpeg
+	Resolution string `toml:"resolution,omitempty" json:"resolution,omitempty"`
+
+	// FPS specifies the framerate to capture from the device
+	// Example: "30", "60", "29.97"
+	// This is passed as -framerate to FFmpeg
+	FPS string `toml:"fps,omitempty" json:"fps,omitempty"`
+
+	// Encoder specifies the actual FFmpeg encoder to use (NOT the codec standard)
+	// Examples: "h264_vaapi" (hardware), "libx264" (software), "h264_nvenc" (NVIDIA)
+	// This is the result of converting the API's generic codec (h264/h265) to a specific encoder
+	// This is passed as -c:v to FFmpeg
+	Encoder string `toml:"encoder,omitempty" json:"encoder,omitempty"`
+
+	// Preset controls the encoding speed/quality tradeoff for software encoders
+	// Values: "ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"
+	// This is typically empty for hardware encoders
+	// This is passed as -preset to FFmpeg when applicable
+	Preset string `toml:"preset,omitempty" json:"preset,omitempty"`
+
+	// Bitrate specifies the target video bitrate
+	// Examples: "2M", "1500k", "4000000"
+	// This is passed as -b:v to FFmpeg
+	Bitrate string `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
+
+	// GlobalArgs contains FFmpeg arguments that must appear BEFORE the input
+	// These are typically hardware device initialization parameters
+	// Example for VAAPI: ["-vaapi_device", "/dev/dri/renderD128"]
+	// Example for NVENC: ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]
+	GlobalArgs []string `toml:"global_args,omitempty" json:"global_args,omitempty"`
+
+	// VideoFilters specifies the FFmpeg filter chain to apply to the video
+	// This is used for pixel format conversion and hardware upload
+	// Example for VAAPI: "format=nv12,hwupload"
+	// Example for software: "format=yuv420p"
+	// This is passed as -vf to FFmpeg
+	VideoFilters string `toml:"video_filters,omitempty" json:"video_filters,omitempty"`
+
+	// EncoderParams contains encoder-specific parameters as key-value pairs
+	// These are parameters specific to the chosen encoder
+	// Example for VAAPI: {"qp": "20", "bf": "0"}
+	// Example for x264: {"crf": "23", "profile": "baseline"}
+	// These are passed as individual -key value arguments to FFmpeg
+	EncoderParams map[string]string `toml:"encoder_params,omitempty" json:"encoder_params,omitempty"`
+
+	// Options contains FFmpeg behavior flags that affect input/output handling
+	// These are predefined options from ffmpeg.OptionType
+	// Examples: "thread_queue_1024" (buffer size), "copyts" (timestamp handling)
+	Options []ffmpeg.OptionType `toml:"options,omitempty" json:"options,omitempty"`
+}
+
+// StreamConfig represents a single stream configuration in the TOML file.
+// This is the top-level structure for each stream, containing metadata
+// and the nested FFmpeg configuration.
 type StreamConfig struct {
-	ID      string `toml:"id" json:"id"`
-	Name    string `toml:"name" json:"name"`
-	Device  string `toml:"device" json:"device"` // Stable device identifier (USB bus/port)
-	Enabled bool   `toml:"enabled" json:"enabled"`
+	// ID is the unique identifier for this stream
+	// This becomes the MediaMTX path name and must be unique
+	ID string `toml:"id" json:"id"`
 
-	// FFmpeg settings
-	InputFormat   string                      `toml:"input_format,omitempty" json:"input_format,omitempty"` // FFmpeg input format
-	Resolution    string                      `toml:"resolution,omitempty" json:"resolution,omitempty"`
-	FPS           string                      `toml:"fps,omitempty" json:"fps,omitempty"`
-	Codec         string                      `toml:"codec,omitempty" json:"codec,omitempty"`
-	Preset        string                      `toml:"preset,omitempty" json:"preset,omitempty"`
-	Bitrate       string                      `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
-	FFmpegOptions []ffmpeg.OptionType `toml:"ffmpeg_options,omitempty" json:"ffmpeg_options,omitempty"` // FFmpeg feature flags
+	// Name is a human-readable name for the stream
+	// If not specified, defaults to the ID
+	Name string `toml:"name" json:"name"`
 
-	// Monitoring
-	ProgressSocket string `toml:"progress_socket,omitempty" json:"progress_socket,omitempty"`
+	// Device is the stable USB device identifier
+	// Format: "usb-BUS-PORT" (e.g., "usb-0000:00:14.0-1.2")
+	// This is resolved to a /dev/videoX path at runtime
+	Device string `toml:"device" json:"device"`
 
-	// Metadata
+	// Enabled determines if this stream should be active
+	// Disabled streams are kept in config but not started
+	Enabled bool `toml:"enabled" json:"enabled"`
+
+	// FFmpeg contains all FFmpeg-specific configuration for this stream
+	// This includes encoder selection, hardware acceleration, and encoding parameters
+	FFmpeg FFmpegConfig `toml:"ffmpeg" json:"ffmpeg"`
+
+	// CreatedAt timestamp when the stream was first created
 	CreatedAt time.Time `toml:"created_at" json:"created_at"`
+
+	// UpdatedAt timestamp when the stream was last modified
 	UpdatedAt time.Time `toml:"updated_at" json:"updated_at"`
 }
 
@@ -199,7 +269,7 @@ func (sm *StreamManager) GetEnabledStreams() map[string]StreamConfig {
 }
 
 // ToMediaMTXConfig converts stream configurations to MediaMTX configuration
-func (sm *StreamManager) ToMediaMTXConfig(deviceResolver func(string) string) (*mediamtx.Config, error) {
+func (sm *StreamManager) ToMediaMTXConfig(deviceResolver func(string) string, socketPaths map[string]string) (*mediamtx.Config, error) {
 	mtxConfig := mediamtx.NewConfig()
 
 	for _, stream := range sm.GetEnabledStreams() {
@@ -210,15 +280,25 @@ func (sm *StreamManager) ToMediaMTXConfig(deviceResolver func(string) string) (*
 			continue
 		}
 
+		// Use the fresh socket path provided, not the one from TOML
+		socketPath := ""
+		if socketPaths != nil {
+			socketPath = socketPaths[stream.ID]
+		}
+
 		streamConfig := mediamtx.StreamConfig{
 			DevicePath:     devicePath,
-			InputFormat:    stream.InputFormat,
-			Resolution:     stream.Resolution,
-			FPS:            stream.FPS,
-			Codec:          stream.Codec,
-			Preset:         stream.Preset,
-			FFmpegOptions:  stream.FFmpegOptions,
-			ProgressSocket: stream.ProgressSocket, // Use socket path from TOML config
+			InputFormat:    stream.FFmpeg.InputFormat,
+			Resolution:     stream.FFmpeg.Resolution,
+			FPS:            stream.FFmpeg.FPS,
+			Codec:          stream.FFmpeg.Encoder, // Use the actual encoder, not generic codec
+			Preset:         stream.FFmpeg.Preset,
+			Bitrate:        stream.FFmpeg.Bitrate,
+			FFmpegOptions:  stream.FFmpeg.Options,
+			ProgressSocket: socketPath, // Use fresh socket path
+			GlobalArgs:     stream.FFmpeg.GlobalArgs,
+			EncoderParams:  stream.FFmpeg.EncoderParams,
+			VideoFilters:   stream.FFmpeg.VideoFilters,
 		}
 
 		// Use stream ID as path name

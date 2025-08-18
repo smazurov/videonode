@@ -1,0 +1,27 @@
+version: "0.5"
+
+processes:
+  # MediaMTX streaming server
+  mediamtx:
+    command: "./mediamtx"
+    availability:
+      restart: "on_failure"
+
+  # Backend with hot reload
+  backend:
+    command: "air"
+    depends_on:
+      mediamtx:
+        condition: process_started
+    availability:
+      restart: "on_failure"
+
+  # Frontend dev server
+  frontend:
+    command: "pnpm dev"
+    working_dir: "./ui"
+    depends_on:
+      backend:
+        condition: process_started
+    availability:
+      restart: "on_failure"

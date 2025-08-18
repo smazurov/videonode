@@ -38,7 +38,7 @@ func (VideoFormat) Schema(r huma.Registry) *huma.Schema {
 	for format := range videoFormatToPixelFormat {
 		enumValues = append(enumValues, string(format))
 	}
-	
+
 	return &huma.Schema{
 		Type:        huma.TypeString,
 		Enum:        enumValues,
@@ -59,7 +59,6 @@ func (vf VideoFormat) IsValid() bool {
 	return exists
 }
 
-
 // pixelFormatToHumanReadable converts V4L2 pixel format codes to human-readable names
 func pixelFormatToHumanReadable(pixelFormat uint32) string {
 	// Reverse lookup in our map
@@ -68,7 +67,7 @@ func pixelFormatToHumanReadable(pixelFormat uint32) string {
 			return string(format)
 		}
 	}
-	
+
 	log.Printf("Unknown pixel format code: %d", pixelFormat)
 	return "unknown"
 }
@@ -95,7 +94,7 @@ type Resolution struct {
 	Height uint32 `json:"height" example:"1080" doc:"Video height in pixels"`
 }
 
-// Framerate represents video framerate with snake_case fields  
+// Framerate represents video framerate with snake_case fields
 type Framerate struct {
 	Numerator   uint32  `json:"numerator" example:"1" doc:"Framerate fraction numerator"`
 	Denominator uint32  `json:"denominator" example:"30" doc:"Framerate fraction denominator"`
@@ -160,7 +159,7 @@ func ConvertV4L2Framerate(v4l2Rate v4l2_detector.Framerate) Framerate {
 	if v4l2Rate.Numerator != 0 {
 		fps = float64(v4l2Rate.Denominator) / float64(v4l2Rate.Numerator)
 	}
-	
+
 	return Framerate{
 		Numerator:   v4l2Rate.Numerator,
 		Denominator: v4l2Rate.Denominator,

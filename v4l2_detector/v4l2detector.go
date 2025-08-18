@@ -66,7 +66,7 @@ type MenuItem struct {
 func FindDevices() ([]DeviceInfo, error) {
 	findDevicesMutex.Lock()
 	defer findDevicesMutex.Unlock()
-	
+
 	var cDevices *C.struct_v4l2_device_info
 	var cCount C.size_t
 
@@ -105,6 +105,22 @@ func FindDevices() ([]DeviceInfo, error) {
 	}
 
 	return goDevices, nil
+}
+
+// GetDevicePathByID finds the device path for a given stable device ID
+func GetDevicePathByID(deviceID string) (string, error) {
+	devices, err := FindDevices()
+	if err != nil {
+		return "", fmt.Errorf("failed to find devices: %w", err)
+	}
+
+	for _, device := range devices {
+		if device.DeviceId == deviceID {
+			return device.DevicePath, nil
+		}
+	}
+
+	return "", fmt.Errorf("device with ID %s not found", deviceID)
 }
 
 // GetDeviceFormats returns all supported formats for a device

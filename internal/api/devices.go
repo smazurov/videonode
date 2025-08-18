@@ -20,7 +20,7 @@ var devicePathRegex = regexp.MustCompile(`/dev/video(\d+)`)
 
 // Device path parameter input
 type DevicePathInput struct {
-	DeviceID int `path:"device_id" example:"0" doc:"Device number (e.g., 0 for /dev/video0)"`
+	DeviceID string `path:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
 }
 
 // Device format query input
@@ -46,11 +46,6 @@ type DeviceCaptureBody struct {
 type DeviceCaptureInput struct {
 	DevicePathInput
 	Body DeviceCaptureBody
-}
-
-// deviceIDToPath converts device ID (e.g., 0) to device path (e.g., "/dev/video0")
-func deviceIDToPath(deviceID int) string {
-	return fmt.Sprintf("/dev/video%d", deviceID)
 }
 
 // pathToDeviceID extracts device ID from device path using compiled regex
@@ -249,8 +244,11 @@ func (s *Server) registerDeviceRoutes() {
 		Security:    withAuth(),
 		Errors:      []int{401, 500},
 	}, func(ctx context.Context, input *DevicePathInput) (*models.DeviceCapabilitiesResponse, error) {
-		// Convert device ID to device path
-		devicePath := deviceIDToPath(input.DeviceID)
+		// Look up device path from stable device ID
+		devicePath, err := v4l2_detector.GetDevicePathByID(input.DeviceID)
+		if err != nil {
+			return nil, huma.Error404NotFound("Device not found", err)
+		}
 
 		data, err := GetDeviceCapabilities(devicePath)
 		if err != nil {
@@ -271,8 +269,11 @@ func (s *Server) registerDeviceRoutes() {
 		Security:    withAuth(),
 		Errors:      []int{400, 401, 500},
 	}, func(ctx context.Context, input *DeviceFormatInput) (*models.DeviceResolutionsResponse, error) {
-		// Convert device ID to device path
-		devicePath := deviceIDToPath(input.DeviceID)
+		// Look up device path from stable device ID
+		devicePath, err := v4l2_detector.GetDevicePathByID(input.DeviceID)
+		if err != nil {
+			return nil, huma.Error404NotFound("Device not found", err)
+		}
 
 		// Convert format name to pixel format
 		pixelFormat, err := humanReadableToPixelFormat(input.FormatName)
@@ -307,8 +308,11 @@ func (s *Server) registerDeviceRoutes() {
 		Security:    withAuth(),
 		Errors:      []int{400, 401, 500},
 	}, func(ctx context.Context, input *DeviceResolutionInput) (*models.DeviceFrameratesResponse, error) {
-		// Convert device ID to device path
-		devicePath := deviceIDToPath(input.DeviceID)
+		// Look up device path from stable device ID
+		devicePath, err := v4l2_detector.GetDevicePathByID(input.DeviceID)
+		if err != nil {
+			return nil, huma.Error404NotFound("Device not found", err)
+		}
 
 		// Convert format name to pixel format
 		pixelFormat, err := humanReadableToPixelFormat(input.FormatName)
@@ -354,8 +358,11 @@ func (s *Server) registerDeviceRoutes() {
 		Security:      withAuth(),
 		Errors:        []int{401, 404},
 	}, func(ctx context.Context, input *DeviceCaptureInput) (*models.CaptureResponse, error) {
-		// Convert device ID to device path
-		devicePath := deviceIDToPath(input.DeviceID)
+		// Look up device path from stable device ID
+		devicePath, err := v4l2_detector.GetDevicePathByID(input.DeviceID)
+		if err != nil {
+			return nil, huma.Error404NotFound("Device not found", err)
+		}
 
 		// Validate device exists
 		if _, err := os.Stat(devicePath); os.IsNotExist(err) {

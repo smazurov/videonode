@@ -133,11 +133,6 @@ func NewServer(opts *Options) *Server {
 
 	api := humago.New(mux, config)
 
-	// Load existing streams from TOML config into memory
-	if err := opts.StreamService.LoadStreamsFromConfig(); err != nil {
-		fmt.Printf("Warning: Failed to load existing streams from config: %v\n", err)
-	}
-
 	server := &Server{
 		api:           api,
 		mux:           mux,
@@ -220,6 +215,9 @@ func (s *Server) registerRoutes() {
 
 	// SSE endpoints
 	s.registerSSERoutes()
+
+	// Metrics SSE endpoint
+	s.registerMetricsRoutes()
 }
 
 // withAuth returns security requirement for basic auth

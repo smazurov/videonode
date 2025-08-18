@@ -18,7 +18,27 @@ const (
 	OptionThreadQueue1024    OptionType = "thread_queue_1024"
 	OptionThreadQueue4096    OptionType = "thread_queue_4096"
 	OptionLowLatency         OptionType = "low_latency"
+	OptionCopyTimestamps     OptionType = "copyts"
 )
+
+// FFmpegBase returns the ffmpeg command with standard flags
+func FFmpegBase() string {
+	return "ffmpeg -hide_banner"
+}
+
+// FFprobeBase returns the ffprobe command with standard flags
+func FFprobeBase() string {
+	return "ffprobe -hide_banner"
+}
+
+// Helper functions for internal use
+func ffmpegBase() string {
+	return FFmpegBase()
+}
+
+func ffprobeBase() string {
+	return FFprobeBase()
+}
 
 // OptionCategory represents option categories
 type OptionCategory string
@@ -56,9 +76,9 @@ var AllOptions = []Option{
 		Name:          "Generate PTS",
 		Description:   "Generate presentation timestamps for better sync",
 		Category:      CategoryTiming,
-		AppDefault:    true,
+		AppDefault:    false, // Disabled because we use copyts by default now
 		FFmpegDefault: "disabled",
-		ConflictsWith: []OptionType{OptionWallclockTimestamp}, // These can conflict in timestamp handling
+		ConflictsWith: []OptionType{OptionWallclockTimestamp, OptionCopyTimestamps}, // These can conflict in timestamp handling
 	},
 	{
 		Key:           OptionIgnoreDTS,
@@ -118,6 +138,15 @@ var AllOptions = []Option{
 		Category:      CategoryPerformance,
 		AppDefault:    false,
 		FFmpegDefault: "disabled",
+	},
+	{
+		Key:           OptionCopyTimestamps,
+		Name:          "Copy Timestamps",
+		Description:   "Preserve original timestamps and start at zero (fixes V4L2 timestamp issues)",
+		Category:      CategoryTiming,
+		AppDefault:    true, // MAKE THIS DEFAULT FOR ALL STREAMS
+		FFmpegDefault: "disabled",
+		ConflictsWith: []OptionType{OptionGeneratePTS, OptionWallclockTimestamp},
 	},
 }
 
@@ -284,15 +313,19 @@ func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionT
 			cmd.WriteString(" -avoid_negative_ts make_zero")
 			appliedOptions = append(appliedOptions, OptionAvoidNegativeTS)
 		case OptionThreadQueue1024:
-			// cmd.WriteString(" -thread_queue_size 1024")
+			cmd.WriteString(" -thread_queue_size 1024")
 			appliedOptions = append(appliedOptions, OptionThreadQueue1024)
 		case OptionThreadQueue4096:
-			// cmd.WriteString(" -thread_queue_size 4096")
+			cmd.WriteString(" -thread_queue_size 4096")
 			appliedOptions = append(appliedOptions, OptionThreadQueue4096)
 		case OptionLowLatency:
 			cmd.WriteString(" -fflags +flush_packets")
 			cmd.WriteString(" -flags +low_delay")
 			appliedOptions = append(appliedOptions, OptionLowLatency)
+		case OptionCopyTimestamps:
+			// Note: copyts and start_at_zero need to be applied AFTER input
+			// They will be handled separately in BuildStreamCommand
+			appliedOptions = append(appliedOptions, OptionCopyTimestamps)
 		}
 	}
 
@@ -311,7 +344,7 @@ func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (
 	}
 
 	var cmd strings.Builder
-	cmd.WriteString("ffmpeg")
+	cmd.WriteString(ffmpegBase())
 
 	// Add progress monitoring if socket path is provided
 	if streamConfig.ProgressSocket != "" {
@@ -358,6 +391,18 @@ func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (
 
 	// Input device
 	cmd.WriteString(fmt.Sprintf(" -i %s", streamConfig.DevicePath))
+
+	// Check if copyts option is enabled and apply it AFTER input
+	hasCopyTS := false
+	for _, opt := range appliedOptions {
+		if opt == OptionCopyTimestamps {
+			hasCopyTS = true
+			break
+		}
+	}
+	if hasCopyTS {
+		cmd.WriteString(" -copyts -start_at_zero")
+	}
 
 	// Add video filters AFTER input, BEFORE codec
 	if streamConfig.VideoFilters != "" {
@@ -411,7 +456,7 @@ func (cb *DefaultCommandBuilder) BuildCaptureCommand(config CaptureConfig) (stri
 	}
 
 	var cmd strings.Builder
-	cmd.WriteString("ffmpeg")
+	cmd.WriteString(ffmpegBase())
 
 	// Add delay if specified (using input seeking)
 	if config.DelayMs > 0 {
@@ -468,12 +513,12 @@ func (cb *DefaultCommandBuilder) BuildProbeCommand(devicePath string) (string, e
 		return "", fmt.Errorf("device path is required")
 	}
 
-	return fmt.Sprintf("ffprobe -f v4l2 -list_formats all -i %s", devicePath), nil
+	return fmt.Sprintf("%s -f v4l2 -list_formats all -i %s", ffprobeBase(), devicePath), nil
 }
 
 // BuildEncodersListCommand creates an FFmpeg command for listing available encoders
 func (cb *DefaultCommandBuilder) BuildEncodersListCommand() (string, error) {
-	return "ffmpeg -encoders", nil
+	return fmt.Sprintf("%s -encoders", ffmpegBase()), nil
 }
 
 // GenerateCommand provides backward compatibility - delegates to BuildStreamCommand
