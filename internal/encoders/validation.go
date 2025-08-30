@@ -3,33 +3,31 @@ package encoders
 import (
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/pelletier/go-toml/v2"
+	"github.com/smazurov/videonode/internal/config"
+	"github.com/smazurov/videonode/internal/types"
 )
 
-// ValidationInfo contains metadata about the validation test
-type ValidationInfo struct {
-	Timestamp      string `toml:"timestamp"`
-	FFmpegVersion  string `toml:"ffmpeg_version"`
-	TestDuration   int    `toml:"test_duration"`
-	TestResolution string `toml:"test_resolution"`
+// Validator manages encoder validation with access to StreamManager
+type Validator struct {
+	streamManager *config.StreamManager
+	logger        ValidationLogger
 }
 
-// ValidationResults represents the complete validation results
-type ValidationResults struct {
-	ValidationInfo ValidationInfo  `toml:"validation_info"`
-	H264           CodecValidation `toml:"h264"`
-	H265           CodecValidation `toml:"h265"`
+// NewValidator creates a new Validator with the given StreamManager
+func NewValidator(sm *config.StreamManager) *Validator {
+	return &Validator{
+		streamManager: sm,
+		logger:        SilentLogger{},
+	}
 }
 
-// CodecValidation represents validation results for a specific codec type
-type CodecValidation struct {
-	Working []string `toml:"working"`
-	Failed  []string `toml:"failed"`
+// SetLogger sets the logger for validation output
+func (v *Validator) SetLogger(logger ValidationLogger) {
+	v.logger = logger
 }
 
 // ValidateEncoder tests a single encoder using the appropriate validator
@@ -67,25 +65,18 @@ func (l *VerboseLogger) Printf(format string, v ...interface{}) {
 	l.Logger.Printf(format, v...)
 }
 
-// ValidateEncoders validates all encoders and returns results (silent)
-func ValidateEncoders() (*ValidationResults, error) {
-	return ValidateEncodersWithLogger(SilentLogger{})
-}
-
-// ValidateEncodersWithLogger validates all encoders with custom logger
-func ValidateEncodersWithLogger(logger ValidationLogger) (*ValidationResults, error) {
-	results := &ValidationResults{
-		ValidationInfo: ValidationInfo{
-			Timestamp:      time.Now().Format(time.RFC3339),
-			FFmpegVersion:  getFFmpegVersion(),
-			TestDuration:   2,
-			TestResolution: "640x480",
-		},
-		H264: CodecValidation{
+// ValidateEncoders validates all encoders and returns results
+func (v *Validator) ValidateEncoders() (*types.ValidationResults, error) {
+	results := &types.ValidationResults{
+		Timestamp:      time.Now().Format(time.RFC3339),
+		FFmpegVersion:  getFFmpegVersion(),
+		TestDuration:   2,
+		TestResolution: "640x480",
+		H264: types.CodecValidation{
 			Working: []string{},
 			Failed:  []string{},
 		},
-		H265: CodecValidation{
+		H265: types.CodecValidation{
 			Working: []string{},
 			Failed:  []string{},
 		},
@@ -96,19 +87,19 @@ func ValidateEncodersWithLogger(logger ValidationLogger) (*ValidationResults, er
 	// Get all available validators (those with compiled encoders)
 	availableValidators := registry.GetAvailableValidators()
 
-	logger.Printf("Found %d validator(s) with compiled encoders", len(availableValidators))
+	v.logger.Printf("Found %d validator(s) with compiled encoders", len(availableValidators))
 
 	for _, validator := range availableValidators {
-		logger.Printf("=== %s ===", validator.GetDescription())
+		v.logger.Printf("=== %s ===", validator.GetDescription())
 
 		// Get only the compiled encoders for this validator
 		compiledEncoders := registry.GetCompiledEncoders(validator)
 
 		for _, encoderName := range compiledEncoders {
-			logger.Printf("Testing %s...", encoderName)
+			v.logger.Printf("Testing %s...", encoderName)
 
 			if valid, err := validator.Validate(encoderName); valid {
-				logger.Printf("%s: ✓ WORKING", encoderName)
+				v.logger.Printf("%s: ✓ WORKING", encoderName)
 
 				// Categorize by codec type (including software encoders)
 				if strings.Contains(encoderName, "h264") || strings.Contains(encoderName, "x264") {
@@ -117,7 +108,7 @@ func ValidateEncodersWithLogger(logger ValidationLogger) (*ValidationResults, er
 					results.H265.Working = append(results.H265.Working, encoderName)
 				}
 			} else {
-				logger.Printf("%s: ✗ FAILED (%v)", encoderName, err)
+				v.logger.Printf("%s: ✗ FAILED (%v)", encoderName, err)
 
 				// Categorize by codec type (including software encoders)
 				if strings.Contains(encoderName, "h264") || strings.Contains(encoderName, "x264") {
@@ -132,39 +123,31 @@ func ValidateEncodersWithLogger(logger ValidationLogger) (*ValidationResults, er
 	return results, nil
 }
 
-// SaveValidationResults saves validation results to a TOML file
-func SaveValidationResults(results *ValidationResults, filename string) error {
-	data, err := toml.Marshal(results)
-	if err != nil {
-		return fmt.Errorf("failed to marshal results: %w", err)
-	}
-
-	err = os.WriteFile(filename, data, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-
-	return nil
+// SaveValidationResults saves validation results using StreamManager
+func (v *Validator) SaveValidationResults(results *types.ValidationResults) error {
+	// Update validation data directly through StreamManager
+	return v.streamManager.UpdateValidation(results)
 }
 
-// LoadValidationResults loads validation results from a TOML file
-func LoadValidationResults(filename string) (*ValidationResults, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+// LoadValidationResults loads validation results from StreamManager
+func (v *Validator) LoadValidationResults() (*types.ValidationResults, error) {
+	// Get validation data from StreamManager
+	validation := v.streamManager.GetValidation()
+	if validation == nil {
+		return nil, fmt.Errorf("no validation data found")
 	}
 
-	var results ValidationResults
-	err = toml.Unmarshal(data, &results)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal results: %w", err)
-	}
+	return validation, nil
+}
 
-	return &results, nil
+// Deprecated: Use Validator.LoadValidationResults() instead
+func LoadValidationResults(sm *config.StreamManager) (*types.ValidationResults, error) {
+	v := NewValidator(sm)
+	return v.LoadValidationResults()
 }
 
 // PrintValidationSummary prints a summary of validation results
-func PrintValidationSummary(results *ValidationResults) {
+func PrintValidationSummary(results *types.ValidationResults) {
 	fmt.Println("\n=== VALIDATION SUMMARY ===")
 
 	fmt.Printf("H.264 encoders working: %d\n", len(results.H264.Working))
@@ -189,35 +172,38 @@ func PrintValidationSummary(results *ValidationResults) {
 }
 
 // RunValidateCommand runs the validation command logic
-func RunValidateCommand(outputFile string) {
-	RunValidateCommandWithOptions(outputFile, false)
-}
-
-// RunValidateCommandWithOptions runs the validation command with options
-func RunValidateCommandWithOptions(outputFile string, quiet bool) {
-	var logger ValidationLogger
+func (v *Validator) RunValidateCommand(quiet bool) error {
 	if quiet {
-		logger = SilentLogger{}
+		v.SetLogger(SilentLogger{})
 	} else {
-		logger = NewVerboseLogger()
+		v.SetLogger(NewVerboseLogger())
 	}
 
-	// Run validation with appropriate logger
-	results, err := ValidateEncodersWithLogger(logger)
+	// Run validation
+	results, err := v.ValidateEncoders()
 	if err != nil {
-		log.Fatalf("Error validating encoders: %v", err)
+		return fmt.Errorf("error validating encoders: %w", err)
 	}
 
-	// Save results to TOML file
-	err = SaveValidationResults(results, outputFile)
+	// Save results
+	err = v.SaveValidationResults(results)
 	if err != nil {
-		log.Fatalf("Error saving validation results: %v", err)
+		return fmt.Errorf("error saving validation results: %w", err)
 	}
 
 	// Print summary
 	PrintValidationSummary(results)
+	fmt.Println("\nResults saved")
 
-	fmt.Printf("\nResults saved to: %s\n", outputFile)
+	return nil
+}
+
+// RunValidateCommandWithOptions runs validation with StreamManager - for backward compatibility
+func RunValidateCommandWithOptions(sm *config.StreamManager, quiet bool) {
+	v := NewValidator(sm)
+	if err := v.RunValidateCommand(quiet); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // getFFmpegVersion gets the FFmpeg version string

@@ -11,14 +11,13 @@ import (
 	"github.com/smazurov/videonode/internal/encoders"
 )
 
-// getValidatedEncoders returns only encoders that passed validation and are saved in validated_encoders.toml
-func getValidatedEncoders() (*encoders.EncoderList, error) {
-	// Load validation results from file
-	validationFile := "validated_encoders.toml"
-	results, err := encoders.LoadValidationResults(validationFile)
+// getValidatedEncoders returns only encoders that passed validation and are saved in streams.toml
+func (s *Server) getValidatedEncoders() (*encoders.EncoderList, error) {
+	// Load validation results from StreamManager
+	results, err := encoders.LoadValidationResults(s.streamManager)
 	if err != nil {
-		// If no validation file exists, return error - system needs to be validated first
-		return nil, fmt.Errorf("validation file not found - run encoder validation first: %w", err)
+		// If no validation data exists, return error - system needs to be validated first
+		return nil, fmt.Errorf("validation data not found - run encoder validation first: %w", err)
 	}
 
 	// Get all available encoders from system
@@ -130,9 +129,9 @@ func convertEncoders(encoderList *encoders.EncoderList) models.EncoderData {
 }
 
 // GetEncodersData fetches the list of validated encoders
-func GetEncodersData() (models.EncoderData, error) {
+func (s *Server) GetEncodersData() (models.EncoderData, error) {
 	// Get validated encoders
-	encoderList, err := getValidatedEncoders()
+	encoderList, err := s.getValidatedEncoders()
 	if err != nil {
 		return models.EncoderData{}, fmt.Errorf("failed to get validated encoders: %w", err)
 	}
@@ -150,13 +149,13 @@ func (s *Server) registerEncoderRoutes() {
 		Summary:     "List Encoders",
 		Description: "List validated video and audio encoders available in the system",
 		Tags:        []string{"encoders"},
-		Security: withAuth(),
-		Errors: []int{400, 401, 500},
+		Security:    withAuth(),
+		Errors:      []int{400, 401, 500},
 	}, func(ctx context.Context, input *struct{}) (*models.EncodersResponse, error) {
-		data, err := GetEncodersData()
+		data, err := s.GetEncodersData()
 		if err != nil {
-			// Check if error is due to missing validation file
-			if strings.Contains(err.Error(), "validation file not found") {
+			// Check if error is due to missing validation data
+			if strings.Contains(err.Error(), "validation data not found") {
 				return nil, huma.Error400BadRequest("Validation required - run encoder validation first", err)
 			}
 			return nil, huma.Error500InternalServerError("Failed to get encoders", err)

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { 
+  API_BASE_URL,
   SSEStreamEvent, 
   SSEStreamLifecycleEvent, 
   SSEStreamMetricsEvent,
@@ -38,7 +39,8 @@ function setupGlobalSSE(): void {
   if (!credentials) return;
 
   try {
-    const eventSource = new EventSource(`http://localhost:8090/api/events?auth=${encodeURIComponent(credentials)}`, {
+    const sseUrl = `${API_BASE_URL}/api/events?auth=${encodeURIComponent(credentials)}`;
+    const eventSource = new EventSource(sseUrl, {
       withCredentials: false,
     });
 

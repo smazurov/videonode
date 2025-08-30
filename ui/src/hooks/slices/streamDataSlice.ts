@@ -61,13 +61,10 @@ export const createStreamDataSlice: StateCreator<
         const newStreams = new Map(state.streams);
         const updatedStream: StreamData = {
           ...stream,
-          metrics: {
-            fps: metrics.fps,
-            dropped_frames: metrics.dropped_frames,
-            duplicate_frames: metrics.duplicate_frames,
-            processing_speed: metrics.processing_speed,
-            timestamp: metrics.timestamp,
-          }
+          fps: metrics.fps,
+          dropped_frames: metrics.dropped_frames,
+          duplicate_frames: metrics.duplicate_frames,
+          processing_speed: metrics.processing_speed,
         };
         newStreams.set(metrics.stream_id, updatedStream);
         return { streams: newStreams };

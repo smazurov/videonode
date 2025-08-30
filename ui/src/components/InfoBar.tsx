@@ -9,6 +9,7 @@ import {
   CheckCircleIcon,
   ClockIcon
 } from "@heroicons/react/24/outline";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { 
   getHealth, 
   getEncoders,
@@ -18,6 +19,7 @@ import {
 import { useDeviceStore } from "../hooks/useDeviceStore";
 import { useStreamStore } from "../hooks/useStreamStore";
 import { useSSEManager } from "../hooks/useSSEManager";
+import { useVersion } from "../hooks/useVersion";
 import { cn } from "../utils";
 
 interface InfoBarProps {
@@ -138,6 +140,7 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
   const devices = useDeviceStore((state) => state.devices);
   const streamsMap = useStreamStore((state) => state.streams);
   const streams = useMemo(() => Array.from(streamsMap.values()), [streamsMap]);
+  const { version: versionInfo } = useVersion();
   
   // Debug: Log when devices change
   useEffect(() => {
@@ -304,21 +307,52 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
           </>
         )}
 
-        {/* SSE Connection Status */}
-        <InfoItem
-          icon={ComputerDesktopIcon}
-          label="System"
-          value={(() => {
-            switch (connectionStatus) {
-              case 'online': return "Connected";
-              case 'offline': return "Disconnected";
-              case 'reconnecting': return "Reconnecting";
-              default: return "Unknown";
-            }
-          })()}
-          status={connectionStatus}
-          {...(systemInfo.health?.version && { subtitle: `v${systemInfo.health.version}` })}
-        />
+        {/* SSE Connection Status with Version Tooltip */}
+        <Tooltip.Provider>
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
+              <div>
+                <InfoItem
+                  icon={ComputerDesktopIcon}
+                  label="System"
+                  value={(() => {
+                    switch (connectionStatus) {
+                      case 'online': return "Connected";
+                      case 'offline': return "Disconnected";
+                      case 'reconnecting': return "Reconnecting";
+                      default: return "Unknown";
+                    }
+                  })()}
+                  status={connectionStatus}
+                  {...(systemInfo.health?.version && { subtitle: `v${systemInfo.health.version}` })}
+                />
+              </div>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content
+                className="z-50 px-3 py-2 text-xs bg-gray-900 text-white rounded-md shadow-lg"
+                sideOffset={5}
+              >
+                {versionInfo && (
+                  <div className="space-y-1 font-mono">
+                    <div>
+                      <span className="text-gray-400">API:</span> {versionInfo.git_commit} • {versionInfo.build_date}
+                    </div>
+                    <div>
+                      <span className="text-gray-400">UI:</span> {
+                        typeof __VIDEONODE_UI_VERSION__ !== 'undefined' ? __VIDEONODE_UI_VERSION__ : 'dev'
+                      }
+                    </div>
+                  </div>
+                )}
+                {!versionInfo && (
+                  <div className="text-gray-400">Loading version info...</div>
+                )}
+                <Tooltip.Arrow className="fill-gray-900" />
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+        </Tooltip.Provider>
 
         {/* Loading indicator */}
         {systemInfo.loading && (

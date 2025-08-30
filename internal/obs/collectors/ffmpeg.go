@@ -49,6 +49,7 @@ func NewFFmpegCollector(socketPath, logPath, streamID string) *FFmpegCollector {
 
 // Start begins collecting FFmpeg data
 func (f *FFmpegCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoint) error {
+	log.Printf("OBS: Starting FFmpeg collector for stream '%s' with socket: %s", f.streamID, f.socketPath)
 	f.SetRunning(true)
 
 	// Create a cancellable context for this collector

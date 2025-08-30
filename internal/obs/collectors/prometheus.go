@@ -92,8 +92,8 @@ func (p *PrometheusCollector) Start(ctx context.Context, dataChan chan<- obs.Dat
 
 	p.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Starting Prometheus scraper for endpoint: %s", p.endpoint), time.Now())
 
-	// Perform initial scrape
-	p.scrapeMetrics(dataChan)
+	// Perform initial scrape with context
+	p.scrapeMetricsWithContext(ctx, dataChan)
 
 	ticker := time.NewTicker(p.Interval())
 	defer ticker.Stop()
@@ -101,7 +101,15 @@ func (p *PrometheusCollector) Start(ctx context.Context, dataChan chan<- obs.Dat
 	for {
 		select {
 		case <-ticker.C:
-			p.scrapeMetrics(dataChan)
+			// Check if context is done before scraping
+			select {
+			case <-ctx.Done():
+				p.SetRunning(false)
+				p.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Stopped Prometheus scraper for endpoint: %s", p.endpoint), time.Now())
+				return nil
+			default:
+				p.scrapeMetricsWithContext(ctx, dataChan)
+			}
 
 		case <-ctx.Done():
 			p.SetRunning(false)
@@ -116,11 +124,17 @@ func (p *PrometheusCollector) Start(ctx context.Context, dataChan chan<- obs.Dat
 	}
 }
 
-// scrapeMetrics performs a single scrape of the Prometheus endpoint
-func (p *PrometheusCollector) scrapeMetrics(dataChan chan<- obs.DataPoint) {
+// scrapeMetricsWithContext performs a single scrape of the Prometheus endpoint with context
+func (p *PrometheusCollector) scrapeMetricsWithContext(ctx context.Context, dataChan chan<- obs.DataPoint) {
 	scrapeStart := time.Now()
 
-	resp, err := p.client.Get(p.endpoint)
+	req, err := http.NewRequestWithContext(ctx, "GET", p.endpoint, nil)
+	if err != nil {
+		p.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Failed to create request: %v", err), time.Now())
+		return
+	}
+
+	resp, err := p.client.Do(req)
 	if err != nil {
 		p.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Failed to scrape %s: %v", p.endpoint, err), time.Now())
 		p.sendScrapeMetrics(dataChan, scrapeStart, 0, false)

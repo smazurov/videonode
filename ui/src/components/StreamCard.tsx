@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card } from './Card';
 import { Button } from './Button';
 import { WebRTCPreview } from './WebRTCPreview';
-import { StreamData } from '../lib/api';
+import { StreamData, buildStreamURL } from '../lib/api';
 
 interface StreamCardProps {
   stream: StreamData;
@@ -84,7 +84,7 @@ export function StreamCard({ stream, onDelete, onRefresh, className = '' }: Read
         <div className="aspect-video bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden">
           <WebRTCPreview
             streamId={stream.stream_id}
-            webrtcUrl={stream.webrtc_url}
+            webrtcUrl={buildStreamURL(stream.webrtc_url)}
             className="w-full h-full"
           />
         </div>
@@ -104,6 +104,15 @@ export function StreamCard({ stream, onDelete, onRefresh, className = '' }: Read
               {stream.codec}
             </span>
           </div>
+          
+          {stream.bitrate && (
+            <div className="flex justify-between">
+              <span className="text-gray-600 dark:text-gray-300">Bitrate:</span>
+              <span className="text-gray-900 dark:text-white font-medium">
+                {stream.bitrate}
+              </span>
+            </div>
+          )}
           
           <div className="flex justify-between">
             <span className="text-gray-600 dark:text-gray-300">Uptime:</span>
@@ -151,7 +160,7 @@ export function StreamCard({ stream, onDelete, onRefresh, className = '' }: Read
                   WebRTC
                 </span>
                 <code className="text-xs text-gray-600 dark:text-gray-300 truncate flex-1">
-                  {stream.webrtc_url}
+                  {buildStreamURL(stream.webrtc_url)}
                 </code>
               </div>
             )}
@@ -161,7 +170,7 @@ export function StreamCard({ stream, onDelete, onRefresh, className = '' }: Read
                   RTSP
                 </span>
                 <code className="text-xs text-gray-600 dark:text-gray-300 truncate flex-1">
-                  {stream.rtsp_url}
+                  {buildStreamURL(stream.rtsp_url, 'rtsp')}
                 </code>
               </div>
             )}

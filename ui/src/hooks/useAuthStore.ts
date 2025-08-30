@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { testAuth } from "../lib/api";
 
 export interface User {
   username: string;
@@ -16,25 +17,6 @@ interface AuthState {
   clearAuth: () => void;
 }
 
-// Basic Auth API functions
-const API_BASE_URL = "http://localhost:8090";
-
-async function makeAuthenticatedRequest(url: string, username: string, password: string) {
-  const credentials = btoa(`${username}:${password}`);
-  
-  try {
-    return await fetch(url, {
-      headers: {
-        'Authorization': `Basic ${credentials}`,
-        'Content-Type': 'application/json',
-      },
-    });
-  } catch (error) {
-    console.error("API request failed:", error);
-    throw error;
-  }
-}
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -48,14 +30,10 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         
         try {
-          // Test authentication with a protected endpoint (devices requires auth)
-          const response = await makeAuthenticatedRequest(
-            `${API_BASE_URL}/api/devices`,
-            username,
-            password
-          );
+          // Test authentication using the centralized API function
+          const success = await testAuth(username, password);
           
-          if (response.ok) {
+          if (success) {
             const user: User = {
               username,
               isAuthenticated: true,

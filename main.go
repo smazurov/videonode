@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -36,9 +37,6 @@ type Options struct {
 	ObsNetworkInterfaces     string `help:"Network interfaces to monitor (comma-separated)" default:"lo,wlp12s0,enp14s0" toml:"obs.network_interfaces" env:"OBS_NETWORK_INTERFACES"`
 	ObsPrometheusEnabled     bool   `help:"Enable Prometheus" default:"true" toml:"obs.prometheus_enabled" env:"OBS_PROMETHEUS_ENABLED"`
 	ObsSSEEnabled            bool   `help:"Enable SSE" default:"true" toml:"obs.sse_enabled" env:"OBS_SSE_ENABLED"`
-
-	// Encoders settings
-	EncodersValidationOutput string `help:"Validation output file" default:"validated_encoders.toml" toml:"encoders.validation_output" env:"ENCODERS_VALIDATION_OUTPUT"`
 
 	// Capture settings
 	CaptureDefaultDelayMs int `help:"Default capture delay in milliseconds" default:"3000" toml:"capture.default_delay_ms" env:"CAPTURE_DEFAULT_DELAY_MS"`
@@ -176,6 +174,7 @@ func main() {
 			AuthPassword:          opts.AuthPassword,
 			CaptureDefaultDelayMs: opts.CaptureDefaultDelayMs,
 			StreamService:         streamService,
+			StreamManager:         streamManager,
 		})
 
 		// Wire up SSE exporter if OBS is enabled and SSE is configured
@@ -184,7 +183,6 @@ func main() {
 			sseExporter := exporters.NewSSEExporter(sseBroadcaster)
 			sseExporter.SetLogLevel(opts.LoggingObs)
 			obsManager.AddExporter(sseExporter)
-			log.Printf("Added SSE exporter to OBS manager")
 		}
 
 		hooks.OnStart(func() {
@@ -192,30 +190,33 @@ func main() {
 			if obsManager != nil {
 				if err := obsManager.Start(); err != nil {
 					log.Printf("Warning: Failed to start observability manager: %v", err)
-				} else {
-					log.Printf("Started OBS manager with collectors and exporters")
 				}
 			}
 
 			fmt.Printf("Starting server on %s\n", opts.Port)
-			if err := server.Start(opts.Port); err != nil {
+			if err := server.Start(opts.Port); err != nil && err != http.ErrServerClosed {
 				log.Fatalf("Failed to start server: %v", err)
 			}
 		})
 
 		hooks.OnStop(func() {
 			fmt.Println("Shutting down server...")
+			if err := server.Stop(); err != nil {
+				log.Printf("Error stopping server: %v", err)
+			}
 			if obsManager != nil {
 				obsManager.Stop()
 			}
 		})
-
-		// Configure validate-encoders command with config value
-		cmd.SetValidationOutput(opts.EncodersValidationOutput)
 	})
 
-	// Add the existing validate-encoders command
-	cli.Root().AddCommand(cmd.ValidateEncodersCmd)
+	// Create StreamManager for validate command (needs to be outside the hooks)
+	streamManager := config.NewStreamManager("")
+	streamManager.Load()
+
+	// Add validate-encoders command with StreamManager
+	validateCmd := cmd.CreateValidateEncodersCmd(streamManager)
+	cli.Root().AddCommand(validateCmd)
 
 	// Run the CLI
 	cli.Run()

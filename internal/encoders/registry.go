@@ -6,15 +6,9 @@ import "github.com/smazurov/videonode/internal/encoders/validation"
 func CreateValidatorRegistry() *validation.ValidatorRegistry {
 	registry := validation.NewValidatorRegistry()
 
-	// Register all validators
+	// Register only the validators we've updated
 	registry.Register(validation.NewVaapiValidator())
-	registry.Register(validation.NewNvencValidator())
-	registry.Register(validation.NewAmfValidator())
-	registry.Register(validation.NewQsvValidator())
-	registry.Register(validation.NewVideoToolboxValidator())
 	registry.Register(validation.NewRkmppValidator())
-	registry.Register(validation.NewV4l2m2mValidator())
-	registry.Register(validation.NewVulkanValidator())  // Vulkan video acceleration
 	registry.Register(validation.NewGenericValidator()) // Fallback validator last
 
 	return registry

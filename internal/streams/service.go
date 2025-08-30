@@ -12,6 +12,8 @@ import (
 	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/mediamtx"
+	"github.com/smazurov/videonode/internal/types"
+	valManager "github.com/smazurov/videonode/internal/validation"
 	"github.com/smazurov/videonode/v4l2_detector"
 )
 
@@ -27,32 +29,64 @@ type StreamService interface {
 
 // StreamServiceImpl implements the StreamService interface
 type StreamServiceImpl struct {
-	streamManager  *streamconfig.StreamManager
-	streams        map[string]*Stream
-	streamsMutex   sync.RWMutex
-	mediamtxConfig string
-	obsIntegration func(string, string, string) error // Function to add OBS monitoring
-	obsRemoval     func(string) error                 // Function to remove OBS monitoring
+	streamManager   *streamconfig.StreamManager
+	streams         map[string]*Stream
+	streamsMutex    sync.RWMutex
+	mediamtxConfig  string
+	obsIntegration  func(string, string, string) error // Function to add OBS monitoring
+	obsRemoval      func(string) error                 // Function to remove OBS monitoring
+	encoderSelector encoders.Selector                  // Encoder selection strategy
 }
 
 // NewStreamService creates a new stream service
 func NewStreamService(streamManager *streamconfig.StreamManager, mediamtxConfigPath string) StreamService {
+	// Create default encoder selector using stream manager for backward compatibility
+	storage := valManager.NewStreamStorage(streamManager)
+	vm := valManager.NewManager(storage)
+	if err := vm.LoadValidation(); err != nil {
+		log.Printf("Failed to load validation data: %v", err)
+	}
+	selector := encoders.NewDefaultSelector(vm)
+
 	return &StreamServiceImpl{
-		streamManager:  streamManager,
-		streams:        make(map[string]*Stream),
-		mediamtxConfig: mediamtxConfigPath,
+		streamManager:   streamManager,
+		streams:         make(map[string]*Stream),
+		mediamtxConfig:  mediamtxConfigPath,
+		encoderSelector: selector,
 	}
 }
 
 // NewStreamServiceWithOBS creates a new stream service with OBS monitoring integration
 func NewStreamServiceWithOBS(streamManager *streamconfig.StreamManager, mediamtxConfigPath string,
 	obsIntegration func(string, string, string) error, obsRemoval func(string) error) StreamService {
+	// Create default encoder selector using stream manager for backward compatibility
+	storage := valManager.NewStreamStorage(streamManager)
+	vm := valManager.NewManager(storage)
+	if err := vm.LoadValidation(); err != nil {
+		log.Printf("Failed to load validation data: %v", err)
+	}
+	selector := encoders.NewDefaultSelector(vm)
+
 	return &StreamServiceImpl{
-		streamManager:  streamManager,
-		streams:        make(map[string]*Stream),
-		mediamtxConfig: mediamtxConfigPath,
-		obsIntegration: obsIntegration,
-		obsRemoval:     obsRemoval,
+		streamManager:   streamManager,
+		streams:         make(map[string]*Stream),
+		mediamtxConfig:  mediamtxConfigPath,
+		obsIntegration:  obsIntegration,
+		obsRemoval:      obsRemoval,
+		encoderSelector: selector,
+	}
+}
+
+// NewStreamServiceWithSelector creates a new stream service with custom encoder selector
+func NewStreamServiceWithSelector(streamManager *streamconfig.StreamManager, mediamtxConfigPath string,
+	selector encoders.Selector, obsIntegration func(string, string, string) error, obsRemoval func(string) error) StreamService {
+	return &StreamServiceImpl{
+		streamManager:   streamManager,
+		streams:         make(map[string]*Stream),
+		mediamtxConfig:  mediamtxConfigPath,
+		obsIntegration:  obsIntegration,
+		obsRemoval:      obsRemoval,
+		encoderSelector: selector,
 	}
 }
 
@@ -78,28 +112,27 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 			fmt.Sprintf("stream %s already exists", streamID), nil)
 	}
 
-	// Build resolution string
+	// Build resolution string - only if both width and height are provided
 	var resolution string
 	if params.Width != nil && params.Height != nil && *params.Width > 0 && *params.Height > 0 {
 		resolution = fmt.Sprintf("%dx%d", *params.Width, *params.Height)
-	} else {
-		resolution = "1280x720" // Default resolution
 	}
+	// Leave empty if not provided - let device decide
 
-	// Build framerate string
+	// Build framerate string - only if provided
 	var fps string
 	if params.Framerate != nil && *params.Framerate > 0 {
 		fps = fmt.Sprintf("%d", *params.Framerate)
-	} else {
-		fps = "30" // Default FPS
 	}
+	// Leave empty if not provided - let device decide
 
-	// Build bitrate string
-	var bitrate string
+	// Build quality params from bitrate (CBR mode for now)
+	var qualityParams *types.QualityParams
 	if params.Bitrate != nil && *params.Bitrate > 0 {
-		bitrate = fmt.Sprintf("%dk", *params.Bitrate)
-	} else {
-		bitrate = "2M" // Default bitrate
+		qualityParams = &types.QualityParams{
+			Mode:          types.RateControlCBR,
+			TargetBitrate: params.Bitrate, // Already in Mbps
+		}
 	}
 
 	// Convert generic codec (h264/h265) to optimal encoder with settings
@@ -119,20 +152,27 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 			codecType = encoders.CodecH264
 		}
 
-		// Use the encoder selection logic to find the best available encoder
-		optimalEncoder, settings, err := encoders.GetOptimalEncoderWithSettings(codecType)
+		// Use the encoder selector to find the best available encoder
+		// Pass the input format and quality params
+		optimalEncoder, settings, err := s.encoderSelector.SelectEncoder(codecType, params.InputFormat, qualityParams)
 		if err != nil {
 			log.Printf("Failed to get optimal encoder for %s: %v", codecType, err)
-			// GetOptimalEncoderWithSettings already handles fallback internally
-			encoder = encoders.GetOptimalCodec()
+			// Fallback to default
+			encoder = "libx264"
 		} else {
 			encoder = optimalEncoder
 			if settings != nil {
 				globalArgs = settings.GlobalArgs
 				videoFilters = settings.VideoFilters
-				encoderParams = settings.OutputParams
+				encoderParams = settings.OutputParams // Now includes quality params merged
 			}
 			log.Printf("Selected %s encoder %s with hardware acceleration", codecType, encoder)
+		}
+
+		// Validate the selected encoder
+		if err := s.encoderSelector.ValidateEncoder(encoder); err != nil {
+			return nil, NewStreamError(ErrCodeInvalidParams,
+				fmt.Sprintf("encoder validation failed: %v", err), err)
 		}
 
 		// Set preset for software encoders
@@ -142,7 +182,37 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 	} else {
 		// Direct encoder specification (not a generic codec)
 		encoder = params.Codec
+		// For direct encoder specification, validate it's in the working list
+		if err := s.encoderSelector.ValidateEncoder(encoder); err != nil {
+			return nil, NewStreamError(ErrCodeInvalidParams,
+				fmt.Sprintf("encoder validation failed: %v", err), err)
+		}
 	}
+
+	// Determine which FFmpeg options to use
+	var ffmpegOptions []ffmpeg.OptionType
+	if len(params.Options) > 0 {
+		// Use user-provided options (convert string to OptionType)
+		for _, opt := range params.Options {
+			ffmpegOptions = append(ffmpegOptions, ffmpeg.OptionType(opt))
+		}
+	} else {
+		// Use default options
+		ffmpegOptions = ffmpeg.GetDefaultOptions()
+	}
+
+	// Extract bitrate from encoderParams for display purposes only
+	// The actual bitrate is in EncoderParams["b:v"], not in the legacy Bitrate field
+	displayBitrate := ""
+	if encoderParams != nil {
+		if bv, ok := encoderParams["b:v"]; ok {
+			displayBitrate = bv
+		}
+	}
+	if displayBitrate == "" {
+		displayBitrate = "2M" // Default for display
+	}
+
 	// Create stream configuration with FFmpeg section
 	streamConfigTOML := streamconfig.StreamConfig{
 		ID:      streamID,
@@ -155,11 +225,13 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 			FPS:           fps,
 			Encoder:       encoder,
 			Preset:        preset,
-			Bitrate:       bitrate,
+			Bitrate:       "", // Never set the legacy Bitrate field when using EncoderParams
 			GlobalArgs:    globalArgs,
 			VideoFilters:  videoFilters,
 			EncoderParams: encoderParams,
-			Options:       ffmpeg.GetDefaultOptions(), // Apply default FFmpeg options
+			Options:       ffmpegOptions,      // Apply user-provided or default options
+			QualityParams: qualityParams,      // Store quality params for future use
+			AudioDevice:   params.AudioDevice, // Pass through audio device if specified
 		},
 		CreatedAt: time.Now(),
 	}
@@ -355,11 +427,24 @@ func (s *StreamServiceImpl) LoadStreamsFromConfig() error {
 
 // InitializeStream initializes a single stream with all integrations
 func (s *StreamServiceImpl) InitializeStream(streamConfig streamconfig.StreamConfig) error {
+	// Extract bitrate from encoder params for display purposes
+	displayBitrate := streamConfig.FFmpeg.Bitrate // Use legacy field if set
+	if displayBitrate == "" && streamConfig.FFmpeg.EncoderParams != nil {
+		// Try to get from encoder params if legacy field is empty
+		if bv, ok := streamConfig.FFmpeg.EncoderParams["b:v"]; ok {
+			displayBitrate = bv
+		}
+	}
+	if displayBitrate == "" {
+		displayBitrate = "2M" // Default for display
+	}
+
 	// Create stream entity from config
 	stream := &Stream{
 		ID:        streamConfig.ID,
 		DeviceID:  streamConfig.Device,
 		Codec:     streamConfig.FFmpeg.Encoder, // Use the actual encoder from FFmpeg config
+		Bitrate:   displayBitrate,              // Display bitrate extracted from encoder params or legacy field
 		StartTime: streamConfig.CreatedAt,
 		WebRTCURL: mediamtx.GetWebRTCURL(streamConfig.ID),
 		RTSPURL:   mediamtx.GetRTSPURL(streamConfig.ID),
@@ -405,9 +490,7 @@ func (s *StreamServiceImpl) updateSocketPaths(socketPaths map[string]string) {
 			// Add new collector with fresh socket path
 			logPath := "" // No log path for now, socket monitoring only
 			if err := s.obsIntegration(streamID, socketPath, logPath); err != nil {
-				log.Printf("Warning: Failed to start OBS monitoring for stream %s: %v", streamID, err)
-			} else {
-				log.Printf("Updated OBS monitoring for stream %s with new socket: %s", streamID, socketPath)
+				log.Printf("Warning: Failed to register OBS collector for stream %s: %v", streamID, err)
 			}
 		}
 	}

@@ -1,4 +1,17 @@
-const API_BASE_URL = "http://localhost:8090";
+export const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8090`;
+
+// Helper function to build full URLs from backend's :port/path format
+export function buildStreamURL(partialUrl: string | undefined, protocol: 'http' | 'rtsp' = 'http'): string | undefined {
+  if (!partialUrl) return undefined;
+  
+  // Backend returns format like ":8889/stream-001" or ":8554/stream-001"
+  if (partialUrl.startsWith(':')) {
+    return `${protocol}://${window.location.hostname}${partialUrl}`;
+  }
+  
+  // If it's already a full URL, return as-is
+  return partialUrl;
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -81,6 +94,7 @@ export interface StreamData {
   stream_id: string;
   device_id: string;
   codec: string;
+  bitrate?: string;
   uptime?: number;
   start_time?: string;
   webrtc_url?: string;
@@ -102,10 +116,11 @@ export interface StreamRequestData {
   device_id: string;
   codec: string;
   input_format: string;
-  bitrate?: number;
+  bitrate?: number; // In Mbps
   width?: number;
   height?: number;
   framerate?: number;
+  options?: string[];
 }
 
 export interface DeviceInfo {
@@ -212,6 +227,22 @@ export interface DeviceFrameratesData {
   framerates: Framerate[];
 }
 
+// Version info types
+export interface VersionInfo {
+  version: string;
+  git_commit: string;
+  build_date: string;
+  build_id: string;
+  go_version: string;
+  compiler: string;
+  platform: string;
+}
+
+// System API functions
+export async function getVersion(): Promise<VersionInfo> {
+  return apiGet<VersionInfo>('/api/version');
+}
+
 // Device capabilities API functions
 export async function getDeviceFormats(deviceId: string): Promise<DeviceCapabilitiesData> {
   return apiGet<DeviceCapabilitiesData>(`/api/devices/${deviceId}/formats`);
@@ -264,6 +295,25 @@ export interface EncoderData {
 
 export async function getEncoders(): Promise<EncoderData> {
   return apiGet<EncoderData>('/api/encoders');
+}
+
+// FFmpeg Options API types and functions
+export interface FFmpegOption {
+  key: string;
+  name: string;
+  description: string;
+  category: string;
+  app_default: boolean;
+  exclusive_group?: string;
+  conflicts_with?: string[];
+}
+
+export interface FFmpegOptionsData {
+  options: FFmpegOption[];
+}
+
+export async function getFFmpegOptions(): Promise<FFmpegOptionsData> {
+  return apiGet<FFmpegOptionsData>('/api/options');
 }
 
 // SSE Event types

@@ -27,17 +27,14 @@ type ExporterConfig struct {
 
 // Manager coordinates collectors, store, and exporters
 type Manager struct {
-	store            *Store
-	collectors       *CollectorRegistry
-	exporters        map[string]Exporter
-	dataChan         chan DataPoint
-	ctx              context.Context
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	mutex            sync.RWMutex
-	running          bool
-	config           ManagerConfig
-	collectorCancels map[string]context.CancelFunc // Track collector cancel functions
+	store      *Store
+	collectors *CollectorRegistry
+	exporters  map[string]Exporter
+	dataChan   chan DataPoint
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	config     ManagerConfig
 }
 
 // ManagerConfig represents configuration for the manager
@@ -61,77 +58,37 @@ func DefaultManagerConfig() ManagerConfig {
 // NewManager creates a new observability manager
 func NewManager(config ManagerConfig) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-
 	return &Manager{
-		store:            NewStore(config.StoreConfig),
-		collectors:       NewCollectorRegistry(),
-		exporters:        make(map[string]Exporter),
-		dataChan:         make(chan DataPoint, config.DataChanSize),
-		ctx:              ctx,
-		cancel:           cancel,
-		config:           config,
-		collectorCancels: make(map[string]context.CancelFunc),
-	}
-}
-
-// shouldLog determines if a log entry should be logged based on the configured level
-func (m *Manager) shouldLog(level string) bool {
-	levels := map[string]int{
-		"debug": 0,
-		"info":  1,
-		"warn":  2,
-		"error": 3,
-	}
-
-	configuredLevel := levels[m.config.LogLevel]
-	entryLevel := levels[level]
-
-	return entryLevel >= configuredLevel
-}
-
-// logInfo logs an info-level message if logging level permits
-func (m *Manager) logInfo(format string, args ...interface{}) {
-	if m.shouldLog("info") {
-		log.Printf(format, args...)
-	}
-}
-
-// logDebug logs a debug-level message if logging level permits
-func (m *Manager) logDebug(format string, args ...interface{}) {
-	if m.shouldLog("debug") {
-		log.Printf(format, args...)
+		store:      NewStore(config.StoreConfig),
+		collectors: NewCollectorRegistry(),
+		exporters:  make(map[string]Exporter),
+		dataChan:   make(chan DataPoint, config.DataChanSize),
+		ctx:        ctx,
+		cancel:     cancel,
+		config:     config,
 	}
 }
 
 // Start starts the manager and all registered collectors/exporters
 func (m *Manager) Start() error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	log.Println("OBS: Starting")
 
-	if m.running {
-		return NewObsError(ErrInvalidConfig, "manager already running", nil)
-	}
-
-	m.logInfo("OBS: Starting observability manager...")
-
-	// Start data processing workers
+	// Start data workers
 	for i := 0; i < m.config.WorkerCount; i++ {
 		m.wg.Add(1)
 		go m.dataWorker(i)
 	}
 
-	// Start all exporters
+	// Start exporters
 	for name, exporter := range m.exporters {
 		if exporter.Config().Enabled {
 			if err := exporter.Start(m.ctx); err != nil {
 				log.Printf("OBS: Failed to start exporter %s: %v", name, err)
-				continue
 			}
-			m.logDebug("OBS: Started exporter: %s", name)
 		}
 	}
 
-	// Start all collectors
+	// Start collectors
 	for _, collector := range m.collectors.GetAll() {
 		if collector.Config().Enabled {
 			m.wg.Add(1)
@@ -139,66 +96,48 @@ func (m *Manager) Start() error {
 		}
 	}
 
-	m.running = true
-	m.logInfo("OBS: Observability manager started successfully")
 	return nil
 }
 
 // Stop stops the manager and all collectors/exporters
 func (m *Manager) Stop() error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	log.Println("OBS: Stopping")
 
-	if !m.running {
-		return nil
-	}
-
-	log.Println("OBS: Stopping observability manager...")
-
-	// Cancel context to signal all workers to stop
+	// Cancel context - this signals all goroutines to stop
 	m.cancel()
 
-	// Stop all collectors
-	for name, collector := range m.collectors.GetAll() {
-		if err := collector.Stop(); err != nil {
-			log.Printf("OBS: Error stopping collector %s: %v", name, err)
-		}
+	// Stop collectors explicitly (they should also stop via context)
+	for _, collector := range m.collectors.GetAll() {
+		collector.Stop()
 	}
 
-	// Stop all exporters
-	for name, exporter := range m.exporters {
-		if err := exporter.Stop(); err != nil {
-			log.Printf("OBS: Error stopping exporter %s: %v", name, err)
-		}
+	// Stop exporters
+	for _, exporter := range m.exporters {
+		exporter.Stop()
 	}
 
-	// Wait for all workers to finish
+	// Wait for all goroutines to finish BEFORE closing the channel
+	// This ensures no goroutine will try to send on a closed channel
 	m.wg.Wait()
 
-	// Close data channel
+	// NOW it's safe to close the channel - all senders are done
 	close(m.dataChan)
 
-	m.running = false
-	log.Println("OBS: Observability manager stopped")
 	return nil
 }
 
 // AddCollector registers a collector
 func (m *Manager) AddCollector(collector Collector) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	if err := m.collectors.Register(collector); err != nil {
+	err := m.collectors.Register(collector)
+	if err != nil {
 		return err
 	}
 
-	// If manager is running, start the collector immediately
-	if m.running && collector.Config().Enabled {
+	// If manager is already running and collector is enabled, start it immediately
+	if m.ctx != nil && m.ctx.Err() == nil && collector.Config().Enabled {
+		log.Printf("OBS: Manager is running, starting collector %s immediately", collector.Name())
 		m.wg.Add(1)
 		go m.runCollector(collector)
-		log.Printf("OBS: Added and started collector: %s", collector.Name())
-	} else {
-		m.logInfo("OBS: Added collector: %s", collector.Name())
 	}
 
 	return nil
@@ -206,83 +145,33 @@ func (m *Manager) AddCollector(collector Collector) error {
 
 // RemoveCollector unregisters a collector
 func (m *Manager) RemoveCollector(name string) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	log.Printf("OBS: Removing collector: %s", name)
-
-	// Get the collector first
 	collector, exists := m.collectors.Get(name)
 	if !exists {
-		return NewObsError(ErrCollectorNotFound, "collector not found", map[string]interface{}{
-			"name": name,
-		})
+		// Not an error - collector already doesn't exist
+		return nil
 	}
-
-	// Cancel the collector's context to stop its goroutine
-	if cancelFunc, ok := m.collectorCancels[name]; ok {
-		log.Printf("OBS: Cancelling context for collector: %s", name)
-		cancelFunc()
-		// The cancel will be removed from the map by the deferred cleanup in runCollector
-	}
-
-	// Stop the collector (this will clean up resources)
-	if err := collector.Stop(); err != nil {
-		log.Printf("OBS: Error stopping collector %s: %v", name, err)
-	}
-
-	// Unregister from the registry
+	collector.Stop()
 	return m.collectors.Unregister(name)
 }
 
 // AddExporter registers an exporter
 func (m *Manager) AddExporter(exporter Exporter) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
 	name := exporter.Name()
 	if _, exists := m.exporters[name]; exists {
-		return NewObsError(ErrCollectorExists, "exporter already registered", map[string]interface{}{
-			"name": name,
-		})
+		return NewObsError(ErrCollectorExists, "exporter already registered", map[string]interface{}{"name": name})
 	}
-
 	m.exporters[name] = exporter
-
-	// If manager is running, start the exporter immediately
-	if m.running && exporter.Config().Enabled {
-		if err := exporter.Start(m.ctx); err != nil {
-			return NewObsError(ErrExporterFailed, "failed to start exporter", map[string]interface{}{
-				"name":  name,
-				"error": err.Error(),
-			})
-		}
-		log.Printf("OBS: Added and started exporter: %s", name)
-	} else {
-		m.logInfo("OBS: Added exporter: %s", name)
-	}
-
 	return nil
 }
 
 // RemoveExporter unregisters an exporter
 func (m *Manager) RemoveExporter(name string) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
 	exporter, exists := m.exporters[name]
 	if !exists {
-		return NewObsError(ErrCollectorNotFound, "exporter not found", map[string]interface{}{
-			"name": name,
-		})
+		return NewObsError(ErrCollectorNotFound, "exporter not found", map[string]interface{}{"name": name})
 	}
-
-	if err := exporter.Stop(); err != nil {
-		log.Printf("OBS: Error stopping exporter %s: %v", name, err)
-	}
-
+	exporter.Stop()
 	delete(m.exporters, name)
-	log.Printf("OBS: Removed exporter: %s", name)
 	return nil
 }
 
@@ -298,31 +187,10 @@ func (m *Manager) ListSeries() []SeriesInfo {
 
 // Stats returns statistics about the manager
 func (m *Manager) Stats() map[string]interface{} {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-
-	collectorStats := make(map[string]interface{})
-	for name, collector := range m.collectors.GetAll() {
-		collectorStats[name] = map[string]interface{}{
-			"enabled":  collector.Config().Enabled,
-			"interval": collector.Interval().String(),
-		}
-	}
-
-	exporterStats := make(map[string]interface{})
-	for name, exporter := range m.exporters {
-		exporterStats[name] = map[string]interface{}{
-			"enabled": exporter.Config().Enabled,
-		}
-	}
-
 	stats := m.store.Stats()
-	stats["running"] = m.running
-	stats["collectors"] = collectorStats
-	stats["exporters"] = exporterStats
+	stats["running"] = m.ctx.Err() == nil
 	stats["data_chan_size"] = len(m.dataChan)
 	stats["data_chan_capacity"] = cap(m.dataChan)
-
 	return stats
 }
 
@@ -333,7 +201,7 @@ func (m *Manager) SendData(point DataPoint) {
 		// Successfully sent
 	default:
 		// Channel is full, drop the point
-		log.Printf("OBS: Warning - data channel full, dropping point: %s", point.String())
+		log.Printf("OBS: Warning - data channel full, dropping point")
 	}
 }
 
@@ -341,47 +209,22 @@ func (m *Manager) SendData(point DataPoint) {
 func (m *Manager) runCollector(collector Collector) {
 	defer m.wg.Done()
 
-	name := collector.Name()
-	m.logDebug("OBS: Starting collector: %s", name)
-
-	// Create a collector-specific context
-	collectorCtx, collectorCancel := context.WithCancel(m.ctx)
-
-	// Store the cancel function so we can stop this collector later
-	m.mutex.Lock()
-	m.collectorCancels[name] = collectorCancel
-	m.mutex.Unlock()
-
-	defer func() {
-		collectorCancel()
-		// Clean up the cancel function from the map
-		m.mutex.Lock()
-		delete(m.collectorCancels, name)
-		m.mutex.Unlock()
-	}()
-
-	// Start the collector
-	if err := collector.Start(collectorCtx, m.dataChan); err != nil {
-		log.Printf("OBS: Failed to start collector %s: %v", name, err)
-		return
+	// Start the collector - this blocks until context is cancelled
+	if err := collector.Start(m.ctx, m.dataChan); err != nil {
+		log.Printf("OBS: Collector %s error: %v", collector.Name(), err)
 	}
-
-	// Wait for shutdown signal
-	<-collectorCtx.Done()
-	log.Printf("OBS: Stopped collector: %s", name)
 }
 
 // dataWorker processes incoming data points
 func (m *Manager) dataWorker(id int) {
 	defer m.wg.Done()
 
-	m.logDebug("OBS: Starting data worker %d", id)
-
 	for {
 		select {
+		case <-m.ctx.Done():
+			return
 		case point, ok := <-m.dataChan:
 			if !ok {
-				log.Printf("OBS: Data worker %d stopping - channel closed", id)
 				return
 			}
 
@@ -390,20 +233,14 @@ func (m *Manager) dataWorker(id int) {
 				log.Printf("OBS: Failed to store data point: %v", err)
 			}
 
-			// Immediately export to all enabled exporters
-			m.mutex.RLock()
-			for name, exporter := range m.exporters {
+			// Export to all enabled exporters
+			for _, exporter := range m.exporters {
 				if exporter.Config().Enabled {
 					if err := exporter.Export([]DataPoint{point}); err != nil {
-						log.Printf("OBS: Failed to export to %s: %v", name, err)
+						log.Printf("OBS: Failed to export: %v", err)
 					}
 				}
 			}
-			m.mutex.RUnlock()
-
-		case <-m.ctx.Done():
-			log.Printf("OBS: Data worker %d stopping - context cancelled", id)
-			return
 		}
 	}
 }

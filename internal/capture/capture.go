@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/encoders/validation"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/v4l2_detector"
@@ -37,8 +36,9 @@ func ListDevices() {
 
 // getOptimalEncoder returns the best available encoder with its settings
 func getOptimalEncoder() (string, *validation.EncoderSettings, error) {
-	// Default to H264 for capture operations
-	return encoders.GetOptimalEncoderWithSettings(encoders.CodecH264)
+	// For capture operations, we can use software encoder since it's just a single frame
+	// This avoids needing StreamManager dependency in the capture package
+	return "libx264", nil, nil
 }
 
 // CaptureToBytes captures a screenshot from the specified video device

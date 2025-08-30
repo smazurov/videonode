@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/smazurov/videonode/internal/config"
 	"github.com/smazurov/videonode/internal/encoders/validation"
 )
 
@@ -14,9 +15,9 @@ type EncoderConfig struct {
 }
 
 // MapAPICodec maps API codec types to the best available FFmpeg encoder
-func MapAPICodec(apiCodec string) (*EncoderConfig, error) {
-	// Load validated encoders from file
-	results, err := LoadValidationResults("validated_encoders.toml")
+func MapAPICodec(apiCodec string, sm *config.StreamManager) (*EncoderConfig, error) {
+	// Load validated encoders from StreamManager
+	results, err := LoadValidationResults(sm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load validated encoders: %w", err)
 	}
@@ -40,7 +41,8 @@ func MapAPICodec(apiCodec string) (*EncoderConfig, error) {
 		encoderNames := validator.GetEncoderNames()
 		for _, encoderName := range encoderNames {
 			if workingSet[encoderName] && matchesAPICodec(encoderName, apiCodec) {
-				settings, err := validator.GetProductionSettings(encoderName)
+				// Pass empty input format for mapper purposes
+				settings, err := validator.GetProductionSettings(encoderName, "")
 				if err != nil {
 					continue // Try next encoder
 				}

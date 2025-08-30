@@ -232,7 +232,8 @@ func TestBuildStreamCommand(t *testing.T) {
 			wantErr: false,
 			checks: []string{
 				"-c:v h264_vaapi",
-				"-g 30", // Should still have GOP settings
+				// Hardware encoders should not have hardcoded GOP settings
+				// These should come from EncoderParams if needed
 			},
 		},
 		{
@@ -253,6 +254,25 @@ func TestBuildStreamCommand(t *testing.T) {
 				"-vf format=nv12,hwupload",
 				"-c:v h264_vaapi",
 				"-qp 20",
+			},
+		},
+		{
+			name: "with audio device",
+			config: StreamConfig{
+				DevicePath:  "/dev/video0",
+				AudioDevice: "hw:4,0",
+				Codec:       "libx264",
+			},
+			checks: []string{
+				"-f v4l2",
+				"-i /dev/video0",
+				"-thread_queue_size 512",
+				"-f alsa",
+				"-ac 2",
+				"-i hw:4,0",
+				"-map 0:v -map 1:a",
+				"-c:v libx264",
+				"-c:a copy",
 			},
 		},
 		{
@@ -292,10 +312,19 @@ func TestBuildStreamCommand(t *testing.T) {
 				}
 			}
 
-			// For hardware encoders, make sure zerolatency is NOT present
+			// For hardware encoders, make sure software-only options are NOT present
 			if tt.name == "hardware encoder (no zerolatency)" {
 				if strings.Contains(cmd, "-tune zerolatency") {
 					t.Errorf("BuildStreamCommand() should not include zerolatency for hardware encoder: %s", cmd)
+				}
+				if strings.Contains(cmd, "-sc_threshold") {
+					t.Errorf("BuildStreamCommand() should not include sc_threshold for hardware encoder: %s", cmd)
+				}
+				if strings.Contains(cmd, "-keyint_min") {
+					t.Errorf("BuildStreamCommand() should not include keyint_min for hardware encoder: %s", cmd)
+				}
+				if strings.Contains(cmd, "-g 30") {
+					t.Errorf("BuildStreamCommand() should not include hardcoded GOP for hardware encoder: %s", cmd)
 				}
 			}
 		})
@@ -314,8 +343,8 @@ func TestApplyOptionsToCommand(t *testing.T) {
 			want:    []string{},
 		},
 		{
-			name:    "generate PTS option",
-			options: []OptionType{OptionGeneratePTS},
+			name:    "copyts with genpts option",
+			options: []OptionType{OptionCopytsWithGenpts},
 			want:    []string{"-fflags +genpts"},
 		},
 		{
@@ -330,8 +359,8 @@ func TestApplyOptionsToCommand(t *testing.T) {
 		},
 		{
 			name:    "multiple options",
-			options: []OptionType{OptionGeneratePTS, OptionIgnoreDTS},
-			want:    []string{"-fflags +genpts+igndts"},
+			options: []OptionType{OptionCopytsWithGenpts, OptionLowLatency},
+			want:    []string{"-fflags +genpts", "-fflags +flush_packets", "-flags +low_delay"},
 		},
 	}
 
@@ -365,16 +394,22 @@ func TestGetDefaultOptions(t *testing.T) {
 		t.Error("GetDefaultOptions() returned no default options")
 	}
 
-	// Check that OptionGeneratePTS is included (it's marked as AppDefault: true)
-	found := false
+	// Check that OptionThreadQueue1024 is included (it's marked as AppDefault: true)
+	foundThreadQueue := false
+	foundCopyTS := false
 	for _, opt := range defaults {
-		if opt == OptionGeneratePTS {
-			found = true
-			break
+		if opt == OptionThreadQueue1024 {
+			foundThreadQueue = true
+		}
+		if opt == OptionCopytsWithGenpts {
+			foundCopyTS = true
 		}
 	}
-	if !found {
-		t.Error("GetDefaultOptions() should include OptionGeneratePTS")
+	if !foundThreadQueue {
+		t.Error("GetDefaultOptions() should include OptionThreadQueue1024")
+	}
+	if !foundCopyTS {
+		t.Error("GetDefaultOptions() should include OptionCopytsWithGenpts")
 	}
 }
 
@@ -387,19 +422,19 @@ func TestValidateOptions(t *testing.T) {
 	}{
 		{
 			name:    "valid single option",
-			options: []OptionType{OptionGeneratePTS},
+			options: []OptionType{OptionCopytsWithGenpts},
 			wantErr: false,
 		},
 		{
 			name:    "valid non-conflicting options",
-			options: []OptionType{OptionGeneratePTS, OptionThreadQueue1024},
+			options: []OptionType{OptionCopytsWithGenpts, OptionThreadQueue1024},
 			wantErr: false,
 		},
 		{
 			name:    "conflicting timestamp options",
-			options: []OptionType{OptionGeneratePTS, OptionWallclockTimestamp},
+			options: []OptionType{OptionCopytsWithGenpts, OptionWallclockWithGenpts},
 			wantErr: true,
-			errMsg:  "conflicts with",
+			errMsg:  "exclusive group",
 		},
 		{
 			name:    "exclusive thread queue options",
