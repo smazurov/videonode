@@ -9,6 +9,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/mediamtx"
+	"github.com/smazurov/videonode/internal/types"
 )
 
 // FFmpegConfig contains all FFmpeg-specific settings for a stream.
@@ -71,6 +72,15 @@ type FFmpegConfig struct {
 	// These are predefined options from ffmpeg.OptionType
 	// Examples: "thread_queue_1024" (buffer size), "copyts" (timestamp handling)
 	Options []ffmpeg.OptionType `toml:"options,omitempty" json:"options,omitempty"`
+
+	// QualityParams stores the original quality/rate control settings
+	// This is used to regenerate EncoderParams if the encoder changes
+	QualityParams *types.QualityParams `toml:"quality_params,omitempty" json:"quality_params,omitempty"`
+
+	// AudioDevice specifies the ALSA device for audio capture
+	// If set, enables audio passthrough with copy codec
+	// Example: "hw:4,0" for card 4, device 0
+	AudioDevice string `toml:"audio_device,omitempty" json:"audio_device,omitempty"`
 }
 
 // StreamConfig represents a single stream configuration in the TOML file.
@@ -107,8 +117,9 @@ type StreamConfig struct {
 
 // StreamsConfig represents the complete streams configuration file
 type StreamsConfig struct {
-	Version int                     `toml:"version" json:"version"`
-	Streams map[string]StreamConfig `toml:"streams" json:"streams"`
+	Version    int                      `toml:"version" json:"version"`
+	Validation *types.ValidationResults `toml:"validation,omitempty" json:"validation,omitempty"`
+	Streams    map[string]StreamConfig  `toml:"streams" json:"streams"`
 }
 
 // StreamManager manages stream configurations
@@ -299,6 +310,7 @@ func (sm *StreamManager) ToMediaMTXConfig(deviceResolver func(string) string, so
 			GlobalArgs:     stream.FFmpeg.GlobalArgs,
 			EncoderParams:  stream.FFmpeg.EncoderParams,
 			VideoFilters:   stream.FFmpeg.VideoFilters,
+			AudioDevice:    stream.FFmpeg.AudioDevice,
 		}
 
 		// Use stream ID as path name
@@ -334,4 +346,15 @@ func (sm *StreamManager) DisableStream(id string) error {
 	stream.UpdatedAt = time.Now()
 	sm.config.Streams[id] = stream
 	return sm.Save()
+}
+
+// UpdateValidation updates the validation data in the configuration
+func (sm *StreamManager) UpdateValidation(validation *types.ValidationResults) error {
+	sm.config.Validation = validation
+	return sm.Save()
+}
+
+// GetValidation returns the current validation data
+func (sm *StreamManager) GetValidation() *types.ValidationResults {
+	return sm.config.Validation
 }

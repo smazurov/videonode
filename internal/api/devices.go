@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -50,6 +51,26 @@ func humanReadableToPixelFormat(formatName models.VideoFormat) (uint32, error) {
 	return formatName.ToPixelFormat()
 }
 
+// pixelFormatToFourCC converts a V4L2 pixel format code to its FourCC string representation
+func pixelFormatToFourCC(pixelFormat uint32) string {
+	// Convert to 4-byte array in little-endian order
+	bytes := []byte{
+		byte(pixelFormat & 0xFF),
+		byte((pixelFormat >> 8) & 0xFF),
+		byte((pixelFormat >> 16) & 0xFF),
+		byte((pixelFormat >> 24) & 0xFF),
+	}
+
+	// Convert to string, replacing non-printable chars with '?'
+	for i, b := range bytes {
+		if b < 32 || b > 126 {
+			bytes[i] = '?'
+		}
+	}
+
+	return string(bytes)
+}
+
 // V4L2ToFFmpegFormat maps V4L2 pixel format codes to FFmpeg input format names
 func V4L2ToFFmpegFormat(pixelFormat uint32) (string, error) {
 	switch pixelFormat {
@@ -65,8 +86,17 @@ func V4L2ToFFmpegFormat(pixelFormat uint32) (string, error) {
 		return "yuv420p", nil
 	case 842094169: // YV12
 		return "yuv420p", nil
+	case 861030210: // BGR3
+		return "bgr24", nil
+	case 859981650: // RGB3
+		return "rgb24", nil
+	case 875714126: // NV24
+		return "nv24", nil
+	case 909203022: // NV16
+		return "nv16", nil
 	default:
-		return "", fmt.Errorf("unsupported V4L2 pixel format: %d", pixelFormat)
+		fourcc := pixelFormatToFourCC(pixelFormat)
+		return "", fmt.Errorf("unsupported V4L2 pixel format: %d (0x%08X, FourCC: '%s')", pixelFormat, pixelFormat, fourcc)
 	}
 }
 
@@ -188,7 +218,7 @@ func GetDeviceCapabilities(devicePath string) (models.DeviceCapabilitiesData, er
 		_, err := V4L2ToFFmpegFormat(v4l2Format.PixelFormat)
 		if err != nil {
 			// Skip unsupported formats instead of failing completely
-			fmt.Printf("Warning: %v\n", err)
+			log.Printf("Warning: %v", err)
 			continue
 		}
 		formats = append(formats, models.ConvertV4L2FormatInfo(v4l2Format))

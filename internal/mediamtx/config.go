@@ -10,13 +10,30 @@ import (
 
 // Config represents a MediaMTX configuration
 type Config struct {
-	API            bool                  `yaml:"api"`
-	APIAddress     string                `yaml:"apiAddress"`
-	RTSPAddress    string                `yaml:"rtspAddress"`
-	WebRTCAddress  string                `yaml:"webrtcAddress"`
-	Metrics        bool                  `yaml:"metrics"`
-	MetricsAddress string                `yaml:"metricsAddress"`
-	Paths          map[string]PathConfig `yaml:"paths"`
+	API               bool           `yaml:"api"`
+	APIAddress        string         `yaml:"apiAddress"`
+	RTSPAddress       string         `yaml:"rtspAddress"`
+	WebRTCAddress     string         `yaml:"webrtcAddress"`
+	Metrics           bool           `yaml:"metrics"`
+	MetricsAddress    string         `yaml:"metricsAddress"`
+	AuthMethod        string         `yaml:"authMethod"`
+	AuthInternalUsers []InternalUser `yaml:"authInternalUsers"`
+
+	Paths map[string]PathConfig `yaml:"paths"`
+}
+
+// InternalUser represents an internal authentication user
+type InternalUser struct {
+	User        string       `yaml:"user"`
+	Pass        string       `yaml:"pass"`
+	IPs         []string     `yaml:"ips"`
+	Permissions []Permission `yaml:"permissions"`
+}
+
+// Permission represents a user permission
+type Permission struct {
+	Action string `yaml:"action"`
+	Path   string `yaml:"path,omitempty"`
 }
 
 // PathConfig represents a MediaMTX path configuration
@@ -37,7 +54,24 @@ func NewConfig() *Config {
 		WebRTCAddress:  ":8889",
 		Metrics:        true,
 		MetricsAddress: ":9998",
-		Paths:          make(map[string]PathConfig),
+		AuthMethod:     "internal",
+		AuthInternalUsers: []InternalUser{
+			{
+				User: "any",
+				Pass: "",
+				IPs:  []string{},
+				Permissions: []Permission{
+					{Action: "publish"},
+					{Action: "read"},
+					{Action: "playback"},
+					{Action: "api"},
+					{Action: "metrics"},
+					{Action: "pprof"},
+				},
+			},
+		},
+
+		Paths: make(map[string]PathConfig),
 	}
 }
 
@@ -123,12 +157,12 @@ func LoadFromFile(filename string) (*Config, error) {
 	return &config, nil
 }
 
-// GetWebRTCURL returns the WebRTC URL for a given path
+// GetWebRTCURL returns the WebRTC URL for a given path (without hostname)
 func GetWebRTCURL(pathName string) string {
-	return fmt.Sprintf("http://localhost:8889/%s", pathName)
+	return fmt.Sprintf(":8889/%s", pathName)
 }
 
-// GetRTSPURL returns the RTSP URL for a given path
+// GetRTSPURL returns the RTSP URL for a given path (without hostname)
 func GetRTSPURL(pathName string) string {
-	return fmt.Sprintf("rtsp://localhost:8554/%s", pathName)
+	return fmt.Sprintf(":8554/%s", pathName)
 }

@@ -23,6 +23,13 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Lint & fix**: `cd ui && pnpm lint:fix`
 - **Type check**: `cd ui && pnpm typecheck`
 
+
+### SBC Scripts (pyinfra)
+
+- **Install deps**: `cd sbc_scripts && uv sync`
+- **Run deployment**: `cd sbc_scripts && uv run pyinfra inventory.py deploys/<script>.py`
+- **List hosts**: `cd sbc_scripts && uv run pyinfra inventory.py --list-hosts`
+
 ## Code Style Guidelines
 
 ### Go Backend
@@ -43,6 +50,13 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Styling**: Tailwind CSS with cva for component variants
 - **State**: Zustand for global state management
 - **Unused vars**: Prefix with underscore for ignored parameters
+
+### SBC Scripts
+
+- **Python 3.12**: Use modern typed Python with type hints
+- **Pyinfra**: Infrastructure automation tool, simpler than Ansible
+- **Inventory**: Defined in `inventory.py` with host credentials
+- **Deploys**: Individual deployment scripts in `deploys/` directory 
 
 ## Architecture
 
@@ -135,6 +149,11 @@ The API includes endpoints for:
 - Stream lifecycle management
 - Real-time Server-Sent Events
 
+### SBC Scripts (`sbc_scripts/`)
+- **Purpose**: Pyinfra deployments for Orange Pi 5 Ultra management
+- **Commands**: `cd sbc_scripts && uv run pyinfra inventory.py deploys/<script>.py`
+- **Dependencies**: Managed via `uv` with pyproject.toml
+
 ## Development Notes
 
 - **Never modify internal/server** - it's deprecated, reference only
@@ -142,3 +161,4 @@ The API includes endpoints for:
 - **Health check**: `curl http://localhost:8090/api/health`
 - **When writing API models, make sure every field is in snake_case**
 - **Run all python commands through uv**
+- **Don't be helpful** - do exactly what's asked, nothing more

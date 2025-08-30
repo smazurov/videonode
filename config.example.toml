@@ -17,9 +17,6 @@ network_interfaces = "lo,wlp12s0,enp14s0"
 prometheus_enabled = true
 sse_enabled = true
 
-[encoders]
-validation_output = "validated_encoders.toml"
-
 [capture]
 default_delay_ms = 3000
 

@@ -2,6 +2,8 @@ package models
 
 import (
 	"time"
+
+	"github.com/smazurov/videonode/internal/ffmpeg"
 )
 
 // Health check models
@@ -65,6 +67,7 @@ type StreamData struct {
 	StreamID  string        `json:"stream_id" example:"stream-001" doc:"Unique stream identifier"`
 	DeviceID  string        `json:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
 	Codec     string        `json:"codec" example:"h264" doc:"Video codec being used"`
+	Bitrate   string        `json:"bitrate,omitempty" example:"2M" doc:"Video bitrate (e.g., 2M, 1500k)"`
 	Uptime    time.Duration `json:"uptime,omitempty" example:"3600000000000" doc:"Stream uptime in nanoseconds"`
 	StartTime time.Time     `json:"start_time,omitempty" doc:"When the stream was started"`
 	WebRTCURL string        `json:"webrtc_url,omitempty" example:"webrtc://localhost:8090/stream-001" doc:"WebRTC streaming URL"`
@@ -92,10 +95,12 @@ type StreamRequestData struct {
 	DeviceID    string    `json:"device_id" minLength:"1" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
 	Codec       CodecType `json:"codec" enum:"h264,h265" example:"h264" doc:"Video codec standard"`
 	InputFormat string    `json:"input_format" minLength:"1" example:"yuyv422" doc:"V4L2 input format"`
-	Bitrate     int       `json:"bitrate,omitempty" example:"2000" doc:"Bitrate in kbps"`
+	Bitrate     float64   `json:"bitrate,omitempty" example:"2.0" doc:"Bitrate in Mbps"`
 	Width       int       `json:"width,omitempty" example:"1920" doc:"Video width"`
 	Height      int       `json:"height,omitempty" example:"1080" doc:"Video height"`
 	Framerate   int       `json:"framerate,omitempty" example:"30" doc:"Video framerate"`
+	AudioDevice string    `json:"audio_device,omitempty" example:"hw:4,0" doc:"ALSA audio device (if set, enables audio passthrough)"`
+	Options     []string  `json:"options,omitempty" doc:"FFmpeg option keys (e.g., vsync_passthrough, low_latency)"`
 }
 
 type StreamRequest struct {
@@ -125,4 +130,28 @@ type ErrorData struct {
 
 type ErrorResponse struct {
 	Body ErrorData
+}
+
+// Options models for FFmpeg configuration
+type OptionsData struct {
+	Options []ffmpeg.Option `json:"options" doc:"All available FFmpeg options with metadata"`
+}
+
+type OptionsResponse struct {
+	Body OptionsData
+}
+
+// Version models
+type VersionData struct {
+	Version   string `json:"version" example:"dev" doc:"Application version"`
+	GitCommit string `json:"git_commit" example:"abc1234" doc:"Git commit SHA"`
+	BuildDate string `json:"build_date" example:"2024-12-15 14:30" doc:"Build timestamp"`
+	BuildID   string `json:"build_id" example:"a1b2c3d4" doc:"Unique build identifier"`
+	GoVersion string `json:"go_version" example:"go1.21.0" doc:"Go compiler version"`
+	Compiler  string `json:"compiler" example:"gc" doc:"Compiler used"`
+	Platform  string `json:"platform" example:"linux/amd64" doc:"Platform"`
+}
+
+type VersionResponse struct {
+	Body VersionData
 }
