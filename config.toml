@@ -41,10 +41,6 @@ prometheus_enabled = true
 # Enable SSE (Server-Sent Events) exporter
 sse_enabled = true
 
-[encoders]
-# Validation output file
-validation_output = "validated_encoders.toml"
-
 [capture]
 # Default capture delay in milliseconds
 default_delay_ms = 3000

@@ -10,15 +10,13 @@ type OptionType string
 
 // FFmpeg option constants
 const (
-	OptionGeneratePTS        OptionType = "genpts"
-	OptionIgnoreDTS          OptionType = "igndts"
-	OptionIgnoreErrors       OptionType = "ignore_err"
-	OptionWallclockTimestamp OptionType = "wallclock_ts"
-	OptionAvoidNegativeTS    OptionType = "avoid_negative_ts"
-	OptionThreadQueue1024    OptionType = "thread_queue_1024"
-	OptionThreadQueue4096    OptionType = "thread_queue_4096"
-	OptionLowLatency         OptionType = "low_latency"
-	OptionCopyTimestamps     OptionType = "copyts"
+	OptionIgnoreErrors        OptionType = "ignore_err"
+	OptionWallclockWithGenpts OptionType = "wallclock_with_genpts"
+	OptionThreadQueue1024     OptionType = "thread_queue_1024"
+	OptionThreadQueue4096     OptionType = "thread_queue_4096"
+	OptionLowLatency          OptionType = "low_latency"
+	OptionCopytsWithGenpts    OptionType = "copyts_with_genpts"
+	OptionVsyncPassthrough    OptionType = "vsync_passthrough"
 )
 
 // FFmpegBase returns the ffmpeg command with standard flags
@@ -53,8 +51,8 @@ const (
 type ExclusiveGroup string
 
 const (
-	GroupThreadQueue ExclusiveGroup = "thread_queue"
-	GroupTimestamps  ExclusiveGroup = "timestamps"
+	GroupThreadQueue       ExclusiveGroup = "thread_queue"
+	GroupTimestampHandling ExclusiveGroup = "timestamp_handling"
 )
 
 // Option represents available FFmpeg feature flags with metadata
@@ -64,89 +62,66 @@ type Option struct {
 	Description    string          `json:"description"`
 	Category       OptionCategory  `json:"category"`
 	AppDefault     bool            `json:"app_default"`               // Application default
-	FFmpegDefault  string          `json:"ffmpeg_default"`            // FFmpeg's actual default value
 	ExclusiveGroup *ExclusiveGroup `json:"exclusive_group,omitempty"` // Group for mutually exclusive options
 	ConflictsWith  []OptionType    `json:"conflicts_with,omitempty"`  // Options that may conflict
 }
 
 // AllOptions contains all available FFmpeg feature flags with comprehensive metadata
 var AllOptions = []Option{
+
 	{
-		Key:           OptionGeneratePTS,
-		Name:          "Generate PTS",
-		Description:   "Generate presentation timestamps for better sync",
-		Category:      CategoryTiming,
-		AppDefault:    false, // Disabled because we use copyts by default now
-		FFmpegDefault: "disabled",
-		ConflictsWith: []OptionType{OptionWallclockTimestamp, OptionCopyTimestamps}, // These can conflict in timestamp handling
+		Key:         OptionIgnoreErrors,
+		Name:        "Ignore Errors",
+		Description: "Continue processing despite errors",
+		Category:    CategoryErrorHandle,
+		AppDefault:  false,
 	},
 	{
-		Key:           OptionIgnoreDTS,
-		Name:          "Ignore DTS",
-		Description:   "Ignore decode timestamps to handle corrupted streams",
-		Category:      CategoryErrorHandle,
-		AppDefault:    false,
-		FFmpegDefault: "disabled",
+		Key:            OptionWallclockWithGenpts,
+		Name:           "Wall Clock Timestamps with PTS Generation",
+		Description:    "Use system time as timestamps with PTS regeneration (for live sources, fixes DTS issues)",
+		Category:       CategoryTiming,
+		AppDefault:     false,
+		ExclusiveGroup: func() *ExclusiveGroup { g := GroupTimestampHandling; return &g }(),
 	},
-	{
-		Key:           OptionIgnoreErrors,
-		Name:          "Ignore Errors",
-		Description:   "Continue processing despite stream errors",
-		Category:      CategoryErrorHandle,
-		AppDefault:    false,
-		FFmpegDefault: "disabled",
-	},
-	{
-		Key:           OptionWallclockTimestamp,
-		Name:          "Wallclock Timestamps",
-		Description:   "Use wallclock as timestamps (helps with buffer issues)",
-		Category:      CategoryTiming,
-		AppDefault:    false,
-		FFmpegDefault: "disabled",
-		ConflictsWith: []OptionType{OptionGeneratePTS}, // These can conflict in timestamp handling
-	},
-	{
-		Key:           OptionAvoidNegativeTS,
-		Name:          "Avoid Negative Timestamps",
-		Description:   "Prevent negative timestamps in output",
-		Category:      CategoryTiming,
-		AppDefault:    false,
-		FFmpegDefault: "disabled",
-	},
+
 	{
 		Key:            OptionThreadQueue1024,
 		Name:           "Large Thread Queue",
 		Description:    "Use 1024 thread queue size (helps with buffer corruption)",
 		Category:       CategoryPerformance,
 		AppDefault:     true,
-		FFmpegDefault:  "8",
 		ExclusiveGroup: func() *ExclusiveGroup { g := GroupThreadQueue; return &g }(), // Mutually exclusive with other thread queue sizes
 	},
 	{
 		Key:            OptionThreadQueue4096,
 		Name:           "Extra Large Thread Queue",
-		Description:    "Use 4096 thread queue size (for problematic devices)",
+		Description:    "Use 4096 thread queue size (for high bitrate streams)",
 		Category:       CategoryPerformance,
 		AppDefault:     false,
-		FFmpegDefault:  "8",
 		ExclusiveGroup: func() *ExclusiveGroup { g := GroupThreadQueue; return &g }(), // Mutually exclusive with other thread queue sizes
 	},
 	{
-		Key:           OptionLowLatency,
-		Name:          "Low Latency Mode",
-		Description:   "Optimize for minimal latency",
-		Category:      CategoryPerformance,
-		AppDefault:    false,
-		FFmpegDefault: "disabled",
+		Key:         OptionLowLatency,
+		Name:        "Low Latency Mode",
+		Description: "Optimize for minimal latency",
+		Category:    CategoryPerformance,
+		AppDefault:  false,
 	},
 	{
-		Key:           OptionCopyTimestamps,
-		Name:          "Copy Timestamps",
-		Description:   "Preserve original timestamps and start at zero (fixes V4L2 timestamp issues)",
-		Category:      CategoryTiming,
-		AppDefault:    true, // MAKE THIS DEFAULT FOR ALL STREAMS
-		FFmpegDefault: "disabled",
-		ConflictsWith: []OptionType{OptionGeneratePTS, OptionWallclockTimestamp},
+		Key:            OptionCopytsWithGenpts,
+		Name:           "Copy Timestamps with PTS Generation",
+		Description:    "Preserve original timestamps with PTS regeneration (fixes V4L2 and DTS issues)",
+		Category:       CategoryTiming,
+		AppDefault:     true, // MAKE THIS DEFAULT FOR ALL STREAMS
+		ExclusiveGroup: func() *ExclusiveGroup { g := GroupTimestampHandling; return &g }(),
+	},
+	{
+		Key:         OptionVsyncPassthrough,
+		Name:        "Vsync Passthrough",
+		Description: "Pass frames exactly as they arrive from input without dropping or duplicating (fps_mode passthrough)",
+		Category:    CategoryTiming,
+		AppDefault:  false,
 	},
 }
 
@@ -261,6 +236,7 @@ type StreamConfig struct {
 	GlobalArgs     []string          // Global FFmpeg arguments (e.g., -vaapi_device)
 	EncoderParams  map[string]string // Encoder-specific parameters (e.g., qp, cq)
 	VideoFilters   string            // Video filter chain (e.g., format=nv12,hwupload)
+	AudioDevice    string            // ALSA audio device (e.g., "hw:4,0") - if set, enables audio passthrough
 }
 
 // CaptureConfig represents parameters for screenshot capture
@@ -297,21 +273,13 @@ func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionT
 
 	for _, option := range options {
 		switch option {
-		case OptionGeneratePTS:
-			fflags = append(fflags, "+genpts")
-			appliedOptions = append(appliedOptions, OptionGeneratePTS)
-		case OptionIgnoreDTS:
-			fflags = append(fflags, "+igndts")
-			appliedOptions = append(appliedOptions, OptionIgnoreDTS)
 		case OptionIgnoreErrors:
 			cmd.WriteString(" -err_detect ignore_err")
 			appliedOptions = append(appliedOptions, OptionIgnoreErrors)
-		case OptionWallclockTimestamp:
+		case OptionWallclockWithGenpts:
 			cmd.WriteString(" -use_wallclock_as_timestamps 1")
-			appliedOptions = append(appliedOptions, OptionWallclockTimestamp)
-		case OptionAvoidNegativeTS:
-			cmd.WriteString(" -avoid_negative_ts make_zero")
-			appliedOptions = append(appliedOptions, OptionAvoidNegativeTS)
+			fflags = append(fflags, "+genpts")
+			appliedOptions = append(appliedOptions, OptionWallclockWithGenpts)
 		case OptionThreadQueue1024:
 			cmd.WriteString(" -thread_queue_size 1024")
 			appliedOptions = append(appliedOptions, OptionThreadQueue1024)
@@ -322,10 +290,16 @@ func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionT
 			cmd.WriteString(" -fflags +flush_packets")
 			cmd.WriteString(" -flags +low_delay")
 			appliedOptions = append(appliedOptions, OptionLowLatency)
-		case OptionCopyTimestamps:
+		case OptionCopytsWithGenpts:
 			// Note: copyts and start_at_zero need to be applied AFTER input
 			// They will be handled separately in BuildStreamCommand
-			appliedOptions = append(appliedOptions, OptionCopyTimestamps)
+			// But we add genpts to fflags here
+			fflags = append(fflags, "+genpts")
+			appliedOptions = append(appliedOptions, OptionCopytsWithGenpts)
+		case OptionVsyncPassthrough:
+			// Note: fps_mode needs to be applied AFTER input
+			// It will be handled separately in BuildStreamCommand
+			appliedOptions = append(appliedOptions, OptionVsyncPassthrough)
 		}
 	}
 
@@ -375,33 +349,52 @@ func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (
 		cmd.WriteString(" -input_format yuyv422") // Default to YUYV
 	}
 
-	// Resolution
+	// Resolution - only add if specified, let device decide if empty
 	if streamConfig.Resolution != "" {
 		cmd.WriteString(fmt.Sprintf(" -video_size %s", streamConfig.Resolution))
-	} else {
-		cmd.WriteString(" -video_size 1280x720") // Default resolution
 	}
 
-	// Framerate
+	// Framerate - only add if specified, let device decide if empty
 	if streamConfig.FPS != "" {
 		cmd.WriteString(fmt.Sprintf(" -framerate %s", streamConfig.FPS))
-	} else {
-		cmd.WriteString(" -framerate 30") // Default FPS
 	}
 
 	// Input device
 	cmd.WriteString(fmt.Sprintf(" -i %s", streamConfig.DevicePath))
 
+	// Add audio input if audio device is specified
+	if streamConfig.AudioDevice != "" {
+		// Audio thread queue size (fixed at 512)
+		cmd.WriteString(" -thread_queue_size 512")
+		// ALSA input
+		cmd.WriteString(" -f alsa")
+		// Stereo channels
+		cmd.WriteString(" -ac 2")
+		// Audio device
+		cmd.WriteString(fmt.Sprintf(" -i %s", streamConfig.AudioDevice))
+	}
+
 	// Check if copyts option is enabled and apply it AFTER input
 	hasCopyTS := false
+	hasVsyncPassthrough := false
 	for _, opt := range appliedOptions {
-		if opt == OptionCopyTimestamps {
+		if opt == OptionCopytsWithGenpts {
 			hasCopyTS = true
-			break
+		}
+		if opt == OptionVsyncPassthrough {
+			hasVsyncPassthrough = true
 		}
 	}
 	if hasCopyTS {
 		cmd.WriteString(" -copyts -start_at_zero")
+	}
+	if hasVsyncPassthrough {
+		cmd.WriteString(" -fps_mode passthrough")
+	}
+
+	// Add stream mapping if audio is enabled
+	if streamConfig.AudioDevice != "" {
+		cmd.WriteString(" -map 0:v -map 1:a")
 	}
 
 	// Add video filters AFTER input, BEFORE codec
@@ -431,13 +424,22 @@ func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (
 		cmd.WriteString(fmt.Sprintf(" -b:v %s", streamConfig.Bitrate))
 	}
 
-	// Low latency settings for WebRTC (only if not hardware accelerated)
+	// Low latency settings for software encoders only
 	if !isHardwareEncoder(codec) {
 		cmd.WriteString(" -tune zerolatency")
+		// These parameters are only supported by software encoders
+		// Hardware encoders should set these via EncoderParams if needed
+		cmd.WriteString(" -g 30")           // GOP size
+		cmd.WriteString(" -keyint_min 15")  // Minimum GOP size
+		cmd.WriteString(" -sc_threshold 0") // Disable scene change detection
 	}
-	cmd.WriteString(" -g 30")           // GOP size
-	cmd.WriteString(" -keyint_min 15")  // Minimum GOP size
-	cmd.WriteString(" -sc_threshold 0") // Disable scene change detection
+
+	// Add audio codec if audio device is specified
+	if streamConfig.AudioDevice != "" {
+		// Use Opus codec for WebRTC compatibility (also works with RTSP)
+		// Opus is the preferred audio codec for WebRTC and modern streaming
+		cmd.WriteString(" -c:a libopus -b:a 128k -ar 48000")
+	}
 
 	// Output format and destination
 	cmd.WriteString(" -f rtsp")
@@ -480,18 +482,14 @@ func (cb *DefaultCommandBuilder) BuildCaptureCommand(config CaptureConfig) (stri
 		cmd.WriteString(" -input_format yuyv422") // Default to YUYV
 	}
 
-	// Resolution
+	// Resolution - only add if specified, let device decide if empty
 	if config.Resolution != "" {
 		cmd.WriteString(fmt.Sprintf(" -video_size %s", config.Resolution))
-	} else {
-		cmd.WriteString(" -video_size 1280x720") // Default resolution
 	}
 
-	// Framerate
+	// Framerate - only add if specified, let device decide if empty
 	if config.FPS != "" {
 		cmd.WriteString(fmt.Sprintf(" -framerate %s", config.FPS))
-	} else {
-		cmd.WriteString(" -framerate 30") // Default FPS
 	}
 
 	// Input device

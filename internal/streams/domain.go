@@ -7,6 +7,7 @@ type Stream struct {
 	ID             string    `json:"stream_id"`
 	DeviceID       string    `json:"device_id"`
 	Codec          string    `json:"codec"`
+	Bitrate        string    `json:"bitrate"` // Bitrate string from config (e.g., "2M", "1500k")
 	StartTime      time.Time `json:"start_time"`
 	WebRTCURL      string    `json:"webrtc_url"`
 	RTSPURL        string    `json:"rtsp_url"`
@@ -19,10 +20,12 @@ type StreamCreateParams struct {
 	DeviceID    string
 	Codec       string
 	InputFormat string
-	Bitrate     *int // Optional, in kbps
-	Width       *int // Optional, video width
-	Height      *int // Optional, video height
-	Framerate   *int // Optional, video framerate
+	Bitrate     *float64 // Optional, in Mbps
+	Width       *int     // Optional, video width
+	Height      *int     // Optional, video height
+	Framerate   *int     // Optional, video framerate
+	AudioDevice string   // Optional, ALSA audio device
+	Options     []string // Optional, FFmpeg option keys
 }
 
 // StreamStatus represents the runtime status of a stream

@@ -1,7 +1,7 @@
 import { useReducer, useCallback, useEffect } from 'react';
-import { StreamRequestData, Resolution } from '../lib/api';
-import { useDeviceFormats, useDeviceResolutions, useDeviceFramerates } from './useDeviceCapabilities';
 import { useStreamStore } from './useStreamStore';
+import { useDeviceFormats, useDeviceResolutions, useDeviceFramerates } from './useDeviceCapabilities';
+import { StreamRequestData, getFFmpegOptions, Resolution } from '../lib/api';
 import { RESOLUTION_LABELS } from '../components/StreamCreation/constants';
 
 // Helper to filter resolutions to common ones
@@ -26,6 +26,7 @@ export interface StreamFormState {
   framerate: number;
   codec: string;
   bitrate: number | undefined;
+  options: string[];
   
   // UI state
   status: 'idle' | 'selecting-device' | 'selecting-format' | 'selecting-resolution' | 'selecting-framerate' | 'ready' | 'creating';
@@ -44,6 +45,7 @@ export type StreamFormAction =
   | { type: 'SELECT_FRAMERATE'; framerate: number }
   | { type: 'SET_CODEC'; codec: string }
   | { type: 'SET_BITRATE'; bitrate: number | undefined }
+  | { type: 'SET_OPTIONS'; options: string[] }
   | { type: 'SET_ERROR'; field: string; message: string }
   | { type: 'CLEAR_ERROR'; field: string }
   | { type: 'SET_STATUS'; status: StreamFormState['status'] }
@@ -62,7 +64,8 @@ const initialState: StreamFormState = {
   height: 0,
   framerate: 0,
   codec: 'h264',
-  bitrate: undefined,
+  bitrate: 2, // Default to 2 Mbps
+  options: [], // Will be populated with defaults from API
   status: 'idle',
   errors: {},
   isValid: false,
@@ -86,26 +89,12 @@ function validateForm(state: StreamFormState): Record<string, string> {
     errors.format = 'Format selection is required';
   }
   
-  if (!state.width || !state.height) {
-    errors.resolution = 'Resolution selection is required';
-  } else if (state.width < 160 || state.width > 7680) {
-    errors.resolution = 'Width must be between 160 and 7680 pixels';
-  } else if (state.height < 120 || state.height > 4320) {
-    errors.resolution = 'Height must be between 120 and 4320 pixels';
-  }
-  
-  if (!state.framerate) {
-    errors.framerate = 'Framerate selection is required';
-  } else if (state.framerate < 1 || state.framerate > 120) {
-    errors.framerate = 'Framerate must be between 1 and 120 FPS';
-  }
-  
   if (!state.codec) {
     errors.codec = 'Codec selection is required';
   }
   
-  if (state.bitrate !== undefined && (state.bitrate < 100 || state.bitrate > 50000)) {
-    errors.bitrate = 'Bitrate must be between 100 and 50000 kbps';
+  if (state.bitrate !== undefined && (state.bitrate < 0.1 || state.bitrate > 50)) {
+    errors.bitrate = 'Bitrate must be between 0.1 and 50 Mbps';
   }
   
   return errors;
@@ -212,18 +201,17 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
       const restErrors: Record<string, string> = Object.fromEntries(
         Object.entries(state.errors).filter(([key]) => key !== 'bitrate')
       );
-      const newState = {
+      return {
         ...state,
         bitrate: action.bitrate,
         errors: restErrors,
       };
-      
-      // Validate to update isValid
-      const errors = validateForm(newState);
+    }
+    
+    case 'SET_OPTIONS': {
       return {
-        ...newState,
-        errors,
-        isValid: Object.keys(errors).length === 0,
+        ...state,
+        options: action.options,
       };
     }
     
@@ -288,7 +276,6 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
     }
     
     default: {
-      // @ts-expect-error - exhaustive check
       action satisfies never;
       return state;
     }
@@ -299,6 +286,20 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
 export function useStreamCreation() {
   const [state, dispatch] = useReducer(streamFormReducer, initialState);
   const { createStream } = useStreamStore();
+  
+  // Load default FFmpeg options on mount
+  useEffect(() => {
+    getFFmpegOptions().then(data => {
+      const defaultOptions = data.options
+        .filter(opt => opt.app_default)
+        .map(opt => opt.key);
+      dispatch({ type: 'SET_OPTIONS', options: defaultOptions });
+    }).catch(err => {
+      console.error('Failed to load FFmpeg options:', err);
+      // Use hardcoded defaults as fallback
+      dispatch({ type: 'SET_OPTIONS', options: ['thread_queue_1024', 'copyts'] });
+    });
+  }, []);
   
   // Fetch device capabilities
   const { formats, loading: loadingFormats } = useDeviceFormats(state.deviceId);
@@ -321,8 +322,9 @@ export function useStreamCreation() {
   }, [formats, state.deviceId, state.format]);
   
   // Auto-select best resolution when resolutions load for a new format
+  // But only if this is the initial format selection (status is 'selecting-format')
   useEffect(() => {
-    if (resolutions.length > 0 && state.format && state.width === 0 && state.height === 0) {
+    if (resolutions.length > 0 && state.format && state.width === 0 && state.height === 0 && state.status === 'selecting-format') {
       // Filter to common resolutions first
       const filtered = filterToCommonResolutions(resolutions);
       
@@ -335,11 +337,12 @@ export function useStreamCreation() {
         dispatch({ type: 'SELECT_RESOLUTION', width: highest.width, height: highest.height });
       }
     }
-  }, [resolutions, state.format, state.width, state.height]);
+  }, [resolutions, state.format, state.width, state.height, state.status]);
   
   // Handle framerate when resolution changes or framerates load
+  // Only auto-select if this is the initial resolution selection (status is 'selecting-resolution')
   useEffect(() => {
-    if (framerates.length > 0 && state.width > 0 && state.height > 0) {
+    if (framerates.length > 0 && state.width > 0 && state.height > 0 && state.status === 'selecting-resolution') {
       // Check if current framerate is still valid
       if (state.framerate > 0) {
         const isCurrentFramerateValid = framerates.some(fr => 
@@ -362,7 +365,7 @@ export function useStreamCreation() {
         }
       }
     }
-  }, [framerates, state.width, state.height, state.framerate]);
+  }, [framerates, state.width, state.height, state.framerate, state.status]);
   
   // Action creators
   const setStreamId = useCallback((streamId: string) => {
@@ -378,6 +381,11 @@ export function useStreamCreation() {
   }, []);
   
   const selectResolution = useCallback((width: number, height: number) => {
+    // Allow selecting auto (0x0)
+    if (width === 0 && height === 0) {
+      dispatch({ type: 'SELECT_RESOLUTION', width: 0, height: 0 });
+      return;
+    }
     // Validate that this resolution exists for the current format
     const filteredResolutions = filterToCommonResolutions(resolutions);
     const isValid = filteredResolutions.some(r => r.width === width && r.height === height);
@@ -400,6 +408,10 @@ export function useStreamCreation() {
     dispatch({ type: 'SET_BITRATE', bitrate });
   }, []);
   
+  const setOptions = useCallback((options: string[]) => {
+    dispatch({ type: 'SET_OPTIONS', options });
+  }, []);
+  
   const handleCreateStream = useCallback(async () => {
     if (!state.isValid) {
       dispatch({ type: 'VALIDATE' });
@@ -418,6 +430,7 @@ export function useStreamCreation() {
         ...(state.height > 0 ? { height: state.height } : {}),
         ...(state.framerate > 0 ? { framerate: state.framerate } : {}),
         ...(state.bitrate ? { bitrate: state.bitrate } : {}),
+        ...(state.options.length > 0 ? { options: state.options } : {}),
       };
       
       await createStream(request);
@@ -459,6 +472,7 @@ export function useStreamCreation() {
       selectFramerate,
       setCodec,
       setBitrate,
+      setOptions,
       createStream: handleCreateStream,
       reset,
     },

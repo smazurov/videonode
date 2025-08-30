@@ -11,6 +11,7 @@ package v4l2_detector
 import "C"
 import (
 	"fmt"
+	"log"
 	"sync"
 	"unsafe"
 )
@@ -174,6 +175,11 @@ func GetDeviceResolutions(devicePath string, pixelFormat uint32) ([]Resolution, 
 
 	ret := C.v4l2_get_resolutions(cDevicePath, C.uint32_t(pixelFormat), &cResolutions, &cCount)
 	if ret != 0 {
+		// Return empty list for ENOTTY (-25) - multiplanar devices don't support resolution enumeration
+		if ret == -25 {
+			log.Printf("Device %s format %d: resolution enumeration not supported (multiplanar device)", devicePath, pixelFormat)
+			return []Resolution{}, nil
+		}
 		return nil, fmt.Errorf("v4l2_get_resolutions failed with code: %d", ret)
 	}
 
