@@ -22,14 +22,6 @@ export const COMMON_FRAMERATES = [
   { value: '15', label: '15 FPS' }
 ] as const;
 
-export const COMMON_BITRATES = [
-  { value: '', label: 'Auto' },
-  { value: '8000', label: '8 Mbps (High Quality)' },
-  { value: '4000', label: '4 Mbps (Medium Quality)' },
-  { value: '2000', label: '2 Mbps (Standard)' },
-  { value: '1000', label: '1 Mbps (Low Bandwidth)' }
-] as const;
-
 export const RESOLUTION_LABELS: Record<string, string> = {
   '3840x2160': '4K',
   '2560x1440': '1440p',

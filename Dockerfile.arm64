@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1
+FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
+
+# Install xx cross-compilation helpers
+COPY --from=xx / /
+
+# Install build essentials and CMake
+RUN apt-get update && apt-get install -y \
+    cmake \
+    ninja-build \
+    clang \
+    lld \
+    pkg-config \
+    git
+
+# Configure for target platform
+ARG TARGETPLATFORM
+RUN xx-apt-get install -y \
+    gcc \
+    g++ \
+    libc6-dev \
+    libv4l-dev \
+    libavcodec-dev \
+    libavutil-dev \
+    libavformat-dev \
+    libudev-dev \
+    pkg-config
+
+WORKDIR /workspace
+ENV CGO_ENABLED=1
+
+# Copy only go mod files first
+COPY go.mod go.sum ./
+
+# Download dependencies (this layer gets cached)
+RUN xx-go mod download
+
+# Copy entire project
+COPY . .
+
+# Build v4l2_detector C library first
+RUN cd v4l2_detector && \
+    mkdir -p build-docker && cd build-docker && \
+    cmake $(xx-clang --print-cmake-defines) \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DENABLE_UDEV=ON \
+    .. && \
+    ninja v4l2_detector_lib
+
+# Build args for version info
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG BUILD_ID=unknown
+ARG VERSION=dev
+
+# Build videonode with proper CGO flags
+ENV CGO_CFLAGS="-I/workspace/v4l2_detector/src"
+ENV CGO_LDFLAGS="-L/workspace/v4l2_detector/build-docker -lv4l2_detector_lib"
+
+RUN xx-go build \
+    -ldflags "-linkmode external \
+              -X 'github.com/smazurov/videonode/internal/version.Version=${VERSION}' \
+              -X 'github.com/smazurov/videonode/internal/version.GitCommit=${GIT_COMMIT}' \
+              -X 'github.com/smazurov/videonode/internal/version.BuildDate=${BUILD_DATE}' \
+              -X 'github.com/smazurov/videonode/internal/version.BuildID=${BUILD_ID}'" \
+    -o videonode-arm64 \
+    .
+
+# Verify the binary
+RUN xx-verify videonode-arm64
+
+# Export stage
+FROM scratch AS export
+COPY --from=builder /workspace/videonode-arm64 /

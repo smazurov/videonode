@@ -4,7 +4,16 @@ import { Button } from '../Button';
 import { InputField } from '../InputField';
 import { useDeviceStore } from '../../hooks/useDeviceStore';
 import { useStreamCreation } from '../../hooks/useStreamCreation';
-import { RESOLUTION_LABELS, COMMON_BITRATES } from './constants';
+import { RESOLUTION_LABELS } from './constants';
+import { AdvancedOptions } from './AdvancedOptions';
+
+const MANUAL_FPS_OPTIONS = [
+  { value: '24', label: '24 FPS' },
+  { value: '25', label: '25 FPS' },
+  { value: '30', label: '30 FPS' },
+  { value: '50', label: '50 FPS' },
+  { value: '60', label: '60 FPS' },
+];
 
 interface StreamCreationFormProps {
   onCreateStream: () => Promise<void>;
@@ -129,30 +138,19 @@ export function StreamCreationForm({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Resolution
                 </label>
-                {(() => {
-                  if (!state.format) {
-                    return (
-                      <select
-                        disabled
-                        className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-100 dark:bg-gray-900 cursor-not-allowed"
-                      >
-                        <option>Select format first</option>
-                      </select>
-                    );
-                  }
-                  if (loading.resolutions) {
-                    return (
-                      <div className="flex items-center space-x-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
-                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                        <span className="text-sm text-gray-600 dark:text-gray-300">Loading...</span>
-                      </div>
-                    );
-                  }
-                  return (
+                {loading.resolutions && state.format ? (
+                  <div className="flex items-center space-x-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-sm text-gray-600 dark:text-gray-300">Loading...</span>
+                  </div>
+                ) : (
                   <select
                     value={state.width && state.height ? `${state.width}x${state.height}` : ''}
                     onChange={(e) => {
-                      if (e.target.value) {
+                      if (e.target.value === '') {
+                        // User selected "Auto"
+                        actions.selectResolution(0, 0);
+                      } else {
                         const [w, h] = e.target.value.split('x').map(Number);
                         if (w && h) {
                           actions.selectResolution(w, h);
@@ -160,9 +158,10 @@ export function StreamCreationForm({
                       }
                     }}
                     className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
-                    disabled={isCreating || resolutions.length === 0}
+                    disabled={isCreating}
                   >
                     <option value="">Auto</option>
+                    {!state.format && <option disabled>Select format first to see resolutions</option>}
                     {resolutions.map((res) => {
                       const resString = `${res.width}x${res.height}`;
                       const label = RESOLUTION_LABELS[resString] 
@@ -176,8 +175,7 @@ export function StreamCreationForm({
                       );
                     })}
                   </select>
-                  );
-                })()}
+                )}
                 {state.errors.resolution && (
                   <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.resolution}</p>
                 )}
@@ -188,48 +186,42 @@ export function StreamCreationForm({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Framerate
                 </label>
-                {(() => {
-                  if (!state.width || !state.height) {
-                    return (
-                      <select
-                        disabled
-                        className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-100 dark:bg-gray-900 cursor-not-allowed"
-                      >
-                        <option>Select resolution first</option>
-                      </select>
-                    );
-                  }
-                  if (loading.framerates) {
-                    return (
-                      <div className="flex items-center space-x-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
-                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                        <span className="text-sm text-gray-600 dark:text-gray-300">Loading...</span>
-                      </div>
-                    );
-                  }
-                  return (
+                {loading.framerates && state.width > 0 && state.height > 0 ? (
+                  <div className="flex items-center space-x-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-sm text-gray-600 dark:text-gray-300">Loading...</span>
+                  </div>
+                ) : (
                   <select
                     value={state.framerate?.toString() || ''}
                     onChange={(e) => {
-                      if (e.target.value) {
+                      if (e.target.value === '') {
+                        actions.selectFramerate(0); // 0 means auto
+                      } else {
                         actions.selectFramerate(parseInt(e.target.value, 10));
                       }
                     }}
                     className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
-                    disabled={isCreating || framerates.length === 0}
+                    disabled={isCreating}
                   >
                     <option value="">Auto</option>
-                    {framerates.map((rate) => {
-                      const fpsValue = Math.round(rate.fps);
-                      return (
-                        <option key={`${rate.numerator}/${rate.denominator}`} value={fpsValue.toString()}>
-                          {fpsValue} FPS ({rate.numerator}/{rate.denominator})
-                        </option>
-                      );
-                    })}
+                    {/* Use API framerates if available and resolution is specific, otherwise use manual options */}
+                    {framerates.length > 0 && state.width > 0 && state.height > 0 ? (
+                      framerates.map((rate) => {
+                        const fpsValue = Math.round(rate.fps);
+                        return (
+                          <option key={`${rate.numerator}/${rate.denominator}`} value={fpsValue.toString()}>
+                            {fpsValue} FPS ({rate.numerator}/{rate.denominator})
+                          </option>
+                        );
+                      })
+                    ) : (
+                      MANUAL_FPS_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))
+                    )}
                   </select>
-                  );
-                })()}
+                )}
                 {state.errors.framerate && (
                   <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.framerate}</p>
                 )}
@@ -262,23 +254,42 @@ export function StreamCreationForm({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Bitrate
               </label>
-              <select
-                value={state.bitrate?.toString() || ''}
-                onChange={(e) => actions.setBitrate(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-                className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
-                disabled={isCreating}
-              >
-                {COMMON_BITRATES.map((bitrate) => (
-                  <option key={bitrate.value} value={bitrate.value}>
-                    {bitrate.label}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={state.bitrate || 2}
+                  onChange={(e) => {
+                    const mbps = parseFloat(e.target.value);
+                    if (!isNaN(mbps) && mbps > 0) {
+                      actions.setBitrate(mbps); // Keep as Mbps
+                    } else if (e.target.value === '') {
+                      actions.setBitrate(2); // Default to 2 Mbps
+                    }
+                  }}
+                  placeholder="2.0"
+                  step="0.1"
+                  min="0.1"
+                  max="50"
+                  className="block w-full pl-3 pr-16 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+                  disabled={isCreating}
+                />
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                  <span className="text-gray-500 dark:text-gray-400 sm:text-sm">Mbps</span>
+                </div>
+              </div>
               {state.errors.bitrate && (
                 <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.bitrate}</p>
               )}
             </div>
           </div>
+          
+          {/* Advanced Options */}
+          <AdvancedOptions
+            selectedOptions={state.options}
+            onOptionsChange={actions.setOptions}
+            disabled={isCreating}
+            className="mt-4"
+          />
           
           {/* Error message */}
           {state.errors.submit && (

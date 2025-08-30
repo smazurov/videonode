@@ -63,6 +63,8 @@ func (s *Server) registerStreamRoutes() {
 			Width:       &input.Body.Width,
 			Height:      &input.Body.Height,
 			Framerate:   &input.Body.Framerate,
+			AudioDevice: input.Body.AudioDevice,
+			Options:     input.Body.Options,
 		}
 
 		// Handle optional fields properly
@@ -174,6 +176,7 @@ func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
 		StreamID:  stream.ID,
 		DeviceID:  stream.DeviceID,
 		Codec:     stream.Codec,
+		Bitrate:   stream.Bitrate,
 		Uptime:    0, // Will be calculated when needed
 		StartTime: stream.StartTime,
 		WebRTCURL: stream.WebRTCURL,

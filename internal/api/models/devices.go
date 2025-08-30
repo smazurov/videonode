@@ -19,6 +19,10 @@ const (
 	FormatMJPEG   VideoFormat = "mjpeg"
 	FormatYU12    VideoFormat = "yu12"
 	FormatYV12    VideoFormat = "yv12"
+	FormatBGR24   VideoFormat = "bgr24" // BGR3 - 24-bit BGR (HDMI native)
+	FormatRGB24   VideoFormat = "rgb24" // RGB3 - 24-bit RGB (HDMI native)
+	FormatNV24    VideoFormat = "nv24"  // Y/UV 4:4:4 (full chroma)
+	FormatNV16    VideoFormat = "nv16"  // Y/UV 4:2:2 (half chroma)
 )
 
 // Pixel format mappings - single source of truth
@@ -29,6 +33,10 @@ var videoFormatToPixelFormat = map[VideoFormat]uint32{
 	FormatMJPEG:   1196444237, // MJPEG
 	FormatYU12:    842093913,  // YU12/I420
 	FormatYV12:    842094169,  // YV12
+	FormatBGR24:   861030210,  // BGR3
+	FormatRGB24:   859981650,  // RGB3
+	FormatNV24:    875714126,  // NV24
+	FormatNV16:    909203022,  // NV16
 }
 
 // Implement SchemaProvider for dynamic enum validation
