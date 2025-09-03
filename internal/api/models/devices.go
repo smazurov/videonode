@@ -5,7 +5,6 @@ import (
 	"log"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/smazurov/videonode/v4l2_detector"
 )
 
 // VideoFormat represents supported video format names
@@ -67,8 +66,8 @@ func (vf VideoFormat) IsValid() bool {
 	return exists
 }
 
-// pixelFormatToHumanReadable converts V4L2 pixel format codes to human-readable names
-func pixelFormatToHumanReadable(pixelFormat uint32) string {
+// PixelFormatToHumanReadable converts V4L2 pixel format codes to human-readable names
+func PixelFormatToHumanReadable(pixelFormat uint32) string {
 	// Reverse lookup in our map
 	for format, code := range videoFormatToPixelFormat {
 		if code == pixelFormat {
@@ -144,33 +143,4 @@ type DeviceFrameratesResponse struct {
 	Body DeviceFrameratesData
 }
 
-// ConvertV4L2FormatInfo converts v4l2_detector.FormatInfo to our API FormatInfo
-func ConvertV4L2FormatInfo(v4l2Format v4l2_detector.FormatInfo) FormatInfo {
-	return FormatInfo{
-		FormatName:   pixelFormatToHumanReadable(v4l2Format.PixelFormat),
-		OriginalName: v4l2Format.FormatName,
-		Emulated:     v4l2Format.Emulated,
-	}
-}
-
-// ConvertV4L2Resolution converts v4l2_detector.Resolution to our API Resolution
-func ConvertV4L2Resolution(v4l2Res v4l2_detector.Resolution) Resolution {
-	return Resolution{
-		Width:  v4l2Res.Width,
-		Height: v4l2Res.Height,
-	}
-}
-
-// ConvertV4L2Framerate converts v4l2_detector.Framerate to our API Framerate
-func ConvertV4L2Framerate(v4l2Rate v4l2_detector.Framerate) Framerate {
-	var fps float64
-	if v4l2Rate.Numerator != 0 {
-		fps = float64(v4l2Rate.Denominator) / float64(v4l2Rate.Numerator)
-	}
-
-	return Framerate{
-		Numerator:   v4l2Rate.Numerator,
-		Denominator: v4l2Rate.Denominator,
-		Fps:         fps,
-	}
-}
+// Note: V4L2 conversion functions were removed - conversion now happens in devices package

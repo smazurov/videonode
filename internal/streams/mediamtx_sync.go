@@ -7,7 +7,7 @@ import (
 	"time"
 
 	streamconfig "github.com/smazurov/videonode/internal/config"
-	"github.com/smazurov/videonode/v4l2_detector"
+	"github.com/smazurov/videonode/internal/devices"
 )
 
 // SyncAllStreamsToMediaMTX regenerates the entire MediaMTX configuration from streams.toml
@@ -19,13 +19,14 @@ func SyncAllStreamsToMediaMTX(manager *streamconfig.StreamManager, configPath st
 
 	// Create device resolver function
 	deviceResolver := func(deviceID string) string {
-		devices, err := v4l2_detector.FindDevices()
+		detector := devices.NewDetector()
+		deviceList, err := detector.FindDevices()
 		if err != nil {
 			log.Printf("Error finding devices for resolution: %v", err)
 			return deviceID
 		}
 
-		for _, device := range devices {
+		for _, device := range deviceList {
 			if device.DeviceId == deviceID {
 				log.Printf("Resolved device %s to %s", deviceID, device.DevicePath)
 				return device.DevicePath
