@@ -8,25 +8,26 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/encoders/validation"
 	"github.com/smazurov/videonode/internal/ffmpeg"
-	"github.com/smazurov/videonode/v4l2_detector"
 )
 
-// listDevices lists all available video devices using v4l2detector
+// listDevices lists all available video devices
 func ListDevices() {
-	devices, err := v4l2_detector.FindDevices()
+	detector := devices.NewDetector()
+	deviceList, err := detector.FindDevices()
 	if err != nil {
 		log.Fatalf("Error finding devices: %v", err)
 	}
 
-	if len(devices) == 0 {
+	if len(deviceList) == 0 {
 		fmt.Println("No V4L2 devices found.")
 		return
 	}
 
-	fmt.Printf("Found %d V4L2 devices:\n", len(devices))
-	for i, dev := range devices {
+	fmt.Printf("Found %d V4L2 devices:\n", len(deviceList))
+	for i, dev := range deviceList {
 		fmt.Printf("%d. Device Path: %s\n", i+1, dev.DevicePath)
 		fmt.Printf("   Device Name: %s\n", dev.DeviceName)
 		fmt.Printf("   Device ID: %s\n", dev.DeviceId)
