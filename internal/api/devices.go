@@ -13,7 +13,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/capture"
-	"github.com/smazurov/videonode/v4l2_detector"
+	"github.com/smazurov/videonode/internal/devices"
 )
 
 // Device path parameter input
@@ -181,47 +181,53 @@ func translateCapabilities(caps uint32) []string {
 
 // GetDevicesData fetches the list of available video devices
 func GetDevicesData() (models.DeviceData, error) {
-	v4l2Devices, err := v4l2_detector.FindDevices()
+	detector := devices.NewDetector()
+	deviceList, err := detector.FindDevices()
 	if err != nil {
 		return models.DeviceData{}, fmt.Errorf("failed to find devices: %w", err)
 	}
 
-	// Convert v4l2_detector.DeviceInfo to our API DeviceInfo with capabilities
-	devices := make([]models.DeviceInfo, len(v4l2Devices))
-	for i, v4l2Dev := range v4l2Devices {
-		devices[i] = models.DeviceInfo{
-			DevicePath:   v4l2Dev.DevicePath,
-			DeviceName:   v4l2Dev.DeviceName,
-			DeviceId:     v4l2Dev.DeviceId,
-			Caps:         v4l2Dev.Caps,
-			Capabilities: translateCapabilities(v4l2Dev.Caps),
+	// Convert devices.DeviceInfo to our API DeviceInfo with capabilities
+	apiDevices := make([]models.DeviceInfo, len(deviceList))
+	for i, dev := range deviceList {
+		apiDevices[i] = models.DeviceInfo{
+			DevicePath:   dev.DevicePath,
+			DeviceName:   dev.DeviceName,
+			DeviceId:     dev.DeviceId,
+			Caps:         dev.Caps,
+			Capabilities: translateCapabilities(dev.Caps),
 		}
 	}
 
 	return models.DeviceData{
-		Devices: devices,
-		Count:   len(devices),
+		Devices: apiDevices,
+		Count:   len(apiDevices),
 	}, nil
 }
 
 // GetDeviceCapabilities fetches all capabilities for a specific device
 func GetDeviceCapabilities(devicePath string) (models.DeviceCapabilitiesData, error) {
-	v4l2Formats, err := v4l2_detector.GetDeviceFormats(devicePath)
+	detector := devices.NewDetector()
+	deviceFormats, err := detector.GetDeviceFormats(devicePath)
 	if err != nil {
 		return models.DeviceCapabilitiesData{}, fmt.Errorf("failed to get device formats: %w", err)
 	}
 
-	// Convert V4L2 formats to our API format
-	formats := make([]models.FormatInfo, 0, len(v4l2Formats))
-	for _, v4l2Format := range v4l2Formats {
+	// Convert device formats to our API format
+	formats := make([]models.FormatInfo, 0, len(deviceFormats))
+	for _, format := range deviceFormats {
 		// Check if format is supported (has FFmpeg equivalent)
-		_, err := V4L2ToFFmpegFormat(v4l2Format.PixelFormat)
+		_, err := V4L2ToFFmpegFormat(format.PixelFormat)
 		if err != nil {
 			// Skip unsupported formats instead of failing completely
 			log.Printf("Warning: %v", err)
 			continue
 		}
-		formats = append(formats, models.ConvertV4L2FormatInfo(v4l2Format))
+		formats = append(formats, models.FormatInfo{
+			FormatName:   models.PixelFormatToHumanReadable(format.PixelFormat),
+			OriginalName: format.FormatName,
+			Emulated:     format.Emulated,
+		})
 	}
 
 	return models.DeviceCapabilitiesData{
@@ -263,7 +269,8 @@ func (s *Server) registerDeviceRoutes() {
 		Errors:      []int{401, 500},
 	}, func(ctx context.Context, input *DevicePathInput) (*models.DeviceCapabilitiesResponse, error) {
 		// Look up device path from stable device ID
-		devicePath, err := v4l2_detector.GetDevicePathByID(input.DeviceID)
+		detector := devices.NewDetector()
+		devicePath, err := detector.GetDevicePathByID(input.DeviceID)
 		if err != nil {
 			return nil, huma.Error404NotFound("Device not found", err)
 		}
@@ -288,7 +295,8 @@ func (s *Server) registerDeviceRoutes() {
 		Errors:      []int{400, 401, 500},
 	}, func(ctx context.Context, input *DeviceFormatInput) (*models.DeviceResolutionsResponse, error) {
 		// Look up device path from stable device ID
-		devicePath, err := v4l2_detector.GetDevicePathByID(input.DeviceID)
+		detector := devices.NewDetector()
+		devicePath, err := detector.GetDevicePathByID(input.DeviceID)
 		if err != nil {
 			return nil, huma.Error404NotFound("Device not found", err)
 		}
@@ -299,7 +307,7 @@ func (s *Server) registerDeviceRoutes() {
 			return nil, huma.Error400BadRequest("Invalid format name", err)
 		}
 
-		resolutions, err := v4l2_detector.GetDeviceResolutions(devicePath, pixelFormat)
+		resolutions, err := detector.GetDeviceResolutions(devicePath, pixelFormat)
 		if err != nil {
 			return nil, huma.Error500InternalServerError("Failed to get device resolutions", err)
 		}
@@ -307,7 +315,10 @@ func (s *Server) registerDeviceRoutes() {
 		// Convert v4l2 resolutions to API resolutions
 		apiResolutions := make([]models.Resolution, len(resolutions))
 		for i, res := range resolutions {
-			apiResolutions[i] = models.ConvertV4L2Resolution(res)
+			apiResolutions[i] = models.Resolution{
+				Width:  res.Width,
+				Height: res.Height,
+			}
 		}
 
 		return &models.DeviceResolutionsResponse{
@@ -327,7 +338,8 @@ func (s *Server) registerDeviceRoutes() {
 		Errors:      []int{400, 401, 500},
 	}, func(ctx context.Context, input *DeviceResolutionInput) (*models.DeviceFrameratesResponse, error) {
 		// Look up device path from stable device ID
-		devicePath, err := v4l2_detector.GetDevicePathByID(input.DeviceID)
+		detector := devices.NewDetector()
+		devicePath, err := detector.GetDevicePathByID(input.DeviceID)
 		if err != nil {
 			return nil, huma.Error404NotFound("Device not found", err)
 		}
@@ -348,7 +360,7 @@ func (s *Server) registerDeviceRoutes() {
 			return nil, huma.Error400BadRequest("Invalid height parameter", err)
 		}
 
-		framerates, err := v4l2_detector.GetDeviceFramerates(devicePath, pixelFormat, uint32(width), uint32(height))
+		framerates, err := detector.GetDeviceFramerates(devicePath, pixelFormat, uint32(width), uint32(height))
 		if err != nil {
 			return nil, huma.Error500InternalServerError("Failed to get device framerates", err)
 		}
@@ -356,7 +368,15 @@ func (s *Server) registerDeviceRoutes() {
 		// Convert v4l2 framerates to API framerates
 		apiFramerates := make([]models.Framerate, len(framerates))
 		for i, rate := range framerates {
-			apiFramerates[i] = models.ConvertV4L2Framerate(rate)
+			var fps float64
+			if rate.Numerator != 0 {
+				fps = float64(rate.Denominator) / float64(rate.Numerator)
+			}
+			apiFramerates[i] = models.Framerate{
+				Numerator:   rate.Numerator,
+				Denominator: rate.Denominator,
+				Fps:         fps,
+			}
 		}
 
 		return &models.DeviceFrameratesResponse{
@@ -377,7 +397,8 @@ func (s *Server) registerDeviceRoutes() {
 		Errors:        []int{401, 404},
 	}, func(ctx context.Context, input *DeviceCaptureInput) (*models.CaptureResponse, error) {
 		// Look up device path from stable device ID
-		devicePath, err := v4l2_detector.GetDevicePathByID(input.DeviceID)
+		detector := devices.NewDetector()
+		devicePath, err := detector.GetDevicePathByID(input.DeviceID)
 		if err != nil {
 			return nil, huma.Error404NotFound("Device not found", err)
 		}

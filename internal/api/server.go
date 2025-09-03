@@ -11,7 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/config"
-	"github.com/smazurov/videonode/internal/monitoring"
+	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/version"
 	"github.com/smazurov/videonode/ui"
@@ -22,11 +22,11 @@ type Server struct {
 	api           huma.API
 	mux           *http.ServeMux
 	httpServer    *http.Server
-	streamService streams.StreamService
-	streamManager *config.StreamManager
-	options       *Options
-	udevMonitor   *monitoring.UdevMonitor
-	obsSSEAdapter *OBSSSEAdapter
+	streamService   streams.StreamService
+	streamManager   *config.StreamManager
+	options         *Options
+	deviceDetector  devices.DeviceDetector
+	obsSSEAdapter   *OBSSSEAdapter
 }
 
 // basicAuthMiddleware creates middleware for HTTP basic authentication
@@ -184,20 +184,27 @@ func (s *Server) GetAPI() huma.API {
 }
 
 // Start starts the HTTP server on the specified address
-// BroadcastDeviceDiscovery implements the EventBroadcaster interface for udev monitoring
-func (s *Server) BroadcastDeviceDiscovery(action string, device models.DeviceInfo, timestamp string) {
+// BroadcastDeviceDiscovery implements the EventBroadcaster interface for device monitoring
+func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
+	// Convert devices.DeviceInfo to models.DeviceInfo
+	apiDevice := models.DeviceInfo{
+		DevicePath: device.DevicePath,
+		DeviceName: device.DeviceName,
+		DeviceId:   device.DeviceId,
+		Caps:       device.Caps,
+	}
 	// Use the global broadcast function from events.go
-	BroadcastDeviceDiscovery(action, device, timestamp)
+	BroadcastDeviceDiscovery(action, apiDevice, timestamp)
 }
 
 func (s *Server) Start(addr string) error {
 	fmt.Printf("Starting VideoNode API server on %s\n", addr)
 	fmt.Printf("OpenAPI documentation available at: http://%s/docs\n", addr)
 
-	// Start udev monitoring
-	s.udevMonitor = monitoring.NewUdevMonitor(s)
-	if err := s.udevMonitor.Start(); err != nil {
-		fmt.Printf("Warning: Failed to start udev monitoring: %v\n", err)
+	// Start device monitoring
+	s.deviceDetector = devices.NewDetector()
+	if err := s.deviceDetector.StartMonitoring(context.Background(), s); err != nil {
+		fmt.Printf("Warning: Failed to start device monitoring: %v\n", err)
 	}
 
 	// Create HTTP server with proper shutdown support
@@ -213,9 +220,9 @@ func (s *Server) Start(addr string) error {
 func (s *Server) Stop() error {
 	fmt.Println("Stopping API server...")
 
-	// Stop udev monitoring
-	if s.udevMonitor != nil {
-		s.udevMonitor.Stop()
+	// Stop device monitoring
+	if s.deviceDetector != nil {
+		s.deviceDetector.StopMonitoring()
 	}
 
 	// Force immediate shutdown - don't wait for connections
