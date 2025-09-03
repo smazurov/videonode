@@ -364,10 +364,14 @@ func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (
 
 	// Add audio input if audio device is specified
 	if streamConfig.AudioDevice != "" {
-		// Audio thread queue size (fixed at 512)
-		cmd.WriteString(" -thread_queue_size 512")
+		// Audio thread queue size (increased to prevent buffer underruns)
+		cmd.WriteString(" -thread_queue_size 10240")
 		// ALSA input
 		cmd.WriteString(" -f alsa")
+		// Sample format (16-bit signed integer for compatibility)
+		cmd.WriteString(" -sample_fmt s16")
+		// Sample rate (48kHz is standard)
+		cmd.WriteString(" -ar 48000")
 		// Stereo channels
 		cmd.WriteString(" -ac 2")
 		// Audio device
@@ -442,6 +446,7 @@ func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (
 	}
 
 	// Output format and destination
+	cmd.WriteString(" -rtsp_transport tcp") // Use TCP for more reliable streaming
 	cmd.WriteString(" -f rtsp")
 	cmd.WriteString(" rtsp://localhost:8554/$MTX_PATH") // MediaMTX will replace $MTX_PATH
 

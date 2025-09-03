@@ -9,12 +9,12 @@ import (
 	"time"
 
 	streamconfig "github.com/smazurov/videonode/internal/config"
+	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/mediamtx"
 	"github.com/smazurov/videonode/internal/types"
 	valManager "github.com/smazurov/videonode/internal/validation"
-	"github.com/smazurov/videonode/v4l2_detector"
 )
 
 // StreamService defines the interface for stream operations
@@ -376,7 +376,8 @@ func (s *StreamServiceImpl) GetStreamStatus(ctx context.Context, streamID string
 
 // resolveDeviceID maps stable device IDs to current device paths
 func (s *StreamServiceImpl) resolveDeviceID(deviceID string) string {
-	devicePath, err := v4l2_detector.GetDevicePathByID(deviceID)
+	detector := devices.NewDetector()
+	devicePath, err := detector.GetDevicePathByID(deviceID)
 	if err != nil {
 		log.Printf("Error resolving device ID %s: %v", deviceID, err)
 		return ""
