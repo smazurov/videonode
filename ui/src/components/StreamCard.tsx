@@ -2,18 +2,21 @@ import { useState } from 'react';
 import { Card } from './Card';
 import { Button } from './Button';
 import { WebRTCPreview } from './WebRTCPreview';
+import { FFmpegCommandSheet } from './FFmpegCommandSheet';
 import { StreamData, buildStreamURL } from '../lib/api';
 
 interface StreamCardProps {
   stream: StreamData;
   onDelete?: (streamId: string) => void;
   onRefresh?: (streamId: string) => void;
+  showVideo?: boolean;
   className?: string;
 }
 
-export function StreamCard({ stream, onDelete, onRefresh, className = '' }: Readonly<StreamCardProps>) {
+export function StreamCard({ stream, onDelete, onRefresh, showVideo = true, className = '' }: Readonly<StreamCardProps>) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showFFmpegSheet, setShowFFmpegSheet] = useState(false);
 
   const handleDelete = async () => {
     if (!onDelete || isDeleting) return;
@@ -81,13 +84,15 @@ export function StreamCard({ stream, onDelete, onRefresh, className = '' }: Read
       
       <Card.Content className="space-y-4">
         {/* WebRTC Preview Area */}
-        <div className="aspect-video bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden">
-          <WebRTCPreview
-            streamId={stream.stream_id}
-            webrtcUrl={buildStreamURL(stream.webrtc_url)}
-            className="w-full h-full"
-          />
-        </div>
+        {showVideo && (
+          <div className="aspect-video bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden">
+            <WebRTCPreview
+              streamId={stream.stream_id}
+              webrtcUrl={buildStreamURL(stream.webrtc_url)}
+              className="w-full h-full"
+            />
+          </div>
+        )}
 
         {/* Stream Metadata */}
         <div className="space-y-2 text-sm">
@@ -179,6 +184,19 @@ export function StreamCard({ stream, onDelete, onRefresh, className = '' }: Read
 
         {/* Action Buttons */}
         <div className="flex space-x-2 pt-2">
+          <Button
+            theme="light"
+            size="SM"
+            onClick={() => setShowFFmpegSheet(true)}
+            className="flex-1"
+            LeadingIcon={({ className }) => (
+              <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+            )}
+            text="FFmpeg"
+          />
+          
           {onRefresh && (
             <Button
               theme="light"
@@ -202,6 +220,13 @@ export function StreamCard({ stream, onDelete, onRefresh, className = '' }: Read
           )}
         </div>
       </Card.Content>
+      
+      {/* FFmpeg Command Sheet */}
+      <FFmpegCommandSheet 
+        isOpen={showFFmpegSheet}
+        onClose={() => setShowFFmpegSheet(false)}
+        streamId={stream.stream_id}
+      />
     </Card>
   );
 }

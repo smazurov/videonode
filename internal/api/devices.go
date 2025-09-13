@@ -71,6 +71,11 @@ func pixelFormatToFourCC(pixelFormat uint32) string {
 	return string(bytes)
 }
 
+// resolveDevicePath is a wrapper around devices.ResolveDevicePath
+func resolveDevicePath(deviceID string) (string, error) {
+	return devices.ResolveDevicePath(deviceID)
+}
+
 // V4L2ToFFmpegFormat maps V4L2 pixel format codes to FFmpeg input format names
 func V4L2ToFFmpegFormat(pixelFormat uint32) (string, error) {
 	switch pixelFormat {
@@ -268,9 +273,8 @@ func (s *Server) registerDeviceRoutes() {
 		Security:    withAuth(),
 		Errors:      []int{401, 500},
 	}, func(ctx context.Context, input *DevicePathInput) (*models.DeviceCapabilitiesResponse, error) {
-		// Look up device path from stable device ID
-		detector := devices.NewDetector()
-		devicePath, err := detector.GetDevicePathByID(input.DeviceID)
+		// Resolve device ID to device path
+		devicePath, err := resolveDevicePath(input.DeviceID)
 		if err != nil {
 			return nil, huma.Error404NotFound("Device not found", err)
 		}
@@ -294,9 +298,8 @@ func (s *Server) registerDeviceRoutes() {
 		Security:    withAuth(),
 		Errors:      []int{400, 401, 500},
 	}, func(ctx context.Context, input *DeviceFormatInput) (*models.DeviceResolutionsResponse, error) {
-		// Look up device path from stable device ID
-		detector := devices.NewDetector()
-		devicePath, err := detector.GetDevicePathByID(input.DeviceID)
+		// Resolve device ID to device path
+		devicePath, err := resolveDevicePath(input.DeviceID)
 		if err != nil {
 			return nil, huma.Error404NotFound("Device not found", err)
 		}
@@ -307,6 +310,7 @@ func (s *Server) registerDeviceRoutes() {
 			return nil, huma.Error400BadRequest("Invalid format name", err)
 		}
 
+		detector := devices.NewDetector()
 		resolutions, err := detector.GetDeviceResolutions(devicePath, pixelFormat)
 		if err != nil {
 			return nil, huma.Error500InternalServerError("Failed to get device resolutions", err)
@@ -337,9 +341,8 @@ func (s *Server) registerDeviceRoutes() {
 		Security:    withAuth(),
 		Errors:      []int{400, 401, 500},
 	}, func(ctx context.Context, input *DeviceResolutionInput) (*models.DeviceFrameratesResponse, error) {
-		// Look up device path from stable device ID
-		detector := devices.NewDetector()
-		devicePath, err := detector.GetDevicePathByID(input.DeviceID)
+		// Resolve device ID to device path
+		devicePath, err := resolveDevicePath(input.DeviceID)
 		if err != nil {
 			return nil, huma.Error404NotFound("Device not found", err)
 		}
@@ -360,6 +363,7 @@ func (s *Server) registerDeviceRoutes() {
 			return nil, huma.Error400BadRequest("Invalid height parameter", err)
 		}
 
+		detector := devices.NewDetector()
 		framerates, err := detector.GetDeviceFramerates(devicePath, pixelFormat, uint32(width), uint32(height))
 		if err != nil {
 			return nil, huma.Error500InternalServerError("Failed to get device framerates", err)
@@ -396,9 +400,8 @@ func (s *Server) registerDeviceRoutes() {
 		Security:      withAuth(),
 		Errors:        []int{401, 404},
 	}, func(ctx context.Context, input *DeviceCaptureInput) (*models.CaptureResponse, error) {
-		// Look up device path from stable device ID
-		detector := devices.NewDetector()
-		devicePath, err := detector.GetDevicePathByID(input.DeviceID)
+		// Resolve device ID to device path
+		devicePath, err := resolveDevicePath(input.DeviceID)
 		if err != nil {
 			return nil, huma.Error404NotFound("Device not found", err)
 		}

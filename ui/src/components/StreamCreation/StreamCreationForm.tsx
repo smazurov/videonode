@@ -6,6 +6,7 @@ import { useDeviceStore } from '../../hooks/useDeviceStore';
 import { useStreamCreation } from '../../hooks/useStreamCreation';
 import { RESOLUTION_LABELS } from './constants';
 import { AdvancedOptions } from './AdvancedOptions';
+import { AudioDeviceSelector } from './AudioDeviceSelector';
 
 const MANUAL_FPS_OPTIONS = [
   { value: '24', label: '24 FPS' },
@@ -75,28 +76,39 @@ export function StreamCreationForm({
             {...(state.errors.streamId ? { error: state.errors.streamId } : {})}
           />
           
-          {/* Device Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Video Device <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={state.deviceId}
-              onChange={(e) => actions.selectDevice(e.target.value)}
-              className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
-              disabled={isCreating || devices.length === 0}
-              required
-            >
-              <option value="">Select device...</option>
-              {devices.map((device) => (
-                <option key={device.device_id} value={device.device_id}>
-                  {device.device_name} ({device.device_path})
-                </option>
-              ))}
-            </select>
-            {state.errors.deviceId && (
-              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.deviceId}</p>
-            )}
+          {/* Device Selection - Video and Audio */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Video Device */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Video Device <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={state.deviceId}
+                onChange={(e) => actions.selectDevice(e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+                disabled={isCreating || devices.length === 0}
+                required
+              >
+                <option value="">Select device...</option>
+                {devices.map((device) => (
+                  <option key={device.device_id} value={device.device_id}>
+                    {device.device_name} ({device.device_path})
+                  </option>
+                ))}
+              </select>
+              {state.errors.deviceId && (
+                <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.deviceId}</p>
+              )}
+            </div>
+            
+            {/* Audio Device */}
+            <AudioDeviceSelector
+              value={state.audioDevice}
+              onChange={actions.setAudioDevice}
+              disabled={isCreating}
+              {...(state.errors.audioDevice ? { error: state.errors.audioDevice } : {})}
+            />
           </div>
           
           {/* Format, Resolution, and Framerate Configuration */}
