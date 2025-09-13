@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -95,7 +96,6 @@ func (f *FFmpegCollector) startSocketListener(ctx context.Context, dataChan chan
 		listener.Close()
 		// Clean up socket file when we're done
 		os.Remove(f.socketPath)
-		f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Cleaned up socket file: %s", f.socketPath), time.Now())
 	}()
 
 	f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Started FFmpeg progress listener for stream '%s' on socket: %s", f.streamID, f.socketPath), time.Now())
@@ -219,25 +219,59 @@ func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, pro
 		speedStr = strings.TrimSpace(speedStr)
 	}
 
-	// Send consolidated stream metrics
-	streamMetrics := &obs.MetricPoint{
-		Name:  "ffmpeg_stream_metrics",
-		Value: 1.0, // Indicates stream is active
-		LabelsMap: map[string]string{
-			"stream_id":        f.streamID,
-			"fps":              fpsStr,
-			"dropped_frames":   dropFramesStr,
-			"duplicate_frames": dupFramesStr,
-			"processing_speed": speedStr,
-		},
-		Timestamp_: timestamp,
+	// Parse numeric values
+	labels := map[string]string{"stream_id": f.streamID}
+
+	// Send FPS as a metric
+	if fps, err := strconv.ParseFloat(fpsStr, 64); err == nil {
+		select {
+		case dataChan <- &obs.MetricPoint{
+			Name:       "ffmpeg_fps",
+			Value:      fps,
+			LabelsMap:  labels,
+			Timestamp_: timestamp,
+		}:
+		default:
+		}
 	}
 
-	select {
-	case dataChan <- streamMetrics:
-		// Successfully sent stream metrics
-	default:
-		log.Printf("FFmpeg: WARNING - Data channel full, metrics dropped!")
+	// Send dropped frames as a metric
+	if dropFrames, err := strconv.ParseFloat(dropFramesStr, 64); err == nil {
+		select {
+		case dataChan <- &obs.MetricPoint{
+			Name:       "ffmpeg_dropped_frames_total",
+			Value:      dropFrames,
+			LabelsMap:  labels,
+			Timestamp_: timestamp,
+		}:
+		default:
+		}
+	}
+
+	// Send duplicate frames as a metric
+	if dupFrames, err := strconv.ParseFloat(dupFramesStr, 64); err == nil {
+		select {
+		case dataChan <- &obs.MetricPoint{
+			Name:       "ffmpeg_duplicate_frames_total",
+			Value:      dupFrames,
+			LabelsMap:  labels,
+			Timestamp_: timestamp,
+		}:
+		default:
+		}
+	}
+
+	// Send processing speed as a metric
+	if speed, err := strconv.ParseFloat(speedStr, 64); err == nil {
+		select {
+		case dataChan <- &obs.MetricPoint{
+			Name:       "ffmpeg_processing_speed",
+			Value:      speed,
+			LabelsMap:  labels,
+			Timestamp_: timestamp,
+		}:
+		default:
+		}
 	}
 }
 

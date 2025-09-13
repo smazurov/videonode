@@ -60,7 +60,7 @@ func (v *RkmppValidator) GetProductionSettings(encoderName string, inputFormat s
 		GlobalArgs: []string{},
 		OutputParams: map[string]string{
 			"rc_mode": "VBR",
-			"g":       "120",
+			"g":       "20",
 			"bf":      "0",
 		},
 	}

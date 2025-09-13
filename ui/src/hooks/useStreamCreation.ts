@@ -26,6 +26,7 @@ export interface StreamFormState {
   framerate: number;
   codec: string;
   bitrate: number | undefined;
+  audioDevice: string;
   options: string[];
   
   // UI state
@@ -45,6 +46,7 @@ export type StreamFormAction =
   | { type: 'SELECT_FRAMERATE'; framerate: number }
   | { type: 'SET_CODEC'; codec: string }
   | { type: 'SET_BITRATE'; bitrate: number | undefined }
+  | { type: 'SET_AUDIO_DEVICE'; audioDevice: string }
   | { type: 'SET_OPTIONS'; options: string[] }
   | { type: 'SET_ERROR'; field: string; message: string }
   | { type: 'CLEAR_ERROR'; field: string }
@@ -65,6 +67,7 @@ const initialState: StreamFormState = {
   framerate: 0,
   codec: 'h264',
   bitrate: 2, // Default to 2 Mbps
+  audioDevice: '', // Default to no audio
   options: [], // Will be populated with defaults from API
   status: 'idle',
   errors: {},
@@ -187,24 +190,32 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
     }
     
     case 'SET_CODEC': {
-      const restErrors: Record<string, string> = Object.fromEntries(
-        Object.entries(state.errors).filter(([key]) => key !== 'codec')
-      );
+      const newErrors = { ...state.errors };
+      delete newErrors.codec;
       return {
         ...state,
         codec: action.codec,
-        errors: restErrors,
+        errors: newErrors,
       };
     }
     
     case 'SET_BITRATE': {
-      const restErrors: Record<string, string> = Object.fromEntries(
-        Object.entries(state.errors).filter(([key]) => key !== 'bitrate')
-      );
+      const newErrors = { ...state.errors };
+      delete newErrors.bitrate;
       return {
         ...state,
         bitrate: action.bitrate,
-        errors: restErrors,
+        errors: newErrors,
+      };
+    }
+    
+    case 'SET_AUDIO_DEVICE': {
+      const newErrors = { ...state.errors };
+      delete newErrors.audioDevice;
+      return {
+        ...state,
+        audioDevice: action.audioDevice,
+        errors: newErrors,
       };
     }
     
@@ -294,8 +305,8 @@ export function useStreamCreation() {
         .filter(opt => opt.app_default)
         .map(opt => opt.key);
       dispatch({ type: 'SET_OPTIONS', options: defaultOptions });
-    }).catch(err => {
-      console.error('Failed to load FFmpeg options:', err);
+    }).catch(error => {
+      console.error('Failed to load FFmpeg options:', error);
       // Use hardcoded defaults as fallback
       dispatch({ type: 'SET_OPTIONS', options: ['thread_queue_1024', 'copyts'] });
     });
@@ -408,6 +419,10 @@ export function useStreamCreation() {
     dispatch({ type: 'SET_BITRATE', bitrate });
   }, []);
   
+  const setAudioDevice = useCallback((audioDevice: string) => {
+    dispatch({ type: 'SET_AUDIO_DEVICE', audioDevice });
+  }, []);
+  
   const setOptions = useCallback((options: string[]) => {
     dispatch({ type: 'SET_OPTIONS', options });
   }, []);
@@ -430,6 +445,7 @@ export function useStreamCreation() {
         ...(state.height > 0 ? { height: state.height } : {}),
         ...(state.framerate > 0 ? { framerate: state.framerate } : {}),
         ...(state.bitrate ? { bitrate: state.bitrate } : {}),
+        ...(state.audioDevice ? { audio_device: state.audioDevice } : {}),
         ...(state.options.length > 0 ? { options: state.options } : {}),
       };
       
@@ -472,6 +488,7 @@ export function useStreamCreation() {
       selectFramerate,
       setCodec,
       setBitrate,
+      setAudioDevice,
       setOptions,
       createStream: handleCreateStream,
       reset,

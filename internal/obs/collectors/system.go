@@ -3,7 +3,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -177,25 +176,30 @@ func (s *SystemCollector) getNetworkStats() *NetworkStatsData {
 	return nil
 }
 
-// sendSystemMetrics sends consolidated system metrics as a single data point
+// sendSystemMetrics sends individual system metrics as separate data points
 func (s *SystemCollector) sendSystemMetrics(dataChan chan<- obs.DataPoint, loadAvg *LoadAverageData, networkStats *NetworkStatsData, timestamp time.Time) {
-	labels := obs.Labels{
-		"load_1m":        fmt.Sprintf("%.2f", loadAvg.OneMin),
-		"load_5m":        fmt.Sprintf("%.2f", loadAvg.FiveMin),
-		"load_15m":       fmt.Sprintf("%.2f", loadAvg.FifteenMin),
-		"net_interface":  networkStats.Interface,
-		"net_rx_bytes":   fmt.Sprintf("%.0f", networkStats.RxBytes),
-		"net_tx_bytes":   fmt.Sprintf("%.0f", networkStats.TxBytes),
-		"net_rx_packets": fmt.Sprintf("%.0f", networkStats.RxPackets),
-		"net_tx_packets": fmt.Sprintf("%.0f", networkStats.TxPackets),
-	}
+	baseLabels := s.AddLabels(obs.Labels{})
 
+	// Send load average metrics
+	s.sendMetric(dataChan, "system_load_1m", loadAvg.OneMin, baseLabels, timestamp)
+	s.sendMetric(dataChan, "system_load_5m", loadAvg.FiveMin, baseLabels, timestamp)
+	s.sendMetric(dataChan, "system_load_15m", loadAvg.FifteenMin, baseLabels, timestamp)
+
+	// Send network metrics with interface label
+	netLabels := s.AddLabels(obs.Labels{"interface": networkStats.Interface})
+	s.sendMetric(dataChan, "system_net_rx_bytes", networkStats.RxBytes, netLabels, timestamp)
+	s.sendMetric(dataChan, "system_net_tx_bytes", networkStats.TxBytes, netLabels, timestamp)
+	s.sendMetric(dataChan, "system_net_rx_packets", networkStats.RxPackets, netLabels, timestamp)
+	s.sendMetric(dataChan, "system_net_tx_packets", networkStats.TxPackets, netLabels, timestamp)
+}
+
+// sendMetric is a helper to send individual metrics
+func (s *SystemCollector) sendMetric(dataChan chan<- obs.DataPoint, name string, value float64, labels obs.Labels, timestamp time.Time) {
 	point := &obs.MetricPoint{
-		Name:       "system_metrics",
-		Value:      1.0, // Indicator metric
-		LabelsMap:  s.AddLabels(labels),
+		Name:       name,
+		Value:      value,
+		LabelsMap:  labels,
 		Timestamp_: timestamp,
-		Unit:       "info",
 	}
 
 	select {

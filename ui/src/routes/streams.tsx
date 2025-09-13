@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useStreamStore } from '../hooks/useStreamStore';
@@ -15,7 +15,6 @@ export default function Streams() {
   const navigate = useNavigate();
   const { logout } = useAuthStore();
   const { loading, error, fetchStreams, deleteStream, getStreamsArray, addStreamFromSSE, removeStreamFromSSE, updateStreamMetrics } = useStreamStore();
-  const [viewMode, setViewMode] = useState<'grid' | 'tabs'>('grid');
 
   // Setup SSE listener for stream lifecycle and metrics events
   useSSEManager({
@@ -74,8 +73,6 @@ export default function Streams() {
           onRefresh={fetchStreams}
           onDeleteStream={handleDeleteStream}
           onCreateStream={handleCreateStream}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
         />
       </DashboardLayout.MainContent>
     </DashboardLayout>

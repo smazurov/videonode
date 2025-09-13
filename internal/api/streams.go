@@ -168,6 +168,125 @@ func (s *Server) registerStreamRoutes() {
 			},
 		}, nil
 	})
+
+	// Get FFmpeg command for a stream
+	huma.Register(s.api, huma.Operation{
+		OperationID: "get-stream-ffmpeg",
+		Method:      http.MethodGet,
+		Path:        "/api/streams/{stream_id}/ffmpeg",
+		Summary:     "Get FFmpeg Command",
+		Description: "Get the FFmpeg command for a specific stream (either auto-generated or custom)",
+		Tags:        []string{"streams"},
+		Errors:      []int{401, 404, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *struct {
+		StreamID        string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
+		EncoderOverride string `query:"override" example:"h264_vaapi" doc:"Override the auto-selected encoder (e.g., h264_vaapi, h265_nvenc)"`
+	}) (*models.FFmpegCommandResponse, error) {
+		command, isCustom, err := s.streamService.GetFFmpegCommand(ctx, input.StreamID, input.EncoderOverride)
+		if err != nil {
+			return nil, s.mapStreamError(err)
+		}
+
+		return &models.FFmpegCommandResponse{
+			Body: models.FFmpegCommandData{
+				StreamID: input.StreamID,
+				Command:  command,
+				IsCustom: isCustom,
+			},
+		}, nil
+	})
+
+	// Set custom FFmpeg command for a stream
+	huma.Register(s.api, huma.Operation{
+		OperationID: "set-stream-ffmpeg",
+		Method:      http.MethodPut,
+		Path:        "/api/streams/{stream_id}/ffmpeg",
+		Summary:     "Set Custom FFmpeg Command",
+		Description: "Set a custom FFmpeg command for a specific stream, overriding auto-generation",
+		Tags:        []string{"streams"},
+		Errors:      []int{400, 401, 404, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *struct {
+		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
+		Body     struct {
+			Command string `json:"command" minLength:"1" example:"ffmpeg -f v4l2 -i /dev/video0 ..." doc:"Custom FFmpeg command to use"`
+		}
+	}) (*models.FFmpegCommandResponse, error) {
+		err := s.streamService.SetCustomFFmpegCommand(ctx, input.StreamID, input.Body.Command)
+		if err != nil {
+			return nil, s.mapStreamError(err)
+		}
+
+		// Return the updated command
+		command, isCustom, err := s.streamService.GetFFmpegCommand(ctx, input.StreamID, "")
+		if err != nil {
+			return nil, s.mapStreamError(err)
+		}
+
+		return &models.FFmpegCommandResponse{
+			Body: models.FFmpegCommandData{
+				StreamID: input.StreamID,
+				Command:  command,
+				IsCustom: isCustom,
+			},
+		}, nil
+	})
+
+	// Clear custom FFmpeg command for a stream
+	huma.Register(s.api, huma.Operation{
+		OperationID: "clear-stream-ffmpeg",
+		Method:      http.MethodDelete,
+		Path:        "/api/streams/{stream_id}/ffmpeg",
+		Summary:     "Clear Custom FFmpeg Command",
+		Description: "Remove the custom FFmpeg command for a stream, reverting to auto-generation",
+		Tags:        []string{"streams"},
+		Errors:      []int{401, 404, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *struct {
+		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
+	}) (*struct{}, error) {
+		err := s.streamService.ClearCustomFFmpegCommand(ctx, input.StreamID)
+		if err != nil {
+			return nil, s.mapStreamError(err)
+		}
+
+		return &struct{}{}, nil
+	})
+
+	// Reload streams from configuration
+	huma.Register(s.api, huma.Operation{
+		OperationID: "reload-streams",
+		Method:      http.MethodPost,
+		Path:        "/api/streams/reload",
+		Summary:     "Reload Streams Configuration",
+		Description: "Reload all streams from streams.toml and sync with MediaMTX. This will add/update/remove streams based on the current configuration file.",
+		Tags:        []string{"streams"},
+		Errors:      []int{401, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *struct{}) (*models.ReloadResponse, error) {
+		// Reload from config file
+		err := s.streamService.LoadStreamsFromConfig()
+		if err != nil {
+			return nil, huma.Error500InternalServerError("failed to reload streams", err)
+		}
+
+		// Get current stream count
+		streams, err := s.streamService.ListStreams(ctx)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("failed to list streams", err)
+		}
+
+		return &models.ReloadResponse{
+			Body: struct {
+				Message string `json:"message" doc:"Operation result message"`
+				Count   int    `json:"count" doc:"Number of streams synced"`
+			}{
+				Message: "Streams reloaded and synced with MediaMTX",
+				Count:   len(streams),
+			},
+		}, nil
+	})
 }
 
 // domainToAPIStream converts a domain stream to API stream data

@@ -27,14 +27,16 @@ type DynamicMetric struct {
 
 // DynamicCollector implements prometheus.Collector for dynamic metrics
 type DynamicCollector struct {
-	mutex   sync.RWMutex
-	metrics map[string]*DynamicMetric // key is metric_name + sorted label pairs
+	mutex      sync.RWMutex
+	metrics    map[string]*DynamicMetric // key is metric_name + sorted label pairs
+	maxMetrics int                       // Ring buffer size
 }
 
 // NewDynamicCollector creates a new dynamic collector
 func NewDynamicCollector() *DynamicCollector {
 	return &DynamicCollector{
-		metrics: make(map[string]*DynamicMetric),
+		metrics:    make(map[string]*DynamicMetric),
+		maxMetrics: 1000, // Ring buffer limit
 	}
 }
 
@@ -77,11 +79,16 @@ func (d *DynamicCollector) UpdateMetric(name string, value float64, labels map[s
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	// Create a unique key for this metric
+	// Create a unique key for this metric using only stable labels
 	key := d.createMetricKey(name, labels)
 
 	// Extract label names and values in sorted order
 	labelNames, labelValues := d.extractLabels(labels)
+
+	// Check if we need to cleanup old metrics (ring buffer behavior)
+	if len(d.metrics) >= d.maxMetrics {
+		d.cleanupOldMetrics()
+	}
 
 	d.metrics[key] = &DynamicMetric{
 		Name:        name,
@@ -94,16 +101,61 @@ func (d *DynamicCollector) UpdateMetric(name string, value float64, labels map[s
 	}
 }
 
-// createMetricKey creates a unique key for a metric with its labels
+// cleanupOldMetrics removes oldest metrics to maintain ring buffer
+func (d *DynamicCollector) cleanupOldMetrics() {
+	if len(d.metrics) < d.maxMetrics {
+		return
+	}
+
+	// Remove oldest 20% of metrics
+	targetSize := int(float64(d.maxMetrics) * 0.8)
+	toRemove := len(d.metrics) - targetSize
+
+	// Sort by timestamp and remove oldest
+	type metricEntry struct {
+		key       string
+		timestamp time.Time
+	}
+
+	var entries []metricEntry
+	for key, metric := range d.metrics {
+		entries = append(entries, metricEntry{key, metric.Timestamp})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].timestamp.Before(entries[j].timestamp)
+	})
+
+	// Remove oldest entries
+	for i := 0; i < toRemove && i < len(entries); i++ {
+		delete(d.metrics, entries[i].key)
+	}
+}
+
+// createMetricKey creates a unique key for a metric with its stable labels only
 func (d *DynamicCollector) createMetricKey(name string, labels map[string]string) string {
 	if len(labels) == 0 {
 		return name
 	}
 
-	var pairs []string
-	for k, v := range labels {
-		pairs = append(pairs, fmt.Sprintf("%s=%s", k, v))
+	// Only use stable labels for metric identity
+	stableLabels := []string{
+		"stream_id", "collector", "service", "instance", "name",
+		"interface", "host", "endpoint", "path", "prometheus_endpoint",
+		"device", // Added for MPP and other device-specific metrics
 	}
+
+	var pairs []string
+	for _, key := range stableLabels {
+		if value, exists := labels[key]; exists {
+			pairs = append(pairs, fmt.Sprintf("%s=%s", key, value))
+		}
+	}
+
+	if len(pairs) == 0 {
+		return name
+	}
+
 	sort.Strings(pairs)
 	return fmt.Sprintf("%s{%s}", name, strings.Join(pairs, ","))
 }
@@ -219,6 +271,11 @@ func (p *PromExporter) processBuffer() {
 			continue
 		}
 
+		// Filter out Prometheus retransmission to prevent loops
+		if p.isPrometheusRetransmission(metricPoint) {
+			continue
+		}
+
 		// Determine metric type
 		metricType := p.determineMetricType(metricPoint.Name)
 
@@ -301,6 +358,34 @@ func (p *PromExporter) ForceFlush() {
 	p.bufferMux.Lock()
 	defer p.bufferMux.Unlock()
 	p.processBuffer()
+}
+
+// isPrometheusRetransmission checks if a metric comes from a Prometheus scraper
+// to prevent retransmission loops
+func (p *PromExporter) isPrometheusRetransmission(metric *obs.MetricPoint) bool {
+	labels := metric.Labels()
+
+	// Check for Prometheus collector labels
+	if collectorType, exists := labels["collector_type"]; exists && collectorType == "prometheus" {
+		return true
+	}
+
+	// Check for prometheus_endpoint label (added by Prometheus collector)
+	if _, exists := labels["prometheus_endpoint"]; exists {
+		return true
+	}
+
+	// Check for prometheus_type label
+	if _, exists := labels["prometheus_type"]; exists {
+		return true
+	}
+
+	// Check if source indicates this came from prometheus_collector
+	if source, exists := labels["source"]; exists && source == "prometheus_collector" {
+		return true
+	}
+
+	return false
 }
 
 // Stats returns statistics about the exporter

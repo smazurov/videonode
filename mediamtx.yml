@@ -1,0 +1,19 @@
+api: true
+apiAddress: :9997
+rtspAddress: :8554
+webrtcAddress: :8889
+metrics: true
+metricsAddress: :9998
+authMethod: internal
+authInternalUsers:
+    - user: any
+      pass: ""
+      ips: []
+      permissions:
+        - action: publish
+        - action: read
+        - action: playback
+        - action: api
+        - action: metrics
+        - action: pprof
+paths: {}

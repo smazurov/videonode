@@ -10,7 +10,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/smazurov/videonode/internal/api/models"
-	"github.com/smazurov/videonode/internal/config"
 	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/version"
@@ -19,14 +18,13 @@ import (
 
 // Server represents the new Huma v2 API server
 type Server struct {
-	api           huma.API
-	mux           *http.ServeMux
-	httpServer    *http.Server
-	streamService   streams.StreamService
-	streamManager   *config.StreamManager
-	options         *Options
-	deviceDetector  devices.DeviceDetector
-	obsSSEAdapter   *OBSSSEAdapter
+	api            huma.API
+	mux            *http.ServeMux
+	httpServer     *http.Server
+	streamService  streams.StreamService
+	options        *Options
+	deviceDetector devices.DeviceDetector
+	obsSSEAdapter  *OBSSSEAdapter
 }
 
 // basicAuthMiddleware creates middleware for HTTP basic authentication
@@ -109,7 +107,7 @@ type Options struct {
 	AuthPassword          string
 	CaptureDefaultDelayMs int
 	StreamService         streams.StreamService
-	StreamManager         *config.StreamManager
+	PrometheusHandler     http.Handler // Optional Prometheus metrics handler
 }
 
 // NewServer creates a new API server with Huma v2 using Go 1.22+ native routing
@@ -142,7 +140,6 @@ func NewServer(opts *Options) *Server {
 		api:           api,
 		mux:           mux,
 		streamService: opts.StreamService,
-		streamManager: opts.StreamManager,
 		options:       opts,
 	}
 
@@ -152,6 +149,12 @@ func NewServer(opts *Options) *Server {
 	// Apply basic auth middleware globally if credentials are provided
 	if opts.AuthUsername != "" && opts.AuthPassword != "" {
 		api.UseMiddleware(server.basicAuthMiddleware(opts.AuthUsername, opts.AuthPassword))
+	}
+
+	// Register Prometheus metrics endpoint before other routes (no auth required)
+	// This needs to be done before registerRoutes to avoid conflicts with CORS
+	if opts.PrometheusHandler != nil {
+		mux.Handle("GET /metrics", opts.PrometheusHandler)
 	}
 
 	// Register routes
@@ -282,6 +285,9 @@ func (s *Server) registerRoutes() {
 
 	// Encoder endpoints
 	s.registerEncoderRoutes()
+
+	// Audio endpoints
+	s.registerAudioRoutes()
 
 	// Stream endpoints
 	s.registerStreamRoutes()

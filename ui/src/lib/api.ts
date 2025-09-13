@@ -65,6 +65,14 @@ export async function apiPost<T>(endpoint: string, data?: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function apiPut<T>(endpoint: string, data?: unknown): Promise<T> {
+  const response = await makeApiRequest(endpoint, {
+    method: 'PUT',
+    body: data ? JSON.stringify(data) : null,
+  });
+  return response.json() as Promise<T>;
+}
+
 export async function apiDelete(endpoint: string): Promise<void> {
   await makeApiRequest(endpoint, {
     method: 'DELETE',
@@ -120,6 +128,7 @@ export interface StreamRequestData {
   width?: number;
   height?: number;
   framerate?: number;
+  audio_device?: string;
   options?: string[];
 }
 
@@ -351,14 +360,63 @@ export interface SSEStreamDeletedEvent {
 
 
 export interface SSEStreamMetricsEvent {
-  type: 'stream_metrics';
+  type: 'stream-metrics';
   stream_id: string;
-  fps: string;
-  dropped_frames: string;
-  duplicate_frames: string;
-  processing_speed: string;
   timestamp: string;
+  fps?: string;
+  dropped_frames?: string;
+  duplicate_frames?: string;
+  processing_speed?: string;
 }
 
 export type SSEStreamLifecycleEvent = SSEStreamCreatedEvent | SSEStreamDeletedEvent;
+
+// Audio device types
+export interface AudioDevice {
+  card_number: number;
+  card_id: string;
+  card_name: string;
+  device_number: number;
+  device_name: string;
+  type: string;
+  alsa_device: string;
+  supported_rates?: number[];
+  min_channels?: number;
+  max_channels?: number;
+  supported_formats?: string[];
+  min_buffer_size?: number;
+  max_buffer_size?: number;
+  min_period_size?: number;
+  max_period_size?: number;
+}
+
+export interface AudioDevicesData {
+  devices: AudioDevice[];
+  count: number;
+}
+
+// Audio API functions
+export async function getAudioDevices(): Promise<AudioDevicesData> {
+  return apiGet<AudioDevicesData>('/api/devices/audio');
+}
+
+// FFmpeg command types
+export interface FFmpegCommandData {
+  stream_id: string;
+  command: string;
+  is_custom: boolean;
+}
+
+// FFmpeg API functions
+export async function getFFmpegCommand(streamId: string): Promise<FFmpegCommandData> {
+  return apiGet<FFmpegCommandData>(`/api/streams/${streamId}/ffmpeg`);
+}
+
+export async function setFFmpegCommand(streamId: string, command: string): Promise<FFmpegCommandData> {
+  return apiPut<FFmpegCommandData>(`/api/streams/${streamId}/ffmpeg`, { command });
+}
+
+export async function clearFFmpegCommand(streamId: string): Promise<void> {
+  await apiDelete(`/api/streams/${streamId}/ffmpeg`);
+}
 export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamEvent | SSEStreamLifecycleEvent | SSEStreamMetricsEvent;

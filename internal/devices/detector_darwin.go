@@ -132,12 +132,12 @@ func (d *darwinDetector) GetDeviceResolutions(devicePath string, pixelFormat uin
 	if !exists {
 		return nil, fmt.Errorf("device not found: %s", devicePath)
 	}
-	
+
 	resolutions, exists := deviceResolutions[pixelFormat]
 	if !exists {
 		return nil, fmt.Errorf("format not supported: %d", pixelFormat)
 	}
-	
+
 	return resolutions, nil
 }
 
@@ -147,18 +147,18 @@ func (d *darwinDetector) GetDeviceFramerates(devicePath string, pixelFormat uint
 	if !exists {
 		return nil, fmt.Errorf("device not found: %s", devicePath)
 	}
-	
+
 	formatFramerates, exists := deviceFramerates[pixelFormat]
 	if !exists {
 		return nil, fmt.Errorf("format not supported: %d", pixelFormat)
 	}
-	
+
 	resKey := fmt.Sprintf("%dx%d", width, height)
 	framerates, exists := formatFramerates[resKey]
 	if !exists {
 		return nil, fmt.Errorf("resolution not supported: %s", resKey)
 	}
-	
+
 	return framerates, nil
 }
 

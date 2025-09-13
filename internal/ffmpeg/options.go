@@ -21,12 +21,12 @@ const (
 
 // FFmpegBase returns the ffmpeg command with standard flags
 func FFmpegBase() string {
-	return "ffmpeg -hide_banner"
+	return "ffmpeg -hide_banner -nostats"
 }
 
 // FFprobeBase returns the ffprobe command with standard flags
 func FFprobeBase() string {
-	return "ffprobe -hide_banner"
+	return "ffprobe -hide_banner -nostats"
 }
 
 // Helper functions for internal use
@@ -222,23 +222,6 @@ func GetDefaultOptions() []OptionType {
 	return defaults
 }
 
-// StreamConfig represents the parameters for creating a stream (moved from mediamtx)
-type StreamConfig struct {
-	DevicePath     string
-	InputFormat    string // FFmpeg input format (e.g., "yuyv422", "mjpeg")
-	Resolution     string
-	FPS            string
-	Codec          string
-	Preset         string
-	Bitrate        string            // Video bitrate (e.g., "2M", "1000k")
-	FFmpegOptions  []OptionType      // Strongly typed FFmpeg feature flags/options
-	ProgressSocket string            // Optional socket path for FFmpeg progress monitoring
-	GlobalArgs     []string          // Global FFmpeg arguments (e.g., -vaapi_device)
-	EncoderParams  map[string]string // Encoder-specific parameters (e.g., qp, cq)
-	VideoFilters   string            // Video filter chain (e.g., format=nv12,hwupload)
-	AudioDevice    string            // ALSA audio device (e.g., "hw:4,0") - if set, enables audio passthrough
-}
-
 // CaptureConfig represents parameters for screenshot capture
 type CaptureConfig struct {
 	DevicePath    string
@@ -252,7 +235,6 @@ type CaptureConfig struct {
 
 // CommandBuilder interface for generating FFmpeg commands
 type CommandBuilder interface {
-	BuildStreamCommand(config StreamConfig) (string, error)
 	BuildCaptureCommand(config CaptureConfig) (string, error)
 	BuildProbeCommand(devicePath string) (string, error)
 	BuildEncodersListCommand() (string, error)
@@ -309,148 +291,6 @@ func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionT
 	}
 
 	return appliedOptions
-}
-
-// BuildStreamCommand creates an FFmpeg command for MediaMTX based on stream configuration
-func (cb *DefaultCommandBuilder) BuildStreamCommand(streamConfig StreamConfig) (string, error) {
-	if streamConfig.DevicePath == "" {
-		return "", fmt.Errorf("device path is required")
-	}
-
-	var cmd strings.Builder
-	cmd.WriteString(ffmpegBase())
-
-	// Add progress monitoring if socket path is provided
-	if streamConfig.ProgressSocket != "" {
-		cmd.WriteString(fmt.Sprintf(" -progress unix://%s", streamConfig.ProgressSocket))
-		// Log the socket path for debugging
-		fmt.Printf("[FFMPEG] FFmpeg will attempt to connect to progress socket: %s\n", streamConfig.ProgressSocket)
-	}
-
-	// Add global args BEFORE input (e.g., -vaapi_device)
-	for _, arg := range streamConfig.GlobalArgs {
-		cmd.WriteString(" " + arg)
-	}
-
-	// Input parameters
-	cmd.WriteString(" -f v4l2")
-
-	// Apply configurable FFmpeg options
-	appliedOptions := ApplyOptionsToCommand(streamConfig.FFmpegOptions, &cmd)
-	if len(appliedOptions) > 0 {
-		fmt.Printf("[FFMPEG] Applied FFmpeg options: %v\n", appliedOptions)
-	}
-
-	// Use the selected FFmpeg input format
-	if streamConfig.InputFormat != "" {
-		cmd.WriteString(fmt.Sprintf(" -input_format %s", streamConfig.InputFormat))
-		fmt.Printf("[FFMPEG] Using input format: %s\n", streamConfig.InputFormat)
-	} else {
-		cmd.WriteString(" -input_format yuyv422") // Default to YUYV
-	}
-
-	// Resolution - only add if specified, let device decide if empty
-	if streamConfig.Resolution != "" {
-		cmd.WriteString(fmt.Sprintf(" -video_size %s", streamConfig.Resolution))
-	}
-
-	// Framerate - only add if specified, let device decide if empty
-	if streamConfig.FPS != "" {
-		cmd.WriteString(fmt.Sprintf(" -framerate %s", streamConfig.FPS))
-	}
-
-	// Input device
-	cmd.WriteString(fmt.Sprintf(" -i %s", streamConfig.DevicePath))
-
-	// Add audio input if audio device is specified
-	if streamConfig.AudioDevice != "" {
-		// Audio thread queue size (increased to prevent buffer underruns)
-		cmd.WriteString(" -thread_queue_size 10240")
-		// ALSA input
-		cmd.WriteString(" -f alsa")
-		// Sample format (16-bit signed integer for compatibility)
-		cmd.WriteString(" -sample_fmt s16")
-		// Sample rate (48kHz is standard)
-		cmd.WriteString(" -ar 48000")
-		// Stereo channels
-		cmd.WriteString(" -ac 2")
-		// Audio device
-		cmd.WriteString(fmt.Sprintf(" -i %s", streamConfig.AudioDevice))
-	}
-
-	// Check if copyts option is enabled and apply it AFTER input
-	hasCopyTS := false
-	hasVsyncPassthrough := false
-	for _, opt := range appliedOptions {
-		if opt == OptionCopytsWithGenpts {
-			hasCopyTS = true
-		}
-		if opt == OptionVsyncPassthrough {
-			hasVsyncPassthrough = true
-		}
-	}
-	if hasCopyTS {
-		cmd.WriteString(" -copyts -start_at_zero")
-	}
-	if hasVsyncPassthrough {
-		cmd.WriteString(" -fps_mode passthrough")
-	}
-
-	// Add stream mapping if audio is enabled
-	if streamConfig.AudioDevice != "" {
-		cmd.WriteString(" -map 0:v -map 1:a")
-	}
-
-	// Add video filters AFTER input, BEFORE codec
-	if streamConfig.VideoFilters != "" {
-		cmd.WriteString(fmt.Sprintf(" -vf %s", streamConfig.VideoFilters))
-	}
-
-	// Use configured codec or default to libx264
-	codec := streamConfig.Codec
-	if codec == "" {
-		codec = "libx264" // Default software encoder
-	}
-	cmd.WriteString(fmt.Sprintf(" -c:v %s", codec))
-
-	// Add encoder-specific params (qp, cq, preset, etc.)
-	for key, value := range streamConfig.EncoderParams {
-		cmd.WriteString(fmt.Sprintf(" -%s %s", key, value))
-	}
-
-	// Add preset if specified (legacy support)
-	if streamConfig.Preset != "" {
-		cmd.WriteString(fmt.Sprintf(" -preset %s", streamConfig.Preset))
-	}
-
-	// Add bitrate if specified (legacy support)
-	if streamConfig.Bitrate != "" {
-		cmd.WriteString(fmt.Sprintf(" -b:v %s", streamConfig.Bitrate))
-	}
-
-	// Low latency settings for software encoders only
-	if !isHardwareEncoder(codec) {
-		cmd.WriteString(" -tune zerolatency")
-		// These parameters are only supported by software encoders
-		// Hardware encoders should set these via EncoderParams if needed
-		cmd.WriteString(" -g 30")           // GOP size
-		cmd.WriteString(" -keyint_min 15")  // Minimum GOP size
-		cmd.WriteString(" -sc_threshold 0") // Disable scene change detection
-	}
-
-	// Add audio codec if audio device is specified
-	if streamConfig.AudioDevice != "" {
-		// Use Opus codec for WebRTC compatibility (also works with RTSP)
-		// Opus is the preferred audio codec for WebRTC and modern streaming
-		cmd.WriteString(" -c:a libopus -b:a 128k -ar 48000")
-	}
-
-	// Output format and destination
-	cmd.WriteString(" -rtsp_transport tcp") // Use TCP for more reliable streaming
-	cmd.WriteString(" -f rtsp")
-	cmd.WriteString(" rtsp://localhost:8554/$MTX_PATH") // MediaMTX will replace $MTX_PATH
-
-	return cmd.String(), nil
 }
 
 // BuildCaptureCommand creates an FFmpeg command for screenshot capture
@@ -522,12 +362,6 @@ func (cb *DefaultCommandBuilder) BuildProbeCommand(devicePath string) (string, e
 // BuildEncodersListCommand creates an FFmpeg command for listing available encoders
 func (cb *DefaultCommandBuilder) BuildEncodersListCommand() (string, error) {
 	return fmt.Sprintf("%s -encoders", ffmpegBase()), nil
-}
-
-// GenerateCommand provides backward compatibility - delegates to BuildStreamCommand
-func GenerateCommand(streamConfig StreamConfig) (string, error) {
-	builder := NewCommandBuilder()
-	return builder.BuildStreamCommand(streamConfig)
 }
 
 // isHardwareEncoder checks if the given codec name represents a hardware encoder

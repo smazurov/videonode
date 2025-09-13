@@ -132,6 +132,18 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **MediaMTX Config**: `mediamtx.yml` for RTSP/WebRTC server settings
 - **Environment Variables**: All config values can be overridden via env vars (e.g., `SERVER_PORT`, `AUTH_USERNAME`)
 
+### MediaMTX Integration
+- **Control API**: MediaMTX provides a RESTful API on port 9997 for dynamic stream management
+- **API Documentation**: https://mediamtx.org/docs/references/control-api
+- **OpenAPI Spec**: https://raw.githubusercontent.com/bluenviron/mediamtx/v1.14.0/api/openapi.yaml
+- **Key Endpoints**:
+  - `/v3/config/paths/add/{name}`: Add new stream path dynamically
+  - `/v3/config/paths/patch/{name}`: Update existing stream configuration
+  - `/v3/config/paths/delete/{name}`: Remove stream path
+  - `/v3/paths/list`: List all active paths and their status
+- **Stream Source Options**: `rtsp://`, `rtmp://`, `http://`, `udp://`, `srt://`, WebRTC, file playback
+- **Authentication**: Supports internal users, HTTP callbacks, and JWT tokens
+
 ### Device Monitoring
 - **Hotplug Support**: udev-based monitoring for USB device insertion/removal
 - **SSE Updates**: Real-time notifications when devices are added/removed

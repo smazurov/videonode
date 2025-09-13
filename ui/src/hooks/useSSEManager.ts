@@ -83,7 +83,7 @@ function setupGlobalSSE(): void {
       try {
         const data = JSON.parse(event.data as string) as Omit<SSEStreamMetricsEvent, 'type'>;
         const metricsEvent: SSEStreamMetricsEvent = { 
-          type: 'stream_metrics',
+          type: 'stream-metrics',
           ...data 
         };
         for (const handler of globalStreamMetricsHandlers) {

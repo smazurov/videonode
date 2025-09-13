@@ -6,9 +6,9 @@ import "github.com/smazurov/videonode/internal/encoders/validation"
 func CreateValidatorRegistry() *validation.ValidatorRegistry {
 	registry := validation.NewValidatorRegistry()
 
-	// Register only the validators we've updated
-	registry.Register(validation.NewVaapiValidator())
+	// Register validators in priority order
 	registry.Register(validation.NewRkmppValidator())
+	registry.Register(validation.NewVaapiValidator())
 	registry.Register(validation.NewGenericValidator()) // Fallback validator last
 
 	return registry

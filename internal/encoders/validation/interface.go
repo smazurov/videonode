@@ -93,6 +93,12 @@ func (r *ValidatorRegistry) GetAvailableValidators() []EncoderValidator {
 	return available
 }
 
+// GetAllValidators returns all registered validators without checking if encoders are compiled
+// This is used for encoder overrides where we want to force a specific encoder
+func (r *ValidatorRegistry) GetAllValidators() []EncoderValidator {
+	return r.validators
+}
+
 // GetCompiledEncoders returns only the encoder names that are compiled into ffmpeg
 func (r *ValidatorRegistry) GetCompiledEncoders(validator EncoderValidator) []string {
 	compiled := make([]string, 0)
@@ -108,7 +114,7 @@ func (r *ValidatorRegistry) GetCompiledEncoders(validator EncoderValidator) []st
 
 // isEncoderCompiled checks if an encoder is compiled into ffmpeg
 func isEncoderCompiled(encoderName string) bool {
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-encoders")
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-nostats", "-encoders")
 	output, err := cmd.Output()
 	if err != nil {
 		return false

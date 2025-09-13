@@ -23,7 +23,7 @@ func TestBuildEncodersListCommand(t *testing.T) {
 		t.Fatalf("BuildEncodersListCommand() failed: %v", err)
 	}
 
-	expected := "ffmpeg -hide_banner -encoders"
+	expected := "ffmpeg -hide_banner -nostats -encoders"
 	if cmd != expected {
 		t.Errorf("BuildEncodersListCommand() = %q, want %q", cmd, expected)
 	}
@@ -41,7 +41,7 @@ func TestBuildProbeCommand(t *testing.T) {
 		{
 			name:       "valid device path",
 			devicePath: "/dev/video0",
-			want:       "ffprobe -hide_banner -f v4l2 -list_formats all -i /dev/video0",
+			want:       "ffprobe -hide_banner -nostats -f v4l2 -list_formats all -i /dev/video0",
 			wantErr:    false,
 		},
 		{
@@ -158,176 +158,6 @@ func TestBuildCaptureCommand(t *testing.T) {
 			for _, check := range tt.checks {
 				if !strings.Contains(cmd, check) {
 					t.Errorf("BuildCaptureCommand() missing expected string %q in command: %s", check, cmd)
-				}
-			}
-		})
-	}
-}
-
-func TestBuildStreamCommand(t *testing.T) {
-	builder := NewCommandBuilder()
-
-	tests := []struct {
-		name    string
-		config  StreamConfig
-		wantErr bool
-		checks  []string // Strings that should be present in the command
-	}{
-		{
-			name: "basic stream config",
-			config: StreamConfig{
-				DevicePath:  "/dev/video0",
-				InputFormat: "yuyv422",
-				Resolution:  "1920x1080",
-				FPS:         "30",
-				Codec:       "libx264",
-				Preset:      "fast",
-				Bitrate:     "2M",
-			},
-			wantErr: false,
-			checks: []string{
-				"ffmpeg",
-				"-f v4l2",
-				"-input_format yuyv422",
-				"-video_size 1920x1080",
-				"-framerate 30",
-				"-i /dev/video0",
-				"-c:v libx264",
-				"-preset fast",
-				"-b:v 2M",
-				"-tune zerolatency",
-				"-g 30",
-				"-rtsp_transport tcp",
-				"-f rtsp",
-				"rtsp://localhost:8554/$MTX_PATH",
-			},
-		},
-		{
-			name: "stream with progress socket",
-			config: StreamConfig{
-				DevicePath:     "/dev/video0",
-				ProgressSocket: "/tmp/progress.sock",
-			},
-			wantErr: false,
-			checks: []string{
-				"-progress unix:///tmp/progress.sock",
-			},
-		},
-		{
-			name: "stream with default codec",
-			config: StreamConfig{
-				DevicePath: "/dev/video0",
-				// No codec specified, should default to libx264
-			},
-			wantErr: false,
-			checks: []string{
-				"-c:v libx264",
-			},
-		},
-		{
-			name: "hardware encoder (no zerolatency)",
-			config: StreamConfig{
-				DevicePath: "/dev/video0",
-				Codec:      "h264_vaapi",
-			},
-			wantErr: false,
-			checks: []string{
-				"-c:v h264_vaapi",
-				// Hardware encoders should not have hardcoded GOP settings
-				// These should come from EncoderParams if needed
-			},
-		},
-		{
-			name: "VAAPI encoder with full settings",
-			config: StreamConfig{
-				DevicePath:    "/dev/video0",
-				Codec:         "h264_vaapi",
-				GlobalArgs:    []string{"-vaapi_device", "/dev/dri/renderD128"},
-				VideoFilters:  "format=nv12,hwupload",
-				EncoderParams: map[string]string{"qp": "20"},
-			},
-			wantErr: false,
-			checks: []string{
-				"ffmpeg",
-				"-vaapi_device /dev/dri/renderD128",
-				"-f v4l2",
-				"-i /dev/video0",
-				"-vf format=nv12,hwupload",
-				"-c:v h264_vaapi",
-				"-qp 20",
-			},
-		},
-		{
-			name: "with audio device",
-			config: StreamConfig{
-				DevicePath:  "/dev/video0",
-				AudioDevice: "hw:4,0",
-				Codec:       "libx264",
-			},
-			checks: []string{
-				"-f v4l2",
-				"-i /dev/video0",
-				"-thread_queue_size 10240",
-				"-f alsa",
-				"-sample_fmt s16",
-				"-ar 48000",
-				"-ac 2",
-				"-i hw:4,0",
-				"-map 0:v -map 1:a",
-				"-c:v libx264",
-				"-c:a copy",
-			},
-		},
-		{
-			name: "empty device path",
-			config: StreamConfig{
-				DevicePath: "",
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd, err := builder.BuildStreamCommand(tt.config)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("BuildStreamCommand() expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("BuildStreamCommand() unexpected error: %v", err)
-				return
-			}
-
-			// Print the command for VAAPI test
-			if tt.name == "VAAPI encoder with full settings" {
-				t.Logf("Generated command: %s", cmd)
-			}
-
-			// Check that all expected strings are present
-			for _, check := range tt.checks {
-				if !strings.Contains(cmd, check) {
-					t.Errorf("BuildStreamCommand() missing expected string %q in command: %s", check, cmd)
-				}
-			}
-
-			// For hardware encoders, make sure software-only options are NOT present
-			if tt.name == "hardware encoder (no zerolatency)" {
-				if strings.Contains(cmd, "-tune zerolatency") {
-					t.Errorf("BuildStreamCommand() should not include zerolatency for hardware encoder: %s", cmd)
-				}
-				if strings.Contains(cmd, "-sc_threshold") {
-					t.Errorf("BuildStreamCommand() should not include sc_threshold for hardware encoder: %s", cmd)
-				}
-				if strings.Contains(cmd, "-keyint_min") {
-					t.Errorf("BuildStreamCommand() should not include keyint_min for hardware encoder: %s", cmd)
-				}
-				if strings.Contains(cmd, "-g 30") {
-					t.Errorf("BuildStreamCommand() should not include hardcoded GOP for hardware encoder: %s", cmd)
 				}
 			}
 		})
@@ -470,22 +300,5 @@ func TestValidateOptions(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestGenerateCommandBackwardCompatibility(t *testing.T) {
-	// Test that the old GenerateCommand function still works
-	config := StreamConfig{
-		DevicePath: "/dev/video0",
-		Codec:      "libx264",
-	}
-
-	cmd, err := GenerateCommand(config)
-	if err != nil {
-		t.Fatalf("GenerateCommand() failed: %v", err)
-	}
-
-	if !strings.Contains(cmd, "ffmpeg") {
-		t.Errorf("GenerateCommand() should generate ffmpeg command, got: %s", cmd)
 	}
 }

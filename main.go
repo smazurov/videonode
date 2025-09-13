@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/smazurov/videonode/cmd"
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/config"
+	"github.com/smazurov/videonode/internal/mediamtx"
 	"github.com/smazurov/videonode/internal/obs"
 	"github.com/smazurov/videonode/internal/obs/collectors"
 	"github.com/smazurov/videonode/internal/obs/exporters"
@@ -27,6 +29,9 @@ type Options struct {
 	// Streams settings
 	StreamsConfigFile string `help:"Stream definitions file" default:"streams.toml" toml:"streams.config_file" env:"STREAMS_CONFIG_FILE"`
 	MediamtxConfig    string `help:"MediaMTX config file" default:"mediamtx.yml" toml:"streams.mediamtx_config" env:"STREAMS_MEDIAMTX_CONFIG"`
+
+	// MediaMTX settings
+	MediaMTXEnableLogging bool `help:"Enable systemd logging for ffmpeg commands" default:"true" toml:"mediamtx.enable_logging" env:"MEDIAMTX_ENABLE_LOGGING"`
 
 	// Observability settings
 	ObsRetentionDuration     string `help:"Metrics retention" default:"12h" toml:"obs.retention_duration" env:"OBS_RETENTION_DURATION"`
@@ -57,8 +62,14 @@ func main() {
 			log.Printf("Warning: Failed to load config: %v", err)
 		}
 
+		// Set MediaMTX global configuration
+		mediamtx.SetConfig(&mediamtx.Config{
+			EnableLogging: opts.MediaMTXEnableLogging,
+		})
+
 		// Initialize observability system if enabled
 		var obsManager *obs.Manager
+		var promExporter *exporters.PromExporter
 		if opts.ObsPrometheusEnabled || opts.ObsSSEEnabled {
 			// Parse retention duration
 			retentionDuration, err := time.ParseDuration(opts.ObsRetentionDuration)
@@ -125,43 +136,51 @@ func main() {
 				log.Printf("Warning: Failed to add Prometheus collector: %v", err)
 			}
 
+			// Add MPP metrics collector (Rockchip only)
+			if _, err := os.Stat("/proc/mpp_service/load"); err == nil {
+				mppCollector := collectors.NewMPPCollector()
+				mppCollector.UpdateConfig(obs.CollectorConfig{
+					Name:     "mpp",
+					Enabled:  true,
+					Interval: 5 * time.Second,
+					Labels:   obs.Labels{"service": "videonode", "instance": "default"},
+				})
+				if err := obsManager.AddCollector(mppCollector); err != nil {
+					log.Printf("Warning: Failed to add MPP collector: %v", err)
+				}
+			}
+
 			// Add exporters based on config
 			if opts.ObsPrometheusEnabled {
-				promExporter := exporters.NewPromExporter()
+				promExporter = exporters.NewPromExporter()
 				obsManager.AddExporter(promExporter)
 			}
 
 		}
 
 		// Default command starts the server using existing API server
-		// Initialize stream manager
-		streamManager := config.NewStreamManager(opts.StreamsConfigFile)
-		if err := streamManager.Load(); err != nil {
-			fmt.Printf("Warning: Failed to load stream config: %v\n", err)
+		// Create stream service with OBS integration
+		serviceOpts := &streams.ServiceOptions{}
+
+		if obsManager != nil {
+			serviceOpts.OBSIntegration = func(streamID, socketPath, logPath string) error {
+				// Create FFmpeg collector and add to OBS manager
+				ffmpegCollector := collectors.NewFFmpegCollector(socketPath, logPath, streamID)
+				ffmpegCollector.UpdateConfig(obs.CollectorConfig{
+					Name:     "ffmpeg_" + streamID,
+					Enabled:  true,
+					Interval: 0, // Event-driven
+					Labels:   obs.Labels{"stream_id": streamID},
+				})
+				return obsManager.AddCollector(ffmpegCollector)
+			}
+			serviceOpts.OBSRemoval = func(streamID string) error {
+				collectorName := "ffmpeg_" + streamID
+				return obsManager.RemoveCollector(collectorName)
+			}
 		}
 
-		// Create stream service with OBS integration
-		var streamService streams.StreamService
-		if obsManager != nil {
-			streamService = streams.NewStreamServiceWithOBS(streamManager, opts.MediamtxConfig,
-				func(streamID, socketPath, logPath string) error {
-					// Create FFmpeg collector and add to OBS manager
-					ffmpegCollector := collectors.NewFFmpegCollector(socketPath, logPath, streamID)
-					ffmpegCollector.UpdateConfig(obs.CollectorConfig{
-						Name:     "ffmpeg_" + streamID,
-						Enabled:  true,
-						Interval: 0, // Event-driven
-						Labels:   obs.Labels{"stream_id": streamID},
-					})
-					return obsManager.AddCollector(ffmpegCollector)
-				},
-				func(streamID string) error {
-					collectorName := "ffmpeg_" + streamID
-					return obsManager.RemoveCollector(collectorName)
-				})
-		} else {
-			streamService = streams.NewStreamService(streamManager, opts.MediamtxConfig)
-		}
+		streamService := streams.NewStreamService(serviceOpts)
 
 		// Load existing streams from TOML config into memory
 		// This must happen after stream service is created so OBS callbacks are registered
@@ -169,13 +188,19 @@ func main() {
 			log.Printf("Warning: Failed to load existing streams from config: %v", err)
 		}
 
-		server := api.NewServer(&api.Options{
+		apiOpts := &api.Options{
 			AuthUsername:          opts.AuthUsername,
 			AuthPassword:          opts.AuthPassword,
 			CaptureDefaultDelayMs: opts.CaptureDefaultDelayMs,
 			StreamService:         streamService,
-			StreamManager:         streamManager,
-		})
+		}
+
+		// Add Prometheus handler if available
+		if promExporter != nil {
+			apiOpts.PrometheusHandler = promExporter.GetHandler()
+		}
+
+		server := api.NewServer(apiOpts)
 
 		// Wire up SSE exporter if OBS is enabled and SSE is configured
 		if obsManager != nil && opts.ObsSSEEnabled {
@@ -210,12 +235,8 @@ func main() {
 		})
 	})
 
-	// Create StreamManager for validate command (needs to be outside the hooks)
-	streamManager := config.NewStreamManager("")
-	streamManager.Load()
-
-	// Add validate-encoders command with StreamManager
-	validateCmd := cmd.CreateValidateEncodersCmd(streamManager)
+	// Add validate-encoders command
+	validateCmd := cmd.CreateValidateEncodersCmd()
 	cli.Root().AddCommand(validateCmd)
 
 	// Run the CLI

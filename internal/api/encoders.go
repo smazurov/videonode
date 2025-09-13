@@ -9,12 +9,18 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/encoders"
+	"github.com/smazurov/videonode/internal/streams"
 )
 
 // getValidatedEncoders returns only encoders that passed validation and are saved in streams.toml
 func (s *Server) getValidatedEncoders() (*encoders.EncoderList, error) {
-	// Load validation results from StreamManager
-	results, err := encoders.LoadValidationResults(s.streamManager)
+	// Create a ValidationStorage to load validation results
+	repo := streams.NewTOMLRepository("streams.toml")
+	repo.Load()
+	validationStorage := streams.NewValidationStorage(repo)
+
+	// Load validation results from storage
+	results, err := encoders.LoadValidationResults(validationStorage)
 	if err != nil {
 		// If no validation data exists, return error - system needs to be validated first
 		return nil, fmt.Errorf("validation data not found - run encoder validation first: %w", err)

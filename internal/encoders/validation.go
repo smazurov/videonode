@@ -7,21 +7,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smazurov/videonode/internal/config"
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// Validator manages encoder validation with access to StreamManager
+// Validator manages encoder validation with access to ValidationProvider
 type Validator struct {
-	streamManager *config.StreamManager
-	logger        ValidationLogger
+	provider types.ValidationProvider
+	logger   ValidationLogger
 }
 
-// NewValidator creates a new Validator with the given StreamManager
-func NewValidator(sm *config.StreamManager) *Validator {
+// NewValidator creates a new Validator with the given ValidationProvider
+func NewValidator(provider types.ValidationProvider) *Validator {
 	return &Validator{
-		streamManager: sm,
-		logger:        SilentLogger{},
+		provider: provider,
+		logger:   SilentLogger{},
 	}
 }
 
@@ -123,16 +122,16 @@ func (v *Validator) ValidateEncoders() (*types.ValidationResults, error) {
 	return results, nil
 }
 
-// SaveValidationResults saves validation results using StreamManager
+// SaveValidationResults saves validation results using ValidationProvider
 func (v *Validator) SaveValidationResults(results *types.ValidationResults) error {
-	// Update validation data directly through StreamManager
-	return v.streamManager.UpdateValidation(results)
+	// Update validation data directly through provider
+	return v.provider.UpdateValidation(results)
 }
 
-// LoadValidationResults loads validation results from StreamManager
+// LoadValidationResults loads validation results from ValidationProvider
 func (v *Validator) LoadValidationResults() (*types.ValidationResults, error) {
-	// Get validation data from StreamManager
-	validation := v.streamManager.GetValidation()
+	// Get validation data from provider
+	validation := v.provider.GetValidation()
 	if validation == nil {
 		return nil, fmt.Errorf("no validation data found")
 	}
@@ -141,8 +140,8 @@ func (v *Validator) LoadValidationResults() (*types.ValidationResults, error) {
 }
 
 // Deprecated: Use Validator.LoadValidationResults() instead
-func LoadValidationResults(sm *config.StreamManager) (*types.ValidationResults, error) {
-	v := NewValidator(sm)
+func LoadValidationResults(provider types.ValidationProvider) (*types.ValidationResults, error) {
+	v := NewValidator(provider)
 	return v.LoadValidationResults()
 }
 
@@ -198,9 +197,9 @@ func (v *Validator) RunValidateCommand(quiet bool) error {
 	return nil
 }
 
-// RunValidateCommandWithOptions runs validation with StreamManager - for backward compatibility
-func RunValidateCommandWithOptions(sm *config.StreamManager, quiet bool) {
-	v := NewValidator(sm)
+// RunValidateCommandWithOptions runs validation with ValidationProvider - for backward compatibility
+func RunValidateCommandWithOptions(provider types.ValidationProvider, quiet bool) {
+	v := NewValidator(provider)
 	if err := v.RunValidateCommand(quiet); err != nil {
 		log.Fatal(err)
 	}

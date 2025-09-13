@@ -14,6 +14,11 @@ config_file = "streams.toml"
 # MediaMTX configuration file
 mediamtx_config = "mediamtx.yml"
 
+[mediamtx]
+# Enable systemd logging for ffmpeg commands (default: true)
+# Set to false to disable piping ffmpeg output to journald
+enable_logging = false
+
 [obs]
 # Observability settings
 # Maximum retention duration for metrics and logs

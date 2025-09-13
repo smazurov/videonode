@@ -17,9 +17,9 @@ export function useVersion() {
         setVersion(data);
         setError(null);
       })
-      .catch(err => {
-        console.error('Version fetch error:', err);
-        setError(err.message);
+      .catch(error_ => {
+        console.error('Version fetch error:', error_);
+        setError(error_.message);
         setVersion(null);
       })
       .finally(() => {

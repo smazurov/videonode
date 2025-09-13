@@ -14,11 +14,11 @@ import (
 )
 
 type linuxDetector struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	broadcaster  EventBroadcaster
-	lastDevices  map[string]DeviceInfo // key is DeviceId
-	mu           sync.Mutex
+	ctx         context.Context
+	cancel      context.CancelFunc
+	broadcaster EventBroadcaster
+	lastDevices map[string]DeviceInfo // key is DeviceId
+	mu          sync.Mutex
 }
 
 func newDetector() DeviceDetector {
@@ -33,7 +33,7 @@ func (d *linuxDetector) FindDevices() ([]DeviceInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	devices := make([]DeviceInfo, len(v4l2Devices))
 	for i, v4l2Device := range v4l2Devices {
 		devices[i] = DeviceInfo{
@@ -43,7 +43,7 @@ func (d *linuxDetector) FindDevices() ([]DeviceInfo, error) {
 			Caps:       v4l2Device.Caps,
 		}
 	}
-	
+
 	return devices, nil
 }
 
@@ -53,7 +53,7 @@ func (d *linuxDetector) GetDeviceFormats(devicePath string) ([]FormatInfo, error
 	if err != nil {
 		return nil, err
 	}
-	
+
 	formats := make([]FormatInfo, len(v4l2Formats))
 	for i, v4l2Format := range v4l2Formats {
 		formats[i] = FormatInfo{
@@ -62,7 +62,7 @@ func (d *linuxDetector) GetDeviceFormats(devicePath string) ([]FormatInfo, error
 			Emulated:    v4l2Format.Emulated,
 		}
 	}
-	
+
 	return formats, nil
 }
 
@@ -77,7 +77,7 @@ func (d *linuxDetector) GetDeviceResolutions(devicePath string, pixelFormat uint
 	if err != nil {
 		return nil, err
 	}
-	
+
 	resolutions := make([]Resolution, len(v4l2Resolutions))
 	for i, v4l2Res := range v4l2Resolutions {
 		resolutions[i] = Resolution{
@@ -85,7 +85,7 @@ func (d *linuxDetector) GetDeviceResolutions(devicePath string, pixelFormat uint
 			Height: v4l2Res.Height,
 		}
 	}
-	
+
 	return resolutions, nil
 }
 
@@ -95,7 +95,7 @@ func (d *linuxDetector) GetDeviceFramerates(devicePath string, pixelFormat uint3
 	if err != nil {
 		return nil, err
 	}
-	
+
 	framerates := make([]Framerate, len(v4l2Framerates))
 	for i, v4l2Fr := range v4l2Framerates {
 		framerates[i] = Framerate{
@@ -103,7 +103,7 @@ func (d *linuxDetector) GetDeviceFramerates(devicePath string, pixelFormat uint3
 			Denominator: v4l2Fr.Denominator,
 		}
 	}
-	
+
 	return framerates, nil
 }
 
@@ -111,11 +111,11 @@ func (d *linuxDetector) GetDeviceFramerates(devicePath string, pixelFormat uint3
 func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBroadcaster) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	
+
 	// Store context and broadcaster
 	d.ctx, d.cancel = context.WithCancel(ctx)
 	d.broadcaster = broadcaster
-	
+
 	// Initialize with current devices to avoid false "added" events
 	devices, err := d.FindDevices()
 	if err != nil {
@@ -126,29 +126,29 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 		}
 		log.Printf("Initialized with %d V4L2 devices", len(devices))
 	}
-	
+
 	// Start udev monitoring
 	u := udev.Udev{}
 	mon := u.NewMonitorFromNetlink("udev")
 	if mon == nil {
 		return fmt.Errorf("failed to create udev monitor")
 	}
-	
+
 	// Monitor USB devices
 	mon.FilterAddMatchSubsystemDevtype("usb", "usb_device")
-	
+
 	deviceCh, errCh, err := mon.DeviceChan(d.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get udev device channel: %w", err)
 	}
-	
+
 	// Error monitoring goroutine
 	go func() {
 		for err := range errCh {
 			log.Printf("Udev monitor error: %v", err)
 		}
 	}()
-	
+
 	// Device monitoring goroutine
 	go func() {
 		log.Println("Udev monitoring started for USB devices")
@@ -162,23 +162,23 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 					log.Println("Udev device channel closed")
 					return
 				}
-				
+
 				action := dev.Action()
 				if action == "add" || action == "remove" {
 					log.Printf("Udev event: %s for device %s (Subsystem: %s, Devtype: %s)",
 						action, dev.Syspath(), dev.Subsystem(), dev.Devtype())
-					
+
 					// For add events, give kernel more time to enumerate V4L2 devices
 					if action == "add" {
 						time.Sleep(1 * time.Second)
 					}
-					
+
 					d.checkAndBroadcastDeviceChanges()
 				}
 			}
 		}
 	}()
-	
+
 	return nil
 }
 
@@ -186,7 +186,7 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 func (d *linuxDetector) StopMonitoring() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	
+
 	if d.cancel != nil {
 		d.cancel()
 		d.cancel = nil
@@ -200,16 +200,16 @@ func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 		log.Printf("Error getting device data: %v", err)
 		return
 	}
-	
+
 	// Build current device map by DeviceId
 	currentDevices := make(map[string]DeviceInfo)
 	for _, device := range devices {
 		currentDevices[device.DeviceId] = device
 	}
-	
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	
+
 	// Check for removed devices
 	for deviceId, oldDevice := range d.lastDevices {
 		if _, exists := currentDevices[deviceId]; !exists {
@@ -217,11 +217,11 @@ func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 			log.Printf("Device removed: %s (%s) [ID: %s]", oldDevice.DevicePath, oldDevice.DeviceName, deviceId)
 		}
 	}
-	
+
 	// Check for added and changed devices
 	for deviceId, newDevice := range currentDevices {
 		oldDevice, exists := d.lastDevices[deviceId]
-		
+
 		if !exists {
 			// New device
 			d.broadcaster.BroadcastDeviceDiscovery("added", newDevice, time.Now().Format(time.RFC3339))
@@ -232,7 +232,7 @@ func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 			log.Printf("Device changed: %s (%s) [ID: %s]", newDevice.DevicePath, newDevice.DeviceName, deviceId)
 		}
 	}
-	
+
 	// Update last devices
 	d.lastDevices = currentDevices
 }

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/smazurov/videonode/internal/config"
 	"github.com/smazurov/videonode/internal/encoders/validation"
+	"github.com/smazurov/videonode/internal/types"
 )
 
 // EncoderConfig represents a complete encoder configuration
@@ -15,11 +15,11 @@ type EncoderConfig struct {
 }
 
 // MapAPICodec maps API codec types to the best available FFmpeg encoder
-func MapAPICodec(apiCodec string, sm *config.StreamManager) (*EncoderConfig, error) {
-	// Load validated encoders from StreamManager
-	results, err := LoadValidationResults(sm)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load validated encoders: %w", err)
+func MapAPICodec(apiCodec string, provider types.ValidationProvider) (*EncoderConfig, error) {
+	// Load validated encoders from provider
+	results := provider.GetValidation()
+	if results == nil {
+		return nil, fmt.Errorf("no validation data available")
 	}
 
 	registry := CreateValidatorRegistry()
