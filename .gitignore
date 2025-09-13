@@ -6,6 +6,5 @@ tmp/
 jetkvmui/
 build/
 
-mediamtx.yml
 streams.toml
 dist/

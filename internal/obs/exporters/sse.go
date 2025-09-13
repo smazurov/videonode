@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/obs"
@@ -96,11 +98,23 @@ type SSEBroadcaster interface {
 	BroadcastEvent(eventType string, data interface{}) error
 }
 
+// StreamMetricsAccumulator accumulates FFmpeg metrics for a stream
+type StreamMetricsAccumulator struct {
+	StreamID        string
+	FPS             string
+	DroppedFrames   string
+	DuplicateFrames string
+	ProcessingSpeed string
+	LastUpdate      time.Time
+}
+
 // SSEExporter exports observability data via Server-Sent Events
 type SSEExporter struct {
-	config      obs.ExporterConfig
-	broadcaster SSEBroadcaster
-	logLevel    string
+	config        obs.ExporterConfig
+	broadcaster   SSEBroadcaster
+	logLevel      string
+	streamMetrics map[string]*StreamMetricsAccumulator // stream_id -> accumulated metrics
+	streamMutex   sync.RWMutex
 }
 
 // NewSSEExporter creates a new SSE exporter
@@ -112,9 +126,10 @@ func NewSSEExporter(broadcaster SSEBroadcaster) *SSEExporter {
 	}
 
 	return &SSEExporter{
-		config:      config,
-		broadcaster: broadcaster,
-		logLevel:    "info", // Default log level
+		config:        config,
+		broadcaster:   broadcaster,
+		logLevel:      "info", // Default log level
+		streamMetrics: make(map[string]*StreamMetricsAccumulator),
 	}
 }
 
@@ -167,22 +182,20 @@ func (s *SSEExporter) Export(points []obs.DataPoint) error {
 // processMetricImmediately processes a single metric point immediately
 func (s *SSEExporter) processMetricImmediately(metric *obs.MetricPoint) {
 	// Handle different metric types
-	switch metric.Name {
-	case "system_metrics":
-		s.sendSystemMetricsEvent(metric)
-	case "ffmpeg_stream_metrics":
-		// Send stream metrics immediately
-		labels := metric.Labels()
-		event := StreamMetricsEvent{
-			Type:            "stream_metrics",
-			Timestamp:       metric.Timestamp().Format(time.RFC3339),
-			StreamID:        labels["stream_id"],
-			FPS:             labels["fps"],
-			DroppedFrames:   labels["dropped_frames"],
-			DuplicateFrames: labels["duplicate_frames"],
-			ProcessingSpeed: labels["processing_speed"],
+	switch {
+	case strings.HasPrefix(metric.Name, "system_"):
+		// System metrics are now separate metrics - send as individual MediaMTX events for now
+		// TODO: Could accumulate these too if needed
+		metricsEvent := MediaMTXMetricsEvent{
+			Type:      "mediamtx_metrics",
+			Timestamp: time.Now().Format(time.RFC3339),
+			Count:     1,
+			Metrics:   s.formatMetricsForSSE([]*obs.MetricPoint{metric}),
 		}
-		s.broadcaster.BroadcastEvent("stream-metrics", event)
+		s.broadcaster.BroadcastEvent("mediamtx-metrics", metricsEvent)
+	case strings.HasPrefix(metric.Name, "ffmpeg_"):
+		// Accumulate FFmpeg metrics and send combined stream-metrics event
+		s.accumulateStreamMetric(metric)
 	default:
 		// Send other metrics as MediaMTX metrics individually
 		metricsEvent := MediaMTXMetricsEvent{
@@ -299,11 +312,68 @@ func (s *SSEExporter) SendAlert(level obs.LogLevel, message string, details map[
 	return s.broadcaster.BroadcastEvent("obs-alert", alertEvent)
 }
 
+// accumulateStreamMetric accumulates FFmpeg metrics and sends combined stream event
+func (s *SSEExporter) accumulateStreamMetric(metric *obs.MetricPoint) {
+	streamID := metric.LabelsMap["stream_id"]
+	if streamID == "" {
+		return // No stream_id, can't accumulate
+	}
+
+	s.streamMutex.Lock()
+	defer s.streamMutex.Unlock()
+
+	// Get or create accumulator for this stream
+	accumulator, exists := s.streamMetrics[streamID]
+	if !exists {
+		accumulator = &StreamMetricsAccumulator{
+			StreamID: streamID,
+		}
+		s.streamMetrics[streamID] = accumulator
+	}
+
+	// Update specific metric value
+	switch metric.Name {
+	case "ffmpeg_fps":
+		accumulator.FPS = strconv.FormatFloat(metric.Value, 'f', 2, 64)
+	case "ffmpeg_dropped_frames_total":
+		accumulator.DroppedFrames = strconv.FormatFloat(metric.Value, 'f', 0, 64)
+	case "ffmpeg_duplicate_frames_total":
+		accumulator.DuplicateFrames = strconv.FormatFloat(metric.Value, 'f', 0, 64)
+	case "ffmpeg_processing_speed":
+		accumulator.ProcessingSpeed = strconv.FormatFloat(metric.Value, 'f', 3, 64)
+	}
+
+	accumulator.LastUpdate = time.Now()
+
+	// Send combined stream metrics event
+	s.sendStreamMetricsEvent(accumulator)
+}
+
+// sendStreamMetricsEvent sends a combined stream metrics event
+func (s *SSEExporter) sendStreamMetricsEvent(accumulator *StreamMetricsAccumulator) {
+	event := StreamMetricsEvent{
+		Type:            "stream_metrics",
+		Timestamp:       accumulator.LastUpdate.Format(time.RFC3339),
+		StreamID:        accumulator.StreamID,
+		FPS:             accumulator.FPS,
+		DroppedFrames:   accumulator.DroppedFrames,
+		DuplicateFrames: accumulator.DuplicateFrames,
+		ProcessingSpeed: accumulator.ProcessingSpeed,
+	}
+
+	s.broadcaster.BroadcastEvent("stream-metrics", event)
+}
+
 // Stats returns statistics about the exporter
 func (s *SSEExporter) Stats() map[string]interface{} {
+	s.streamMutex.RLock()
+	streamCount := len(s.streamMetrics)
+	s.streamMutex.RUnlock()
+
 	return map[string]interface{}{
-		"name":    s.config.Name,
-		"enabled": s.config.Enabled,
-		"mode":    "immediate", // No buffering
+		"name":         s.config.Name,
+		"enabled":      s.config.Enabled,
+		"mode":         "immediate", // No buffering
+		"stream_count": streamCount,
 	}
 }

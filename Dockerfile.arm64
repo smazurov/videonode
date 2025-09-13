@@ -25,6 +25,7 @@ RUN xx-apt-get install -y \
     libavutil-dev \
     libavformat-dev \
     libudev-dev \
+    libasound2-dev \
     pkg-config
 
 WORKDIR /workspace

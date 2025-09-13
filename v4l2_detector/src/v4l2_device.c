@@ -164,12 +164,74 @@ int v4l2_find_devices(struct v4l2_device_info **devices, size_t *count)
         dev_list[index].device_path = strdup(device_path);
         dev_list[index].device_name = strdup((char *)video_cap.card);
 
-        // Use just the bus info as stable device ID
-        dev_list[index].device_id = strdup((char *)video_cap.bus_info);
+        // Find the stable by-id symlink for this device
+        char index_path[512];
+        snprintf(index_path, sizeof(index_path), "/sys/class/video4linux/%s/index", dp->d_name);
+        FILE *index_file = fopen(index_path, "r");
+        int index_value = 0;
+        if (index_file) {
+            fscanf(index_file, "%d", &index_value);
+            fclose(index_file);
+        }
+
+        // Look for the corresponding symlink in /dev/v4l/by-id/
+        char *stable_id = NULL;
+        DIR *by_id_dir = opendir("/dev/v4l/by-id");
+        if (by_id_dir) {
+            struct dirent *link_entry;
+            while ((link_entry = readdir(by_id_dir)) != NULL) {
+                if (link_entry->d_type != DT_LNK)
+                    continue;
+                
+                // Check if this symlink points to our device
+                char link_path[512];
+                char target[256];
+                snprintf(link_path, sizeof(link_path), "/dev/v4l/by-id/%s", link_entry->d_name);
+                
+                ssize_t len = readlink(link_path, target, sizeof(target) - 1);
+                if (len > 0) {
+                    target[len] = '\0';
+                    // Extract just the video device name from the target
+                    char *video_name = strrchr(target, '/');
+                    if (video_name) {
+                        video_name++; // Skip the '/'
+                    } else {
+                        video_name = target;
+                    }
+                    
+                    // Check if this symlink points to our current device
+                    if (strcmp(video_name, dp->d_name) == 0) {
+                        // Check if it has the right index suffix
+                        char expected_suffix[32];
+                        snprintf(expected_suffix, sizeof(expected_suffix), "-video-index%d", index_value);
+                        if (strstr(link_entry->d_name, expected_suffix)) {
+                            stable_id = strdup(link_entry->d_name);
+                            break;
+                        }
+                    }
+                }
+            }
+            closedir(by_id_dir);
+        }
+
+        // If we found a stable by-id symlink, use it; otherwise fall back to bus_info with index
+        if (stable_id) {
+            dev_list[index].device_id = stable_id;
+            LOG_INFO("Found device '%s' at %s with stable ID: %s", video_cap.card, device_path, stable_id);
+        } else {
+            // Fallback: create a synthetic ID based on bus_info and index
+            char fallback_id[512];
+            // Add platform- prefix for non-USB devices to match by-path symlinks
+            if (strncmp(video_cap.bus_info, "usb-", 4) == 0) {
+                snprintf(fallback_id, sizeof(fallback_id), "%s-video-index%d", video_cap.bus_info, index_value);
+            } else {
+                snprintf(fallback_id, sizeof(fallback_id), "platform-%s-video-index%d", video_cap.bus_info, index_value);
+            }
+            dev_list[index].device_id = strdup(fallback_id);
+            LOG_INFO("Found device '%s' at %s with fallback ID: %s", video_cap.card, device_path, fallback_id);
+        }
 
         dev_list[index].caps = caps;
-
-        LOG_INFO("Found device '%s' at %s", video_cap.card, device_path);
 
         index++;
         v4l2_close(fd);

@@ -92,7 +92,7 @@ const (
 
 type StreamRequestData struct {
 	StreamID    string    `json:"stream_id" pattern:"^[a-zA-Z0-9_-]+$" minLength:"1" maxLength:"50" example:"my-stream-001" doc:"User-defined stream identifier (alphanumeric, dashes, underscores only)"`
-	DeviceID    string    `json:"device_id" minLength:"1" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
+	DeviceID    string    `json:"device_id" minLength:"1" pattern:"^[^/]+" example:"usb-0000:00:14.0-1" doc:"Stable USB device identifier (cannot start with /)"`
 	Codec       CodecType `json:"codec" enum:"h264,h265" example:"h264" doc:"Video codec standard"`
 	InputFormat string    `json:"input_format" minLength:"1" example:"yuyv422" doc:"V4L2 input format"`
 	Bitrate     float64   `json:"bitrate,omitempty" example:"2.0" doc:"Bitrate in Mbps"`
@@ -154,4 +154,29 @@ type VersionData struct {
 
 type VersionResponse struct {
 	Body VersionData
+}
+
+// FFmpeg command models
+type FFmpegCommandData struct {
+	StreamID string `json:"stream_id" example:"stream-001" doc:"Stream identifier"`
+	Command  string `json:"command" example:"ffmpeg -f v4l2 -i /dev/video0 ..." doc:"Complete FFmpeg command"`
+	IsCustom bool   `json:"is_custom" example:"false" doc:"Whether this is a custom command or auto-generated"`
+}
+
+type FFmpegCommandResponse struct {
+	Body FFmpegCommandData
+}
+
+type FFmpegCommandRequest struct {
+	Body struct {
+		Command string `json:"command" minLength:"1" example:"ffmpeg -f v4l2 -i /dev/video0 ..." doc:"Custom FFmpeg command to use"`
+	}
+}
+
+// ReloadResponse is the response for stream reload operation
+type ReloadResponse struct {
+	Body struct {
+		Message string `json:"message" doc:"Operation result message"`
+		Count   int    `json:"count" doc:"Number of streams synced"`
+	}
 }
