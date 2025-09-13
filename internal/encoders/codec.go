@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/smazurov/videonode/internal/config"
 	"github.com/smazurov/videonode/internal/encoders/validation"
-	valManager "github.com/smazurov/videonode/internal/validation"
+	"github.com/smazurov/videonode/internal/types"
 )
 
 // SelectBestCodec selects the best available codec using the validator registry
@@ -60,17 +59,45 @@ func GetOptimalCodec() string {
 
 // GetOptimalEncoderWithSettings returns the best available encoder with its settings
 // Deprecated: Use Selector interface instead
-func GetOptimalEncoderWithSettings(codecType CodecType, sm *config.StreamManager) (string, *validation.EncoderSettings, error) {
-	// Create validation manager and selector for backward compatibility
-	storage := valManager.NewStreamStorage(sm)
-	vm := valManager.NewManager(storage)
-	if err := vm.LoadValidation(); err != nil {
-		log.Printf("Failed to load validation data: %v", err)
+func GetOptimalEncoderWithSettings(codecType CodecType, provider types.ValidationProvider) (string, *validation.EncoderSettings, error) {
+	// Get validation results directly from provider
+	validationResults := provider.GetValidation()
+	if validationResults == nil {
+		return "", nil, fmt.Errorf("no validation data available")
 	}
 
-	selector := NewDefaultSelector(vm)
-	// Pass empty input format and nil quality params for best encoder selection
-	return selector.SelectEncoder(codecType, "", nil)
+	// Get working encoders for the codec type
+	var workingEncoders []string
+	switch codecType {
+	case CodecH264:
+		workingEncoders = validationResults.H264.Working
+	case CodecH265:
+		workingEncoders = validationResults.H265.Working
+	default:
+		return "", nil, fmt.Errorf("unsupported codec type: %s", codecType)
+	}
+
+	if len(workingEncoders) == 0 {
+		// Fall back to software encoder
+		if codecType == CodecH264 {
+			return "libx264", nil, nil
+		}
+		return "libx265", nil, nil
+	}
+
+	// Return the first working encoder with its settings
+	registry := CreateValidatorRegistry()
+	for _, encoder := range workingEncoders {
+		validator := registry.FindValidator(encoder)
+		if validator != nil {
+			settings, err := validator.GetProductionSettings(encoder, "")
+			if err == nil {
+				return encoder, settings, nil
+			}
+		}
+	}
+
+	return workingEncoders[0], nil, nil
 }
 
 // getSettingsForEncoder gets production settings for a specific encoder using the validation registry
@@ -87,11 +114,11 @@ func getSettingsForEncoder(encoderName string) (*validation.EncoderSettings, err
 }
 
 // getValidatedCodec returns the best working codec from validation results using validator registry order
-func getValidatedCodec(codecType CodecType, sm *config.StreamManager) string {
-	// Load validation results from StreamManager
-	results, err := LoadValidationResults(sm)
-	if err != nil {
-		log.Printf("Failed to load validation results: %v", err)
+func getValidatedCodec(codecType CodecType, provider types.ValidationProvider) string {
+	// Load validation results from provider
+	results := provider.GetValidation()
+	if results == nil {
+		log.Printf("No validation data available")
 		return ""
 	}
 

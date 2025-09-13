@@ -40,22 +40,22 @@ type Framerate struct {
 type DeviceDetector interface {
 	// FindDevices returns all currently available V4L2 devices
 	FindDevices() ([]DeviceInfo, error)
-	
+
 	// GetDeviceFormats returns supported formats for a device
 	GetDeviceFormats(devicePath string) ([]FormatInfo, error)
-	
+
 	// GetDevicePathByID returns the device path for a given device ID
 	GetDevicePathByID(deviceID string) (string, error)
-	
+
 	// GetDeviceResolutions returns supported resolutions for a format
 	GetDeviceResolutions(devicePath string, pixelFormat uint32) ([]Resolution, error)
-	
+
 	// GetDeviceFramerates returns supported framerates for a resolution
 	GetDeviceFramerates(devicePath string, pixelFormat uint32, width, height uint32) ([]Framerate, error)
-	
+
 	// StartMonitoring starts monitoring for device changes
 	StartMonitoring(ctx context.Context, broadcaster EventBroadcaster) error
-	
+
 	// StopMonitoring stops the device monitoring
 	StopMonitoring()
 }

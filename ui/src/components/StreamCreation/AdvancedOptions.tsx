@@ -29,9 +29,9 @@ export function AdvancedOptions({
       const data = await getFFmpegOptions();
       setOptions(data.options);
       setError(null);
-    } catch (err) {
+    } catch (error_) {
       setError('Failed to load advanced options');
-      console.error('Failed to load FFmpeg options:', err);
+      console.error('Failed to load FFmpeg options:', error_);
     } finally {
       setLoading(false);
     }

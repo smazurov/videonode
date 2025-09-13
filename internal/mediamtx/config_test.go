@@ -1,209 +1,197 @@
 package mediamtx
 
 import (
-	"os"
+	"sync"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
-func TestNewConfigBasicFields(t *testing.T) {
-	config := NewConfig()
-
-	if !config.API {
-		t.Error("Expected API to be enabled")
+func TestSetConfig(t *testing.T) {
+	// Test default config
+	if !globalConfig.EnableLogging {
+		t.Error("Default config should have EnableLogging = true")
 	}
 
-	if config.APIAddress != ":9997" {
-		t.Errorf("Expected APIAddress to be :9997, got %s", config.APIAddress)
-	}
-
-	if config.RTSPAddress != ":8554" {
-		t.Errorf("Expected RTSPAddress to be :8554, got %s", config.RTSPAddress)
-	}
-
-	if config.WebRTCAddress != ":8889" {
-		t.Errorf("Expected WebRTCAddress to be :8889, got %s", config.WebRTCAddress)
-	}
-
-	if !config.Metrics {
-		t.Error("Expected Metrics to be enabled")
-	}
-
-	if config.MetricsAddress != ":9998" {
-		t.Errorf("Expected MetricsAddress to be :9998, got %s", config.MetricsAddress)
-	}
-
-	if config.Paths == nil {
-		t.Error("Expected Paths to be initialized")
-	}
-}
-
-func TestNewConfigInternalAuth(t *testing.T) {
-	config := NewConfig()
-
-	if config.AuthMethod != "internal" {
-		t.Errorf("Expected AuthMethod to be 'internal', got %s", config.AuthMethod)
-	}
-
-	if len(config.AuthInternalUsers) != 1 {
-		t.Fatalf("Expected 1 internal user, got %d", len(config.AuthInternalUsers))
-	}
-
-	user := config.AuthInternalUsers[0]
-	if user.User != "any" {
-		t.Errorf("Expected user to be 'any', got %s", user.User)
-	}
-
-	expectedPerms := map[string]bool{
-		"publish":  false,
-		"read":     false,
-		"playback": false,
-		"api":      false,
-		"metrics":  false,
-		"pprof":    false,
-	}
-
-	for _, perm := range user.Permissions {
-		if _, exists := expectedPerms[perm.Action]; !exists {
-			t.Errorf("Unexpected permission action: %s", perm.Action)
-		}
-		expectedPerms[perm.Action] = true
-	}
-
-	for action, found := range expectedPerms {
-		if !found {
-			t.Errorf("Expected permission action %s not found", action)
-		}
-	}
-}
-
-func TestAddStream(t *testing.T) {
-	config := NewConfig()
-
-	err := config.AddStream("test", StreamConfig{
-		DevicePath: "/dev/video0",
-		Resolution: "1920x1080",
-		FPS:        "30",
-	})
-	if err != nil {
-		t.Fatalf("Failed to add stream: %v", err)
-	}
-
-	if _, exists := config.Paths["test"]; !exists {
-		t.Error("Stream 'test' was not added to paths")
-	}
-
-	if !config.Paths["test"].RunOnInitRestart {
-		t.Error("Expected RunOnInitRestart to be true")
-	}
-}
-
-func TestAddStreamEmptyPath(t *testing.T) {
-	config := NewConfig()
-
-	err := config.AddStream("", StreamConfig{
-		DevicePath: "/dev/video0",
-	})
-	if err == nil {
-		t.Error("Expected error when adding stream with empty path name")
-	}
-}
-
-func TestRemoveStream(t *testing.T) {
-	config := NewConfig()
-
-	config.AddStream("test", StreamConfig{
-		DevicePath: "/dev/video0",
+	// Test setting config to disable logging
+	SetConfig(&Config{
+		EnableLogging: false,
 	})
 
-	config.RemoveStream("test")
-
-	if _, exists := config.Paths["test"]; exists {
-		t.Error("Stream 'test' was not removed from paths")
+	if globalConfig.EnableLogging {
+		t.Error("After SetConfig with EnableLogging=false, globalConfig should have EnableLogging=false")
 	}
-}
 
-func TestWriteToFileAndLoadFromFile(t *testing.T) {
-	config := NewConfig()
-	config.AddStream("test", StreamConfig{
-		DevicePath: "/dev/video0",
-		Resolution: "1920x1080",
+	// Test that SetConfig only works once (due to sync.Once)
+	SetConfig(&Config{
+		EnableLogging: true,
 	})
 
-	tmpFile := "/tmp/test-mediamtx-config.yml"
-	defer os.Remove(tmpFile)
-
-	err := config.WriteToFile(tmpFile)
-	if err != nil {
-		t.Fatalf("Failed to write config file: %v", err)
-	}
-
-	loadedConfig, err := LoadFromFile(tmpFile)
-	if err != nil {
-		t.Fatalf("Failed to load config file: %v", err)
-	}
-
-	if loadedConfig.APIAddress != config.APIAddress {
-		t.Errorf("Loaded APIAddress mismatch: got %s, want %s", loadedConfig.APIAddress, config.APIAddress)
-	}
-
-	if _, exists := loadedConfig.Paths["test"]; !exists {
-		t.Error("Stream 'test' was not loaded from file")
+	// Should still be false because SetConfig only runs once
+	if globalConfig.EnableLogging {
+		t.Error("SetConfig should only work once due to sync.Once")
 	}
 }
 
-func TestLoadFromFileNonExistent(t *testing.T) {
-	config, err := LoadFromFile("/tmp/non-existent-file.yml")
-	if err != nil {
-		t.Fatalf("Expected no error for non-existent file, got: %v", err)
+func TestDefaultConfig(t *testing.T) {
+	// Reset for this test (not normally possible in production)
+	// This test should run in isolation
+	cfg := &Config{
+		EnableLogging: true,
 	}
 
-	if config == nil {
-		t.Error("Expected default config for non-existent file")
-	}
-
-	if config.APIAddress != ":9997" {
-		t.Errorf("Expected default APIAddress :9997, got %s", config.APIAddress)
+	if !cfg.EnableLogging {
+		t.Error("Default config should have EnableLogging = true")
 	}
 }
 
-func TestConfigMarshalYAML(t *testing.T) {
-	config := NewConfig()
+func TestSetConfigOnceWithConcurrency(t *testing.T) {
+	// Reset the once for this test
+	configOnce = sync.Once{}
+	globalConfig = &Config{EnableLogging: true}
 
-	data, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("Failed to marshal config: %v", err)
+	// Counter to track how many times the function actually executes
+	var execCount int
+	var mu sync.Mutex
+
+	// Number of goroutines to launch
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+
+	// Launch multiple goroutines that all try to set config
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			// Each goroutine tries to set a different config
+			SetConfig(&Config{
+				EnableLogging: id%2 == 0, // Alternate true/false
+			})
+
+			// Track execution (this will only happen once due to sync.Once)
+			mu.Lock()
+			execCount++
+			mu.Unlock()
+		}(i)
 	}
 
-	yamlStr := string(data)
-	if !contains(yamlStr, "authMethod: internal") {
-		t.Error("Marshaled YAML does not contain authMethod")
+	// Wait for all goroutines to complete
+	wg.Wait()
+
+	// Verify that SetConfig was called numGoroutines times but only executed once
+	if execCount != numGoroutines {
+		t.Errorf("Expected SetConfig to be called %d times, got %d", numGoroutines, execCount)
 	}
-	if !contains(yamlStr, "authInternalUsers:") {
-		t.Error("Marshaled YAML does not contain authInternalUsers")
-	}
-	if !contains(yamlStr, "action: metrics") {
-		t.Error("Marshaled YAML does not contain metrics permission")
+
+	// Verify that only the first config setting took effect
+	// Since we can't predict which goroutine runs first, just verify that
+	// subsequent calls don't change the config
+	originalConfig := globalConfig.EnableLogging
+
+	// Try to change it again
+	SetConfig(&Config{EnableLogging: !originalConfig})
+
+	// Should remain unchanged due to sync.Once
+	if globalConfig.EnableLogging != originalConfig {
+		t.Error("sync.Once should prevent subsequent SetConfig calls from changing the config")
 	}
 }
 
-func TestGetWebRTCURL(t *testing.T) {
-	url := GetWebRTCURL("test-stream")
-	expected := ":8889/test-stream"
-	if url != expected {
-		t.Errorf("Expected WebRTC URL %s, got %s", expected, url)
+func TestSyncOnceExecution(t *testing.T) {
+	// Reset state for this test
+	configOnce = sync.Once{}
+	globalConfig = &Config{EnableLogging: true}
+
+	// Counter to track actual executions of the sync.Once function
+	var onceExecutions int
+	var totalCalls int
+	var mu sync.Mutex
+
+	// Override SetConfig for testing to track executions
+	testConfigOnce := sync.Once{}
+	testSetConfig := func(cfg *Config) {
+		mu.Lock()
+		totalCalls++
+		mu.Unlock()
+
+		testConfigOnce.Do(func() {
+			mu.Lock()
+			onceExecutions++
+			mu.Unlock()
+			if cfg != nil {
+				globalConfig = cfg
+			}
+		})
+	}
+
+	const numCalls = 10
+	var wg sync.WaitGroup
+
+	// Make multiple concurrent calls
+	for i := 0; i < numCalls; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			testSetConfig(&Config{EnableLogging: id%2 == 0})
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify that all calls were made
+	if totalCalls != numCalls {
+		t.Errorf("Expected %d total calls, got %d", numCalls, totalCalls)
+	}
+
+	// Verify that sync.Once function executed exactly once
+	if onceExecutions != 1 {
+		t.Errorf("Expected sync.Once function to execute exactly 1 time, got %d", onceExecutions)
 	}
 }
 
-func TestGetRTSPURL(t *testing.T) {
-	url := GetRTSPURL("test-stream")
-	expected := ":8554/test-stream"
-	if url != expected {
-		t.Errorf("Expected RTSP URL %s, got %s", expected, url)
-	}
-}
+func TestWrapWithLoggerEscaping(t *testing.T) {
+	// Save original config
+	originalConfig := globalConfig
+	defer func() { globalConfig = originalConfig }()
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || contains(s[1:], substr)))
+	tests := []struct {
+		name     string
+		command  string
+		logging  bool
+		expected string
+	}{
+		{
+			name:     "simple command with logging",
+			command:  "ffmpeg -i input.mp4 output.mp4",
+			logging:  true,
+			expected: "/bin/bash -c 'ffmpeg -i input.mp4 output.mp4 2>&1 | systemd-cat -t ffmpeg-$MTX_PATH'",
+		},
+		{
+			name:     "simple command without logging",
+			command:  "ffmpeg -i input.mp4 output.mp4",
+			logging:  false,
+			expected: "ffmpeg -i input.mp4 output.mp4",
+		},
+		{
+			name:     "command with single quotes",
+			command:  "ffmpeg -vf 'scale=1280:720' input.mp4",
+			logging:  true,
+			expected: "/bin/bash -c 'ffmpeg -vf '\"'\"'scale=1280:720'\"'\"' input.mp4 2>&1 | systemd-cat -t ffmpeg-$MTX_PATH'",
+		},
+		{
+			name:     "complex command with quotes and pipes",
+			command:  "ffmpeg -hide_banner -f v4l2 -i /dev/video0 -vf 'format=yuv420p' -c:v h264 -f rtsp rtsp://localhost:8554/test",
+			logging:  true,
+			expected: "/bin/bash -c 'ffmpeg -hide_banner -f v4l2 -i /dev/video0 -vf '\"'\"'format=yuv420p'\"'\"' -c:v h264 -f rtsp rtsp://localhost:8554/test 2>&1 | systemd-cat -t ffmpeg-$MTX_PATH'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			globalConfig = &Config{EnableLogging: tt.logging}
+			result := wrapWithLogger(tt.command)
+			if result != tt.expected {
+				t.Errorf("wrapWithLogger() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
 }

@@ -4,6 +4,8 @@ import { StreamData } from '../lib/api';
 import { Button } from './Button';
 import { Card } from './Card';
 
+const SHOW_VIDEOS_KEY = 'streamGrid.showVideos';
+
 export interface StreamsGridProps {
   streams: StreamData[];
   loading?: boolean;
@@ -11,8 +13,6 @@ export interface StreamsGridProps {
   onRefresh?: () => void;
   onDeleteStream?: (streamId: string) => void;
   onCreateStream?: () => void;
-  viewMode?: 'grid' | 'tabs';
-  onViewModeChange?: (mode: 'grid' | 'tabs') => void;
   className?: string;
 }
 
@@ -23,18 +23,16 @@ export function StreamsGrid({
   onRefresh,
   onDeleteStream,
   onCreateStream,
-  viewMode = 'grid',
-  onViewModeChange,
   className = ''
 }: Readonly<StreamsGridProps>) {
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [showVideos, setShowVideos] = useState(() => {
+    const stored = localStorage.getItem(SHOW_VIDEOS_KEY);
+    return stored !== null ? stored === 'true' : true;
+  });
 
-  // Set first stream as active tab when switching to tab mode
   useEffect(() => {
-    if (viewMode === 'tabs' && streams.length > 0 && !activeTab) {
-      setActiveTab(streams[0]?.stream_id || null);
-    }
-  }, [viewMode, streams, activeTab]);
+    localStorage.setItem(SHOW_VIDEOS_KEY, String(showVideos));
+  }, [showVideos]);
 
   const renderGridView = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -42,52 +40,14 @@ export function StreamsGrid({
         <StreamCard
           key={stream.stream_id}
           stream={stream}
+          showVideo={showVideos}
           {...(onDeleteStream && { onDelete: onDeleteStream })}
         />
       ))}
     </div>
   );
 
-  const renderTabView = () => {
-    const activeStream = streams.find(s => s.stream_id === activeTab);
-    
-    return (
-      <div className="space-y-4">
-        {/* Tab Navigation */}
-        <div className="border-b border-gray-200 dark:border-gray-700">
-          <nav className="-mb-px flex space-x-8 overflow-x-auto">
-            {streams.map((stream) => (
-              <button
-                key={stream.stream_id}
-                className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === stream.stream_id
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                }`}
-                onClick={() => setActiveTab(stream.stream_id)}
-              >
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span>{stream.stream_id}</span>
-                </div>
-              </button>
-            ))}
-          </nav>
-        </div>
 
-        {/* Active Tab Content */}
-        {activeStream && (
-          <div className="max-w-2xl mx-auto">
-            <StreamCard
-              stream={activeStream}
-              {...(onDeleteStream && { onDelete: onDeleteStream })}
-              className="w-full"
-            />
-          </div>
-        )}
-      </div>
-    );
-  };
 
   const renderEmptyState = () => (
     <Card className="text-center py-12">
@@ -210,30 +170,17 @@ export function StreamsGrid({
         </div>
         
         <div className="flex items-center space-x-3">
-          {/* View Mode Toggle */}
-          {onViewModeChange && streams.length > 0 && (
-            <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-              <button
-                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                  viewMode === 'grid'
-                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
-                onClick={() => onViewModeChange('grid')}
-              >
-                Grid
-              </button>
-              <button
-                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                  viewMode === 'tabs'
-                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
-                onClick={() => onViewModeChange('tabs')}
-              >
-                Tabs
-              </button>
-            </div>
+          {/* Show Videos Checkbox */}
+          {streams.length > 0 && (
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showVideos}
+                onChange={(e) => setShowVideos(e.target.checked)}
+                className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">Show Videos</span>
+            </label>
           )}
           
           {/* Action Buttons */}
@@ -270,7 +217,6 @@ export function StreamsGrid({
         if (loading) return renderLoadingState();
         if (error) return renderErrorState();
         if (streams.length === 0) return renderEmptyState();
-        if (viewMode === 'tabs') return renderTabView();
         return renderGridView();
       })()}
     </div>
