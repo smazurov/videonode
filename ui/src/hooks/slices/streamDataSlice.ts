@@ -11,6 +11,7 @@ export interface StreamDataSlice {
   removeStream: (streamId: string) => void;
   updateStreamMetrics: (metrics: SSEStreamMetricsEvent) => void;
   getStreamsArray: () => StreamData[];
+  getStreamById: (streamId: string) => StreamData | undefined;
 }
 
 export const createStreamDataSlice: StateCreator<
@@ -75,5 +76,9 @@ export const createStreamDataSlice: StateCreator<
   
   getStreamsArray: () => {
     return Array.from(get().streams.values());
+  },
+  
+  getStreamById: (streamId) => {
+    return get().streams.get(streamId);
   },
 });

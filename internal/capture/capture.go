@@ -2,7 +2,7 @@ package capture
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,7 +18,9 @@ func ListDevices() {
 	detector := devices.NewDetector()
 	deviceList, err := detector.FindDevices()
 	if err != nil {
-		log.Fatalf("Error finding devices: %v", err)
+		logger := slog.With("component", "capture")
+		logger.Error("Error finding devices", "error", err)
+		panic(err) // Maintain the same behavior as log.Fatalf
 	}
 
 	if len(deviceList) == 0 {

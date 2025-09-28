@@ -13,11 +13,11 @@ export function useVersion() {
         if (!res.ok) throw new Error(`Failed to fetch version: ${res.statusText}`);
         return res.json();
       })
-      .then(data => {
+      .then((data: VersionInfo) => {
         setVersion(data);
         setError(null);
       })
-      .catch(error_ => {
+      .catch((error_: Error) => {
         console.error('Version fetch error:', error_);
         setError(error_.message);
         setVersion(null);

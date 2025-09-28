@@ -2,7 +2,7 @@ package encoders
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/smazurov/videonode/internal/encoders/validation"
@@ -23,6 +23,7 @@ type Selector interface {
 
 // DefaultSelector implements Selector using validation data and registry
 type DefaultSelector struct {
+	logger            *slog.Logger
 	validationManager *valmanager.Manager
 	registry          *validation.ValidatorRegistry
 }
@@ -30,6 +31,7 @@ type DefaultSelector struct {
 // NewDefaultSelector creates a new DefaultSelector
 func NewDefaultSelector(validationManager *valmanager.Manager) *DefaultSelector {
 	return &DefaultSelector{
+		logger:            slog.With("component", "encoder_selector"),
 		validationManager: validationManager,
 		registry:          CreateValidatorRegistry(),
 	}
@@ -75,7 +77,7 @@ func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string,
 	// If no working encoders, use fallback
 	if len(workingEncoders) == 0 {
 		params.Encoder = s.getFallbackEncoder(codecType)
-		log.Printf("No validated encoders for %s, using fallback: %s", codecType, params.Encoder)
+		s.logger.Warn("No validated encoders, using fallback", "codec_type", codecType, "encoder", params.Encoder)
 		s.populateQualityParams(params, qualityParams, false)
 		return params, nil
 	}
@@ -93,7 +95,7 @@ func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string,
 				if encoder == working {
 					// Found a working encoder
 					params.Encoder = encoder
-					log.Printf("Selected %s encoder %s with priority", codecType, encoder)
+					s.logger.Info("Selected encoder with priority", "codec_type", codecType, "encoder", encoder)
 
 					// Get settings from validator and convert to params
 					settings := s.getEncoderSettingsFromValidator(validator, encoder, inputFormat, qualityParams)
@@ -124,7 +126,7 @@ func (s *DefaultSelector) ValidateEncoder(encoder string) error {
 	// Check if validation data exists
 	if s.validationManager.GetValidation() == nil {
 		// No validation data, allow with warning
-		log.Printf("Warning: No encoder validation data found, allowing encoder %s", encoder)
+		s.logger.Warn("No encoder validation data found, allowing encoder", "encoder", encoder)
 		return nil
 	}
 
@@ -164,7 +166,7 @@ func (s *DefaultSelector) getEncoderSettingsFromValidator(validator validation.E
 	// Get production settings from the validator
 	settings, err := validator.GetProductionSettings(encoderName, inputFormat)
 	if err != nil {
-		log.Printf("Failed to get production settings for %s: %v", encoderName, err)
+		s.logger.Warn("Failed to get production settings", "encoder", encoderName, "error", err)
 		return nil
 	}
 
@@ -172,7 +174,7 @@ func (s *DefaultSelector) getEncoderSettingsFromValidator(validator validation.E
 	if qualityParams != nil {
 		qualityEncoderParams, err := validator.GetQualityParams(encoderName, qualityParams)
 		if err != nil {
-			log.Printf("Failed to get quality params for %s: %v", encoderName, err)
+			s.logger.Warn("Failed to get quality params", "encoder", encoderName, "error", err)
 			// Return settings without quality params rather than failing completely
 			return settings
 		}
@@ -401,7 +403,7 @@ func (s *PrioritySelector) SelectEncoder(codecType CodecType, inputFormat string
 			s.convertSettingsToParams(params, settings, qualityParams)
 		}
 
-		log.Printf("Selected %s encoder %s based on priority %d", codecType, bestEncoder, bestPriority)
+		s.logger.Info("Selected encoder based on priority", "codec_type", codecType, "encoder", bestEncoder, "priority", bestPriority)
 		return params, nil
 	}
 

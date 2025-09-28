@@ -3,10 +3,7 @@ import {
   SignalIcon,
   ComputerDesktopIcon,
   VideoCameraIcon,
-  CpuChipIcon,
-
   ExclamationTriangleIcon,
-  CheckCircleIcon,
   ClockIcon
 } from "@heroicons/react/24/outline";
 import * as Tooltip from "@radix-ui/react-tooltip";
@@ -108,20 +105,6 @@ function Separator({ className }: Readonly<SeparatorProps>) {
   );
 }
 
-function formatUptime(seconds: number): string {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  
-  if (days > 0) {
-    return `${days}d ${hours}h`;
-  } else if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  } else {
-    return `${minutes}m`;
-  }
-}
-
 function formatLastUpdated(date: Date): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -204,26 +187,9 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
 
 
 
-  const getAvailableEncodersCount = () => {
-    return systemInfo.encoders?.count || 0;
-  };
 
-  const getEncoderStatus = (): 'online' | 'offline' | 'warning' => {
-    const availableCount = getAvailableEncodersCount();
-    if (availableCount === 0) return 'offline';
-    return 'online';
-  };
 
-  const getRecommendedEncoder = () => {
-    // Prefer hardware accelerated encoders
-    const hwEncoder = systemInfo.encoders?.video_encoders?.find(e => e.hwaccel);
-    if (hwEncoder) {
-      return `${hwEncoder.name} (HW)`;
-    }
-    // Fall back to first software encoder
-    const swEncoder = systemInfo.encoders?.video_encoders?.find(e => !e.hwaccel);
-    return swEncoder ? swEncoder.name : 'None';
-  };
+
 
   return (
     <div className={cn(
@@ -238,7 +204,6 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
           icon={VideoCameraIcon}
           label="Devices"
           value={devices.length}
-          subtitle={`${devices.filter(d => d.capabilities.includes('VIDEO_CAPTURE')).length} capture`}
         />
 
         <Separator className="hidden md:block" />
@@ -248,21 +213,9 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
           icon={SignalIcon}
           label="Streams"
           value={streams.length}
-          subtitle={streams.length ? `${streams.length} active` : "None active"}
         />
 
-        <Separator className="hidden lg:block" />
 
-        {/* Encoder Status */}
-        <div className="hidden lg:flex">
-          <InfoItem
-            icon={CpuChipIcon}
-            label="Encoders"
-            value={getAvailableEncodersCount()}
-            status={getEncoderStatus()}
-            subtitle={getRecommendedEncoder()}
-          />
-        </div>
 
         {/* Show warnings/errors */}
         {systemInfo.error && (
@@ -289,21 +242,6 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
             </div>
             
             <Separator className="hidden xl:block" />
-          </>
-        )}
-
-        {/* System Uptime */}
-        {systemInfo.health?.uptime && (
-          <>
-            <div className="hidden lg:flex">
-              <InfoItem
-                icon={CheckCircleIcon}
-                label="Uptime"
-                value={formatUptime(systemInfo.health.uptime)}
-              />
-            </div>
-            
-            <Separator className="hidden lg:block" />
           </>
         )}
 
@@ -354,13 +292,7 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
           </Tooltip.Root>
         </Tooltip.Provider>
 
-        {/* Loading indicator */}
-        {systemInfo.loading && (
-          <div className="flex items-center space-x-2">
-            <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
-            <span className="text-xs text-gray-500 dark:text-gray-400 hidden sm:inline">Updating...</span>
-          </div>
-        )}
+
       </div>
     </div>
   );

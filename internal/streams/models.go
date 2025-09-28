@@ -64,6 +64,10 @@ type StreamConfig struct {
 	// Disabled streams are kept in config but not started
 	Enabled bool `toml:"enabled" json:"enabled"`
 
+	// TestMode determines if stream should use test pattern instead of device
+	// When true, generates test video/audio instead of capturing from device
+	TestMode bool `toml:"test_mode" json:"test_mode"`
+
 	// FFmpeg contains all FFmpeg-specific configuration for this stream
 	FFmpeg FFmpegConfig `toml:"ffmpeg" json:"ffmpeg"`
 
