@@ -30,7 +30,7 @@ type Options struct {
 	MediamtxConfig    string `help:"MediaMTX config file" default:"mediamtx.yml" toml:"streams.mediamtx_config" env:"STREAMS_MEDIAMTX_CONFIG"`
 
 	// MediaMTX settings
-	MediaMTXEnableLogging bool `help:"Enable systemd logging for ffmpeg commands" default:"true" toml:"mediamtx.enable_logging" env:"MEDIAMTX_ENABLE_LOGGING"`
+	MediaMTXUseSystemd bool `help:"Use systemd-run to wrap ffmpeg commands" default:"false" toml:"mediamtx.use_systemd" env:"MEDIAMTX_USE_SYSTEMD"`
 
 	// Observability settings
 	ObsRetentionDuration  string `help:"Metrics retention" default:"12h" toml:"obs.retention_duration" env:"OBS_RETENTION_DURATION"`
@@ -49,15 +49,15 @@ type Options struct {
 	AuthPassword string `help:"Basic auth password" default:"password" toml:"auth.password" env:"AUTH_PASSWORD"`
 
 	// Logging settings
-	LoggingLevel      string `help:"Global logging level (debug, info, warn, error)" default:"info" toml:"logging.level" env:"LOGGING_LEVEL"`
-	LoggingFormat     string `help:"Logging format (text, json)" default:"text" toml:"logging.format" env:"LOGGING_FORMAT"`
-	LoggingObs        string `help:"Observability logging level (debug, info, warn, error)" default:"info" toml:"logging.obs" env:"LOGGING_OBS"`
-	LoggingStreams    string `help:"Streams logging level" default:"info" toml:"logging.streams" env:"LOGGING_STREAMS"`
-	LoggingMediaMTX   string `help:"MediaMTX logging level" default:"info" toml:"logging.mediamtx" env:"LOGGING_MEDIAMTX"`
-	LoggingDevices    string `help:"Devices logging level" default:"info" toml:"logging.devices" env:"LOGGING_DEVICES"`
-	LoggingEncoders   string `help:"Encoders logging level" default:"info" toml:"logging.encoders" env:"LOGGING_ENCODERS"`
-	LoggingCapture    string `help:"Capture logging level" default:"info" toml:"logging.capture" env:"LOGGING_CAPTURE"`
-	LoggingAPI        string `help:"API logging level" default:"info" toml:"logging.api" env:"LOGGING_API"`
+	LoggingLevel    string `help:"Global logging level (debug, info, warn, error)" default:"info" toml:"logging.level" env:"LOGGING_LEVEL"`
+	LoggingFormat   string `help:"Logging format (text, json)" default:"text" toml:"logging.format" env:"LOGGING_FORMAT"`
+	LoggingObs      string `help:"Observability logging level (debug, info, warn, error)" default:"info" toml:"logging.obs" env:"LOGGING_OBS"`
+	LoggingStreams  string `help:"Streams logging level" default:"info" toml:"logging.streams" env:"LOGGING_STREAMS"`
+	LoggingMediaMTX string `help:"MediaMTX logging level" default:"info" toml:"logging.mediamtx" env:"LOGGING_MEDIAMTX"`
+	LoggingDevices  string `help:"Devices logging level" default:"info" toml:"logging.devices" env:"LOGGING_DEVICES"`
+	LoggingEncoders string `help:"Encoders logging level" default:"info" toml:"logging.encoders" env:"LOGGING_ENCODERS"`
+	LoggingCapture  string `help:"Capture logging level" default:"info" toml:"logging.capture" env:"LOGGING_CAPTURE"`
+	LoggingAPI      string `help:"API logging level" default:"info" toml:"logging.api" env:"LOGGING_API"`
 }
 
 func main() {
@@ -88,7 +88,7 @@ func main() {
 
 		// Set MediaMTX global configuration
 		mediamtx.SetConfig(&mediamtx.Config{
-			EnableLogging: opts.MediaMTXEnableLogging,
+			UseSystemd: opts.MediaMTXUseSystemd,
 		})
 
 		// Initialize observability system if enabled

@@ -21,7 +21,7 @@ const (
 
 // FFmpegBase returns the ffmpeg command with standard flags
 func FFmpegBase() string {
-	return "ffmpeg -hide_banner -nostats"
+	return "ffmpeg -hide_banner -nostats -nostdin"
 }
 
 // FFprobeBase returns the ffprobe command with standard flags
