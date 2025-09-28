@@ -2,7 +2,7 @@ package models
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -75,7 +75,8 @@ func PixelFormatToHumanReadable(pixelFormat uint32) string {
 		}
 	}
 
-	log.Printf("Unknown pixel format code: %d", pixelFormat)
+	logger := slog.With("component", "device_models")
+	logger.Warn("Unknown pixel format code", "pixel_format", pixelFormat)
 	return "unknown"
 }
 

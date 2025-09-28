@@ -7,6 +7,7 @@ import { useStreamCreation } from '../../hooks/useStreamCreation';
 import { RESOLUTION_LABELS } from './constants';
 import { AdvancedOptions } from './AdvancedOptions';
 import { AudioDeviceSelector } from './AudioDeviceSelector';
+import { StreamData } from '../../lib/api';
 
 const MANUAL_FPS_OPTIONS = [
   { value: '24', label: '24 FPS' },
@@ -20,12 +21,14 @@ interface StreamCreationFormProps {
   onCreateStream: () => Promise<void>;
   onCancel?: () => void;
   className?: string;
+  initialData?: StreamData;
 }
 
 export function StreamCreationForm({
   onCreateStream,
   onCancel,
-  className = ''
+  className = '',
+  initialData
 }: Readonly<StreamCreationFormProps>) {
   const devices = useDeviceStore((state) => state.devices);
   const {
@@ -35,30 +38,72 @@ export function StreamCreationForm({
     framerates,
     loading,
     actions
-  } = useStreamCreation();
+  } = useStreamCreation(initialData);
   
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
-    const success = await actions.createStream();
+    const success = initialData 
+      ? await actions.updateStream()
+      : await actions.createStream();
+    
     if (success) {
-      // The stream data is already sent by createStream
-      // Just notify parent that creation is complete
+      // The stream data is already sent by createStream/updateStream
+      // Just notify parent that operation is complete
       await onCreateStream();
-      actions.reset();
+      if (!initialData) {
+        actions.reset();
+      }
     }
   };
   
   const isCreating = state.status === 'creating';
+  const isEditMode = !!initialData;
+
+  const getButtonText = () => {
+    if (isCreating) {
+      return isEditMode ? 'Updating...' : 'Creating...';
+    }
+    return isEditMode ? 'Save Changes' : 'Create Stream';
+  };
+
+  const handleResolutionChange = (value: string) => {
+    if (value === '') {
+      actions.selectResolution(0, 0);
+    } else {
+      const [w, h] = value.split('x').map(Number);
+      if (w && h) {
+        actions.selectResolution(w, h);
+      }
+    }
+  };
+
+  const handleFramerateChange = (value: string) => {
+    if (value === '') {
+      actions.selectFramerate(0);
+    } else {
+      actions.selectFramerate(parseInt(value, 10));
+    }
+  };
+
+  const getResolutionLabel = (res: { width: number; height: number }) => {
+    const resString = `${res.width}x${res.height}`;
+    return RESOLUTION_LABELS[resString] 
+      ? `${resString} (${RESOLUTION_LABELS[resString]})` 
+      : resString;
+  };
   
   return (
     <Card className={className}>
       <Card.Header>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-          Create New Stream
+          {isEditMode ? 'Edit Stream' : 'Create New Stream'}
         </h3>
         <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-          Configure a new video stream from your capture devices
+          {isEditMode 
+            ? 'Update the configuration for this video stream'
+            : 'Configure a new video stream from your capture devices'
+          }
         </p>
       </Card.Header>
       
@@ -72,7 +117,7 @@ export function StreamCreationForm({
             onChange={(e) => actions.setStreamId(e.target.value)}
             placeholder="my-stream-001"
             required
-            disabled={isCreating}
+            disabled={isCreating || isEditMode}
             {...(state.errors.streamId ? { error: state.errors.streamId } : {})}
           />
           
@@ -87,7 +132,7 @@ export function StreamCreationForm({
                 value={state.deviceId}
                 onChange={(e) => actions.selectDevice(e.target.value)}
                 className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
-                disabled={isCreating || devices.length === 0}
+                disabled={isCreating || devices.length === 0 || isEditMode}
                 required
               >
                 <option value="">Select device...</option>
@@ -104,10 +149,10 @@ export function StreamCreationForm({
             
             {/* Audio Device */}
             <AudioDeviceSelector
-              value={state.audioDevice}
-              onChange={actions.setAudioDevice}
-              disabled={isCreating}
-              {...(state.errors.audioDevice ? { error: state.errors.audioDevice } : {})}
+            value={state.audio_device}
+            onChange={actions.setAudioDevice}
+            disabled={isCreating}
+            {...(state.errors.audio_device ? { error: state.errors.audio_device } : {})}
             />
           </div>
           
@@ -126,7 +171,7 @@ export function StreamCreationForm({
                   </div>
                 ) : (
                   <select
-                    value={state.format}
+                    value={state.input_format}
                     onChange={(e) => actions.selectFormat(e.target.value)}
                     className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
                     disabled={isCreating || formats.length === 0}
@@ -140,8 +185,8 @@ export function StreamCreationForm({
                     ))}
                   </select>
                 )}
-                {state.errors.format && (
-                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.format}</p>
+                {state.errors.input_format && (
+                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.errors.input_format}</p>
                 )}
               </div>
               
@@ -150,7 +195,7 @@ export function StreamCreationForm({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Resolution
                 </label>
-                {loading.resolutions && state.format ? (
+                {loading.resolutions && state.input_format ? (
                   <div className="flex items-center space-x-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
                     <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                     <span className="text-sm text-gray-600 dark:text-gray-300">Loading...</span>
@@ -158,31 +203,17 @@ export function StreamCreationForm({
                 ) : (
                   <select
                     value={state.width && state.height ? `${state.width}x${state.height}` : ''}
-                    onChange={(e) => {
-                      if (e.target.value === '') {
-                        // User selected "Auto"
-                        actions.selectResolution(0, 0);
-                      } else {
-                        const [w, h] = e.target.value.split('x').map(Number);
-                        if (w && h) {
-                          actions.selectResolution(w, h);
-                        }
-                      }
-                    }}
+                    onChange={(e) => handleResolutionChange(e.target.value)}
                     className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
                     disabled={isCreating}
                   >
                     <option value="">Auto</option>
-                    {!state.format && <option disabled>Select format first to see resolutions</option>}
+                    {!state.input_format && <option disabled>Select format first to see resolutions</option>}
                     {resolutions.map((res) => {
                       const resString = `${res.width}x${res.height}`;
-                      const label = RESOLUTION_LABELS[resString] 
-                        ? `${resString} (${RESOLUTION_LABELS[resString]})` 
-                        : resString;
-                      
                       return (
                         <option key={resString} value={resString}>
-                          {label}
+                          {getResolutionLabel(res)}
                         </option>
                       );
                     })}
@@ -206,13 +237,7 @@ export function StreamCreationForm({
                 ) : (
                   <select
                     value={state.framerate?.toString() || ''}
-                    onChange={(e) => {
-                      if (e.target.value === '') {
-                        actions.selectFramerate(0); // 0 means auto
-                      } else {
-                        actions.selectFramerate(parseInt(e.target.value, 10));
-                      }
-                    }}
+                    onChange={(e) => handleFramerateChange(e.target.value)}
                     className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
                     disabled={isCreating}
                   >
@@ -328,7 +353,7 @@ export function StreamCreationForm({
               theme="primary"
               size="MD"
               disabled={isCreating || !state.isValid}
-              text={isCreating ? 'Creating...' : 'Create Stream'}
+              text={getButtonText()}
             />
           </div>
         </form>

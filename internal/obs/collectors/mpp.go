@@ -27,11 +27,16 @@ type MPPCollector struct {
 }
 
 // NewMPPCollector creates a new MPP metrics collector
-func NewMPPCollector() *MPPCollector {
+func NewMPPCollector(extraLabels obs.Labels) *MPPCollector {
 	config := obs.DefaultCollectorConfig("mpp")
 	config.Interval = 5 * time.Second
 	config.Labels = obs.Labels{
 		"collector_type": "mpp",
+	}
+
+	// Merge extra labels
+	for k, v := range extraLabels {
+		config.Labels[k] = v
 	}
 
 	return &MPPCollector{

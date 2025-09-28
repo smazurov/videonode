@@ -64,14 +64,20 @@ type CaptureResponse struct {
 
 // Stream models
 type StreamData struct {
-	StreamID  string        `json:"stream_id" example:"stream-001" doc:"Unique stream identifier"`
-	DeviceID  string        `json:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
-	Codec     string        `json:"codec" example:"h264" doc:"Video codec being used"`
-	Bitrate   string        `json:"bitrate,omitempty" example:"2M" doc:"Video bitrate (e.g., 2M, 1500k)"`
-	Uptime    time.Duration `json:"uptime,omitempty" example:"3600000000000" doc:"Stream uptime in nanoseconds"`
-	StartTime time.Time     `json:"start_time,omitempty" doc:"When the stream was started"`
-	WebRTCURL string        `json:"webrtc_url,omitempty" example:"webrtc://localhost:8090/stream-001" doc:"WebRTC streaming URL"`
-	RTSPURL   string        `json:"rtsp_url,omitempty" example:"rtsp://localhost:8554/stream-001" doc:"RTSP streaming URL"`
+	StreamID  string    `json:"stream_id" example:"stream-001" doc:"Unique stream identifier"`
+	DeviceID  string    `json:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
+	Codec     string    `json:"codec" example:"h264" doc:"Video codec being used"`
+	Bitrate   string    `json:"bitrate,omitempty" example:"2M" doc:"Video bitrate (e.g., 2M, 1500k)"`
+	StartTime time.Time `json:"start_time,omitempty" doc:"When the stream was loaded into memory"`
+	WebRTCURL string    `json:"webrtc_url,omitempty" example:"webrtc://localhost:8090/stream-001" doc:"WebRTC streaming URL"`
+	RTSPURL   string    `json:"rtsp_url,omitempty" example:"rtsp://localhost:8554/stream-001" doc:"RTSP streaming URL"`
+	// Configuration fields for editing
+	InputFormat     string `json:"input_format,omitempty" example:"yuyv422" doc:"V4L2 input format"`
+	Resolution      string `json:"resolution,omitempty" example:"1920x1080" doc:"Video resolution"`
+	Framerate       string `json:"framerate,omitempty" example:"30" doc:"Video framerate"`
+	AudioDevice     string `json:"audio_device,omitempty" example:"hw:4,0" doc:"ALSA audio device"`
+	CustomFFmpegCmd string `json:"custom_ffmpeg_command,omitempty" example:"ffmpeg -f v4l2..." doc:"Custom FFmpeg command override"`
+	TestMode        bool   `json:"test_mode" example:"false" doc:"Test pattern mode enabled"`
 }
 
 type StreamListData struct {
@@ -107,15 +113,31 @@ type StreamRequest struct {
 	Body StreamRequestData
 }
 
+type StreamUpdateRequestData struct {
+	Codec               *string  `json:"codec,omitempty" enum:"h264,h265" example:"h264" doc:"Video codec standard"`
+	InputFormat         *string  `json:"input_format,omitempty" example:"yuyv422" doc:"V4L2 input format"`
+	Bitrate             *float64 `json:"bitrate,omitempty" example:"2.0" doc:"Bitrate in Mbps"`
+	Width               *int     `json:"width,omitempty" example:"1920" doc:"Video width"`
+	Height              *int     `json:"height,omitempty" example:"1080" doc:"Video height"`
+	Framerate           *int     `json:"framerate,omitempty" example:"30" doc:"Video framerate"`
+	AudioDevice         *string  `json:"audio_device,omitempty" example:"hw:4,0" doc:"ALSA audio device (if set, enables audio passthrough)"`
+	Options             []string `json:"options,omitempty" doc:"FFmpeg option keys (e.g., vsync_passthrough, low_latency)"`
+	CustomFFmpegCommand *string  `json:"custom_ffmpeg_command,omitempty" example:"ffmpeg -f v4l2 -i /dev/video0 -c:v h264_vaapi -f rtsp rtsp://localhost:8554/stream-001" doc:"Custom FFmpeg command override"`
+	TestMode            *bool    `json:"test_mode,omitempty" example:"false" doc:"Enable test pattern mode instead of device capture"`
+}
+
+type StreamUpdateRequest struct {
+	Body StreamUpdateRequestData
+}
+
 type StreamResponse struct {
 	Body StreamData
 }
 
 // Stream status models
 type StreamStatusData struct {
-	StreamID  string        `json:"stream_id" example:"stream-001" doc:"Unique stream identifier"`
-	Uptime    time.Duration `json:"uptime,omitempty" example:"3600000000000" doc:"Stream uptime in nanoseconds"`
-	StartTime time.Time     `json:"start_time,omitempty" doc:"When the stream was started"`
+	StreamID  string    `json:"stream_id" example:"stream-001" doc:"Unique stream identifier"`
+	StartTime time.Time `json:"start_time,omitempty" doc:"When the stream was loaded into memory"`
 }
 
 type StreamStatusResponse struct {

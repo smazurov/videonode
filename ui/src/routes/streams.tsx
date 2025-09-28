@@ -23,6 +23,8 @@ export default function Streams() {
       
       if (event.type === 'stream-created') {
         addStreamFromSSE(event.stream);
+      } else if (event.type === 'stream-updated') {
+        addStreamFromSSE(event.stream); // This will update existing stream due to deduplication
       } else if (event.type === 'stream-deleted') {
         removeStreamFromSSE(event.stream_id);
       }

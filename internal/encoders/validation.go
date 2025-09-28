@@ -2,7 +2,7 @@ package encoders
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -51,17 +51,19 @@ type SilentLogger struct{}
 
 func (l SilentLogger) Printf(format string, v ...interface{}) {}
 
-// VerboseLogger outputs to standard logger
+// VerboseLogger outputs using slog
 type VerboseLogger struct {
-	*log.Logger
+	logger *slog.Logger
 }
 
 func NewVerboseLogger() *VerboseLogger {
-	return &VerboseLogger{log.Default()}
+	return &VerboseLogger{
+		logger: slog.With("component", "encoder_validation"),
+	}
 }
 
 func (l *VerboseLogger) Printf(format string, v ...interface{}) {
-	l.Logger.Printf(format, v...)
+	l.logger.Info(fmt.Sprintf(format, v...))
 }
 
 // ValidateEncoders validates all encoders and returns results
@@ -201,7 +203,9 @@ func (v *Validator) RunValidateCommand(quiet bool) error {
 func RunValidateCommandWithOptions(provider types.ValidationProvider, quiet bool) {
 	v := NewValidator(provider)
 	if err := v.RunValidateCommand(quiet); err != nil {
-		log.Fatal(err)
+		logger := slog.With("component", "encoder_validation")
+		logger.Error("Validation command failed", "error", err)
+		panic(err) // Maintain the same behavior as log.Fatal
 	}
 }
 

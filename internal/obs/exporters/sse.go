@@ -2,7 +2,7 @@ package exporters
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,23 +27,6 @@ type OBSAlertEvent struct {
 	Details   map[string]interface{} `json:"details"`
 }
 
-type SystemMetricsEvent struct {
-	Type        string `json:"type"`
-	Timestamp   string `json:"timestamp"`
-	LoadAverage struct {
-		OneMin     float64 `json:"1m"`
-		FiveMin    float64 `json:"5m"`
-		FifteenMin float64 `json:"15m"`
-	} `json:"load_average"`
-	Network struct {
-		Interface string  `json:"interface"`
-		RxBytes   float64 `json:"rx_bytes"`
-		TxBytes   float64 `json:"tx_bytes"`
-		RxPackets float64 `json:"rx_packets"`
-		TxPackets float64 `json:"tx_packets"`
-	} `json:"network"`
-}
-
 type StreamMetricsEvent struct {
 	Type            string `json:"type"`
 	Timestamp       string `json:"timestamp"`
@@ -60,7 +43,6 @@ func GetEventTypes() map[string]any {
 	return map[string]any{
 		"mediamtx-metrics": MediaMTXMetricsEvent{},
 		"obs-alert":        OBSAlertEvent{},
-		"system-metrics":   SystemMetricsEvent{},
 		"stream-metrics":   StreamMetricsEvent{},
 	}
 }
@@ -74,7 +56,6 @@ func GetEventTypesForEndpoint(endpoint string) map[string]any {
 		}
 	case "events":
 		return map[string]any{
-			"system-metrics": SystemMetricsEvent{},
 			"obs-alert":      OBSAlertEvent{},
 			"stream-metrics": StreamMetricsEvent{},
 		}
@@ -111,6 +92,7 @@ type StreamMetricsAccumulator struct {
 // SSEExporter exports observability data via Server-Sent Events
 type SSEExporter struct {
 	config        obs.ExporterConfig
+	logger        *slog.Logger
 	broadcaster   SSEBroadcaster
 	logLevel      string
 	streamMetrics map[string]*StreamMetricsAccumulator // stream_id -> accumulated metrics
@@ -127,6 +109,7 @@ func NewSSEExporter(broadcaster SSEBroadcaster) *SSEExporter {
 
 	return &SSEExporter{
 		config:        config,
+		logger:        slog.With("component", "sse_exporter"),
 		broadcaster:   broadcaster,
 		logLevel:      "info", // Default log level
 		streamMetrics: make(map[string]*StreamMetricsAccumulator),
@@ -222,7 +205,7 @@ func (s *SSEExporter) processLogImmediately(logEntry *obs.LogEntry) {
 	timestamp := logEntry.Timestamp().Format(time.RFC3339)
 
 	// Log the entry
-	log.Printf("[%s] %s [%s]: %s", logLevel, timestamp, source, message)
+	s.logger.Info("SSE log entry", "level", logLevel, "timestamp", timestamp, "source", source, "message", message)
 }
 
 // shouldLog determines if a log entry should be logged based on the configured level
@@ -246,39 +229,6 @@ func (s *SSEExporter) shouldLog(entryLevel obs.LogLevel) bool {
 
 	// Log if entry level is >= configured level
 	return entryLevelNum >= configuredLevel
-}
-
-// sendSystemMetricsEvent sends a structured system metrics event
-func (s *SSEExporter) sendSystemMetricsEvent(metric *obs.MetricPoint) {
-	labels := metric.Labels()
-
-	// Parse load average values
-	load1m, _ := strconv.ParseFloat(labels["load_1m"], 64)
-	load5m, _ := strconv.ParseFloat(labels["load_5m"], 64)
-	load15m, _ := strconv.ParseFloat(labels["load_15m"], 64)
-
-	// Parse network values
-	rxBytes, _ := strconv.ParseFloat(labels["net_rx_bytes"], 64)
-	txBytes, _ := strconv.ParseFloat(labels["net_tx_bytes"], 64)
-	rxPackets, _ := strconv.ParseFloat(labels["net_rx_packets"], 64)
-	txPackets, _ := strconv.ParseFloat(labels["net_tx_packets"], 64)
-
-	event := SystemMetricsEvent{
-		Type:      "system_metrics",
-		Timestamp: metric.Timestamp().Format(time.RFC3339),
-	}
-
-	event.LoadAverage.OneMin = load1m
-	event.LoadAverage.FiveMin = load5m
-	event.LoadAverage.FifteenMin = load15m
-
-	event.Network.Interface = labels["net_interface"]
-	event.Network.RxBytes = rxBytes
-	event.Network.TxBytes = txBytes
-	event.Network.RxPackets = rxPackets
-	event.Network.TxPackets = txPackets
-
-	s.broadcaster.BroadcastEvent("system-metrics", event)
 }
 
 // formatMetricsForSSE formats metrics for SSE transmission

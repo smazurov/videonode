@@ -5,11 +5,12 @@ package devices
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/jochenvg/go-udev"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/v4l2_detector"
 )
 
@@ -19,11 +20,13 @@ type linuxDetector struct {
 	broadcaster EventBroadcaster
 	lastDevices map[string]DeviceInfo // key is DeviceId
 	mu          sync.Mutex
+	logger      *slog.Logger
 }
 
 func newDetector() DeviceDetector {
 	return &linuxDetector{
 		lastDevices: make(map[string]DeviceInfo),
+		logger:      logging.GetLogger("devices"),
 	}
 }
 
@@ -119,12 +122,12 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 	// Initialize with current devices to avoid false "added" events
 	devices, err := d.FindDevices()
 	if err != nil {
-		log.Printf("Warning: Failed to get initial device list: %v", err)
+		d.logger.Warn("Failed to get initial device list", "error", err)
 	} else {
 		for _, device := range devices {
 			d.lastDevices[device.DeviceId] = device
 		}
-		log.Printf("Initialized with %d V4L2 devices", len(devices))
+		d.logger.Info("Initialized with V4L2 devices", "count", len(devices))
 	}
 
 	// Start udev monitoring
@@ -145,28 +148,28 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 	// Error monitoring goroutine
 	go func() {
 		for err := range errCh {
-			log.Printf("Udev monitor error: %v", err)
+			d.logger.Error("Udev monitor error", "error", err)
 		}
 	}()
 
 	// Device monitoring goroutine
 	go func() {
-		log.Println("Udev monitoring started for USB devices")
+		d.logger.Info("Udev monitoring started for USB devices")
 		for {
 			select {
 			case <-d.ctx.Done():
-				log.Println("Udev monitor stopped")
+				d.logger.Info("Udev monitor stopped")
 				return
 			case dev, ok := <-deviceCh:
 				if !ok {
-					log.Println("Udev device channel closed")
+					d.logger.Info("Udev device channel closed")
 					return
 				}
 
 				action := dev.Action()
 				if action == "add" || action == "remove" {
-					log.Printf("Udev event: %s for device %s (Subsystem: %s, Devtype: %s)",
-						action, dev.Syspath(), dev.Subsystem(), dev.Devtype())
+					d.logger.Debug("Udev event",
+						"action", action, "device", dev.Syspath(), "subsystem", dev.Subsystem(), "devtype", dev.Devtype())
 
 					// For add events, give kernel more time to enumerate V4L2 devices
 					if action == "add" {
@@ -197,7 +200,7 @@ func (d *linuxDetector) StopMonitoring() {
 func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 	devices, err := d.FindDevices()
 	if err != nil {
-		log.Printf("Error getting device data: %v", err)
+		d.logger.Error("Error getting device data", "error", err)
 		return
 	}
 
@@ -214,7 +217,7 @@ func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 	for deviceId, oldDevice := range d.lastDevices {
 		if _, exists := currentDevices[deviceId]; !exists {
 			d.broadcaster.BroadcastDeviceDiscovery("removed", oldDevice, time.Now().Format(time.RFC3339))
-			log.Printf("Device removed: %s (%s) [ID: %s]", oldDevice.DevicePath, oldDevice.DeviceName, deviceId)
+			d.logger.Info("Device removed", "device", oldDevice.DevicePath, "name", oldDevice.DeviceName, "id", deviceId)
 		}
 	}
 
@@ -225,11 +228,11 @@ func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 		if !exists {
 			// New device
 			d.broadcaster.BroadcastDeviceDiscovery("added", newDevice, time.Now().Format(time.RFC3339))
-			log.Printf("Device added: %s (%s) [ID: %s]", newDevice.DevicePath, newDevice.DeviceName, deviceId)
+			d.logger.Info("Device added", "device", newDevice.DevicePath, "name", newDevice.DeviceName, "id", deviceId)
 		} else if oldDevice != newDevice {
 			// Device changed
 			d.broadcaster.BroadcastDeviceDiscovery("changed", newDevice, time.Now().Format(time.RFC3339))
-			log.Printf("Device changed: %s (%s) [ID: %s]", newDevice.DevicePath, newDevice.DeviceName, deviceId)
+			d.logger.Info("Device changed", "device", newDevice.DevicePath, "name", newDevice.DeviceName, "id", deviceId)
 		}
 	}
 

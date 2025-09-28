@@ -1,7 +1,7 @@
 import { useReducer, useCallback, useEffect } from 'react';
 import { useStreamStore } from './useStreamStore';
 import { useDeviceFormats, useDeviceResolutions, useDeviceFramerates } from './useDeviceCapabilities';
-import { StreamRequestData, getFFmpegOptions, Resolution } from '../lib/api';
+import { StreamRequestData, StreamData, getFFmpegOptions, Resolution } from '../lib/api';
 import { RESOLUTION_LABELS } from '../components/StreamCreation/constants';
 
 // Helper to filter resolutions to common ones
@@ -20,14 +20,26 @@ export interface StreamFormState {
   // Form values
   streamId: string;
   deviceId: string;
-  format: string;
+  input_format: string;
   width: number;
   height: number;
   framerate: number;
   codec: string;
   bitrate: number | undefined;
-  audioDevice: string;
+  audio_device: string;
   options: string[];
+  
+  // Original values for PATCH comparison
+  originalValues?: {
+    codec: string;
+    input_format: string;
+    width: number;
+    height: number;
+    framerate: number;
+    bitrate: number | undefined;
+    audio_device: string;
+    options: string[];
+  };
   
   // UI state
   status: 'idle' | 'selecting-device' | 'selecting-format' | 'selecting-resolution' | 'selecting-framerate' | 'ready' | 'creating';
@@ -55,19 +67,20 @@ export type StreamFormAction =
   | { type: 'RESET' }
   | { type: 'CREATING' }
   | { type: 'CREATE_SUCCESS' }
-  | { type: 'CREATE_ERROR'; error: string };
+  | { type: 'CREATE_ERROR'; error: string }
+  | { type: 'LOAD_INITIAL_DATA'; streamData: StreamData };
 
 // Initial state
 const initialState: StreamFormState = {
   streamId: '',
   deviceId: '',
-  format: '',
+  input_format: '',
   width: 0,
   height: 0,
   framerate: 0,
   codec: 'h264',
   bitrate: 2, // Default to 2 Mbps
-  audioDevice: '', // Default to no audio
+  audio_device: '', // Default to no audio
   options: [], // Will be populated with defaults from API
   status: 'idle',
   errors: {},
@@ -88,8 +101,8 @@ function validateForm(state: StreamFormState): Record<string, string> {
     errors.deviceId = 'Device selection is required';
   }
   
-  if (!state.format) {
-    errors.format = 'Format selection is required';
+  if (!state.input_format) {
+    errors.input_format = 'Format selection is required';
   }
   
   if (!state.codec) {
@@ -123,7 +136,7 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
       return {
         ...state,
         deviceId: action.deviceId,
-        format: '', // Clear dependent fields
+        input_format: '', // Clear dependent fields
         width: 0,
         height: 0,
         framerate: 0,
@@ -134,11 +147,11 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
     
     case 'SELECT_FORMAT': {
       const restErrors: Record<string, string> = Object.fromEntries(
-        Object.entries(state.errors).filter(([key]) => !['format', 'resolution', 'framerate'].includes(key))
+        Object.entries(state.errors).filter(([key]) => !['input_format', 'resolution', 'framerate'].includes(key))
       );
       return {
         ...state,
-        format: action.format,
+        input_format: action.format,
         width: 0, // Clear dependent fields
         height: 0,
         framerate: 0,
@@ -211,10 +224,10 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
     
     case 'SET_AUDIO_DEVICE': {
       const newErrors = { ...state.errors };
-      delete newErrors.audioDevice;
+      delete newErrors.audio_device;
       return {
         ...state,
-        audioDevice: action.audioDevice,
+        audio_device: action.audioDevice,
         errors: newErrors,
       };
     }
@@ -286,6 +299,57 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
       return initialState;
     }
     
+    case 'LOAD_INITIAL_DATA': {
+      const streamData = action.streamData;
+      
+      // Parse resolution from string (e.g., "1920x1080")
+      let width = 0, height = 0;
+      if (streamData.resolution) {
+        const parts = streamData.resolution.split('x');
+        if (parts.length === 2) {
+          width = parseInt(parts[0] || '0', 10) || 0;
+          height = parseInt(parts[1] || '0', 10) || 0;
+        }
+      }
+      
+      // Parse framerate
+      const framerate = streamData.framerate ? parseInt(streamData.framerate, 10) || 0 : 0;
+      
+      const codec = streamData.codec;
+      const format = streamData.input_format || '';
+      const bitrate = streamData.bitrate ? parseFloat(streamData.bitrate.replace(/[^\d.]/g, '')) : undefined;
+      const audioDevice = streamData.audio_device || '';
+      // Default options will be loaded separately
+      const options: string[] = [];
+      
+      return {
+        ...state,
+        streamId: streamData.stream_id,
+        deviceId: streamData.device_id,
+        codec,
+        input_format: format,
+        width,
+        height,
+        framerate,
+        bitrate,
+        audio_device: audioDevice,
+        options,
+        // Store original values for PATCH comparison
+        originalValues: {
+          codec,
+          input_format: format,
+          width,
+          height,
+          framerate,
+          bitrate,
+          audio_device: audioDevice,
+          options,
+        },
+        status: 'ready',
+        isValid: true,
+      };
+    }
+    
     default: {
       action satisfies never;
       return state;
@@ -294,10 +358,17 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
 }
 
 // Main hook
-export function useStreamCreation() {
+export function useStreamCreation(initialData?: StreamData) {
   const [state, dispatch] = useReducer(streamFormReducer, initialState);
-  const { createStream } = useStreamStore();
+  const { createStream, updateStream } = useStreamStore();
   
+  // Load initial data if provided
+  useEffect(() => {
+    if (initialData) {
+      dispatch({ type: 'LOAD_INITIAL_DATA', streamData: initialData });
+    }
+  }, [initialData]);
+
   // Load default FFmpeg options on mount
   useEffect(() => {
     getFFmpegOptions().then(data => {
@@ -314,28 +385,28 @@ export function useStreamCreation() {
   
   // Fetch device capabilities
   const { formats, loading: loadingFormats } = useDeviceFormats(state.deviceId);
-  const { resolutions, loading: loadingResolutions } = useDeviceResolutions(state.deviceId, state.format);
+  const { resolutions, loading: loadingResolutions } = useDeviceResolutions(state.deviceId, state.input_format);
   const { framerates, loading: loadingFramerates } = useDeviceFramerates(
     state.deviceId,
-    state.format,
+    state.input_format,
     state.width,
     state.height
   );
   
   // Auto-select first non-emulated format when formats load
   useEffect(() => {
-    if (formats.length > 0 && state.deviceId && !state.format) {
+    if (formats.length > 0 && state.deviceId && !state.input_format) {
       const preferred = formats.find(f => !f.emulated) || formats[0];
       if (preferred) {
         dispatch({ type: 'SELECT_FORMAT', format: preferred.format_name });
       }
     }
-  }, [formats, state.deviceId, state.format]);
+  }, [formats, state.deviceId, state.input_format]);
   
   // Auto-select best resolution when resolutions load for a new format
   // But only if this is the initial format selection (status is 'selecting-format')
   useEffect(() => {
-    if (resolutions.length > 0 && state.format && state.width === 0 && state.height === 0 && state.status === 'selecting-format') {
+    if (resolutions.length > 0 && state.input_format && state.width === 0 && state.height === 0 && state.status === 'selecting-format') {
       // Filter to common resolutions first
       const filtered = filterToCommonResolutions(resolutions);
       
@@ -348,7 +419,7 @@ export function useStreamCreation() {
         dispatch({ type: 'SELECT_RESOLUTION', width: highest.width, height: highest.height });
       }
     }
-  }, [resolutions, state.format, state.width, state.height, state.status]);
+  }, [resolutions, state.input_format, state.width, state.height, state.status]);
   
   // Handle framerate when resolution changes or framerates load
   // Only auto-select if this is the initial resolution selection (status is 'selecting-resolution')
@@ -401,11 +472,11 @@ export function useStreamCreation() {
     const filteredResolutions = filterToCommonResolutions(resolutions);
     const isValid = filteredResolutions.some(r => r.width === width && r.height === height);
     if (!isValid) {
-      console.warn(`Invalid resolution ${width}x${height} for format ${state.format}`);
+      console.warn(`Invalid resolution ${width}x${height} for format ${state.input_format}`);
       return;
     }
     dispatch({ type: 'SELECT_RESOLUTION', width, height });
-  }, [resolutions, state.format]);
+  }, [resolutions, state.input_format]);
   
   const selectFramerate = useCallback((framerate: number) => {
     dispatch({ type: 'SELECT_FRAMERATE', framerate });
@@ -440,12 +511,12 @@ export function useStreamCreation() {
         stream_id: state.streamId,
         device_id: state.deviceId,
         codec: state.codec,
-        input_format: state.format,
+        input_format: state.input_format,
         ...(state.width > 0 ? { width: state.width } : {}),
         ...(state.height > 0 ? { height: state.height } : {}),
         ...(state.framerate > 0 ? { framerate: state.framerate } : {}),
         ...(state.bitrate ? { bitrate: state.bitrate } : {}),
-        ...(state.audioDevice ? { audio_device: state.audioDevice } : {}),
+        ...(state.audio_device ? { audio_device: state.audio_device } : {}),
         ...(state.options.length > 0 ? { options: state.options } : {}),
       };
       
@@ -458,6 +529,52 @@ export function useStreamCreation() {
       return false;
     }
   }, [state, createStream]);
+  
+  const handleUpdateStream = useCallback(async () => {
+    if (!state.isValid) {
+      dispatch({ type: 'VALIDATE' });
+      return false;
+    }
+    
+    dispatch({ type: 'CREATING' });
+    
+    try {
+      const updateData: Record<string, string | number | string[] | undefined> = {};
+      const orig = state.originalValues;
+      
+      if (orig) {
+        // Simple field mapping with diff check
+        const fields = [
+          ['codec', 'codec'],
+          ['input_format', 'input_format'],
+          ['width', 'width'],
+          ['height', 'height'],
+          ['framerate', 'framerate'],
+          ['bitrate', 'bitrate'],
+          ['audio_device', 'audio_device'],
+        ] as const;
+        
+        for (const [stateKey, apiKey] of fields) {
+          if (state[stateKey] !== orig[stateKey]) {
+            updateData[apiKey] = state[stateKey];
+          }
+        }
+        
+        // Handle options array separately
+        if (JSON.stringify(state.options) !== JSON.stringify(orig.options)) {
+          updateData.options = state.options;
+        }
+      }
+      
+      await updateStream(state.streamId, updateData);
+      dispatch({ type: 'CREATE_SUCCESS' });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update stream';
+      dispatch({ type: 'CREATE_ERROR', error: message });
+      return false;
+    }
+  }, [state, updateStream]);
   
   const reset = useCallback(() => {
     dispatch({ type: 'RESET' });
@@ -491,6 +608,7 @@ export function useStreamCreation() {
       setAudioDevice,
       setOptions,
       createStream: handleCreateStream,
+      updateStream: handleUpdateStream,
       reset,
     },
   };

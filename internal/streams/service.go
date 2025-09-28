@@ -3,15 +3,18 @@ package streams
 import (
 	"context"
 	"fmt"
-	"log"
-	"strings"
+	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/mediamtx"
+	"github.com/smazurov/videonode/internal/obs"
+	"github.com/smazurov/videonode/internal/obs/collectors"
 	"github.com/smazurov/videonode/internal/types"
 	valManager "github.com/smazurov/videonode/internal/validation"
 )
@@ -19,21 +22,20 @@ import (
 // StreamService defines the interface for stream operations
 type StreamService interface {
 	CreateStream(ctx context.Context, params StreamCreateParams) (*Stream, error)
+	UpdateStream(ctx context.Context, streamID string, params StreamUpdateParams) (*Stream, error)
 	DeleteStream(ctx context.Context, streamID string) error
 	GetStream(ctx context.Context, streamID string) (*Stream, error)
+	GetStreamConfig(ctx context.Context, streamID string) (*StreamConfig, error)
 	ListStreams(ctx context.Context) ([]Stream, error)
 	GetStreamStatus(ctx context.Context, streamID string) (*StreamStatus, error)
 	LoadStreamsFromConfig() error
 	GetFFmpegCommand(ctx context.Context, streamID string, encoderOverride string) (string, bool, error)
-	SetCustomFFmpegCommand(ctx context.Context, streamID string, command string) error
-	ClearCustomFFmpegCommand(ctx context.Context, streamID string) error
 }
 
 // ServiceOptions contains optional configuration for StreamServiceImpl
 type ServiceOptions struct {
-	OBSIntegration  func(string, string, string) error // Function to add OBS monitoring
-	OBSRemoval      func(string) error                 // Function to remove OBS monitoring
-	EncoderSelector encoders.Selector                  // Custom encoder selector
+	OBSManager      *obs.Manager      // OBS manager for monitoring
+	EncoderSelector encoders.Selector // Custom encoder selector
 }
 
 // StreamServiceImpl implements the StreamService interface
@@ -42,18 +44,20 @@ type StreamServiceImpl struct {
 	processor       *Processor         // Stream processor for runtime injection
 	streams         map[string]*Stream // In-memory stream cache
 	streamsMutex    sync.RWMutex
-	mediamtxClient  *mediamtx.Client                   // MediaMTX API client
-	obsIntegration  func(string, string, string) error // Function to add OBS monitoring
-	obsRemoval      func(string) error                 // Function to remove OBS monitoring
-	encoderSelector encoders.Selector                  // Encoder selection strategy
+	mediamtxClient  *mediamtx.Client  // MediaMTX API client
+	obsManager      *obs.Manager      // OBS manager for monitoring
+	encoderSelector encoders.Selector // Encoder selection strategy
+	logger          *slog.Logger      // Module logger
 }
 
 // NewStreamService creates a new stream service with options
 func NewStreamService(opts *ServiceOptions) StreamService {
+	logger := logging.GetLogger("streams")
+
 	// Create repository and processor
 	repo := NewTOMLRepository("streams.toml")
 	if err := repo.Load(); err != nil {
-		log.Printf("Warning: Failed to load existing streams: %v", err)
+		logger.Warn("Failed to load existing streams", "error", err)
 	}
 
 	processor := NewProcessor(repo)
@@ -67,7 +71,7 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		validationStorage := NewValidationStorage(repo)
 		vm := valManager.NewManager(validationStorage)
 		if err := vm.LoadValidation(); err != nil {
-			log.Printf("Failed to load validation data: %v", err)
+			logger.Error("Failed to load validation data", "error", err)
 		}
 		encoderSelector = encoders.NewDefaultSelector(vm)
 	}
@@ -85,7 +89,7 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		// Select optimal encoder (or use override)
 		params, err := encoderSelector.SelectEncoder(codecType, inputFormat, qualityParams, encoderOverride)
 		if err != nil {
-			log.Printf("Failed to select encoder: %v", err)
+			logger.Error("Failed to select encoder", "error", err)
 			// Return defaults
 			defaultParams := &ffmpeg.Params{}
 			if encoderOverride != "" {
@@ -105,17 +109,10 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 	processor.SetDeviceResolver(func(deviceID string) string {
 		devicePath, err := devices.ResolveDevicePath(deviceID)
 		if err != nil {
-			log.Printf("Device resolution failed for %s: %v", deviceID, err)
+			logger.Warn("Device resolution failed", "device_id", deviceID, "error", err)
 			return ""
 		}
 		return devicePath
-	})
-
-	// Configure processor with socket creator
-	processor.SetSocketCreator(func(streamID string) string {
-		// Use monotonic socket path - deterministic based on stream ID
-		socketPath := fmt.Sprintf("/tmp/ffmpeg-progress-%s.sock", streamID)
-		return socketPath
 	})
 
 	service := &StreamServiceImpl{
@@ -123,12 +120,12 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		processor:       processor,
 		streams:         make(map[string]*Stream),
 		encoderSelector: encoderSelector,
+		logger:          logger,
 	}
 
 	// Apply options if provided
 	if opts != nil {
-		service.obsIntegration = opts.OBSIntegration
-		service.obsRemoval = opts.OBSRemoval
+		service.obsManager = opts.OBSManager
 	}
 
 	// Initialize MediaMTX API client
@@ -229,17 +226,13 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 	// Save to persistent TOML config
 	if s.repository != nil {
 		if err := s.repository.AddStream(streamConfigTOML); err != nil {
-			log.Printf("Warning: Failed to save stream to TOML config: %v", err)
+			s.logger.Warn("Failed to save stream to TOML config", "stream_id", streamID, "error", err)
 		} else {
-			log.Printf("Saved stream %s to persistent TOML config", streamID)
+			s.logger.Info("Saved stream to persistent TOML config", "stream_id", streamID)
 
 			// Sync to MediaMTX API
-			socketPaths, err := s.syncToMediaMTX()
-			if err != nil {
-				log.Printf("Warning: Failed to sync MediaMTX after creation: %v", err)
-			} else {
-				// Update OBS collectors with new socket paths
-				s.updateSocketPaths(socketPaths)
+			if err := s.syncToMediaMTX(); err != nil {
+				s.logger.Warn("Failed to sync MediaMTX after creation", "error", err)
 			}
 		}
 	}
@@ -253,6 +246,93 @@ func (s *StreamServiceImpl) CreateStream(ctx context.Context, params StreamCreat
 		return nil, NewStreamError(ErrCodeStreamNotFound,
 			fmt.Sprintf("stream %s was created but not found in memory", streamID), nil)
 	}
+
+	// Return a copy to avoid external mutation
+	streamCopy := *stream
+	return &streamCopy, nil
+}
+
+// UpdateStream updates an existing stream with new parameters
+func (s *StreamServiceImpl) UpdateStream(ctx context.Context, streamID string, params StreamUpdateParams) (*Stream, error) {
+	// Check if stream exists
+	streamConfig, exists := s.repository.GetStream(streamID)
+	if !exists {
+		return nil, NewStreamError(ErrCodeStreamNotFound, fmt.Sprintf("stream %s not found", streamID), nil)
+	}
+
+	// Update stream configuration with provided parameters
+	if params.Codec != nil {
+		streamConfig.FFmpeg.Codec = *params.Codec
+	}
+	if params.InputFormat != nil {
+		streamConfig.FFmpeg.InputFormat = *params.InputFormat
+	}
+	if params.Width != nil && params.Height != nil {
+		streamConfig.FFmpeg.Resolution = fmt.Sprintf("%dx%d", *params.Width, *params.Height)
+	}
+	if params.Framerate != nil {
+		streamConfig.FFmpeg.FPS = fmt.Sprintf("%d", *params.Framerate)
+	}
+	if params.AudioDevice != nil {
+		streamConfig.FFmpeg.AudioDevice = *params.AudioDevice
+	}
+	if params.Options != nil {
+		// Convert string slice to OptionType slice
+		var ffmpegOptions []ffmpeg.OptionType
+		for _, opt := range params.Options {
+			ffmpegOptions = append(ffmpegOptions, ffmpeg.OptionType(opt))
+		}
+		streamConfig.FFmpeg.Options = ffmpegOptions
+	}
+	if params.Bitrate != nil {
+		// Update quality params
+		if streamConfig.FFmpeg.QualityParams == nil {
+			streamConfig.FFmpeg.QualityParams = &types.QualityParams{}
+		}
+		streamConfig.FFmpeg.QualityParams.TargetBitrate = params.Bitrate
+	}
+	if params.CustomFFmpegCommand != nil {
+		streamConfig.CustomFFmpegCommand = *params.CustomFFmpegCommand
+	}
+	if params.TestMode != nil {
+		streamConfig.TestMode = *params.TestMode
+	}
+
+	// Update timestamp
+	streamConfig.UpdatedAt = time.Now()
+
+	// Save to repository
+	if err := s.repository.UpdateStream(streamID, streamConfig); err != nil {
+		return nil, fmt.Errorf("failed to save updated stream: %w", err)
+	}
+
+	// Generate new FFmpeg command and update MediaMTX
+	processed, err := s.processor.ProcessStream(streamID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process updated stream: %w", err)
+	}
+
+	// Update in MediaMTX via API
+	if s.mediamtxClient != nil {
+		if err := s.mediamtxClient.UpdatePath(streamID, processed.FFmpegCommand); err != nil {
+			s.logger.Warn("Failed to update MediaMTX path", "stream_id", streamID, "error", err)
+		}
+	}
+
+	// Reset StartTime when stream is patched (stream is effectively restarted)
+	s.streamsMutex.Lock()
+	stream, exists := s.streams[streamID]
+	if exists {
+		stream.StartTime = time.Now()
+	}
+	s.streamsMutex.Unlock()
+
+	if !exists {
+		return nil, NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("updated stream %s not found in memory", streamID), nil)
+	}
+
+	s.logger.Info("Stream updated successfully", "stream_id", streamID)
 
 	// Return a copy to avoid external mutation
 	streamCopy := *stream
@@ -288,13 +368,14 @@ func (s *StreamServiceImpl) DeleteStream(ctx context.Context, streamID string) e
 	}
 
 	// Remove OBS monitoring if configured
-	if s.obsRemoval != nil {
-		if err := s.obsRemoval(streamID); err != nil {
-			log.Printf("Warning: Failed to remove OBS monitoring for stream %s: %v", streamID, err)
+	if s.obsManager != nil {
+		collectorName := "ffmpeg_" + streamID
+		if err := s.obsManager.RemoveCollector(collectorName); err != nil {
+			s.logger.Warn("Failed to remove OBS monitoring for stream", "stream_id", streamID, "error", err)
 		}
 	}
 
-	log.Printf("Stream %s deleted successfully", streamID)
+	s.logger.Info("Stream deleted successfully", "stream_id", streamID)
 	return nil
 }
 
@@ -314,6 +395,20 @@ func (s *StreamServiceImpl) GetStream(ctx context.Context, streamID string) (*St
 	return &streamCopy, nil
 }
 
+// GetStreamConfig retrieves the detailed configuration of a stream for editing
+func (s *StreamServiceImpl) GetStreamConfig(ctx context.Context, streamID string) (*StreamConfig, error) {
+	// Get config from repository
+	streamConfig, exists := s.repository.GetStream(streamID)
+	if !exists {
+		return nil, NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("stream %s not found", streamID), nil)
+	}
+
+	// Return a copy to avoid external mutation
+	configCopy := streamConfig
+	return &configCopy, nil
+}
+
 // ListStreams returns all active streams
 func (s *StreamServiceImpl) ListStreams(ctx context.Context) ([]Stream, error) {
 	s.streamsMutex.RLock()
@@ -325,6 +420,11 @@ func (s *StreamServiceImpl) ListStreams(ctx context.Context) ([]Stream, error) {
 		streamCopy := *stream
 		streams = append(streams, streamCopy)
 	}
+
+	// Sort streams by ID for consistent ordering
+	sort.Slice(streams, func(i, j int) bool {
+		return streams[i].ID < streams[j].ID
+	})
 
 	return streams, nil
 }
@@ -343,7 +443,6 @@ func (s *StreamServiceImpl) GetStreamStatus(ctx context.Context, streamID string
 	status := &StreamStatus{
 		StreamID:  stream.ID,
 		StartTime: stream.StartTime,
-		Uptime:    time.Since(stream.StartTime),
 	}
 
 	return status, nil
@@ -371,7 +470,7 @@ func (s *StreamServiceImpl) LoadStreamsFromConfig() error {
 
 		// Initialize the stream with all integrations
 		if err := s.InitializeStream(streamConfig); err != nil {
-			log.Printf("Warning: Failed to initialize stream %s: %v", streamConfig.ID, err)
+			s.logger.Warn("Failed to initialize stream", "stream_id", streamConfig.ID, "error", err)
 			continue
 		}
 	}
@@ -381,92 +480,78 @@ func (s *StreamServiceImpl) LoadStreamsFromConfig() error {
 	streamCount := len(s.streams)
 	s.streamsMutex.RUnlock()
 
-	log.Printf("Loaded %d streams from configuration", streamCount)
+	s.logger.Info("Loaded streams from configuration", "count", streamCount)
 
 	// Sync all streams to MediaMTX via API
 	if s.mediamtxClient != nil {
 		if err := s.mediamtxClient.SyncAll(); err != nil {
-			log.Printf("Warning: Failed to sync MediaMTX at startup: %v", err)
+			s.logger.Warn("Failed to sync MediaMTX at startup", "error", err)
 		}
 	}
 
-	// Generate socket paths for OBS monitoring
-	socketPaths, err := s.syncToMediaMTX()
-	if err != nil {
-		log.Printf("Warning: Failed to generate socket paths: %v", err)
-	} else {
-		s.updateSocketPaths(socketPaths)
+	// Sync streams to MediaMTX
+	if err := s.syncToMediaMTX(); err != nil {
+		s.logger.Warn("Failed to sync MediaMTX at startup", "error", err)
 	}
 	return nil
 }
 
 // InitializeStream initializes a single stream with all integrations
 func (s *StreamServiceImpl) InitializeStream(streamConfig StreamConfig) error {
-	// Extract display bitrate from quality params if available
-	displayBitrate := "2M" // Default
-	if streamConfig.FFmpeg.QualityParams != nil && streamConfig.FFmpeg.QualityParams.TargetBitrate != nil {
-		displayBitrate = fmt.Sprintf("%.1fM", *streamConfig.FFmpeg.QualityParams.TargetBitrate)
-	}
-
 	// Create stream entity from config
 	stream := &Stream{
 		ID:        streamConfig.ID,
 		DeviceID:  streamConfig.Device,
 		Codec:     streamConfig.FFmpeg.Codec, // Use the generic codec from FFmpeg config
-		Bitrate:   displayBitrate,            // Display bitrate from quality params
-		StartTime: streamConfig.CreatedAt,
-		WebRTCURL: fmt.Sprintf(":8889/%s", streamConfig.ID),
-		RTSPURL:   fmt.Sprintf(":8554/%s", streamConfig.ID),
+		StartTime: time.Now(),                // Track when loaded into memory, not creation time
 	}
 
 	// Store the stream in memory - only lock for the write
 	s.streamsMutex.Lock()
 	s.streams[streamConfig.ID] = stream
+	stream.ProgressSocket = GetSocketPath(streamConfig.ID)
 	s.streamsMutex.Unlock()
 
-	// OBS monitoring will be initialized when socket paths are generated during MediaMTX sync
-	log.Printf("Initialized stream %s (device: %s, codec: %s)", streamConfig.ID, streamConfig.Device, streamConfig.FFmpeg.Codec)
+	// Initialize OBS monitoring
+	if s.obsManager != nil {
+		socketPath := GetSocketPath(streamConfig.ID)
+		ffmpegCollector := collectors.NewFFmpegCollector(socketPath, "", streamConfig.ID)
+		if err := s.obsManager.AddCollector(ffmpegCollector); err != nil {
+			s.logger.Warn("Failed to register OBS collector for stream", "stream_id", streamConfig.ID, "error", err)
+		}
+	}
+
+	s.logger.Info("Initialized stream", "stream_id", streamConfig.ID, "device", streamConfig.Device, "codec", streamConfig.FFmpeg.Codec)
 	return nil
 }
 
 // syncToMediaMTX syncs all streams to MediaMTX using the API
-func (s *StreamServiceImpl) syncToMediaMTX() (map[string]string, error) {
-	// Track socket paths that get generated
-	socketPaths := make(map[string]string)
-
-	// Configure processor's socket creator to track paths
-	oldSocketCreator := s.processor.socketCreator
-	s.processor.SetSocketCreator(func(streamID string) string {
-		socketPath := oldSocketCreator(streamID)
-		socketPaths[streamID] = socketPath
-		return socketPath
-	})
-
+func (s *StreamServiceImpl) syncToMediaMTX() error {
 	// Process all streams to generate FFmpeg commands
 	processedStreams, err := s.processor.ProcessAllStreams()
 	if err != nil {
-		return nil, fmt.Errorf("failed to process streams: %w", err)
+		return fmt.Errorf("failed to process streams: %w", err)
 	}
 
-	// Add each stream to MediaMTX via API
+	// Restart each stream to ensure fresh FFmpeg processes connect to progress sockets
 	if s.mediamtxClient != nil {
 		for _, stream := range processedStreams {
 			if stream.FFmpegCommand != "" {
-				// Try to add/update the path, ignore errors (will sync on reconnect)
-				_ = s.mediamtxClient.AddPath(stream.StreamID, stream.FFmpegCommand)
+				// Force restart to ensure FFmpeg connects to socket listeners
+				_ = s.mediamtxClient.RestartPath(stream.StreamID, stream.FFmpegCommand)
 			}
 		}
 	}
 
-	log.Printf("Synchronized %d streams with MediaMTX API", len(processedStreams))
-	return socketPaths, nil
+	s.logger.Info("Synchronized streams with MediaMTX API", "count", len(processedStreams))
+	return nil
 }
 
 // getProcessedStreamsForSync is a callback for the MediaMTX client to get all streams
 func (s *StreamServiceImpl) getProcessedStreamsForSync() []*mediamtx.ProcessedStream {
 	processedStreams, err := s.processor.ProcessAllStreams()
 	if err != nil {
-		log.Printf("Failed to process streams for sync: %v", err)
+		s.logger.Error("Failed to process streams for sync", "error", err)
 		return nil
 	}
 
@@ -481,42 +566,6 @@ func (s *StreamServiceImpl) getProcessedStreamsForSync() []*mediamtx.ProcessedSt
 		}
 	}
 	return result
-}
-
-// updateSocketPaths updates the runtime socket paths for streams and their OBS collectors
-func (s *StreamServiceImpl) updateSocketPaths(socketPaths map[string]string) {
-	if socketPaths == nil {
-		return
-	}
-
-	s.streamsMutex.Lock()
-	defer s.streamsMutex.Unlock()
-
-	for streamID, socketPath := range socketPaths {
-		stream, exists := s.streams[streamID]
-		if !exists {
-			continue
-		}
-
-		// Update the runtime socket path
-		stream.ProgressSocket = socketPath
-
-		// Update OBS monitoring with new socket path
-		if s.obsIntegration != nil && socketPath != "" {
-			// First remove the old collector if it exists
-			if s.obsRemoval != nil {
-				if err := s.obsRemoval(streamID); err != nil {
-					log.Printf("Warning: Failed to cleanup old OBS collector for stream %s: %v", streamID, err)
-				}
-			}
-
-			// Add new collector with fresh socket path
-			logPath := "" // No log path for now, socket monitoring only
-			if err := s.obsIntegration(streamID, socketPath, logPath); err != nil {
-				log.Printf("Warning: Failed to register OBS collector for stream %s: %v", streamID, err)
-			}
-		}
-	}
 }
 
 // GetFFmpegCommand retrieves the FFmpeg command for a stream
@@ -540,88 +589,4 @@ func (s *StreamServiceImpl) GetFFmpegCommand(ctx context.Context, streamID strin
 	}
 
 	return processed.FFmpegCommand, false, nil
-}
-
-// SetCustomFFmpegCommand sets a custom FFmpeg command for a stream
-func (s *StreamServiceImpl) SetCustomFFmpegCommand(ctx context.Context, streamID string, command string) error {
-	// Check if stream exists
-	streamConfig, exists := s.repository.GetStream(streamID)
-	if !exists {
-		return NewStreamError(ErrCodeStreamNotFound, fmt.Sprintf("stream %s not found", streamID), nil)
-	}
-
-	// Basic validation - command should start with "ffmpeg"
-	if !strings.HasPrefix(strings.TrimSpace(command), "ffmpeg") {
-		return NewStreamError(ErrCodeInvalidParams, "custom command must start with 'ffmpeg'", nil)
-	}
-
-	// Update the stream configuration
-	streamConfig.CustomFFmpegCommand = command
-	streamConfig.UpdatedAt = time.Now()
-
-	// Save to repository
-	if err := s.repository.UpdateStream(streamID, streamConfig); err != nil {
-		return fmt.Errorf("failed to save custom FFmpeg command: %w", err)
-	}
-
-	// Generate new FFmpeg command and update MediaMTX
-	processed, err := s.processor.ProcessStream(streamID)
-	if err != nil {
-		// Try to rollback
-		streamConfig.CustomFFmpegCommand = ""
-		s.repository.UpdateStream(streamID, streamConfig)
-		return fmt.Errorf("failed to process stream: %w", err)
-	}
-
-	// Update in MediaMTX via API
-	if s.mediamtxClient != nil {
-		_ = s.mediamtxClient.UpdatePath(streamID, processed.FFmpegCommand)
-	}
-
-	// Update socket paths for OBS monitoring
-	if processed.SocketPath != "" {
-		socketPaths := map[string]string{streamID: processed.SocketPath}
-		s.updateSocketPaths(socketPaths)
-	}
-
-	log.Printf("Set custom FFmpeg command for stream %s", streamID)
-	return nil
-}
-
-// ClearCustomFFmpegCommand removes the custom FFmpeg command for a stream
-func (s *StreamServiceImpl) ClearCustomFFmpegCommand(ctx context.Context, streamID string) error {
-	// Check if stream exists
-	streamConfig, exists := s.repository.GetStream(streamID)
-	if !exists {
-		return NewStreamError(ErrCodeStreamNotFound, fmt.Sprintf("stream %s not found", streamID), nil)
-	}
-
-	// Clear the custom command
-	streamConfig.CustomFFmpegCommand = ""
-	streamConfig.UpdatedAt = time.Now()
-
-	// Save to repository
-	if err := s.repository.UpdateStream(streamID, streamConfig); err != nil {
-		return fmt.Errorf("failed to clear custom FFmpeg command: %w", err)
-	}
-
-	// Generate new FFmpeg command and update MediaMTX
-	processed, err := s.processor.ProcessStream(streamID)
-	if err != nil {
-		return fmt.Errorf("failed to process stream: %w", err)
-	}
-
-	// Update in MediaMTX via API
-	if s.mediamtxClient != nil {
-		_ = s.mediamtxClient.UpdatePath(streamID, processed.FFmpegCommand)
-	}
-
-	// Update socket paths for OBS monitoring
-	if processed.SocketPath != "" {
-		socketPaths := map[string]string{streamID: processed.SocketPath}
-		s.updateSocketPaths(socketPaths)
-	}
-
-	log.Printf("Cleared custom FFmpeg command for stream %s", streamID)
-	return nil
 }

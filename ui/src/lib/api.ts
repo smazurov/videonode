@@ -73,6 +73,14 @@ export async function apiPut<T>(endpoint: string, data?: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function apiPatch<T>(endpoint: string, data?: unknown): Promise<T> {
+  const response = await makeApiRequest(endpoint, {
+    method: 'PATCH',
+    body: data ? JSON.stringify(data) : null,
+  });
+  return response.json() as Promise<T>;
+}
+
 export async function apiDelete(endpoint: string): Promise<void> {
   await makeApiRequest(endpoint, {
     method: 'DELETE',
@@ -103,10 +111,16 @@ export interface StreamData {
   device_id: string;
   codec: string;
   bitrate?: string;
-  uptime?: number;
   start_time?: string;
   webrtc_url?: string;
   rtsp_url?: string;
+  // Configuration fields for editing
+  input_format?: string;
+  resolution?: string;
+  framerate?: string;
+  audio_device?: string;
+  custom_ffmpeg_command?: string;
+  test_mode?: boolean;
   // Metrics fields
   fps?: string;
   dropped_frames?: string;
@@ -130,6 +144,8 @@ export interface StreamRequestData {
   framerate?: number;
   audio_device?: string;
   options?: string[];
+  custom_ffmpeg_command?: string;
+  test_mode?: boolean;
 }
 
 export interface DeviceInfo {
@@ -166,18 +182,20 @@ export async function createStream(request: StreamRequestData): Promise<StreamDa
   return apiPost<StreamData>('/api/streams', request);
 }
 
+export async function updateStream(streamId: string, data: Partial<StreamRequestData>): Promise<StreamData> {
+  return apiPatch<StreamData>(`/api/streams/${streamId}`, data);
+}
+
 export async function deleteStream(streamId: string): Promise<void> {
   await apiDelete(`/api/streams/${streamId}`);
 }
 
 export async function getStreamStatus(streamId: string): Promise<{
   stream_id: string;
-  uptime?: number;
   start_time?: string;
 }> {
   return apiGet<{
     stream_id: string;
-    uptime?: number;
     start_time?: string;
   }>(`/api/streams/${streamId}/status`);
 }
@@ -280,7 +298,6 @@ export async function getDeviceFramerates(
 export interface HealthData {
   status: string;
   message: string;
-  uptime?: number;
   version?: string;
 }
 
@@ -357,6 +374,13 @@ export interface SSEStreamDeletedEvent {
   timestamp: string;
 }
 
+export interface SSEStreamUpdatedEvent {
+  type: 'stream-updated';
+  stream: StreamData;
+  action: 'updated';
+  timestamp: string;
+}
+
 
 
 export interface SSEStreamMetricsEvent {
@@ -369,7 +393,7 @@ export interface SSEStreamMetricsEvent {
   processing_speed?: string;
 }
 
-export type SSEStreamLifecycleEvent = SSEStreamCreatedEvent | SSEStreamDeletedEvent;
+export type SSEStreamLifecycleEvent = SSEStreamCreatedEvent | SSEStreamUpdatedEvent | SSEStreamDeletedEvent;
 
 // Audio device types
 export interface AudioDevice {
@@ -407,16 +431,23 @@ export interface FFmpegCommandData {
   is_custom: boolean;
 }
 
-// FFmpeg API functions
-export async function getFFmpegCommand(streamId: string): Promise<FFmpegCommandData> {
-  return apiGet<FFmpegCommandData>(`/api/streams/${streamId}/ffmpeg`);
+// FFmpeg command functions
+export async function getFFmpegCommand(streamId: string, encoderOverride?: string): Promise<FFmpegCommandData> {
+  const params = encoderOverride ? `?override=${encodeURIComponent(encoderOverride)}` : '';
+  return apiGet<FFmpegCommandData>(`/api/streams/${streamId}/ffmpeg${params}`);
 }
 
-export async function setFFmpegCommand(streamId: string, command: string): Promise<FFmpegCommandData> {
-  return apiPut<FFmpegCommandData>(`/api/streams/${streamId}/ffmpeg`, { command });
+export async function setFFmpegCommand(streamId: string, command: string): Promise<StreamData> {
+  // When setting a custom command, also disable test mode
+  return updateStream(streamId, { custom_ffmpeg_command: command, test_mode: false });
 }
 
-export async function clearFFmpegCommand(streamId: string): Promise<void> {
-  await apiDelete(`/api/streams/${streamId}/ffmpeg`);
+export async function clearFFmpegCommand(streamId: string): Promise<StreamData> {
+  return updateStream(streamId, { custom_ffmpeg_command: "" });
 }
+
+export async function toggleTestMode(streamId: string, enabled: boolean): Promise<StreamData> {
+  return updateStream(streamId, { test_mode: enabled });
+}
+
 export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamEvent | SSEStreamLifecycleEvent | SSEStreamMetricsEvent;

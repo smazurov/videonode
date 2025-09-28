@@ -73,7 +73,7 @@ func TestParseMPPLine(t *testing.T) {
 		},
 	}
 
-	collector := NewMPPCollector()
+	collector := NewMPPCollector(obs.Labels{})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -125,7 +125,7 @@ fdc38100.rkvdec-core      load:   0.00% utilization:   0.00%
 fdc48100.rkvdec-core      load:   0.00% utilization:   0.00%
 fdc70000.av1d             load:   5.50% utilization:   3.75%`
 
-	collector := NewMPPCollector()
+	collector := NewMPPCollector(obs.Labels{})
 	devices, err := collector.parseContent(strings.NewReader(input))
 
 	if err != nil {
@@ -172,7 +172,7 @@ fdb50400.vdpu             load:  15.50% utilization:  12.25%
 fdb50000.vepu             load:  45.00% utilization:  40.00%
 `
 
-	collector := NewMPPCollector()
+	collector := NewMPPCollector(obs.Labels{})
 	devices, err := collector.parseContent(strings.NewReader(input))
 
 	if err != nil {
@@ -186,7 +186,7 @@ fdb50000.vepu             load:  45.00% utilization:  40.00%
 }
 
 func TestMPPCollectorInitialization(t *testing.T) {
-	collector := NewMPPCollector()
+	collector := NewMPPCollector(obs.Labels{})
 
 	if collector.Name() != "mpp" {
 		t.Errorf("Expected collector name 'mpp', got %s", collector.Name())
@@ -202,7 +202,7 @@ func TestMPPCollectorInitialization(t *testing.T) {
 }
 
 func TestMPPCollectorStart(t *testing.T) {
-	collector := NewMPPCollector()
+	collector := NewMPPCollector(obs.Labels{})
 
 	// Override procPath to use test content
 	collector.procPath = "/tmp/test_mpp_load"
@@ -280,7 +280,7 @@ collectLoop:
 }
 
 func TestMPPCollectorMissingFile(t *testing.T) {
-	collector := NewMPPCollector()
+	collector := NewMPPCollector(obs.Labels{})
 	collector.procPath = "/non/existent/path/mpp_service/load"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -313,7 +313,7 @@ func removeTestFile(path string) error {
 }
 
 func TestMPPCollectorMultipleDevices(t *testing.T) {
-	collector := NewMPPCollector()
+	collector := NewMPPCollector(obs.Labels{})
 
 	// Override procPath to use test content with multiple devices
 	collector.procPath = "/tmp/test_mpp_multiple_devices"

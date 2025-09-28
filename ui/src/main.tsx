@@ -7,6 +7,7 @@ import Root from "./root";
 import LoginRoute from "./routes/login";
 import Streams from "./routes/streams";
 import CreateStream from "./routes/create-stream";
+import EditStream from "./routes/edit-stream";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 
@@ -41,21 +42,36 @@ const router = createBrowserRouter([
             <CreateStream />
           </ProtectedRoute>
         ),
+      },
+      {
+        path: "streams/:streamId/edit",
+        element: (
+          <ProtectedRoute>
+            <EditStream />
+          </ProtectedRoute>
+        ),
       }
     ]
   },
 ]);
 
 document.addEventListener("DOMContentLoaded", () => {
+  const isDarkMode = document.documentElement.classList.contains('dark');
+  
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <>
       <RouterProvider router={router} />
       <Toaster
         toastOptions={{
-          className:
-            "rounded-sm border-none bg-white text-black shadow-sm outline-1 outline-slate-800/30",
+          style: {
+            background: isDarkMode ? '#1f2937' : '#ffffff',
+            color: isDarkMode ? '#f9fafb' : '#111827',
+            border: 'none',
+            borderRadius: '0.125rem',
+            boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
+          },
         }}
-        position="top-right"
+        position="top-center"
       />
     </>,
   );

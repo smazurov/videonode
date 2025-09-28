@@ -5,6 +5,7 @@ import {
   SSEStreamLifecycleEvent, 
   SSEStreamMetricsEvent,
   SSEStreamCreatedEvent,
+  SSEStreamUpdatedEvent,
   SSEStreamDeletedEvent
 } from '../lib/api';
 
@@ -75,6 +76,18 @@ function setupGlobalSSE(): void {
         }
       } catch (error) {
         console.error('Error parsing stream-deleted event:', error);
+      }
+    });
+
+    eventSource.addEventListener('stream-updated', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data as string) as SSEStreamUpdatedEvent;
+        const streamEvent: SSEStreamLifecycleEvent = data;
+        for (const handler of globalStreamLifecycleHandlers) {
+          handler(streamEvent);
+        }
+      } catch (error) {
+        console.error('Error parsing stream-updated event:', error);
       }
     });
 

@@ -2,9 +2,9 @@ package streams
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/types"
 )
 
@@ -17,12 +17,16 @@ type DeviceResolver func(deviceID string) string
 // SocketCreator is a function that creates a monitoring socket path for a stream
 type SocketCreator func(streamID string) string
 
+// GetSocketPath returns the socket path for a stream
+func GetSocketPath(streamID string) string {
+	return fmt.Sprintf("/tmp/ffmpeg-progress-%s.sock", streamID)
+}
+
 // Processor handles runtime data injection for streams
 type Processor struct {
 	repository      Repository
 	encoderSelector EncoderSelector
 	deviceResolver  DeviceResolver
-	socketCreator   SocketCreator
 }
 
 // NewProcessor creates a new stream processor
@@ -45,9 +49,6 @@ func NewProcessor(repo Repository) *Processor {
 		deviceResolver: func(deviceID string) string {
 			return deviceID // Return as-is by default
 		},
-		socketCreator: func(streamID string) string {
-			return "" // No socket by default
-		},
 	}
 }
 
@@ -61,9 +62,24 @@ func (p *Processor) SetDeviceResolver(resolver DeviceResolver) {
 	p.deviceResolver = resolver
 }
 
-// SetSocketCreator sets the socket creation function
-func (p *Processor) SetSocketCreator(creator SocketCreator) {
-	p.socketCreator = creator
+// applyStreamSettingsToFFmpegParams applies common stream settings to FFmpeg params
+func (p *Processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Params, stream *StreamConfig, devicePath string, socketPath string) {
+	// Add stream-specific settings to FFmpeg params
+	ffmpegParams.DevicePath = devicePath
+	ffmpegParams.InputFormat = stream.FFmpeg.InputFormat
+	ffmpegParams.Resolution = stream.FFmpeg.Resolution
+	ffmpegParams.FPS = stream.FFmpeg.FPS
+	ffmpegParams.AudioDevice = stream.FFmpeg.AudioDevice
+
+	// Set default audio resampling filter for sync when audio device is present
+	if stream.FFmpeg.AudioDevice != "" {
+		ffmpegParams.AudioFilters = "aresample=async=1:min_hard_comp=0.100000:first_pts=0"
+	}
+
+	ffmpegParams.ProgressSocket = socketPath
+	ffmpegParams.Options = stream.FFmpeg.Options
+	ffmpegParams.OutputURL = "rtsp://localhost:8554/$MTX_PATH"
+	ffmpegParams.IsTestSource = stream.TestMode
 }
 
 // ProcessStream processes a single stream and injects runtime data
@@ -82,23 +98,32 @@ func (p *Processor) ProcessStream(streamID string) (*ProcessedStream, error) {
 		}, nil
 	}
 
-	// Resolve device path
-	devicePath := p.deviceResolver(stream.Device)
-	if devicePath == "" {
-		return nil, fmt.Errorf("device %s not found", stream.Device)
+	// Resolve device path (skip if in test mode)
+	var devicePath string
+	if !stream.TestMode {
+		devicePath = p.deviceResolver(stream.Device)
+		if devicePath == "" {
+			return nil, fmt.Errorf("device %s not found", stream.Device)
+		}
 	}
 
 	// Create socket path
-	socketPath := p.socketCreator(streamID)
+	socketPath := GetSocketPath(streamID)
 
 	// Select encoder and get settings
 	var ffmpegParams *ffmpeg.Params
 
 	if stream.FFmpeg.Codec != "" {
 		// Use encoder selector to get optimal encoder and all params
+		// Pass "testsrc" as input format when in test mode to get appropriate filters
+		inputFormat := stream.FFmpeg.InputFormat
+		if stream.TestMode {
+			inputFormat = "testsrc"
+		}
+
 		ffmpegParams = p.encoderSelector(
 			stream.FFmpeg.Codec,
-			stream.FFmpeg.InputFormat,
+			inputFormat,
 			stream.FFmpeg.QualityParams,
 			"", // No encoder override for normal ProcessStream
 		)
@@ -116,15 +141,8 @@ func (p *Processor) ProcessStream(streamID string) (*ProcessedStream, error) {
 		}
 	}
 
-	// Add stream-specific settings to FFmpeg params
-	ffmpegParams.DevicePath = devicePath
-	ffmpegParams.InputFormat = stream.FFmpeg.InputFormat
-	ffmpegParams.Resolution = stream.FFmpeg.Resolution
-	ffmpegParams.FPS = stream.FFmpeg.FPS
-	ffmpegParams.AudioDevice = stream.FFmpeg.AudioDevice
-	ffmpegParams.ProgressSocket = socketPath
-	ffmpegParams.Options = stream.FFmpeg.Options
-	ffmpegParams.OutputURL = "rtsp://localhost:8554/$MTX_PATH"
+	// Apply common stream settings to FFmpeg params
+	p.applyStreamSettingsToFFmpegParams(ffmpegParams, &stream, devicePath, socketPath)
 
 	// Build FFmpeg command using the new Params struct
 	ffmpegCmd := ffmpeg.BuildCommand(ffmpegParams)
@@ -169,14 +187,17 @@ func (p *Processor) ProcessStreamWithEncoder(streamID string, encoderOverride st
 		}, nil
 	}
 
-	// Resolve device path
-	devicePath := p.deviceResolver(stream.Device)
-	if devicePath == "" {
-		return nil, fmt.Errorf("device %s not found", stream.Device)
+	// Resolve device path (skip if in test mode)
+	var devicePath string
+	if !stream.TestMode {
+		devicePath = p.deviceResolver(stream.Device)
+		if devicePath == "" {
+			return nil, fmt.Errorf("device %s not found", stream.Device)
+		}
 	}
 
 	// Create socket path
-	socketPath := p.socketCreator(streamID)
+	socketPath := GetSocketPath(streamID)
 
 	// Select encoder and get settings
 	var ffmpegParams *ffmpeg.Params
@@ -184,9 +205,15 @@ func (p *Processor) ProcessStreamWithEncoder(streamID string, encoderOverride st
 	if stream.FFmpeg.Codec != "" {
 		// Use encoder selector to get optimal encoder and all params
 		// If encoderOverride is provided, selector will use it directly with proper settings
+		// Pass "testsrc" as input format when in test mode to get appropriate filters
+		inputFormat := stream.FFmpeg.InputFormat
+		if stream.TestMode {
+			inputFormat = "testsrc"
+		}
+
 		ffmpegParams = p.encoderSelector(
 			stream.FFmpeg.Codec,
-			stream.FFmpeg.InputFormat,
+			inputFormat,
 			stream.FFmpeg.QualityParams,
 			encoderOverride, // Pass encoder override to selector
 		)
@@ -209,15 +236,8 @@ func (p *Processor) ProcessStreamWithEncoder(streamID string, encoderOverride st
 		}
 	}
 
-	// Add stream-specific settings to FFmpeg params
-	ffmpegParams.DevicePath = devicePath
-	ffmpegParams.InputFormat = stream.FFmpeg.InputFormat
-	ffmpegParams.Resolution = stream.FFmpeg.Resolution
-	ffmpegParams.FPS = stream.FFmpeg.FPS
-	ffmpegParams.AudioDevice = stream.FFmpeg.AudioDevice
-	ffmpegParams.ProgressSocket = socketPath
-	ffmpegParams.Options = stream.FFmpeg.Options
-	ffmpegParams.OutputURL = "rtsp://localhost:8554/$MTX_PATH"
+	// Apply common stream settings to FFmpeg params
+	p.applyStreamSettingsToFFmpegParams(ffmpegParams, &stream, devicePath, socketPath)
 
 	// Build FFmpeg command using the new Params struct
 	ffmpegCmd := ffmpeg.BuildCommand(ffmpegParams)
@@ -257,7 +277,8 @@ func (p *Processor) ProcessAllStreams() ([]*ProcessedStream, error) {
 
 		ps, err := p.ProcessStream(streamID)
 		if err != nil {
-			log.Printf("Error processing stream %s: %v", streamID, err)
+			logger := logging.GetLogger("streams")
+			logger.Error("Error processing stream", "stream_id", streamID, "error", err)
 			continue // Skip failed streams
 		}
 

@@ -42,6 +42,7 @@ export function StreamsGrid({
           stream={stream}
           showVideo={showVideos}
           {...(onDeleteStream && { onDelete: onDeleteStream })}
+          {...(onRefresh && { onRefresh: () => onRefresh() })}
         />
       ))}
     </div>

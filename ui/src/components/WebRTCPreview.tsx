@@ -4,9 +4,10 @@ interface WebRTCPreviewProps {
   streamId: string;
   webrtcUrl: string | undefined;
   className?: string;
+  refreshKey?: number;
 }
 
-export function WebRTCPreview({ streamId, webrtcUrl, className = '' }: Readonly<WebRTCPreviewProps>) {
+export function WebRTCPreview({ streamId, webrtcUrl, className = '', refreshKey = 0 }: Readonly<WebRTCPreviewProps>) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
@@ -80,6 +81,7 @@ export function WebRTCPreview({ streamId, webrtcUrl, className = '' }: Readonly<
         </div>
       )}
       <iframe
+        key={refreshKey}
         src={webrtcUrl}
         className="w-full h-full border-0"
         allow="autoplay; fullscreen; microphone; camera"

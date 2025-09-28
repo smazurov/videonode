@@ -22,9 +22,6 @@ type Collector interface {
 
 	// Config returns the current configuration of the collector
 	Config() CollectorConfig
-
-	// UpdateConfig updates the collector's configuration
-	UpdateConfig(config CollectorConfig) error
 }
 
 // CollectorConfig represents common configuration for collectors
@@ -148,12 +145,6 @@ func (b *BaseCollector) Name() string {
 // Config returns the collector configuration
 func (b *BaseCollector) Config() CollectorConfig {
 	return b.config
-}
-
-// UpdateConfig updates the collector configuration
-func (b *BaseCollector) UpdateConfig(config CollectorConfig) error {
-	b.config = config
-	return nil
 }
 
 // Interval returns the collection interval

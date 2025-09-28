@@ -1,17 +1,16 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2/humacli"
 	"github.com/smazurov/videonode/cmd"
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/config"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/mediamtx"
 	"github.com/smazurov/videonode/internal/obs"
 	"github.com/smazurov/videonode/internal/obs/collectors"
@@ -34,14 +33,13 @@ type Options struct {
 	MediaMTXEnableLogging bool `help:"Enable systemd logging for ffmpeg commands" default:"true" toml:"mediamtx.enable_logging" env:"MEDIAMTX_ENABLE_LOGGING"`
 
 	// Observability settings
-	ObsRetentionDuration     string `help:"Metrics retention" default:"12h" toml:"obs.retention_duration" env:"OBS_RETENTION_DURATION"`
-	ObsMaxPointsPerSeries    int    `help:"Max points per series" default:"43200" toml:"obs.max_points_per_series" env:"OBS_MAX_POINTS_PER_SERIES"`
-	ObsMaxSeries             int    `help:"Max series count" default:"5000" toml:"obs.max_series" env:"OBS_MAX_SERIES"`
-	ObsWorkerCount           int    `help:"Worker threads" default:"2" toml:"obs.worker_count" env:"OBS_WORKER_COUNT"`
-	ObsSystemMetricsInterval string `help:"System metrics interval" default:"30s" toml:"obs.system_metrics_interval" env:"OBS_SYSTEM_METRICS_INTERVAL"`
-	ObsNetworkInterfaces     string `help:"Network interfaces to monitor (comma-separated)" default:"lo,wlp12s0,enp14s0" toml:"obs.network_interfaces" env:"OBS_NETWORK_INTERFACES"`
-	ObsPrometheusEnabled     bool   `help:"Enable Prometheus" default:"true" toml:"obs.prometheus_enabled" env:"OBS_PROMETHEUS_ENABLED"`
-	ObsSSEEnabled            bool   `help:"Enable SSE" default:"true" toml:"obs.sse_enabled" env:"OBS_SSE_ENABLED"`
+	ObsRetentionDuration  string `help:"Metrics retention" default:"12h" toml:"obs.retention_duration" env:"OBS_RETENTION_DURATION"`
+	ObsMaxPointsPerSeries int    `help:"Max points per series" default:"43200" toml:"obs.max_points_per_series" env:"OBS_MAX_POINTS_PER_SERIES"`
+	ObsMaxSeries          int    `help:"Max series count" default:"5000" toml:"obs.max_series" env:"OBS_MAX_SERIES"`
+	ObsWorkerCount        int    `help:"Worker threads" default:"2" toml:"obs.worker_count" env:"OBS_WORKER_COUNT"`
+
+	ObsPrometheusEnabled bool `help:"Enable Prometheus" default:"true" toml:"obs.prometheus_enabled" env:"OBS_PROMETHEUS_ENABLED"`
+	ObsSSEEnabled        bool `help:"Enable SSE" default:"true" toml:"obs.sse_enabled" env:"OBS_SSE_ENABLED"`
 
 	// Capture settings
 	CaptureDefaultDelayMs int `help:"Default capture delay in milliseconds" default:"3000" toml:"capture.default_delay_ms" env:"CAPTURE_DEFAULT_DELAY_MS"`
@@ -51,7 +49,15 @@ type Options struct {
 	AuthPassword string `help:"Basic auth password" default:"password" toml:"auth.password" env:"AUTH_PASSWORD"`
 
 	// Logging settings
-	LoggingObs string `help:"Observability logging level (debug, info, warn, error)" default:"info" toml:"logging.obs" env:"LOGGING_OBS"`
+	LoggingLevel      string `help:"Global logging level (debug, info, warn, error)" default:"info" toml:"logging.level" env:"LOGGING_LEVEL"`
+	LoggingFormat     string `help:"Logging format (text, json)" default:"text" toml:"logging.format" env:"LOGGING_FORMAT"`
+	LoggingObs        string `help:"Observability logging level (debug, info, warn, error)" default:"info" toml:"logging.obs" env:"LOGGING_OBS"`
+	LoggingStreams    string `help:"Streams logging level" default:"info" toml:"logging.streams" env:"LOGGING_STREAMS"`
+	LoggingMediaMTX   string `help:"MediaMTX logging level" default:"info" toml:"logging.mediamtx" env:"LOGGING_MEDIAMTX"`
+	LoggingDevices    string `help:"Devices logging level" default:"info" toml:"logging.devices" env:"LOGGING_DEVICES"`
+	LoggingEncoders   string `help:"Encoders logging level" default:"info" toml:"logging.encoders" env:"LOGGING_ENCODERS"`
+	LoggingCapture    string `help:"Capture logging level" default:"info" toml:"logging.capture" env:"LOGGING_CAPTURE"`
+	LoggingAPI        string `help:"API logging level" default:"info" toml:"logging.api" env:"LOGGING_API"`
 }
 
 func main() {
@@ -59,8 +65,26 @@ func main() {
 	cli := humacli.New(func(hooks humacli.Hooks, opts *Options) {
 		// Load configuration automatically
 		if err := config.LoadConfig(opts); err != nil {
-			log.Printf("Warning: Failed to load config: %v", err)
+			slog.Warn("Failed to load config", "error", err)
 		}
+
+		// Initialize logging system
+		loggingConfig := logging.Config{
+			Level:  opts.LoggingLevel,
+			Format: opts.LoggingFormat,
+			Modules: map[string]string{
+				"streams":  opts.LoggingStreams,
+				"mediamtx": opts.LoggingMediaMTX,
+				"obs":      opts.LoggingObs,
+				"devices":  opts.LoggingDevices,
+				"encoders": opts.LoggingEncoders,
+				"capture":  opts.LoggingCapture,
+				"api":      opts.LoggingAPI,
+			},
+		}
+		logging.Initialize(loggingConfig)
+
+		logger := logging.GetLogger("main")
 
 		// Set MediaMTX global configuration
 		mediamtx.SetConfig(&mediamtx.Config{
@@ -93,60 +117,17 @@ func main() {
 			obsManager = obs.NewManager(obsConfig)
 
 			// Add collectors
-			// Parse system metrics interval
-			systemMetricsInterval, err := time.ParseDuration(opts.ObsSystemMetricsInterval)
-			if err != nil {
-				systemMetricsInterval = 30 * time.Second
-			}
-
-			// Add system metrics collector
-			systemCollector := collectors.NewSystemCollector()
-
-			// Configure network interfaces
-			if opts.ObsNetworkInterfaces != "" {
-				interfaces := strings.Split(opts.ObsNetworkInterfaces, ",")
-				for i, iface := range interfaces {
-					interfaces[i] = strings.TrimSpace(iface)
-				}
-				systemCollector.SetNetworkInterfaces(interfaces)
-			}
-
-			systemCollector.UpdateConfig(obs.CollectorConfig{
-				Name:     "system",
-				Enabled:  true,
-				Interval: systemMetricsInterval,
-				Labels:   obs.Labels{"service": "videonode", "instance": "default"},
-			})
-			if err := obsManager.AddCollector(systemCollector); err != nil {
-				log.Printf("Warning: Failed to add system collector: %v", err)
-			}
 
 			// MediaMTX metrics are collected via Prometheus scraping
 
-			// Add Prometheus scraper for MediaMTX metrics
-			promCollector := collectors.NewPrometheusCollector("http://localhost:9998/metrics")
-			promCollector.SetMetricFilter("^(paths|paths_bytes|rtmp|webrtc).*")
-			promCollector.UpdateConfig(obs.CollectorConfig{
-				Name:     "prometheus_scraper",
-				Enabled:  true,
-				Interval: 15 * time.Second,
-				Labels:   obs.Labels{"service": "videonode", "instance": "default"},
-			})
-			if err := obsManager.AddCollector(promCollector); err != nil {
-				log.Printf("Warning: Failed to add Prometheus collector: %v", err)
-			}
-
 			// Add MPP metrics collector (Rockchip only)
 			if _, err := os.Stat("/proc/mpp_service/load"); err == nil {
-				mppCollector := collectors.NewMPPCollector()
-				mppCollector.UpdateConfig(obs.CollectorConfig{
-					Name:     "mpp",
-					Enabled:  true,
-					Interval: 5 * time.Second,
-					Labels:   obs.Labels{"service": "videonode", "instance": "default"},
+				mppCollector := collectors.NewMPPCollector(obs.Labels{
+					"service":  "videonode",
+					"instance": "default",
 				})
 				if err := obsManager.AddCollector(mppCollector); err != nil {
-					log.Printf("Warning: Failed to add MPP collector: %v", err)
+					logger.Warn("Failed to add MPP collector", "error", err)
 				}
 			}
 
@@ -160,24 +141,8 @@ func main() {
 
 		// Default command starts the server using existing API server
 		// Create stream service with OBS integration
-		serviceOpts := &streams.ServiceOptions{}
-
-		if obsManager != nil {
-			serviceOpts.OBSIntegration = func(streamID, socketPath, logPath string) error {
-				// Create FFmpeg collector and add to OBS manager
-				ffmpegCollector := collectors.NewFFmpegCollector(socketPath, logPath, streamID)
-				ffmpegCollector.UpdateConfig(obs.CollectorConfig{
-					Name:     "ffmpeg_" + streamID,
-					Enabled:  true,
-					Interval: 0, // Event-driven
-					Labels:   obs.Labels{"stream_id": streamID},
-				})
-				return obsManager.AddCollector(ffmpegCollector)
-			}
-			serviceOpts.OBSRemoval = func(streamID string) error {
-				collectorName := "ffmpeg_" + streamID
-				return obsManager.RemoveCollector(collectorName)
-			}
+		serviceOpts := &streams.ServiceOptions{
+			OBSManager: obsManager,
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)
@@ -185,7 +150,7 @@ func main() {
 		// Load existing streams from TOML config into memory
 		// This must happen after stream service is created so OBS callbacks are registered
 		if err := streamService.LoadStreamsFromConfig(); err != nil {
-			log.Printf("Warning: Failed to load existing streams from config: %v", err)
+			logger.Warn("Failed to load existing streams from config", "error", err)
 		}
 
 		apiOpts := &api.Options{
@@ -214,20 +179,21 @@ func main() {
 			// NOW start the OBS manager after all exporters are added (only when running server)
 			if obsManager != nil {
 				if err := obsManager.Start(); err != nil {
-					log.Printf("Warning: Failed to start observability manager: %v", err)
+					logger.Warn("Failed to start observability manager", "error", err)
 				}
 			}
 
-			fmt.Printf("Starting server on %s\n", opts.Port)
+			logger.Info("Starting server", "port", opts.Port)
 			if err := server.Start(opts.Port); err != nil && err != http.ErrServerClosed {
-				log.Fatalf("Failed to start server: %v", err)
+				logger.Error("Failed to start server", "error", err)
+				os.Exit(1)
 			}
 		})
 
 		hooks.OnStop(func() {
-			fmt.Println("Shutting down server...")
+			logger.Info("Shutting down server")
 			if err := server.Stop(); err != nil {
-				log.Printf("Error stopping server: %v", err)
+				logger.Error("Error stopping server", "error", err)
 			}
 			if obsManager != nil {
 				obsManager.Stop()

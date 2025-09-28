@@ -4,10 +4,11 @@ package ffmpeg
 // This replaces the map[string]string approach with strongly typed fields
 type Params struct {
 	// Input Configuration
-	DevicePath  string
-	InputFormat string // yuyv422, mjpeg, etc.
-	Resolution  string // 1920x1080
-	FPS         string // 30, 60, etc.
+	DevicePath   string
+	InputFormat  string // yuyv422, mjpeg, etc.
+	Resolution   string // 1920x1080
+	FPS          string // 30, 60, etc.
+	IsTestSource bool   // Use test pattern instead of device
 
 	// Encoder Configuration
 	Encoder string // h264_vaapi, libx264, etc.
@@ -31,7 +32,8 @@ type Params struct {
 	VideoFilters string   // format=nv12,hwupload
 
 	// Audio
-	AudioDevice string // hw:4,0
+	AudioDevice  string // hw:4,0
+	AudioFilters string // aresample=async=1:min_hard_comp=0.100000:first_pts=0
 
 	// Output
 	ProgressSocket string // /tmp/ffmpeg-progress-xxx.sock

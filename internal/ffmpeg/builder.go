@@ -17,31 +17,79 @@ func BuildCommand(p *Params) string {
 	}
 
 	// Input configuration
-	cmd.WriteString(" -f v4l2")
+	if p.IsTestSource {
+		// Generate test pattern input
+		// Add -re flag to read at native frame rate (prevents running too fast)
+		cmd.WriteString(" -re")
+		cmd.WriteString(" -f lavfi")
 
-	// Apply FFmpeg options (before input)
-	appliedOptions := ApplyOptionsToCommand(p.Options, &cmd)
-	if len(appliedOptions) > 0 {
-		// Options are already applied by ApplyOptionsToCommand
-	}
+		// Build test source string with resolution and framerate
+		testSrc := "testsrc2"
+		if p.Resolution != "" {
+			testSrc += "=size=" + p.Resolution
+		} else {
+			testSrc += "=size=1920x1080"
+		}
+		if p.FPS != "" {
+			testSrc += ":rate=" + p.FPS
+		} else {
+			testSrc += ":rate=30"
+		}
+		cmd.WriteString(" -i \"" + testSrc + "\"")
+	} else {
+		// Normal V4L2 device input
+		cmd.WriteString(" -f v4l2")
 
-	if p.InputFormat != "" {
-		cmd.WriteString(" -input_format " + p.InputFormat)
+		// Apply FFmpeg options (before input)
+		appliedOptions := ApplyOptionsToCommand(p.Options, &cmd)
+		if len(appliedOptions) > 0 {
+			// Options are already applied by ApplyOptionsToCommand
+		}
+
+		if p.InputFormat != "" {
+			cmd.WriteString(" -input_format " + p.InputFormat)
+		}
+		if p.Resolution != "" {
+			cmd.WriteString(" -video_size " + p.Resolution)
+		}
+		if p.FPS != "" {
+			cmd.WriteString(" -framerate " + p.FPS)
+		}
+		cmd.WriteString(" -i " + p.DevicePath)
 	}
-	if p.Resolution != "" {
-		cmd.WriteString(" -video_size " + p.Resolution)
-	}
-	if p.FPS != "" {
-		cmd.WriteString(" -framerate " + p.FPS)
-	}
-	cmd.WriteString(" -i " + p.DevicePath)
 
 	// Audio input if specified
 	if p.AudioDevice != "" {
-		cmd.WriteString(" -thread_queue_size 10240")
-		cmd.WriteString(" -f alsa -sample_fmt s16 -ar 48000 -ac 2")
-		cmd.WriteString(" -i " + p.AudioDevice)
-		cmd.WriteString(" -map 0:v -map 1:a")
+		if p.IsTestSource {
+			// Generate test audio tone for test mode
+			cmd.WriteString(" -f lavfi -i \"sine=frequency=1000:sample_rate=48000\"")
+			cmd.WriteString(" -map 0:v -map 1:a")
+		} else {
+			// Normal ALSA audio input
+			cmd.WriteString(" -thread_queue_size 1024")
+
+			// Check if wallclock_with_genpts is in options for audio timing
+			hasWallclock := false
+			for _, opt := range p.Options {
+				if opt == OptionWallclockWithGenpts {
+					hasWallclock = true
+					break
+				}
+			}
+
+			if hasWallclock {
+				cmd.WriteString(" -use_wallclock_as_timestamps 1 -fflags +genpts+igndts")
+			}
+
+			cmd.WriteString(" -f alsa -sample_fmt s16 -ar 48000 -ac 2")
+			cmd.WriteString(" -i " + p.AudioDevice)
+			cmd.WriteString(" -map 0:v -map 1:a")
+		}
+	}
+
+	// Audio filters
+	if p.AudioFilters != "" {
+		cmd.WriteString(" -af " + p.AudioFilters)
 	}
 
 	// Video filters

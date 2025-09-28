@@ -45,6 +45,70 @@ export function AdvancedOptions({
     }
   };
 
+  const handleExclusiveGroupChange = (groupOption: FFmpegOption, groupOptions: FFmpegOption[]) => {
+    if (disabled) return;
+    
+    // Remove all options from this exclusive group, then add the selected one
+    const newOptions = selectedOptions.filter(key => 
+      !groupOptions.some(go => go.key === key)
+    );
+    newOptions.push(groupOption.key);
+    onOptionsChange(newOptions);
+  };
+
+  const getConflictNames = (conflicts: string[], options: FFmpegOption[]): string => {
+    return conflicts.map(c => {
+      const conflictOption = options.find(o => o.key === c);
+      return conflictOption?.name || c;
+    }).join(', ');
+  };
+
+  const ExclusiveGroupOption = ({ 
+    groupOption, 
+    groupOptions, 
+    option 
+  }: {
+    groupOption: FFmpegOption;
+    groupOptions: FFmpegOption[];
+    option: FFmpegOption;
+  }) => {
+    const isGroupOptionSelected = selectedOptions.includes(groupOption.key);
+    
+    return (
+      <label
+        key={groupOption.key}
+        className={`
+          flex items-start space-x-3 p-2 rounded-md cursor-pointer
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}
+        `}
+      >
+        <input
+          type="radio"
+          name={`exclusive_${option.exclusive_group}`}
+          checked={isGroupOptionSelected}
+          onChange={() => handleExclusiveGroupChange(groupOption, groupOptions)}
+          disabled={disabled}
+          className="mt-0.5 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 disabled:cursor-not-allowed"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center space-x-2">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {groupOption.name}
+            </span>
+            {groupOption.app_default && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                Default
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {groupOption.description}
+          </p>
+        </div>
+      </label>
+    );
+  };
+
   const getConflictingOptions = (option: FFmpegOption): string[] => {
     const conflicts: string[] = [];
     
@@ -165,51 +229,14 @@ export function AdvancedOptions({
                     
                     return (
                       <div key={`group-${option.exclusive_group}`} className="space-y-2">
-                        {groupOptions.map((groupOption) => {
-                          const isGroupOptionSelected = selectedOptions.includes(groupOption.key);
-                          return (
-                            <label
-                              key={groupOption.key}
-                              className={`
-                                flex items-start space-x-3 p-2 rounded-md cursor-pointer
-                                ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}
-                              `}
-                            >
-                              <input
-                                type="radio"
-                                name={`exclusive_${option.exclusive_group}`}
-                                checked={isGroupOptionSelected}
-                                onChange={() => {
-                                  if (!disabled) {
-                                    // Remove all options from this exclusive group, then add the selected one
-                                    const newOptions = selectedOptions.filter(key => 
-                                      !groupOptions.some(go => go.key === key)
-                                    );
-                                    newOptions.push(groupOption.key);
-                                    onOptionsChange(newOptions);
-                                  }
-                                }}
-                                disabled={disabled}
-                                className="mt-0.5 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 disabled:cursor-not-allowed"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    {groupOption.name}
-                                  </span>
-                                  {groupOption.app_default && (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
-                                      Default
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                  {groupOption.description}
-                                </p>
-                              </div>
-                            </label>
-                          );
-                        })}
+                        {groupOptions.map((groupOption) => (
+                          <ExclusiveGroupOption
+                            key={groupOption.key}
+                            groupOption={groupOption}
+                            groupOptions={groupOptions}
+                            option={option}
+                          />
+                        ))}
                       </div>
                     );
                   }
@@ -247,10 +274,7 @@ export function AdvancedOptions({
                       </p>
                       {conflicts.length > 0 && !isSelected && (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          Conflicts with: {conflicts.map(c => {
-                            const conflictOption = options.find(o => o.key === c);
-                            return conflictOption?.name || c;
-                          }).join(', ')}
+                          Conflicts with: {getConflictNames(conflicts, options)}
                         </p>
                       )}
                     </div>

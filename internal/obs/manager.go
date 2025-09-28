@@ -2,9 +2,11 @@ package obs
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // Exporter defines the interface for exporting observability data
@@ -35,6 +37,7 @@ type Manager struct {
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
 	config     ManagerConfig
+	logger     *slog.Logger
 }
 
 // ManagerConfig represents configuration for the manager
@@ -66,12 +69,13 @@ func NewManager(config ManagerConfig) *Manager {
 		ctx:        ctx,
 		cancel:     cancel,
 		config:     config,
+		logger:     logging.GetLogger("obs"),
 	}
 }
 
 // Start starts the manager and all registered collectors/exporters
 func (m *Manager) Start() error {
-	log.Println("OBS: Starting")
+	m.logger.Info("Starting OBS manager")
 
 	// Start data workers
 	for i := 0; i < m.config.WorkerCount; i++ {
@@ -83,7 +87,7 @@ func (m *Manager) Start() error {
 	for name, exporter := range m.exporters {
 		if exporter.Config().Enabled {
 			if err := exporter.Start(m.ctx); err != nil {
-				log.Printf("OBS: Failed to start exporter %s: %v", name, err)
+				m.logger.Error("Failed to start exporter", "exporter", name, "error", err)
 			}
 		}
 	}
@@ -101,7 +105,7 @@ func (m *Manager) Start() error {
 
 // Stop stops the manager and all collectors/exporters
 func (m *Manager) Stop() error {
-	log.Println("OBS: Stopping")
+	m.logger.Info("Stopping OBS manager")
 
 	// Cancel context - this signals all goroutines to stop
 	m.cancel()
@@ -133,12 +137,8 @@ func (m *Manager) AddCollector(collector Collector) error {
 		return err
 	}
 
-	// If manager is already running and collector is enabled, start it immediately
-	if m.ctx != nil && m.ctx.Err() == nil && collector.Config().Enabled {
-		log.Printf("OBS: Manager is running, starting collector %s immediately", collector.Name())
-		m.wg.Add(1)
-		go m.runCollector(collector)
-	}
+	// Collectors are only started when manager.Start() is called
+	// No need to start immediately when added
 
 	return nil
 }
@@ -201,7 +201,7 @@ func (m *Manager) SendData(point DataPoint) {
 		// Successfully sent
 	default:
 		// Channel is full, drop the point
-		log.Printf("OBS: Warning - data channel full, dropping point")
+		m.logger.Warn("Data channel full, dropping point")
 	}
 }
 
@@ -211,7 +211,7 @@ func (m *Manager) runCollector(collector Collector) {
 
 	// Start the collector - this blocks until context is cancelled
 	if err := collector.Start(m.ctx, m.dataChan); err != nil {
-		log.Printf("OBS: Collector %s error: %v", collector.Name(), err)
+		m.logger.Error("Collector error", "collector", collector.Name(), "error", err)
 	}
 }
 
@@ -230,14 +230,14 @@ func (m *Manager) dataWorker(id int) {
 
 			// Store the data point
 			if err := m.store.Add(point); err != nil {
-				log.Printf("OBS: Failed to store data point: %v", err)
+				m.logger.Error("Failed to store data point", "error", err)
 			}
 
 			// Export to all enabled exporters
 			for _, exporter := range m.exporters {
 				if exporter.Config().Enabled {
 					if err := exporter.Export([]DataPoint{point}); err != nil {
-						log.Printf("OBS: Failed to export: %v", err)
+						m.logger.Error("Failed to export", "error", err)
 					}
 				}
 			}

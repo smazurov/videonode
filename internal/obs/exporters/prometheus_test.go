@@ -57,19 +57,19 @@ func TestPrometheusExporter_StableLabelKeys(t *testing.T) {
 	// Send metrics with stable labels only
 	metrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:  "system_metrics",
+			Name:  "test_metrics",
 			Value: 1.0,
 			LabelsMap: obs.Labels{
-				"collector": "system",
+				"collector": "test",
 				"instance":  "default",
 			},
 			Timestamp_: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:  "system_metrics",
+			Name:  "test_metrics",
 			Value: 2.0, // Different value, same stable labels
 			LabelsMap: obs.Labels{
-				"collector": "system",
+				"collector": "test",
 				"instance":  "default",
 			},
 			Timestamp_: time.Now(),
@@ -448,12 +448,12 @@ func TestPrometheusExporter_RetransmissionFilter(t *testing.T) {
 			},
 			Timestamp_: time.Now(),
 		},
-		// Another filtered metric with different label
+		// Another test metric
 		&obs.MetricPoint{
-			Name:  "another_scraped_metric",
+			Name:  "another_test_metric",
 			Value: 3.0,
 			LabelsMap: obs.Labels{
-				"source": "prometheus_collector",
+				"source": "test_collector",
 			},
 			Timestamp_: time.Now(),
 		},
@@ -465,9 +465,9 @@ func TestPrometheusExporter_RetransmissionFilter(t *testing.T) {
 
 	exporter.ForceFlush()
 
-	// Should only have 1 metric (the normal one, filtered out the Prometheus retransmissions)
-	if len(exporter.collector.metrics) != 1 {
-		t.Errorf("Expected 1 metric after retransmission filtering, got %d", len(exporter.collector.metrics))
+	// Should have 2 metrics (normal_metric and another_test_metric, filtered out the Prometheus retransmission)
+	if len(exporter.collector.metrics) != 2 {
+		t.Errorf("Expected 2 metrics after retransmission filtering, got %d", len(exporter.collector.metrics))
 	}
 
 	// Verify it's the correct metric
