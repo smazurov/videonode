@@ -38,6 +38,8 @@ type Manager struct {
 	wg         sync.WaitGroup
 	config     ManagerConfig
 	logger     *slog.Logger
+	mu         sync.Mutex
+	running    bool
 }
 
 // ManagerConfig represents configuration for the manager
@@ -77,6 +79,14 @@ func NewManager(config ManagerConfig) *Manager {
 func (m *Manager) Start() error {
 	m.logger.Info("Starting OBS manager")
 
+	m.mu.Lock()
+	if m.running {
+		m.mu.Unlock()
+		return nil
+	}
+	m.running = true
+	m.mu.Unlock()
+
 	// Start data workers
 	for i := 0; i < m.config.WorkerCount; i++ {
 		m.wg.Add(1)
@@ -110,6 +120,10 @@ func (m *Manager) Stop() error {
 	// Cancel context - this signals all goroutines to stop
 	m.cancel()
 
+	m.mu.Lock()
+	m.running = false
+	m.mu.Unlock()
+
 	// Stop collectors explicitly (they should also stop via context)
 	for _, collector := range m.collectors.GetAll() {
 		collector.Stop()
@@ -137,8 +151,14 @@ func (m *Manager) AddCollector(collector Collector) error {
 		return err
 	}
 
-	// Collectors are only started when manager.Start() is called
-	// No need to start immediately when added
+	m.mu.Lock()
+	running := m.running
+	m.mu.Unlock()
+
+	if running && collector.Config().Enabled {
+		m.wg.Add(1)
+		go m.runCollector(collector)
+	}
 
 	return nil
 }
