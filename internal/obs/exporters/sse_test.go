@@ -48,23 +48,23 @@ func TestSSEExporter_SystemMetrics(t *testing.T) {
 	broadcaster := &MockSSEBroadcaster{}
 	exporter := NewSSEExporter(broadcaster)
 
-	// Test system metrics event generation (new format - separate metrics)
-	systemMetrics := []obs.DataPoint{
+	// Test metrics event generation (new format - separate metrics)
+	testMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "system_load_1m",
+			Name:       "test_value_1",
 			Value:      2.5,
 			LabelsMap:  obs.Labels{},
 			Timestamp_: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "system_net_rx_bytes",
+			Name:       "test_bytes",
 			Value:      1000000,
 			LabelsMap:  obs.Labels{"interface": "eth0"},
 			Timestamp_: time.Now(),
 		},
 	}
 
-	for _, metric := range systemMetrics {
+	for _, metric := range testMetrics {
 		err := exporter.Export([]obs.DataPoint{metric})
 		if err != nil {
 			t.Fatalf("Export failed: %v", err)

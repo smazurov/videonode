@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -54,41 +55,59 @@ func (s *Server) registerStreamRoutes() {
 		Security:    withAuth(),
 	}, func(ctx context.Context, input *models.StreamRequest) (*models.StreamResponse, error) {
 		// Convert API request to domain parameters
-		params := streams.StreamCreateParams{
-			StreamID:    input.Body.StreamID,
-			DeviceID:    input.Body.DeviceID,
-			Codec:       string(input.Body.Codec),
-			InputFormat: input.Body.InputFormat,
-			Bitrate:     &input.Body.Bitrate,
-			Width:       &input.Body.Width,
-			Height:      &input.Body.Height,
-			Framerate:   &input.Body.Framerate,
-			AudioDevice: input.Body.AudioDevice,
-			Options:     input.Body.Options,
-		}
-
-		// Handle optional fields properly
-		if input.Body.Bitrate == 0 {
-			params.Bitrate = nil
-		}
-		if input.Body.Width == 0 {
-			params.Width = nil
-		}
-		if input.Body.Height == 0 {
-			params.Height = nil
-		}
-		if input.Body.Framerate == 0 {
-			params.Framerate = nil
-		}
+		params := s.convertCreateRequest(input.Body)
 
 		stream, err := s.streamService.CreateStream(ctx, params)
 		if err != nil {
 			return nil, s.mapStreamError(err)
 		}
 
-		// Broadcast stream created event
 		apiStream := s.domainToAPIStream(*stream)
+
+		// Broadcast stream created event
 		BroadcastStreamCreated(apiStream, time.Now().Format(time.RFC3339))
+
+		return &models.StreamResponse{
+			Body: apiStream,
+		}, nil
+	})
+
+	// Update stream
+	huma.Register(s.api, huma.Operation{
+		OperationID: "update-stream",
+		Method:      http.MethodPatch,
+		Path:        "/api/streams/{stream_id}",
+		Summary:     "Update Stream",
+		Description: "Partially update an existing video stream with new parameters",
+		Tags:        []string{"streams"},
+		Errors:      []int{400, 401, 404, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *struct {
+		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
+		Body     models.StreamUpdateRequestData
+	}) (*models.StreamResponse, error) {
+		// Convert API request to domain parameters
+		params := streams.StreamUpdateParams{
+			Codec:               input.Body.Codec,
+			InputFormat:         input.Body.InputFormat,
+			Bitrate:             input.Body.Bitrate,
+			Width:               input.Body.Width,
+			Height:              input.Body.Height,
+			Framerate:           input.Body.Framerate,
+			AudioDevice:         input.Body.AudioDevice,
+			Options:             input.Body.Options,
+			CustomFFmpegCommand: input.Body.CustomFFmpegCommand,
+			TestMode:            input.Body.TestMode,
+		}
+
+		stream, err := s.streamService.UpdateStream(ctx, input.StreamID, params)
+		if err != nil {
+			return nil, s.mapStreamError(err)
+		}
+
+		// Broadcast stream updated event
+		apiStream := s.domainToAPIStream(*stream)
+		BroadcastStreamUpdated(apiStream, time.Now().Format(time.RFC3339))
 
 		return &models.StreamResponse{
 			Body: apiStream,
@@ -163,7 +182,6 @@ func (s *Server) registerStreamRoutes() {
 		return &models.StreamStatusResponse{
 			Body: models.StreamStatusData{
 				StreamID:  status.StreamID,
-				Uptime:    status.Uptime,
 				StartTime: status.StartTime,
 			},
 		}, nil
@@ -195,63 +213,6 @@ func (s *Server) registerStreamRoutes() {
 				IsCustom: isCustom,
 			},
 		}, nil
-	})
-
-	// Set custom FFmpeg command for a stream
-	huma.Register(s.api, huma.Operation{
-		OperationID: "set-stream-ffmpeg",
-		Method:      http.MethodPut,
-		Path:        "/api/streams/{stream_id}/ffmpeg",
-		Summary:     "Set Custom FFmpeg Command",
-		Description: "Set a custom FFmpeg command for a specific stream, overriding auto-generation",
-		Tags:        []string{"streams"},
-		Errors:      []int{400, 401, 404, 500},
-		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct {
-		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
-		Body     struct {
-			Command string `json:"command" minLength:"1" example:"ffmpeg -f v4l2 -i /dev/video0 ..." doc:"Custom FFmpeg command to use"`
-		}
-	}) (*models.FFmpegCommandResponse, error) {
-		err := s.streamService.SetCustomFFmpegCommand(ctx, input.StreamID, input.Body.Command)
-		if err != nil {
-			return nil, s.mapStreamError(err)
-		}
-
-		// Return the updated command
-		command, isCustom, err := s.streamService.GetFFmpegCommand(ctx, input.StreamID, "")
-		if err != nil {
-			return nil, s.mapStreamError(err)
-		}
-
-		return &models.FFmpegCommandResponse{
-			Body: models.FFmpegCommandData{
-				StreamID: input.StreamID,
-				Command:  command,
-				IsCustom: isCustom,
-			},
-		}, nil
-	})
-
-	// Clear custom FFmpeg command for a stream
-	huma.Register(s.api, huma.Operation{
-		OperationID: "clear-stream-ffmpeg",
-		Method:      http.MethodDelete,
-		Path:        "/api/streams/{stream_id}/ffmpeg",
-		Summary:     "Clear Custom FFmpeg Command",
-		Description: "Remove the custom FFmpeg command for a stream, reverting to auto-generation",
-		Tags:        []string{"streams"},
-		Errors:      []int{401, 404, 500},
-		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct {
-		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
-	}) (*struct{}, error) {
-		err := s.streamService.ClearCustomFFmpegCommand(ctx, input.StreamID)
-		if err != nil {
-			return nil, s.mapStreamError(err)
-		}
-
-		return &struct{}{}, nil
 	})
 
 	// Reload streams from configuration
@@ -289,18 +250,66 @@ func (s *Server) registerStreamRoutes() {
 	})
 }
 
-// domainToAPIStream converts a domain stream to API stream data
+// convertCreateRequest converts API create request to domain params
+func (s *Server) convertCreateRequest(body models.StreamRequestData) streams.StreamCreateParams {
+	params := streams.StreamCreateParams{
+		StreamID:    body.StreamID,
+		DeviceID:    body.DeviceID,
+		Codec:       string(body.Codec),
+		InputFormat: body.InputFormat,
+		AudioDevice: body.AudioDevice,
+		Options:     body.Options,
+	}
+
+	// Handle optional numeric fields - convert zero values to nil
+	if body.Bitrate != 0 {
+		params.Bitrate = &body.Bitrate
+	}
+	if body.Width != 0 {
+		params.Width = &body.Width
+	}
+	if body.Height != 0 {
+		params.Height = &body.Height
+	}
+	if body.Framerate != 0 {
+		params.Framerate = &body.Framerate
+	}
+
+	return params
+}
+
+// domainToAPIStream converts a domain stream to API stream data with configuration
 func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
-	return models.StreamData{
+	// Get stream configuration for editing details
+	config, err := s.streamService.GetStreamConfig(context.Background(), stream.ID)
+
+	// Format display bitrate from quality params
+	displayBitrate := "2M" // Default
+	if err == nil && config.FFmpeg.QualityParams != nil && config.FFmpeg.QualityParams.TargetBitrate != nil {
+		displayBitrate = fmt.Sprintf("%.1fM", *config.FFmpeg.QualityParams.TargetBitrate)
+	}
+
+	apiData := models.StreamData{
 		StreamID:  stream.ID,
 		DeviceID:  stream.DeviceID,
 		Codec:     stream.Codec,
-		Bitrate:   stream.Bitrate,
-		Uptime:    0, // Will be calculated when needed
+		Bitrate:   displayBitrate,
 		StartTime: stream.StartTime,
-		WebRTCURL: stream.WebRTCURL,
-		RTSPURL:   stream.RTSPURL,
+		WebRTCURL: fmt.Sprintf(":8889/%s", stream.ID),
+		RTSPURL:   fmt.Sprintf(":8554/%s", stream.ID),
 	}
+
+	// Include configuration details if available
+	if err == nil {
+		apiData.InputFormat = config.FFmpeg.InputFormat
+		apiData.Resolution = config.FFmpeg.Resolution
+		apiData.Framerate = config.FFmpeg.FPS
+		apiData.AudioDevice = config.FFmpeg.AudioDevice
+		apiData.CustomFFmpegCmd = config.CustomFFmpegCommand
+		apiData.TestMode = config.TestMode
+	}
+
+	return apiData
 }
 
 // mapStreamError maps domain errors to HTTP errors

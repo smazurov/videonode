@@ -1,6 +1,7 @@
 package exporters
 
 import (
+	"context"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -15,19 +16,19 @@ import (
 func TestOBSBug_MetricAccumulation(t *testing.T) {
 	exporter := NewPromExporter()
 
-	// Simulate changing system metrics - these SHOULD update the same metric
+	// Simulate changing test metrics - these SHOULD update the same metric
 	// but currently create new metrics each time
 	for i := 0; i < 5; i++ {
 		metric := &obs.MetricPoint{
-			Name:  "system_metrics",
+			Name:  "test_metrics",
 			Value: 1.0,
 			LabelsMap: obs.Labels{
-				"collector":     "system",
+				"collector":     "test",
 				"instance":      "default",
 				"service":       "videonode",
-				"load_1m":       fmt.Sprintf("%.2f", 2.0+float64(i)*0.1), // Changes each iteration
-				"load_5m":       fmt.Sprintf("%.2f", 2.5+float64(i)*0.1), // Changes each iteration
-				"load_15m":      fmt.Sprintf("%.2f", 3.0+float64(i)*0.1), // Changes each iteration
+				"value_1":       fmt.Sprintf("%.2f", 2.0+float64(i)*0.1), // Changes each iteration
+				"value_2":       fmt.Sprintf("%.2f", 2.5+float64(i)*0.1), // Changes each iteration
+				"value_3":       fmt.Sprintf("%.2f", 3.0+float64(i)*0.1), // Changes each iteration
 				"net_interface": "lo",
 				"net_rx_bytes":  fmt.Sprintf("%d", 1000000+i*100000), // Changes each iteration
 				"net_tx_bytes":  fmt.Sprintf("%d", 500000+i*50000),   // Changes each iteration
@@ -335,23 +336,105 @@ func TestOBSBug_StateTransitions(t *testing.T) {
 	}
 }
 
+// TestOBS_DuplicateCollectorStartup tests that collectors are started only once
+func TestOBS_DuplicateCollectorStartup(t *testing.T) {
+	config := obs.DefaultManagerConfig()
+	config.WorkerCount = 1
+	manager := obs.NewManager(config)
+
+	// Add Prometheus exporter to track metrics
+	promExporter := NewPromExporter()
+	err := manager.AddExporter(promExporter)
+	if err != nil {
+		t.Fatalf("Failed to add Prometheus exporter: %v", err)
+	}
+
+	// Create a simple test collector that generates a metric immediately
+	testCollector := &TestCounterCollector{
+		BaseCollector: obs.NewBaseCollector("test_counter", obs.DefaultCollectorConfig("test_counter")),
+		counter:       0,
+	}
+
+	// Add collector BEFORE starting manager (simulates the bug scenario)
+	err = manager.AddCollector(testCollector)
+	if err != nil {
+		t.Fatalf("Failed to add test collector: %v", err)
+	}
+
+	// This should NOT start the collector yet since manager isn't started
+	time.Sleep(50 * time.Millisecond)
+	if testCollector.startCount != 0 {
+		t.Errorf("Collector started %d times before manager.Start() called", testCollector.startCount)
+	}
+
+	// Now start the manager - collector should start ONCE
+	err = manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Wait for startup
+	time.Sleep(100 * time.Millisecond)
+
+	// Collector should have been started exactly ONCE
+	if testCollector.startCount != 1 {
+		t.Errorf("Collector was started %d times (expected 1)", testCollector.startCount)
+	}
+}
+
+// TestCounterCollector is a simple collector that tracks how many times Start() is called
+type TestCounterCollector struct {
+	*obs.BaseCollector
+	counter    int
+	startCount int
+}
+
+func (t *TestCounterCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoint) error {
+	t.startCount++
+	t.SetRunning(true)
+	defer t.SetRunning(false)
+
+	// Send one metric immediately to prove we're running
+	t.counter++
+	point := &obs.MetricPoint{
+		Name:       "test_start_counter",
+		Value:      float64(t.counter),
+		LabelsMap:  obs.Labels{"start_count": fmt.Sprintf("%d", t.startCount)},
+		Timestamp_: time.Now(),
+	}
+
+	select {
+	case dataChan <- point:
+	default:
+	}
+
+	// Wait for cancellation
+	<-ctx.Done()
+	return nil
+}
+
+func (t *TestCounterCollector) Stop() error {
+	return t.BaseCollector.Stop()
+}
+
 // TestOBS_SystemMetricsFormat tests that system metrics are using wrong format
 func TestOBS_SystemMetricsFormat(t *testing.T) {
 	// Test that system metrics are properly formatted as separate metrics
 	exporter := NewPromExporter()
 
 	// This is the CORRECT format - separate metrics with proper values
-	systemMetrics := []obs.DataPoint{
+	testMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "system_load_1m",
+			Name:       "test_value_1",
 			Value:      2.5,
-			LabelsMap:  obs.Labels{"collector": "system"},
+			LabelsMap:  obs.Labels{"collector": "test"},
 			Timestamp_: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "system_load_5m",
+			Name:       "test_value_2",
 			Value:      2.8,
-			LabelsMap:  obs.Labels{"collector": "system"},
+			LabelsMap:  obs.Labels{"collector": "test"},
 			Timestamp_: time.Now(),
 		},
 		&obs.MetricPoint{
@@ -362,7 +445,7 @@ func TestOBS_SystemMetricsFormat(t *testing.T) {
 		},
 	}
 
-	for _, metric := range systemMetrics {
+	for _, metric := range testMetrics {
 		exporter.Export([]obs.DataPoint{metric})
 	}
 	exporter.ForceFlush()
@@ -376,11 +459,11 @@ func TestOBS_SystemMetricsFormat(t *testing.T) {
 	body := w.Body.String()
 
 	// Verify correct format: separate metrics with proper values
-	if !strings.Contains(body, "obs_system_load_1m") {
-		t.Error("Missing system_load_1m metric")
+	if !strings.Contains(body, "obs_test_value_1") {
+		t.Error("Missing test_value_1 metric")
 	}
-	if !strings.Contains(body, "obs_system_load_5m") {
-		t.Error("Missing system_load_5m metric")
+	if !strings.Contains(body, "obs_test_value_2") {
+		t.Error("Missing test_value_2 metric")
 	}
 	if !strings.Contains(body, "obs_system_net_rx_bytes") {
 		t.Error("Missing system_net_rx_bytes metric")

@@ -68,6 +68,10 @@ func (v *RkmppValidator) GetProductionSettings(encoderName string, inputFormat s
 	// RKMPP is more flexible than VAAPI - it accepts many formats directly
 	// Use hardware decode for compressed formats, format conversion for raw formats
 	switch inputFormat {
+	case "testsrc":
+		// Test sources work better without RGA hardware filters on Rockchip
+		// RKMPP can handle yuv420p directly from test sources
+		settings.VideoFilters = ""
 	case "mjpeg":
 		// Use hardware MJPEG decode for best performance
 		// This keeps everything in hardware

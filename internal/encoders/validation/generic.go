@@ -52,7 +52,10 @@ func (v *GenericValidator) GetProductionSettings(encoderName string, inputFormat
 	case "libx264":
 		videoFilters := ""
 		// Convert MJPEG/YUYV/RGB/NV24/NV16 to yuv420p for x264
-		if inputFormat == "mjpeg" || inputFormat == "yuyv422" ||
+		// Test sources don't need any conversion
+		if inputFormat == "testsrc" {
+			videoFilters = ""
+		} else if inputFormat == "mjpeg" || inputFormat == "yuyv422" ||
 			inputFormat == "bgr24" || inputFormat == "rgb24" ||
 			inputFormat == "nv24" || inputFormat == "nv16" {
 			videoFilters = "format=yuv420p"
@@ -69,7 +72,10 @@ func (v *GenericValidator) GetProductionSettings(encoderName string, inputFormat
 	case "libx265":
 		videoFilters := ""
 		// Convert MJPEG/YUYV/RGB/NV24/NV16 to yuv420p for x265
-		if inputFormat == "mjpeg" || inputFormat == "yuyv422" ||
+		// Test sources don't need any conversion
+		if inputFormat == "testsrc" {
+			videoFilters = ""
+		} else if inputFormat == "mjpeg" || inputFormat == "yuyv422" ||
 			inputFormat == "bgr24" || inputFormat == "rgb24" ||
 			inputFormat == "nv24" || inputFormat == "nv16" {
 			videoFilters = "format=yuv420p"

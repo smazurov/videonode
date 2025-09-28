@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/devices"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/version"
 	"github.com/smazurov/videonode/ui"
@@ -25,6 +26,7 @@ type Server struct {
 	options        *Options
 	deviceDetector devices.DeviceDetector
 	obsSSEAdapter  *OBSSSEAdapter
+	logger         *slog.Logger
 }
 
 // basicAuthMiddleware creates middleware for HTTP basic authentication
@@ -141,10 +143,14 @@ func NewServer(opts *Options) *Server {
 		mux:           mux,
 		streamService: opts.StreamService,
 		options:       opts,
+		logger:        logging.GetLogger("api"),
 	}
 
 	// Apply CORS middleware first (before auth)
 	api.UseMiddleware(NewCORSMiddleware(corsConfig))
+
+	// Apply HTTP logging middleware after CORS but before auth
+	api.UseMiddleware(HTTPLoggingMiddleware)
 
 	// Apply basic auth middleware globally if credentials are provided
 	if opts.AuthUsername != "" && opts.AuthPassword != "" {
@@ -201,13 +207,13 @@ func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceIn
 }
 
 func (s *Server) Start(addr string) error {
-	fmt.Printf("Starting VideoNode API server on %s\n", addr)
-	fmt.Printf("OpenAPI documentation available at: http://%s/docs\n", addr)
+	s.logger.Info("Starting VideoNode API server", "addr", addr)
+	s.logger.Info("OpenAPI documentation available", "url", "http://"+addr+"/docs")
 
 	// Start device monitoring
 	s.deviceDetector = devices.NewDetector()
 	if err := s.deviceDetector.StartMonitoring(context.Background(), s); err != nil {
-		fmt.Printf("Warning: Failed to start device monitoring: %v\n", err)
+		s.logger.Warn("Failed to start device monitoring", "error", err)
 	}
 
 	// Create HTTP server with proper shutdown support
@@ -221,7 +227,7 @@ func (s *Server) Start(addr string) error {
 
 // Stop gracefully shuts down the server
 func (s *Server) Stop() error {
-	fmt.Println("Stopping API server...")
+	s.logger.Info("Stopping API server")
 
 	// Stop device monitoring
 	if s.deviceDetector != nil {

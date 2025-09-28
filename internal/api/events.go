@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/sse"
@@ -48,6 +49,13 @@ type StreamDeletedEvent struct {
 	StreamID  string `json:"stream_id" example:"stream-001" doc:"Deleted stream identifier"`
 	Action    string `json:"action" example:"deleted" doc:"Action type"`
 	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+}
+
+// StreamUpdatedEvent represents a successful stream update
+type StreamUpdatedEvent struct {
+	Stream    models.StreamData `json:"stream" doc:"Updated stream data"`
+	Action    string            `json:"action" example:"updated" doc:"Action type"`
+	Timestamp string            `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
 // Event broadcaster for inter-handler communication
@@ -144,6 +152,16 @@ func BroadcastStreamDeleted(streamID, timestamp string) {
 	globalEventBroadcaster.Broadcast(event)
 }
 
+// BroadcastStreamUpdated sends a stream updated event
+func BroadcastStreamUpdated(stream models.StreamData, timestamp string) {
+	event := StreamUpdatedEvent{
+		Stream:    stream,
+		Action:    "updated",
+		Timestamp: timestamp,
+	}
+	globalEventBroadcaster.Broadcast(event)
+}
+
 // registerSSERoutes registers the native Huma SSE endpoint
 func (s *Server) registerSSERoutes() {
 	// Register SSE endpoint with event type mapping
@@ -163,6 +181,7 @@ func (s *Server) registerSSERoutes() {
 			"capture-error":    CaptureErrorEvent{},
 			"device-discovery": DeviceDiscoveryEvent{},
 			"stream-created":   StreamCreatedEvent{},
+			"stream-updated":   StreamUpdatedEvent{},
 			"stream-deleted":   StreamDeletedEvent{},
 		}
 
@@ -180,14 +199,27 @@ func (s *Server) registerSSERoutes() {
 		globalEventBroadcaster.Subscribe(eventCh)
 		defer globalEventBroadcaster.Unsubscribe(eventCh)
 
+		// Send initial connection confirmation using existing event type
+		if err := send.Data(CaptureSuccessEvent{
+			DevicePath: "system",
+			Message:    "SSE connection established",
+			ImageData:  "",
+			Timestamp:  time.Now().Format(time.RFC3339),
+		}); err != nil {
+			return
+		}
+
 		// Keep connection alive and forward events
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case event := <-eventCh:
-				// Send event using Huma's SSE sender
-				send.Data(event)
+				// Send event using Huma's SSE sender with error handling
+				if err := send.Data(event); err != nil {
+					// Connection failed, clean up and exit
+					return
+				}
 			}
 		}
 	})

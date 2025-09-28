@@ -2,7 +2,7 @@ package encoders
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/smazurov/videonode/internal/encoders/validation"
 	"github.com/smazurov/videonode/internal/types"
@@ -118,7 +118,8 @@ func getValidatedCodec(codecType CodecType, provider types.ValidationProvider) s
 	// Load validation results from provider
 	results := provider.GetValidation()
 	if results == nil {
-		log.Printf("No validation data available")
+		logger := slog.With("component", "codec_selector")
+		logger.Warn("No validation data available")
 		return ""
 	}
 
