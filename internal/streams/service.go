@@ -579,7 +579,7 @@ func (s *StreamServiceImpl) GetFFmpegCommand(ctx context.Context, streamID strin
 
 	// If custom command is set, return it
 	if streamConfig.CustomFFmpegCommand != "" {
-		return streamConfig.CustomFFmpegCommand, true, nil
+		return mediamtx.WrapCommand(streamConfig.CustomFFmpegCommand, streamID), true, nil
 	}
 
 	// Otherwise, process the stream to generate the command
@@ -588,5 +588,5 @@ func (s *StreamServiceImpl) GetFFmpegCommand(ctx context.Context, streamID strin
 		return "", false, fmt.Errorf("failed to generate FFmpeg command: %w", err)
 	}
 
-	return processed.FFmpegCommand, false, nil
+	return mediamtx.WrapCommand(processed.FFmpegCommand, streamID), false, nil
 }

@@ -4,14 +4,12 @@ import "sync"
 
 // Config holds configuration for MediaMTX integration
 type Config struct {
-	EnableLogging bool
+	UseSystemd bool // Use systemd-run instead of wrapper script
 }
 
 var (
-	globalConfig = &Config{
-		EnableLogging: true, // Default to enabled
-	}
-	configOnce sync.Once
+	globalConfig = &Config{}
+	configOnce   sync.Once
 )
 
 // SetConfig sets the global configuration for the mediamtx package

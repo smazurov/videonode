@@ -15,9 +15,9 @@ config_file = "streams.toml"
 mediamtx_config = "mediamtx.yml"
 
 [mediamtx]
-# Enable systemd logging for ffmpeg commands (default: true)
-# Set to false to disable piping ffmpeg output to journald
-enable_logging = false
+# Use systemd-run to wrap ffmpeg commands for better process management
+# When enabled, each stream runs as a systemd unit with proper signal handling
+use_systemd = false
 
 [obs]
 # Observability settings

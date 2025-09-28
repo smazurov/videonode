@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+
 	"strings"
 	"sync"
 	"time"
@@ -54,15 +55,54 @@ type PathListResponse struct {
 	Items     []*PathInfo `json:"items"`
 }
 
-// wrapWithLogger wraps an ffmpeg command with systemd logging if enabled
-func wrapWithLogger(command string) string {
-	if !globalConfig.EnableLogging {
+// WrapCommand applies systemd-run wrapper if configured, or returns the command as-is.
+// When systemd is enabled, it wraps the command with systemd-run using the provided streamID.
+func WrapCommand(command string, streamID string) string {
+	if !globalConfig.UseSystemd {
 		return command
 	}
 
-	// Escape single quotes in the command by replacing ' with '\''
-	escapedCmd := strings.ReplaceAll(command, "'", "'\"'\"'")
-	return fmt.Sprintf("/bin/bash -c '%s 2>&1 | systemd-cat -t ffmpeg-$MTX_PATH'", escapedCmd)
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return command
+	}
+
+	// Sanitize stream ID for systemd unit name (replace non-alphanumeric chars)
+	sanitizedID := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, streamID)
+
+	// Build systemd-run command with the exact parameters requested
+	// --wait makes systemd-run stay attached to the service, so MediaMTX can properly monitor it
+	// --pty ensures SIGINT is forwarded to ffmpeg through the PTY when MediaMTX stops the command
+	systemdCmd := fmt.Sprintf("systemd-run --user --quiet --collect --wait --pty --unit=ffmpeg_%s -p KillMode=control-group -p KillSignal=SIGINT -p TimeoutStopSec=5 -p SyslogIdentifier=ffmpeg-%s",
+		sanitizedID, sanitizedID)
+
+	return fmt.Sprintf("%s %s", systemdCmd, trimmed)
+}
+
+func shellEscape(value string) string {
+	if value == "" {
+		return "''"
+	}
+
+	needsQuoting := false
+	for _, r := range value {
+		switch r {
+		case ' ', '\t', '\n', '\r', '\'', '"', '\\', '$', '`', '!':
+			needsQuoting = true
+			break
+		}
+	}
+
+	if !needsQuoting {
+		return value
+	}
+
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 // NewClient creates a new MediaMTX API client
@@ -140,7 +180,7 @@ func (c *Client) isAvailable() bool {
 // AddPath adds a new path to MediaMTX
 func (c *Client) AddPath(streamID, ffmpegCommand string) error {
 	config := pathConfigRequest{
-		RunOnInit:        wrapWithLogger(ffmpegCommand),
+		RunOnInit:        WrapCommand(ffmpegCommand, streamID),
 		RunOnInitRestart: true,
 	}
 
@@ -186,7 +226,7 @@ func (c *Client) RestartPath(streamID, ffmpegCommand string) error {
 // UpdatePath updates an existing path in MediaMTX
 func (c *Client) UpdatePath(streamID, ffmpegCommand string) error {
 	config := pathConfigRequest{
-		RunOnInit:        wrapWithLogger(ffmpegCommand),
+		RunOnInit:        WrapCommand(ffmpegCommand, streamID),
 		RunOnInitRestart: true,
 	}
 

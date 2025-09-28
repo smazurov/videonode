@@ -1,53 +1,56 @@
 package mediamtx
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-// Helper function to test command wrapping behavior
-func testCommandWrapping(t *testing.T, enableLogging bool) {
-	// Save original config
+func TestWrapCommand(t *testing.T) {
 	originalConfig := globalConfig
 	defer func() { globalConfig = originalConfig }()
 
-	// Set test config
-	globalConfig = &Config{
-		EnableLogging: enableLogging,
+	tests := []struct {
+		name       string
+		useSystemd bool
+		command    string
+		expected   string
+	}{
+		{
+			name:       "systemd enabled wraps ffmpeg command",
+			useSystemd: true,
+			command:    "ffmpeg -i input.mp4 output.mp4",
+			expected:   "systemd-run --user --quiet --collect --wait --pty --unit=ffmpeg_test-stream -p KillMode=control-group -p KillSignal=SIGINT -p TimeoutStopSec=5 -p SyslogIdentifier=ffmpeg-test-stream ffmpeg -i input.mp4 output.mp4",
+		},
+		{
+			name:       "systemd enabled wraps complex args",
+			useSystemd: true,
+			command:    "ffmpeg -vf 'scale=1280:720' input.mp4",
+			expected:   "systemd-run --user --quiet --collect --wait --pty --unit=ffmpeg_test-stream -p KillMode=control-group -p KillSignal=SIGINT -p TimeoutStopSec=5 -p SyslogIdentifier=ffmpeg-test-stream ffmpeg -vf 'scale=1280:720' input.mp4",
+		},
+		{
+			name:       "systemd disabled returns original",
+			useSystemd: false,
+			command:    "ffmpeg -i input.mp4 output.mp4",
+			expected:   "ffmpeg -i input.mp4 output.mp4",
+		},
+		{
+			name:       "systemd disabled preserves complex command",
+			useSystemd: false,
+			command:    "ffmpeg -vf 'scale=1280:720' input.mp4",
+			expected:   "ffmpeg -vf 'scale=1280:720' input.mp4",
+		},
+		{
+			name:       "empty command returns empty",
+			useSystemd: true,
+			command:    "",
+			expected:   "",
+		},
 	}
 
-	testCmd := "ffmpeg -f v4l2 -i /dev/video0 -c:v libx264 -f rtsp rtsp://localhost:8554/test"
-
-	// Simulate what AddPath does
-	cmd := testCmd
-	if globalConfig.EnableLogging {
-		cmd = testCmd + " 2>&1 | systemd-cat -t ffmpeg-$MTX_PATH"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			globalConfig = &Config{UseSystemd: tt.useSystemd}
+			result := WrapCommand(tt.command, "test-stream")
+			if result != tt.expected {
+				t.Fatalf("WrapCommand() = %q, expected %q", result, tt.expected)
+			}
+		})
 	}
-
-	if enableLogging {
-		if !strings.Contains(cmd, "systemd-cat") {
-			t.Errorf("When logging enabled, command should contain systemd-cat pipe")
-		}
-		if !strings.Contains(cmd, "2>&1") {
-			t.Errorf("When logging enabled, command should redirect stderr to stdout")
-		}
-		if !strings.Contains(cmd, "ffmpeg-$MTX_PATH") {
-			t.Errorf("When logging enabled, command should use ffmpeg-$MTX_PATH tag")
-		}
-	} else {
-		if strings.Contains(cmd, "systemd-cat") {
-			t.Errorf("When logging disabled, command should not contain systemd-cat pipe")
-		}
-		if cmd != testCmd {
-			t.Errorf("When logging disabled, command should remain unchanged")
-		}
-	}
-}
-
-func TestCommandWrappingWithLogging(t *testing.T) {
-	testCommandWrapping(t, true)
-}
-
-func TestCommandWrappingWithoutLogging(t *testing.T) {
-	testCommandWrapping(t, false)
 }
