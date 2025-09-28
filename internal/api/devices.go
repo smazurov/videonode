@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -225,7 +225,8 @@ func GetDeviceCapabilities(devicePath string) (models.DeviceCapabilitiesData, er
 		_, err := V4L2ToFFmpegFormat(format.PixelFormat)
 		if err != nil {
 			// Skip unsupported formats instead of failing completely
-			log.Printf("Warning: %v", err)
+			logger := slog.With("component", "devices_api")
+			logger.Warn("Skipping unsupported format", "error", err)
 			continue
 		}
 		formats = append(formats, models.FormatInfo{

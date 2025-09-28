@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -18,6 +18,7 @@ import (
 // FFmpegCollector collects FFmpeg progress data and logs
 type FFmpegCollector struct {
 	*obs.BaseCollector
+	logger     *slog.Logger
 	socketPath string
 	logPath    string
 	streamID   string
@@ -42,6 +43,7 @@ func NewFFmpegCollector(socketPath, logPath, streamID string) *FFmpegCollector {
 
 	return &FFmpegCollector{
 		BaseCollector: obs.NewBaseCollector(fmt.Sprintf("ffmpeg_%s", streamID), config),
+		logger:        slog.With("component", "ffmpeg_collector", "stream_id", streamID),
 		socketPath:    socketPath,
 		logPath:       logPath,
 		streamID:      streamID,
@@ -50,7 +52,7 @@ func NewFFmpegCollector(socketPath, logPath, streamID string) *FFmpegCollector {
 
 // Start begins collecting FFmpeg data
 func (f *FFmpegCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoint) error {
-	log.Printf("OBS: Starting FFmpeg collector for stream '%s' with socket: %s", f.streamID, f.socketPath)
+	f.logger.Info("Starting FFmpeg collector", "socket", f.socketPath)
 	f.SetRunning(true)
 
 	// Create a cancellable context for this collector
@@ -75,22 +77,23 @@ func (f *FFmpegCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoi
 
 // startSocketListener starts listening for FFmpeg progress on Unix socket
 func (f *FFmpegCollector) startSocketListener(ctx context.Context, dataChan chan<- obs.DataPoint) {
-	log.Printf("FFmpeg collector: Starting to listen on socket %s for stream %s", f.socketPath, f.streamID)
+	f.logger.Info("Starting to listen on socket", "socket", f.socketPath)
 
-	// Clean up any existing socket file (could be stale from previous run)
+	// Clean up any stale socket file from previous run
+	// This is safe because we also clean up in Stop()
 	if err := os.Remove(f.socketPath); err != nil && !os.IsNotExist(err) {
-		log.Printf("FFmpeg collector: Failed to clean up old socket file %s: %v", f.socketPath, err)
+		f.logger.Warn("Failed to clean up old socket file", "socket", f.socketPath, "error", err)
 		// Continue anyway - the Listen call will fail if there's a real problem
 	}
 
 	// Create Unix socket listener
 	listener, err := net.Listen("unix", f.socketPath)
 	if err != nil {
-		log.Printf("FFmpeg collector ERROR: Failed to create Unix socket listener for %s: %v", f.socketPath, err)
+		f.logger.Error("Failed to create Unix socket listener", "socket", f.socketPath, "error", err)
 		return
 	}
 
-	log.Printf("FFmpeg collector: Successfully created listener on socket %s for stream %s", f.socketPath, f.streamID)
+	f.logger.Info("Successfully created listener on socket", "socket", f.socketPath)
 	f.listener = listener
 	defer func() {
 		listener.Close()
@@ -228,7 +231,7 @@ func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, pro
 		case dataChan <- &obs.MetricPoint{
 			Name:       "ffmpeg_fps",
 			Value:      fps,
-			LabelsMap:  labels,
+			LabelsMap:  f.AddLabels(labels),
 			Timestamp_: timestamp,
 		}:
 		default:
@@ -241,7 +244,7 @@ func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, pro
 		case dataChan <- &obs.MetricPoint{
 			Name:       "ffmpeg_dropped_frames_total",
 			Value:      dropFrames,
-			LabelsMap:  labels,
+			LabelsMap:  f.AddLabels(labels),
 			Timestamp_: timestamp,
 		}:
 		default:
@@ -254,7 +257,7 @@ func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, pro
 		case dataChan <- &obs.MetricPoint{
 			Name:       "ffmpeg_duplicate_frames_total",
 			Value:      dupFrames,
-			LabelsMap:  labels,
+			LabelsMap:  f.AddLabels(labels),
 			Timestamp_: timestamp,
 		}:
 		default:
@@ -267,7 +270,7 @@ func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, pro
 		case dataChan <- &obs.MetricPoint{
 			Name:       "ffmpeg_processing_speed",
 			Value:      speed,
-			LabelsMap:  labels,
+			LabelsMap:  f.AddLabels(labels),
 			Timestamp_: timestamp,
 		}:
 		default:
@@ -415,6 +418,11 @@ func (f *FFmpegCollector) Stop() error {
 		if f.listener != nil {
 			f.listener.Close()
 			f.listener = nil
+		}
+
+		// Clean up socket file
+		if f.socketPath != "" {
+			os.Remove(f.socketPath)
 		}
 
 		// Call base Stop

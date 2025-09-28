@@ -51,11 +51,6 @@ func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 		return "/dev/video0"
 	})
 
-	// Mock socket creator
-	processor.SetSocketCreator(func(streamID string) string {
-		return "/tmp/test.sock"
-	})
-
 	processed, err := processor.ProcessStream("test")
 	if err != nil {
 		t.Fatalf("ProcessStream failed: %v", err)

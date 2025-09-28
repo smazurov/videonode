@@ -59,6 +59,10 @@ func (v *VaapiValidator) GetProductionSettings(encoderName string, inputFormat s
 	// Set video filters based on input format
 	// VAAPI requires nv12 format for hardware encoding
 	switch inputFormat {
+	case "testsrc":
+		// Test sources output yuv420p by default, just need hwupload for VAAPI
+		// Minimal filters to avoid format negotiation issues
+		settings.VideoFilters = "format=nv12,hwupload"
 	case "mjpeg":
 		// MJPEG decodes to yuvj422p (full-range 4:2:2)
 		// Need to convert: yuvj422p -> yuvj420p -> yuv420p -> nv12 -> hwupload

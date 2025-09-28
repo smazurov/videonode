@@ -5,7 +5,8 @@ package devices
 import (
 	"context"
 	"fmt"
-	"log"
+
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // Mock device constants for testing on macOS
@@ -95,11 +96,16 @@ var mockFramerates = map[string]map[uint32]map[string][]Framerate{
 	},
 }
 
-type darwinDetector struct{}
+type darwinDetector struct {
+	logger *slog.Logger
+}
 
 func newDetector() DeviceDetector {
-	log.Println("INFO: Using mock V4L2 devices for testing on macOS")
-	return &darwinDetector{}
+	d := &darwinDetector{
+		logger: logging.GetLogger("devices"),
+	}
+	d.logger.Info("Using mock V4L2 devices for testing on macOS")
+	return d
 }
 
 // FindDevices returns mock devices for testing on macOS
@@ -164,7 +170,7 @@ func (d *darwinDetector) GetDeviceFramerates(devicePath string, pixelFormat uint
 
 // StartMonitoring is a no-op on macOS
 func (d *darwinDetector) StartMonitoring(ctx context.Context, broadcaster EventBroadcaster) error {
-	log.Println("Device monitoring not available on macOS - V4L2 is Linux-only")
+	d.logger.Info("Device monitoring not available on macOS - V4L2 is Linux-only")
 	return nil
 }
 

@@ -4,6 +4,7 @@ import {
   StreamData, 
   getStreams, 
   createStream, 
+  updateStream,
   deleteStream 
 } from '../../lib/api';
 import { StreamStore } from '../useStreamStore';
@@ -11,6 +12,7 @@ import { StreamStore } from '../useStreamStore';
 export interface APISlice {
   fetchStreams: () => Promise<void>;
   createStream: (request: StreamRequestData) => Promise<StreamData>;
+  updateStream: (streamId: string, data: Partial<StreamRequestData>) => Promise<StreamData>;
   deleteStream: (streamId: string) => Promise<void>;
 }
 
@@ -21,8 +23,13 @@ export const createAPISlice: StateCreator<
   APISlice
 > = (_set, get) => ({
   fetchStreams: async () => {
-    const { setLoading, setError, setStreams } = get();
-    setLoading(true);
+    const { setLoading, setError, setStreams, streams } = get();
+    
+    // Only show loading if we don't have any streams yet (initial load)
+    const hasExistingStreams = streams.size > 0;
+    if (!hasExistingStreams) {
+      setLoading(true);
+    }
     
     try {
       const data = await getStreams();
@@ -31,7 +38,9 @@ export const createAPISlice: StateCreator<
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to fetch streams');
     } finally {
-      setLoading(false);
+      if (!hasExistingStreams) {
+        setLoading(false);
+      }
     }
   },
   
@@ -46,6 +55,24 @@ export const createAPISlice: StateCreator<
       return stream;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create stream';
+      setError(message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  },
+  
+  updateStream: async (streamId, data) => {
+    const { setLoading, setError, addStream } = get();
+    setLoading(true);
+    
+    try {
+      const stream = await updateStream(streamId, data);
+      addStream(stream); // Updates existing stream in memory
+      setError(null);
+      return stream;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update stream';
       setError(message);
       throw error;
     } finally {

@@ -83,8 +83,11 @@ func (s *Server) registerMetricsRoutes() {
 			case <-ctx.Done():
 				return
 			case event := <-eventCh:
-				// Send event using Huma's SSE sender
-				send.Data(event)
+				// Send event using Huma's SSE sender with error handling
+				if err := send.Data(event); err != nil {
+					// Connection failed, clean up and exit
+					return
+				}
 			}
 		}
 	})
