@@ -201,6 +201,8 @@ func GetDevicesData() (models.DeviceData, error) {
 			DeviceId:     dev.DeviceId,
 			Caps:         dev.Caps,
 			Capabilities: translateCapabilities(dev.Caps),
+			Ready:        dev.Ready,
+			Type:         models.DeviceType(dev.Type),
 		}
 	}
 

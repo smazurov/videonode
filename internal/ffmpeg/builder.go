@@ -93,8 +93,22 @@ func BuildCommand(p *Params) string {
 	}
 
 	// Video filters
+	var videoFilterChain []string
+
+	// Add text overlay for test sources
+	if p.IsTestSource && p.TestOverlay != "" {
+		drawtext := fmt.Sprintf("drawtext=text='%s':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=120:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5", p.TestOverlay)
+		videoFilterChain = append(videoFilterChain, drawtext)
+	}
+
+	// Add existing video filters
 	if p.VideoFilters != "" {
-		cmd.WriteString(" -vf " + p.VideoFilters)
+		videoFilterChain = append(videoFilterChain, p.VideoFilters)
+	}
+
+	// Apply video filter chain
+	if len(videoFilterChain) > 0 {
+		cmd.WriteString(" -vf " + strings.Join(videoFilterChain, ","))
 	}
 
 	// Encoder
