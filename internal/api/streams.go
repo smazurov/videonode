@@ -98,6 +98,7 @@ func (s *Server) registerStreamRoutes() {
 			Options:             input.Body.Options,
 			CustomFFmpegCommand: input.Body.CustomFFmpegCommand,
 			TestMode:            input.Body.TestMode,
+			Enabled:             input.Body.Enabled,
 		}
 
 		stream, err := s.streamService.UpdateStream(ctx, input.StreamID, params)
@@ -158,32 +159,6 @@ func (s *Server) registerStreamRoutes() {
 
 		return &models.StreamResponse{
 			Body: s.domainToAPIStream(*stream),
-		}, nil
-	})
-
-	// Get stream status
-	huma.Register(s.api, huma.Operation{
-		OperationID: "get-stream-status",
-		Method:      http.MethodGet,
-		Path:        "/api/streams/{stream_id}/status",
-		Summary:     "Get Stream Status",
-		Description: "Get runtime status of a specific stream",
-		Tags:        []string{"streams"},
-		Errors:      []int{401, 404, 500},
-		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct {
-		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
-	}) (*models.StreamStatusResponse, error) {
-		status, err := s.streamService.GetStreamStatus(ctx, input.StreamID)
-		if err != nil {
-			return nil, s.mapStreamError(err)
-		}
-
-		return &models.StreamStatusResponse{
-			Body: models.StreamStatusData{
-				StreamID:  status.StreamID,
-				StartTime: status.StartTime,
-			},
 		}, nil
 	})
 
@@ -280,8 +255,8 @@ func (s *Server) convertCreateRequest(body models.StreamRequestData) streams.Str
 
 // domainToAPIStream converts a domain stream to API stream data with configuration
 func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
-	// Get stream configuration for editing details
-	config, err := s.streamService.GetStreamConfig(context.Background(), stream.ID)
+	// Get stream specification for editing details
+	config, err := s.streamService.GetStreamSpec(context.Background(), stream.ID)
 
 	// Format display bitrate from quality params
 	displayBitrate := "2M" // Default
@@ -307,6 +282,7 @@ func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
 		apiData.AudioDevice = config.FFmpeg.AudioDevice
 		apiData.CustomFFmpegCmd = config.CustomFFmpegCommand
 		apiData.TestMode = config.TestMode
+		apiData.Enabled = config.Enabled
 	}
 
 	return apiData

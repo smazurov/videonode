@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/api/models"
+	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/streams"
 )
 
@@ -45,16 +46,12 @@ func (m *MockStreamService) GetStream(ctx context.Context, streamID string) (*st
 	}, nil
 }
 
-func (m *MockStreamService) GetStreamConfig(ctx context.Context, streamID string) (*streams.StreamConfig, error) {
-	return &streams.StreamConfig{}, nil
+func (m *MockStreamService) GetStreamSpec(ctx context.Context, streamID string) (*streams.StreamSpec, error) {
+	return &streams.StreamSpec{}, nil
 }
 
 func (m *MockStreamService) ListStreams(ctx context.Context) ([]streams.Stream, error) {
 	return []streams.Stream{}, nil
-}
-
-func (m *MockStreamService) GetStreamStatus(ctx context.Context, streamID string) (*streams.StreamStatus, error) {
-	return &streams.StreamStatus{StreamID: streamID}, nil
 }
 
 func (m *MockStreamService) LoadStreamsFromConfig() error {
@@ -63,6 +60,10 @@ func (m *MockStreamService) LoadStreamsFromConfig() error {
 
 func (m *MockStreamService) GetFFmpegCommand(ctx context.Context, streamID string, encoderOverride string) (string, bool, error) {
 	return "ffmpeg command", false, nil
+}
+
+func (m *MockStreamService) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
+	// No-op for mock
 }
 
 func TestSSEConnectionAndEvents(t *testing.T) {
