@@ -110,6 +110,11 @@ type Options struct {
 	CaptureDefaultDelayMs int
 	StreamService         streams.StreamService
 	PrometheusHandler     http.Handler // Optional Prometheus metrics handler
+	LEDController         interface {  // Optional LED controller
+		Set(ledType string, enabled bool, pattern string) error
+		Available() []string
+		Patterns() []string
+	}
 }
 
 // NewServer creates a new API server with Huma v2 using Go 1.22+ native routing
@@ -192,8 +197,20 @@ func (s *Server) GetAPI() huma.API {
 	return s.api
 }
 
-// Start starts the HTTP server on the specified address
+// CompositeBroadcaster broadcasts device events to multiple EventBroadcasters
+type CompositeBroadcaster struct {
+	broadcasters []devices.EventBroadcaster
+}
+
+// BroadcastDeviceDiscovery implements devices.EventBroadcaster interface
+func (cb *CompositeBroadcaster) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
+	for _, broadcaster := range cb.broadcasters {
+		broadcaster.BroadcastDeviceDiscovery(action, device, timestamp)
+	}
+}
+
 // BroadcastDeviceDiscovery implements the EventBroadcaster interface for device monitoring
+// This is for the Server to broadcast to SSE clients
 func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
 	// Convert devices.DeviceInfo to models.DeviceInfo
 	apiDevice := models.DeviceInfo{
@@ -201,6 +218,8 @@ func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceIn
 		DeviceName: device.DeviceName,
 		DeviceId:   device.DeviceId,
 		Caps:       device.Caps,
+		Ready:      device.Ready,
+		Type:       models.DeviceType(device.Type),
 	}
 	// Use the global broadcast function from events.go
 	BroadcastDeviceDiscovery(action, apiDevice, timestamp)
@@ -210,9 +229,13 @@ func (s *Server) Start(addr string) error {
 	s.logger.Info("Starting VideoNode API server", "addr", addr)
 	s.logger.Info("OpenAPI documentation available", "url", "http://"+addr+"/docs")
 
-	// Start device monitoring
+	// Start device monitoring with composite broadcaster
+	// This broadcasts device events to both SSE clients (via Server) and stream management (via StreamService)
 	s.deviceDetector = devices.NewDetector()
-	if err := s.deviceDetector.StartMonitoring(context.Background(), s); err != nil {
+	compositeBroadcaster := &CompositeBroadcaster{
+		broadcasters: []devices.EventBroadcaster{s, s.streamService},
+	}
+	if err := s.deviceDetector.StartMonitoring(context.Background(), compositeBroadcaster); err != nil {
 		s.logger.Warn("Failed to start device monitoring", "error", err)
 	}
 
@@ -300,6 +323,9 @@ func (s *Server) registerRoutes() {
 
 	// Options endpoints
 	s.registerOptionsRoutes()
+
+	// LED endpoints (if LED controller is available)
+	s.registerLEDRoutes()
 
 	// SSE endpoints
 	s.registerSSERoutes()
