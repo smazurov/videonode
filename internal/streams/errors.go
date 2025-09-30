@@ -26,7 +26,6 @@ const (
 	ErrCodeDeviceNotFound  = "DEVICE_NOT_FOUND"
 	ErrCodeStreamExists    = "STREAM_EXISTS"
 	ErrCodeInvalidParams   = "INVALID_PARAMS"
-	ErrCodeInvalidCodec    = "INVALID_CODEC"
 	ErrCodeConfigError     = "CONFIG_ERROR"
 	ErrCodeMediaMTXError   = "MEDIAMTX_ERROR"
 	ErrCodeMonitoringError = "MONITORING_ERROR"
@@ -40,10 +39,3 @@ func NewStreamError(code, message string, cause error) *StreamError {
 		Cause:   cause,
 	}
 }
-
-// Predefined errors
-var (
-	ErrStreamNotFound = &StreamError{Code: ErrCodeStreamNotFound, Message: "stream not found"}
-	ErrDeviceNotFound = &StreamError{Code: ErrCodeDeviceNotFound, Message: "device not found"}
-	ErrInvalidParams  = &StreamError{Code: ErrCodeInvalidParams, Message: "invalid parameters"}
-)

@@ -1,6 +1,26 @@
 package streams
 
-import "time"
+import (
+	"context"
+	"time"
+
+	"github.com/smazurov/videonode/internal/devices"
+)
+
+// StreamService defines the interface for stream operations
+type StreamService interface {
+	CreateStream(ctx context.Context, params StreamCreateParams) (*Stream, error)
+	UpdateStream(ctx context.Context, streamID string, params StreamUpdateParams) (*Stream, error)
+	DeleteStream(ctx context.Context, streamID string) error
+	GetStream(ctx context.Context, streamID string) (*Stream, error)
+	GetStreamSpec(ctx context.Context, streamID string) (*StreamSpec, error)
+	ListStreams(ctx context.Context) ([]Stream, error)
+	LoadStreamsFromConfig() error
+	GetFFmpegCommand(ctx context.Context, streamID string, encoderOverride string) (string, bool, error)
+
+	// Device event handling
+	BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string)
+}
 
 // Stream represents a video stream
 type Stream struct {
@@ -37,10 +57,5 @@ type StreamUpdateParams struct {
 	Options             []string // Optional, FFmpeg option keys
 	CustomFFmpegCommand *string  // Optional, custom FFmpeg command override
 	TestMode            *bool    // Optional, enable test pattern mode
-}
-
-// StreamStatus represents the runtime status of a stream
-type StreamStatus struct {
-	StreamID  string    `json:"stream_id"`
-	StartTime time.Time `json:"start_time"`
+	Enabled             *bool    // Optional, manual override of runtime enabled state
 }

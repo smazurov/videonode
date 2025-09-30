@@ -2,8 +2,10 @@ package streams
 
 import "github.com/smazurov/videonode/internal/types"
 
-// Repository defines the interface for stream data access
-type Repository interface {
+// Store defines the interface for stream and validation data access.
+// This interface allows for different storage backends (TOML, SQLite, etc.)
+// This is an internal interface - external code should use service types.
+type Store interface {
 	// Load loads the configuration from storage
 	Load() error
 
@@ -11,32 +13,20 @@ type Repository interface {
 	Save() error
 
 	// AddStream adds a new stream to the configuration
-	AddStream(stream StreamConfig) error
+	AddStream(stream StreamSpec) error
 
 	// UpdateStream updates an existing stream configuration
-	UpdateStream(id string, stream StreamConfig) error
+	UpdateStream(id string, stream StreamSpec) error
 
 	// RemoveStream removes a stream from the configuration
 	RemoveStream(id string) error
 
 	// GetStream retrieves a stream by ID
-	GetStream(id string) (StreamConfig, bool)
+	GetStream(id string) (StreamSpec, bool)
 
 	// GetAllStreams returns all streams
-	GetAllStreams() map[string]StreamConfig
+	GetAllStreams() map[string]StreamSpec
 
-	// GetEnabledStreams returns only enabled streams
-	GetEnabledStreams() map[string]StreamConfig
-
-	// EnableStream enables a stream by ID
-	EnableStream(id string) error
-
-	// DisableStream disables a stream by ID
-	DisableStream(id string) error
-}
-
-// ValidationRepository defines the interface for validation data access
-type ValidationRepository interface {
 	// GetValidation returns the current validation data
 	GetValidation() *types.ValidationResults
 
