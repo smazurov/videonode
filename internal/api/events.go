@@ -58,6 +58,24 @@ type StreamUpdatedEvent struct {
 	Timestamp string            `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
+// StreamStateChangedEvent represents a change in stream enabled state
+// Used for LED control and other reactive subsystems
+type StreamStateChangedEvent struct {
+	StreamID  string `json:"stream_id" example:"stream-001" doc:"Stream identifier"`
+	Enabled   bool   `json:"enabled" example:"true" doc:"Whether stream is enabled"`
+	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+}
+
+// GetStreamID implements the StreamStateEvent interface for LED manager
+func (e StreamStateChangedEvent) GetStreamID() string {
+	return e.StreamID
+}
+
+// IsEnabled implements the StreamStateEvent interface for LED manager
+func (e StreamStateChangedEvent) IsEnabled() bool {
+	return e.Enabled
+}
+
 // Event broadcaster for inter-handler communication
 type EventBroadcaster struct {
 	channels []chan<- interface{}
@@ -66,6 +84,12 @@ type EventBroadcaster struct {
 
 var globalEventBroadcaster = &EventBroadcaster{
 	channels: make([]chan<- interface{}, 0),
+}
+
+// GetGlobalEventBroadcaster returns the global event broadcaster
+// Used by other packages to broadcast events
+func GetGlobalEventBroadcaster() *EventBroadcaster {
+	return globalEventBroadcaster
 }
 
 // Subscribe adds a channel to receive events
@@ -162,6 +186,17 @@ func BroadcastStreamUpdated(stream models.StreamData, timestamp string) {
 	globalEventBroadcaster.Broadcast(event)
 }
 
+// BroadcastStreamStateChanged sends a stream state change event
+// Used for LED control and other reactive subsystems
+func BroadcastStreamStateChanged(streamID string, enabled bool, timestamp string) {
+	event := StreamStateChangedEvent{
+		StreamID:  streamID,
+		Enabled:   enabled,
+		Timestamp: timestamp,
+	}
+	globalEventBroadcaster.Broadcast(event)
+}
+
 // registerSSERoutes registers the native Huma SSE endpoint
 func (s *Server) registerSSERoutes() {
 	// Register SSE endpoint with event type mapping
@@ -177,12 +212,13 @@ func (s *Server) registerSSERoutes() {
 	}, func() map[string]any {
 		// Application events
 		eventTypes := map[string]any{
-			"capture-success":  CaptureSuccessEvent{},
-			"capture-error":    CaptureErrorEvent{},
-			"device-discovery": DeviceDiscoveryEvent{},
-			"stream-created":   StreamCreatedEvent{},
-			"stream-updated":   StreamUpdatedEvent{},
-			"stream-deleted":   StreamDeletedEvent{},
+			"capture-success":       CaptureSuccessEvent{},
+			"capture-error":         CaptureErrorEvent{},
+			"device-discovery":      DeviceDiscoveryEvent{},
+			"stream-created":        StreamCreatedEvent{},
+			"stream-updated":        StreamUpdatedEvent{},
+			"stream-deleted":        StreamDeletedEvent{},
+			"stream-state-changed":  StreamStateChangedEvent{},
 		}
 
 		// Add OBS events for this endpoint

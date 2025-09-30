@@ -10,6 +10,7 @@ import (
 	"github.com/smazurov/videonode/cmd"
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/config"
+	"github.com/smazurov/videonode/internal/led"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/mediamtx"
 	"github.com/smazurov/videonode/internal/obs"
@@ -48,6 +49,9 @@ type Options struct {
 	// Auth settings
 	AuthUsername string `help:"Basic auth username" default:"admin" toml:"auth.username" env:"AUTH_USERNAME"`
 	AuthPassword string `help:"Basic auth password" default:"password" toml:"auth.password" env:"AUTH_PASSWORD"`
+
+	// Features settings
+	FeaturesLEDControl bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
 
 	// Logging settings
 	LoggingLevel    string `help:"Global logging level (debug, info, warn, error)" default:"info" toml:"logging.level" env:"LOGGING_LEVEL"`
@@ -140,14 +144,27 @@ func main() {
 
 		}
 
+		// Initialize LED control if enabled
+		var ledManager *led.Manager
+		var ledController led.Controller
+		if opts.FeaturesLEDControl {
+			logger.Info("LED control enabled, initializing")
+			ledController = led.New(logger)
+
+			// Create LED manager that subscribes to stream state changes
+			broadcaster := api.GetGlobalEventBroadcaster()
+			ledManager = led.NewManager(ledController, broadcaster, logger)
+		}
+
 		// Default command starts the server using existing API server
 		// Create stream store
 		streamStore := store.NewTOML(opts.StreamsConfigFile)
 
 		// Create stream service with OBS integration
 		serviceOpts := &streams.ServiceOptions{
-			Store:      streamStore,
-			OBSManager: obsManager,
+			Store:            streamStore,
+			OBSManager:       obsManager,
+			EventBroadcaster: api.BroadcastStreamStateChanged,
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)
@@ -170,6 +187,11 @@ func main() {
 			apiOpts.PrometheusHandler = promExporter.GetHandler()
 		}
 
+		// Add LED controller if available
+		if ledController != nil {
+			apiOpts.LEDController = ledController
+		}
+
 		server := api.NewServer(apiOpts)
 
 		// Wire up SSE exporter if OBS is enabled and SSE is configured
@@ -188,6 +210,11 @@ func main() {
 				}
 			}
 
+			// Start LED manager if enabled
+			if ledManager != nil {
+				ledManager.Start()
+			}
+
 			logger.Info("Starting server", "port", opts.Port)
 			if err := server.Start(opts.Port); err != nil && err != http.ErrServerClosed {
 				logger.Error("Failed to start server", "error", err)
@@ -199,6 +226,9 @@ func main() {
 			logger.Info("Shutting down server")
 			if err := server.Stop(); err != nil {
 				logger.Error("Error stopping server", "error", err)
+			}
+			if ledManager != nil {
+				ledManager.Stop()
 			}
 			if obsManager != nil {
 				obsManager.Stop()
