@@ -4,12 +4,23 @@ import (
 	"context"
 )
 
+// DeviceType represents the type of V4L2 device
+type DeviceType int
+
+const (
+	DeviceTypeWebcam  DeviceType = 0
+	DeviceTypeHDMI    DeviceType = 1
+	DeviceTypeUnknown DeviceType = -1
+)
+
 // DeviceInfo represents information about a V4L2 device
 type DeviceInfo struct {
 	DevicePath string
 	DeviceName string
 	DeviceId   string
 	Caps       uint32
+	Ready      bool       // Whether device is ready (has signal for HDMI, exists for webcam)
+	Type       DeviceType // Cached device type
 }
 
 // EventBroadcaster interface for broadcasting device events

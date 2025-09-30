@@ -78,6 +78,7 @@ type StreamData struct {
 	AudioDevice     string `json:"audio_device,omitempty" example:"hw:4,0" doc:"ALSA audio device"`
 	CustomFFmpegCmd string `json:"custom_ffmpeg_command,omitempty" example:"ffmpeg -f v4l2..." doc:"Custom FFmpeg command override"`
 	TestMode        bool   `json:"test_mode" example:"false" doc:"Test pattern mode enabled"`
+	Enabled         bool   `json:"enabled" example:"true" doc:"Runtime state - device ready and stream active"`
 }
 
 type StreamListData struct {
@@ -124,6 +125,7 @@ type StreamUpdateRequestData struct {
 	Options             []string `json:"options,omitempty" doc:"FFmpeg option keys (e.g., vsync_passthrough, low_latency)"`
 	CustomFFmpegCommand *string  `json:"custom_ffmpeg_command,omitempty" example:"ffmpeg -f v4l2 -i /dev/video0 -c:v h264_vaapi -f rtsp rtsp://localhost:8554/stream-001" doc:"Custom FFmpeg command override"`
 	TestMode            *bool    `json:"test_mode,omitempty" example:"false" doc:"Enable test pattern mode instead of device capture"`
+	Enabled             *bool    `json:"enabled,omitempty" example:"true" doc:"Manual override of runtime enabled state"`
 }
 
 type StreamUpdateRequest struct {
