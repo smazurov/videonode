@@ -149,7 +149,7 @@ func (f *FFmpegCollector) startSocketListener(ctx context.Context, dataChan chan
 			}
 		}
 
-		f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("FFmpeg connected to socket %s - Local: %s, Remote: %s", f.socketPath, conn.LocalAddr(), conn.RemoteAddr()), time.Now())
+		f.sendLog(dataChan, obs.LogLevelDebug, fmt.Sprintf("FFmpeg connected to socket %s - Local: %s, Remote: %s", f.socketPath, conn.LocalAddr(), conn.RemoteAddr()), time.Now())
 
 		// Handle connection in a goroutine
 		go f.handleConnection(ctx, conn, dataChan)
@@ -162,10 +162,10 @@ func (f *FFmpegCollector) handleConnection(ctx context.Context, conn net.Conn, d
 	defer func() {
 		conn.Close()
 		duration := time.Since(connectionStart)
-		f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("FFmpeg disconnected from socket %s after %v - Local: %s, Remote: %s", f.socketPath, duration, conn.LocalAddr(), conn.RemoteAddr()), time.Now())
+		f.sendLog(dataChan, obs.LogLevelDebug, fmt.Sprintf("FFmpeg disconnected from socket %s after %v - Local: %s, Remote: %s", f.socketPath, duration, conn.LocalAddr(), conn.RemoteAddr()), time.Now())
 	}()
 
-	f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Successfully reading FFmpeg progress data on socket %s", f.socketPath), time.Now())
+	f.sendLog(dataChan, obs.LogLevelDebug, fmt.Sprintf("Successfully reading FFmpeg progress data on socket %s", f.socketPath), time.Now())
 
 	scanner := bufio.NewScanner(conn)
 	progressData := make(map[string]string)

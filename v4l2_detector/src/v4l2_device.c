@@ -47,7 +47,7 @@ int v4l2_find_devices(struct v4l2_device_info **devices, size_t *count)
         return -ENOENT;
     }
 
-    // First pass: count devices
+    // Single-pass enumeration with dynamic allocation
     while ((dp = readdir(dirp)) != NULL)
     {
         int fd;
@@ -78,12 +78,7 @@ int v4l2_find_devices(struct v4l2_device_info **devices, size_t *count)
             continue;
         }
 
-#ifndef V4L2_CAP_DEVICE_CAPS
-        uint32_t caps = video_cap.capabilities;
-#else
-        /* ... since Linux 3.3 */
         uint32_t caps = (video_cap.capabilities & V4L2_CAP_DEVICE_CAPS) ? video_cap.device_caps : video_cap.capabilities;
-#endif
 
         if (!(caps & V4L2_CAP_VIDEO_CAPTURE))
         {
@@ -92,77 +87,21 @@ int v4l2_find_devices(struct v4l2_device_info **devices, size_t *count)
             continue;
         }
 
-        dev_count++;
-        v4l2_close(fd);
-    }
-
-    // Allocate device list
-    if (dev_count > 0)
-    {
-        dev_list = calloc(dev_count, sizeof(struct v4l2_device_info));
-        if (!dev_list)
+        // Allocate or grow device list
+        struct v4l2_device_info *new_list = realloc(dev_list, (dev_count + 1) * sizeof(struct v4l2_device_info));
+        if (!new_list)
         {
             LOG_ERROR("Failed to allocate memory for device list");
+            free(dev_list);
             closedir(dirp);
+            v4l2_close(fd);
             return -ENOMEM;
         }
-    }
-    else
-    {
-        *devices = NULL;
-        *count = 0;
-        closedir(dirp);
-        return 0;
-    }
-
-    // Reset directory position
-    rewinddir(dirp);
-
-    // Second pass: fill device list
-    int index = 0;
-    while ((dp = readdir(dirp)) != NULL && index < dev_count)
-    {
-        int fd;
-        char device_path[256];
-
-#ifdef __FreeBSD__
-        if (strstr(dp->d_name, "video") == NULL)
-            continue;
-#endif
-
-        if (dp->d_type == DT_DIR)
-            continue;
-
-        snprintf(device_path, sizeof(device_path), "/dev/%s", dp->d_name);
-
-        fd = v4l2_open(device_path, O_RDWR | O_NONBLOCK);
-        if (fd == -1)
-        {
-            continue;
-        }
-
-        struct v4l2_capability video_cap;
-        if (v4l2_ioctl(fd, VIDIOC_QUERYCAP, &video_cap) == -1)
-        {
-            v4l2_close(fd);
-            continue;
-        }
-
-#ifndef V4L2_CAP_DEVICE_CAPS
-        uint32_t caps = video_cap.capabilities;
-#else
-        uint32_t caps = (video_cap.capabilities & V4L2_CAP_DEVICE_CAPS) ? video_cap.device_caps : video_cap.capabilities;
-#endif
-
-        if (!(caps & V4L2_CAP_VIDEO_CAPTURE))
-        {
-            v4l2_close(fd);
-            continue;
-        }
+        dev_list = new_list;
 
         // Fill device info
-        dev_list[index].device_path = strdup(device_path);
-        dev_list[index].device_name = strdup((char *)video_cap.card);
+        dev_list[dev_count].device_path = strdup(device_path);
+        dev_list[dev_count].device_name = strdup((char *)video_cap.card);
 
         // Find the stable by-id symlink for this device
         char index_path[512];
@@ -216,7 +155,7 @@ int v4l2_find_devices(struct v4l2_device_info **devices, size_t *count)
 
         // If we found a stable by-id symlink, use it; otherwise fall back to bus_info with index
         if (stable_id) {
-            dev_list[index].device_id = stable_id;
+            dev_list[dev_count].device_id = stable_id;
             LOG_INFO("Found device '%s' at %s with stable ID: %s", video_cap.card, device_path, stable_id);
         } else {
             // Fallback: create a synthetic ID based on bus_info and index
@@ -227,13 +166,13 @@ int v4l2_find_devices(struct v4l2_device_info **devices, size_t *count)
             } else {
                 snprintf(fallback_id, sizeof(fallback_id), "platform-%s-video-index%d", video_cap.bus_info, index_value);
             }
-            dev_list[index].device_id = strdup(fallback_id);
+            dev_list[dev_count].device_id = strdup(fallback_id);
             LOG_INFO("Found device '%s' at %s with fallback ID: %s", video_cap.card, device_path, fallback_id);
         }
 
-        dev_list[index].caps = caps;
+        dev_list[dev_count].caps = caps;
 
-        index++;
+        dev_count++;
         v4l2_close(fd);
     }
 

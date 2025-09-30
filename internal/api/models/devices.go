@@ -80,13 +80,35 @@ func PixelFormatToHumanReadable(pixelFormat uint32) string {
 	return "unknown"
 }
 
+// DeviceType represents the type of V4L2 device
+type DeviceType int
+
+const (
+	DeviceTypeWebcam  DeviceType = 0
+	DeviceTypeHDMI    DeviceType = 1
+	DeviceTypeUnknown DeviceType = -1
+)
+
+func (dt DeviceType) String() string {
+	switch dt {
+	case DeviceTypeWebcam:
+		return "webcam"
+	case DeviceTypeHDMI:
+		return "hdmi"
+	default:
+		return "unknown"
+	}
+}
+
 // DeviceInfo represents a video device with snake_case fields
 type DeviceInfo struct {
-	DevicePath   string   `json:"device_path" example:"/dev/video0" doc:"System device path"`
-	DeviceName   string   `json:"device_name" example:"USB Camera" doc:"Device name"`
-	DeviceId     string   `json:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
-	Caps         uint32   `json:"caps" example:"84000001" doc:"Raw V4L2 capability flags"`
-	Capabilities []string `json:"capabilities" example:"[\"Video Capture\", \"Streaming I/O\"]" doc:"Device capabilities"`
+	DevicePath   string     `json:"device_path" example:"/dev/video0" doc:"System device path"`
+	DeviceName   string     `json:"device_name" example:"USB Camera" doc:"Device name"`
+	DeviceId     string     `json:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
+	Caps         uint32     `json:"caps" example:"84000001" doc:"Raw V4L2 capability flags"`
+	Capabilities []string   `json:"capabilities" example:"[\"Video Capture\", \"Streaming I/O\"]" doc:"Device capabilities"`
+	Ready        bool       `json:"ready" example:"true" doc:"Whether device is ready (has signal for HDMI, exists for webcam)"`
+	Type         DeviceType `json:"type" example:"1" doc:"Device type (0=webcam, 1=hdmi, -1=unknown)"`
 }
 
 // FormatInfo represents a video format with human-readable format names and snake_case fields

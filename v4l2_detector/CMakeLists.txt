@@ -40,6 +40,7 @@ set(SOURCES_LIB
     src/v4l2_formats.c
     src/v4l2_controls.c
     src/v4l2_utils.c
+    src/v4l2_signal.c
 )
 
 # Add the library target

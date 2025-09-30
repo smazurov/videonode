@@ -250,3 +250,104 @@ func (f Framerate) GetFPS() float64 {
 	}
 	return float64(f.Denominator) / float64(f.Numerator)
 }
+
+// DeviceType represents the type of V4L2 device
+type DeviceType int
+
+const (
+	DeviceTypeWebcam  DeviceType = 0
+	DeviceTypeHDMI    DeviceType = 1
+	DeviceTypeUnknown DeviceType = -1
+)
+
+// SignalState represents the state of a video signal
+type SignalState int
+
+const (
+	SignalStateNoDevice     SignalState = -1
+	SignalStateNoLink       SignalState = 0 // No cable connected
+	SignalStateNoSignal     SignalState = 1 // Cable connected, no signal
+	SignalStateUnstable     SignalState = 2 // Signal present but unstable
+	SignalStateLocked       SignalState = 3 // Signal locked and stable
+	SignalStateOutOfRange   SignalState = 4 // Signal out of supported range
+	SignalStateNotSupported SignalState = 5 // Device doesn't support DV timings
+)
+
+// SignalStatus contains detailed signal information
+type SignalStatus struct {
+	State      SignalState
+	Width      uint32
+	Height     uint32
+	FPS        float64
+	Interlaced bool
+}
+
+// GetDeviceType returns the type of a V4L2 device
+func GetDeviceType(devicePath string) DeviceType {
+	cPath := C.CString(devicePath)
+	defer C.free(unsafe.Pointer(cPath))
+
+	deviceType := C.v4l2_get_device_type(cPath)
+	return DeviceType(deviceType)
+}
+
+// GetDVTimings gets current DV timings and signal status (non-querying)
+func GetDVTimings(devicePath string) SignalStatus {
+	cPath := C.CString(devicePath)
+	defer C.free(unsafe.Pointer(cPath))
+
+	cStatus := C.v4l2_get_dv_timings(cPath)
+
+	return SignalStatus{
+		State:      SignalState(cStatus.state),
+		Width:      uint32(cStatus.width),
+		Height:     uint32(cStatus.height),
+		FPS:        float64(cStatus.fps),
+		Interlaced: cStatus.interlaced != 0,
+	}
+}
+
+// WaitForSourceChange waits for a source change event (blocking)
+func WaitForSourceChange(devicePath string, timeoutMs int) (int, error) {
+	cPath := C.CString(devicePath)
+	defer C.free(unsafe.Pointer(cPath))
+
+	result := C.v4l2_wait_for_source_change(cPath, C.int(timeoutMs))
+
+	if result < 0 {
+		if result == -2 {
+			return 0, fmt.Errorf("device does not support events")
+		}
+		return 0, fmt.Errorf("error waiting for source change: %d", result)
+	}
+
+	return int(result), nil
+}
+
+// IsDeviceReady checks if a V4L2 device is ready (has signal for HDMI, exists for webcam)
+func IsDeviceReady(devicePath string) bool {
+	cPath := C.CString(devicePath)
+	defer C.free(unsafe.Pointer(cPath))
+
+	ready := C.v4l2_device_is_ready(cPath)
+	return ready == 1
+}
+
+// DeviceStatus contains combined device type and ready status
+type DeviceStatus struct {
+	DeviceType DeviceType
+	Ready      bool
+}
+
+// GetDeviceStatus returns device type and ready status in a single device open
+func GetDeviceStatus(devicePath string) DeviceStatus {
+	cPath := C.CString(devicePath)
+	defer C.free(unsafe.Pointer(cPath))
+
+	cStatus := C.v4l2_get_device_status(cPath)
+
+	return DeviceStatus{
+		DeviceType: DeviceType(cStatus.device_type),
+		Ready:      cStatus.ready == 1,
+	}
+}
