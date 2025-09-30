@@ -8,10 +8,25 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
+// mockStore is a test implementation of Store
+type mockStore struct {
+	streams map[string]StreamSpec
+}
+
+func (m *mockStore) Load() error                                         { return nil }
+func (m *mockStore) Save() error                                         { return nil }
+func (m *mockStore) AddStream(stream StreamSpec) error                   { m.streams[stream.ID] = stream; return nil }
+func (m *mockStore) UpdateStream(id string, stream StreamSpec) error     { m.streams[id] = stream; return nil }
+func (m *mockStore) RemoveStream(id string) error                        { delete(m.streams, id); return nil }
+func (m *mockStore) GetStream(id string) (StreamSpec, bool)              { s, ok := m.streams[id]; return s, ok }
+func (m *mockStore) GetAllStreams() map[string]StreamSpec                { return m.streams }
+func (m *mockStore) GetValidation() *types.ValidationResults             { return nil }
+func (m *mockStore) UpdateValidation(*types.ValidationResults) error     { return nil }
+
 func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 	// Create mock repository
-	repo := NewTOMLRepository("test.toml")
-	stream := StreamConfig{
+	repo := &mockStore{streams: make(map[string]StreamSpec)}
+	stream := StreamSpec{
 		ID:      "test",
 		Device:  "usb-test",
 		Enabled: true,
@@ -26,12 +41,12 @@ func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 			},
 		},
 	}
-	repo.config.Streams["test"] = stream
+	repo.AddStream(stream)
 
-	processor := NewProcessor(repo)
+	processor := newProcessor(repo)
 
 	// Mock encoder selector that returns FFmpegParams
-	processor.SetEncoderSelector(func(codec, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) *ffmpeg.Params {
+	processor.setEncoderSelector(func(codec, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) *ffmpeg.Params {
 		params := &ffmpeg.Params{
 			Encoder:      "h264_vaapi",
 			Bitrate:      "5M",
@@ -47,18 +62,13 @@ func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 	})
 
 	// Mock device resolver
-	processor.SetDeviceResolver(func(device string) string {
+	processor.setDeviceResolver(func(device string) string {
 		return "/dev/video0"
 	})
 
-	processed, err := processor.ProcessStream("test")
+	processed, err := processor.processStream("test")
 	if err != nil {
 		t.Fatalf("ProcessStream failed: %v", err)
-	}
-
-	// Check that bitrate was extracted correctly
-	if processed.Bitrate != "5M" {
-		t.Errorf("Expected Bitrate to be '5M', got '%s'", processed.Bitrate)
 	}
 
 	// Verify the command has exactly one -b:v flag

@@ -16,6 +16,7 @@ import (
 	"github.com/smazurov/videonode/internal/obs/collectors"
 	"github.com/smazurov/videonode/internal/obs/exporters"
 	"github.com/smazurov/videonode/internal/streams"
+	"github.com/smazurov/videonode/internal/streams/store"
 )
 
 // Options for the CLI - flat structure with toml mapping
@@ -140,8 +141,12 @@ func main() {
 		}
 
 		// Default command starts the server using existing API server
+		// Create stream store
+		streamStore := store.NewTOML(opts.StreamsConfigFile)
+
 		// Create stream service with OBS integration
 		serviceOpts := &streams.ServiceOptions{
+			Store:      streamStore,
 			OBSManager: obsManager,
 		}
 
