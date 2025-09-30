@@ -1,0 +1,13 @@
+ui/
+!ui/dist/
+!ui/*.go
+
+dist/
+*.test
+*.out
+
+.git/
+.env*
+*.log
+.vscode/
+.idea/

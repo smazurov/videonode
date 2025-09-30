@@ -56,7 +56,59 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Python 3.12**: Use modern typed Python with type hints
 - **Pyinfra**: Infrastructure automation tool, simpler than Ansible
 - **Inventory**: Defined in `inventory.py` with host credentials
-- **Deploys**: Individual deployment scripts in `deploys/` directory 
+- **Deploys**: Individual deployment scripts in `deploys/` directory
+
+## Testing Guidelines
+
+### Go Testing Idioms
+
+- **Table-driven tests**: Prefer table-driven tests for multiple similar cases
+  ```go
+  tests := []struct {
+      name string
+      input string
+      want string
+  }{
+      {"case1", "input1", "output1"},
+      {"case2", "input2", "output2"},
+  }
+  for _, tt := range tests {
+      t.Run(tt.name, func(t *testing.T) {
+          // test logic
+      })
+  }
+  ```
+
+- **Manual mocks**: Use simple manual mocks over complex frameworks
+  - Define small mock structs that implement interfaces
+  - Embed interfaces to satisfy contracts, override only needed methods
+  - No external mocking libraries (gomock, testify) unless absolutely necessary
+
+- **Interface-based testing**: Design for testability
+  - Accept interfaces, return concrete types
+  - Define interfaces at point of use, not implementation
+  - Keep interfaces small and focused (1-3 methods ideal)
+
+- **Test structure**: Follow standard Go conventions
+  - Test files: `*_test.go` in same package
+  - Test functions: `Test*` with `*testing.T` parameter
+  - Subtests: Use `t.Run()` for logical grouping
+  - Helpers: Accept `*testing.T` as first parameter
+
+- **Test naming**: Be descriptive
+  - Function: `TestComponentName_Scenario`
+  - Table cases: Use descriptive `name` field
+  - Example: `TestSysfsController_Set_InvalidType`
+
+- **Assertions**: Use simple comparisons
+  - Prefer `if got != want` over assertion libraries
+  - Use `t.Errorf()` for failures with clear messages
+  - Use `t.Fatal()` only when test cannot continue
+
+- **Keep tests simple**: Test behavior, not implementation
+  - Focus on inputs and outputs
+  - Avoid brittle tests that break on refactoring
+  - Each test should verify one behavior
 
 ## Architecture
 
@@ -143,6 +195,17 @@ This file provides guidance for agentic coding agents working with this Go-based
   - `/v3/paths/list`: List all active paths and their status
 - **Stream Source Options**: `rtsp://`, `rtmp://`, `http://`, `udp://`, `srt://`, WebRTC, file playback
 - **Authentication**: Supports internal users, HTTP callbacks, and JWT tokens
+
+### Debugging & Logging
+
+#### systemd-run Logs
+- **Critical Finding**: `systemd-run --user` logs appear in the **system journal**, NOT the user journal
+- Even though the command runs in user systemd, stdout/stderr goes to system journal
+- Logs are tagged with parent process (e.g., `mediamtx[PID]`) when MediaMTX captures FFmpeg output
+- **View logs**: `journalctl --since "1 hour ago" | grep -E "ffmpeg|mediamtx"`
+- **NOT**: `journalctl --user` (returns empty/minimal results)
+- The `--collect` flag removes the unit after completion, but **logs persist in journald**
+- Per systemd docs: "after unloading the unit it cannot be inspected using systemctl status, but its logs are still in journal"
 
 ### Device Monitoring
 - **Hotplug Support**: udev-based monitoring for USB device insertion/removal

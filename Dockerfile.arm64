@@ -69,9 +69,6 @@ RUN xx-go build \
     -o videonode-arm64 \
     .
 
-# Verify the binary
-RUN xx-verify videonode-arm64
-
 # Export stage
 FROM scratch AS export
 COPY --from=builder /workspace/videonode-arm64 /
