@@ -217,6 +217,90 @@ extern "C"
      */
     float v4l2_framerate_to_fps(struct v4l2_framerate framerate);
 
+    /* Signal detection functions */
+
+    /**
+     * Device type enumeration
+     */
+    enum v4l2_device_type {
+        V4L2_DEVICE_TYPE_WEBCAM = 0,
+        V4L2_DEVICE_TYPE_HDMI = 1,
+        V4L2_DEVICE_TYPE_UNKNOWN = -1
+    };
+
+    /**
+     * Signal state enumeration
+     */
+    enum v4l2_signal_state {
+        V4L2_SIGNAL_STATE_NO_DEVICE = -1,
+        V4L2_SIGNAL_STATE_NO_LINK = 0,     // No cable connected
+        V4L2_SIGNAL_STATE_NO_SIGNAL = 1,   // Cable connected, no signal
+        V4L2_SIGNAL_STATE_UNSTABLE = 2,    // Signal present but unstable
+        V4L2_SIGNAL_STATE_LOCKED = 3,      // Signal locked and stable
+        V4L2_SIGNAL_STATE_OUT_OF_RANGE = 4,// Signal out of supported range
+        V4L2_SIGNAL_STATE_NOT_SUPPORTED = 5 // Device doesn't support DV timings
+    };
+
+    /**
+     * Signal status structure
+     */
+    struct v4l2_signal_status {
+        enum v4l2_signal_state state;
+        uint32_t width;
+        uint32_t height;
+        double fps;
+        int interlaced;
+    };
+
+    /**
+     * Get the type of a V4L2 device
+     *
+     * @param device_path Path to the device
+     * @return Device type enum value
+     */
+    int v4l2_get_device_type(const char *device_path);
+
+    /**
+     * Get current DV timings and signal status (non-querying)
+     *
+     * @param device_path Path to the device
+     * @return Signal status structure with current state
+     */
+    struct v4l2_signal_status v4l2_get_dv_timings(const char *device_path);
+
+    /**
+     * Wait for source change event (blocking)
+     *
+     * @param device_path Path to the device
+     * @param timeout_ms Timeout in milliseconds (0 for infinite)
+     * @return Change flags on success, 0 on timeout, negative on error
+     */
+    int v4l2_wait_for_source_change(const char *device_path, int timeout_ms);
+
+    /**
+     * Check if a V4L2 device is ready (has signal for HDMI, exists for webcam)
+     *
+     * @param device_path Path to the device
+     * @return 1 if ready, 0 if not ready
+     */
+    int v4l2_device_is_ready(const char *device_path);
+
+    /**
+     * Combined device type and ready status structure
+     */
+    struct v4l2_device_status {
+        int device_type;  // Device type (0=webcam, 1=HDMI, -1=unknown)
+        int ready;        // Ready status (1=ready, 0=not ready)
+    };
+
+    /**
+     * Get device type and ready status in a single device open
+     *
+     * @param device_path Path to the device
+     * @return Device status structure with type and ready fields
+     */
+    struct v4l2_device_status v4l2_get_device_status(const char *device_path);
+
 #ifdef __cplusplus
 }
 #endif
