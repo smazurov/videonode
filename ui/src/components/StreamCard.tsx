@@ -234,7 +234,7 @@ export function StreamCard({ stream, onDelete, onRefresh, showVideo = true, clas
         </div>
 
         {/* Stream URLs */}
-        {(stream.webrtc_url || stream.rtsp_url) && (
+        {(stream.webrtc_url || stream.srt_url) && (
           <div className="space-y-2">
             <h4 className="text-sm font-medium text-gray-900 dark:text-white">Stream URLs:</h4>
             {stream.webrtc_url && (
@@ -247,13 +247,13 @@ export function StreamCard({ stream, onDelete, onRefresh, showVideo = true, clas
                 </code>
               </div>
             )}
-            {stream.rtsp_url && (
+            {stream.srt_url && (
               <div className="flex items-center space-x-2">
-                <span className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-2 py-1 rounded">
-                  RTSP
+                <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded">
+                  SRT
                 </span>
                 <code className="text-xs text-gray-600 dark:text-gray-300 truncate flex-1">
-                  {buildStreamURL(stream.rtsp_url, 'rtsp')}
+                  {buildStreamURL(stream.srt_url, 'srt')}
                 </code>
               </div>
             )}

@@ -27,9 +27,8 @@ func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 	// Create mock repository
 	repo := &mockStore{streams: make(map[string]StreamSpec)}
 	stream := StreamSpec{
-		ID:      "test",
-		Device:  "usb-test",
-		Enabled: true,
+		ID:     "test",
+		Device: "usb-test",
 		FFmpeg: FFmpegConfig{
 			Codec:       "h264",
 			InputFormat: "yuyv422",
@@ -66,6 +65,11 @@ func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 		return "/dev/video0"
 	})
 
+	// Mock stream state getter (enabled = true)
+	processor.setStreamStateGetter(func(streamID string) (*Stream, bool) {
+		return &Stream{ID: streamID, Enabled: true}, true
+	})
+
 	processed, err := processor.processStream("test")
 	if err != nil {
 		t.Fatalf("ProcessStream failed: %v", err)
@@ -85,5 +89,147 @@ func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 	// Verify the command has rc_mode for hardware encoder
 	if !strings.Contains(processed.FFmpegCommand, "-rc_mode CBR") {
 		t.Errorf("FFmpeg command should contain '-rc_mode CBR' for hardware encoder, got: %s", processed.FFmpegCommand)
+	}
+}
+
+func TestPrecedenceNoSignalOverCustomCommand(t *testing.T) {
+	repo := &mockStore{streams: make(map[string]StreamSpec)}
+	stream := StreamSpec{
+		ID:                  "test",
+		Device:              "usb-test",
+		CustomFFmpegCommand: "ffmpeg -f v4l2 -i /dev/video0 -c:v copy -f rtsp rtsp://localhost:8554/test",
+		FFmpeg: FFmpegConfig{
+			Codec:       "h264",
+			InputFormat: "yuyv422",
+		},
+	}
+	repo.AddStream(stream)
+
+	processor := newProcessor(repo)
+	processor.setDeviceResolver(func(device string) string {
+		return "/dev/video0"
+	})
+
+	// Mock stream state getter (enabled = false, device offline)
+	processor.setStreamStateGetter(func(streamID string) (*Stream, bool) {
+		return &Stream{ID: streamID, Enabled: false}, true
+	})
+
+	processed, err := processor.processStream("test")
+	if err != nil {
+		t.Fatalf("ProcessStream failed: %v", err)
+	}
+
+	// Should generate NO SIGNAL test pattern, NOT use custom command
+	if processed.FFmpegCommand == stream.CustomFFmpegCommand {
+		t.Errorf("Expected NO SIGNAL test pattern, got custom command: %s", processed.FFmpegCommand)
+	}
+	if !strings.Contains(processed.FFmpegCommand, "testsrc") {
+		t.Errorf("Expected test source for NO SIGNAL, got: %s", processed.FFmpegCommand)
+	}
+	if !strings.Contains(processed.FFmpegCommand, "NO SIGNAL") {
+		t.Errorf("Expected 'NO SIGNAL' overlay, got: %s", processed.FFmpegCommand)
+	}
+}
+
+func TestPrecedenceCustomCommandWhenOnline(t *testing.T) {
+	repo := &mockStore{streams: make(map[string]StreamSpec)}
+	customCmd := "ffmpeg -f v4l2 -i /dev/video0 -c:v copy -f rtsp rtsp://localhost:8554/test"
+	stream := StreamSpec{
+		ID:                  "test",
+		Device:              "usb-test",
+		CustomFFmpegCommand: customCmd,
+		FFmpeg: FFmpegConfig{
+			Codec:       "h264",
+			InputFormat: "yuyv422",
+		},
+	}
+	repo.AddStream(stream)
+
+	processor := newProcessor(repo)
+
+	// Mock stream state getter (enabled = true, device online)
+	processor.setStreamStateGetter(func(streamID string) (*Stream, bool) {
+		return &Stream{ID: streamID, Enabled: true}, true
+	})
+
+	processed, err := processor.processStream("test")
+	if err != nil {
+		t.Fatalf("ProcessStream failed: %v", err)
+	}
+
+	// Should use custom command when device is online
+	if processed.FFmpegCommand != customCmd {
+		t.Errorf("Expected custom command when device online, got: %s", processed.FFmpegCommand)
+	}
+}
+
+func TestPrecedenceTestModeWhenOnlineNoCustomCommand(t *testing.T) {
+	repo := &mockStore{streams: make(map[string]StreamSpec)}
+	stream := StreamSpec{
+		ID:       "test",
+		Device:   "usb-test",
+		TestMode: true, // Test mode enabled
+		FFmpeg: FFmpegConfig{
+			Codec:       "h264",
+			InputFormat: "yuyv422",
+		},
+	}
+	repo.AddStream(stream)
+
+	processor := newProcessor(repo)
+	processor.setDeviceResolver(func(device string) string {
+		return "/dev/video0"
+	})
+
+	// Mock stream state getter (enabled = true, device online)
+	processor.setStreamStateGetter(func(streamID string) (*Stream, bool) {
+		return &Stream{ID: streamID, Enabled: true}, true
+	})
+
+	processed, err := processor.processStream("test")
+	if err != nil {
+		t.Fatalf("ProcessStream failed: %v", err)
+	}
+
+	// Should generate TEST MODE test pattern
+	if !strings.Contains(processed.FFmpegCommand, "testsrc") {
+		t.Errorf("Expected test source for TEST MODE, got: %s", processed.FFmpegCommand)
+	}
+	if !strings.Contains(processed.FFmpegCommand, "TEST MODE") {
+		t.Errorf("Expected 'TEST MODE' overlay, got: %s", processed.FFmpegCommand)
+	}
+}
+
+func TestPrecedenceTestModeIgnoredWhenCustomCommand(t *testing.T) {
+	repo := &mockStore{streams: make(map[string]StreamSpec)}
+	customCmd := "ffmpeg -f v4l2 -i /dev/video0 -c:v copy -f rtsp rtsp://localhost:8554/test"
+	stream := StreamSpec{
+		ID:                  "test",
+		Device:              "usb-test",
+		TestMode:            true, // Test mode enabled but should be ignored
+		CustomFFmpegCommand: customCmd,
+		FFmpeg: FFmpegConfig{
+			Codec:       "h264",
+			InputFormat: "yuyv422",
+		},
+	}
+	repo.AddStream(stream)
+
+	processor := newProcessor(repo)
+
+	// Mock stream state getter (enabled = true, device online)
+	processor.setStreamStateGetter(func(streamID string) (*Stream, bool) {
+		return &Stream{ID: streamID, Enabled: true}, true
+	})
+
+	processed, err := processor.processStream("test")
+	if err != nil {
+		t.Fatalf("ProcessStream failed: %v", err)
+	}
+
+	// Custom command takes precedence over test mode
+	if processed.FFmpegCommand != customCmd {
+		t.Errorf("Expected custom command to override test mode, got: %s", processed.FFmpegCommand)
 	}
 }

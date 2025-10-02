@@ -14,6 +14,7 @@ import (
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/capture"
 	"github.com/smazurov/videonode/internal/devices"
+	"github.com/smazurov/videonode/internal/events"
 )
 
 // Device path parameter input
@@ -433,7 +434,14 @@ func (s *Server) registerDeviceRoutes() {
 			} else {
 				// Broadcast success event with base64 image via Huma SSE
 				base64Image := base64.StdEncoding.EncodeToString(imageBytes)
-				BroadcastCaptureSuccess(devicePath, base64Image, timestamp)
+				if s.eventBus != nil {
+					s.eventBus.Publish(events.CaptureSuccessEvent{
+						DevicePath: devicePath,
+						Message:    "Screenshot captured successfully",
+						ImageData:  base64Image,
+						Timestamp:  timestamp,
+					})
+				}
 			}
 		}()
 

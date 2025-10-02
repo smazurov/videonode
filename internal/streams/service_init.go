@@ -9,6 +9,8 @@ import (
 )
 
 // LoadStreamsFromConfig loads existing streams from TOML config into memory
+// This is called only at startup - runtime management is via CRUD APIs
+// Not part of StreamService interface - use CRUD APIs for runtime management
 func (s *service) LoadStreamsFromConfig() error {
 	if s.store == nil {
 		return fmt.Errorf("repository not initialized")
@@ -31,12 +33,7 @@ func (s *service) LoadStreamsFromConfig() error {
 		}
 	}
 
-	// Need to read the count safely
-	s.streamsMutex.RLock()
-	streamCount := len(s.streams)
-	s.streamsMutex.RUnlock()
-
-	s.logger.Info("Loaded streams from configuration", "count", streamCount)
+	s.logger.Info("Loaded streams from configuration")
 
 	// Sync all streams to MediaMTX via API
 	if err := s.mediamtxClient.SyncAll(); err != nil {
@@ -48,18 +45,18 @@ func (s *service) LoadStreamsFromConfig() error {
 
 // InitializeStream initializes a single stream with all integrations
 func (s *service) InitializeStream(streamConfig StreamSpec) error {
-	// Create stream entity from config
+	// Create stream runtime state
+	// Enabled defaults to false and will be set by device monitoring
 	stream := &Stream{
-		ID:        streamConfig.ID,
-		DeviceID:  streamConfig.Device,
-		Codec:     streamConfig.FFmpeg.Codec, // Use the generic codec from FFmpeg config
-		StartTime: time.Now(),                // Track when loaded into memory, not creation time
+		ID:             streamConfig.ID,
+		Enabled:        false,      // Runtime state, set by device monitoring
+		StartTime:      time.Now(), // Track when loaded into memory
+		ProgressSocket: getSocketPath(streamConfig.ID),
 	}
 
 	// Store the stream in memory - only lock for the write
 	s.streamsMutex.Lock()
 	s.streams[streamConfig.ID] = stream
-	stream.ProgressSocket = getSocketPath(streamConfig.ID)
 	s.streamsMutex.Unlock()
 
 	// Initialize OBS monitoring
