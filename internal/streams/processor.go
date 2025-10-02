@@ -25,6 +25,7 @@ type processor struct {
 	store           Store
 	encoderSelector encoderSelector
 	deviceResolver  deviceResolver
+	getStreamState  func(streamID string) (*Stream, bool) // Get runtime state
 }
 
 // newProcessor creates a new stream processor
@@ -47,6 +48,9 @@ func newProcessor(repo Store) *processor {
 		deviceResolver: func(deviceID string) string {
 			return deviceID // Return as-is by default
 		},
+		getStreamState: func(streamID string) (*Stream, bool) {
+			return nil, false // No runtime state by default
+		},
 	}
 }
 
@@ -60,30 +64,35 @@ func (p *processor) setDeviceResolver(resolver deviceResolver) {
 	p.deviceResolver = resolver
 }
 
+// setStreamStateGetter sets the function to get runtime stream state
+func (p *processor) setStreamStateGetter(getter func(streamID string) (*Stream, bool)) {
+	p.getStreamState = getter
+}
+
 // applyStreamSettingsToFFmpegParams applies common stream settings to FFmpeg params
-func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Params, stream *StreamSpec, devicePath string, socketPath string) {
+func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Params, streamConfig *StreamSpec, devicePath string, socketPath string, enabled bool) {
 	// Add stream-specific settings to FFmpeg params
 	ffmpegParams.DevicePath = devicePath
-	ffmpegParams.InputFormat = stream.FFmpeg.InputFormat
-	ffmpegParams.Resolution = stream.FFmpeg.Resolution
-	ffmpegParams.FPS = stream.FFmpeg.FPS
-	ffmpegParams.AudioDevice = stream.FFmpeg.AudioDevice
+	ffmpegParams.InputFormat = streamConfig.FFmpeg.InputFormat
+	ffmpegParams.Resolution = streamConfig.FFmpeg.Resolution
+	ffmpegParams.FPS = streamConfig.FFmpeg.FPS
+	ffmpegParams.AudioDevice = streamConfig.FFmpeg.AudioDevice
 
 	// Set default audio resampling filter for sync when audio device is present
-	if stream.FFmpeg.AudioDevice != "" {
+	if streamConfig.FFmpeg.AudioDevice != "" {
 		ffmpegParams.AudioFilters = "aresample=async=1:min_hard_comp=0.100000:first_pts=0"
 	}
 
 	ffmpegParams.ProgressSocket = socketPath
-	ffmpegParams.Options = stream.FFmpeg.Options
-	ffmpegParams.OutputURL = "rtsp://localhost:8554/$MTX_PATH"
+	ffmpegParams.Options = streamConfig.FFmpeg.Options
+	ffmpegParams.OutputURL = "srt://localhost:8890?streamid=publish:$MTX_PATH"
 
 	// Determine test source mode and overlay text
-	if !stream.Enabled {
+	if !enabled {
 		// Device offline or no signal
 		ffmpegParams.IsTestSource = true
 		ffmpegParams.TestOverlay = "NO SIGNAL"
-	} else if stream.TestMode {
+	} else if streamConfig.TestMode {
 		// Explicit test mode
 		ffmpegParams.IsTestSource = true
 		ffmpegParams.TestOverlay = "TEST MODE"
@@ -101,29 +110,44 @@ func (p *processor) processStream(streamID string) (*mediamtx.ProcessedStream, e
 
 // processStreamWithEncoder processes a single stream with an optional encoder override
 func (p *processor) processStreamWithEncoder(streamID string, encoderOverride string) (*mediamtx.ProcessedStream, error) {
-	stream, exists := p.store.GetStream(streamID)
+	streamConfig, exists := p.store.GetStream(streamID)
 	if !exists {
 		return nil, fmt.Errorf("stream %s not found", streamID)
 	}
 
-	// If custom command is set, use it directly
-	if stream.CustomFFmpegCommand != "" {
+	// Get runtime state (enabled status)
+	streamState, hasState := p.getStreamState(streamID)
+	enabled := false
+	if hasState {
+		enabled = streamState.Enabled
+	}
+
+	// Priority order:
+	// 1. NO SIGNAL (device offline) - absolute precedence
+	// 2. Custom command (device online + custom command set)
+	// 3. Test mode (device online + no custom command + test mode enabled)
+	// 4. Normal capture (device online + no custom command + test mode disabled)
+
+	// If device is offline, ignore custom command and generate NO SIGNAL pattern
+	if !enabled {
+		// Fall through to generate NO SIGNAL test pattern
+	} else if streamConfig.CustomFFmpegCommand != "" {
+		// Device is online AND custom command is set - use custom command
 		return &mediamtx.ProcessedStream{
 			StreamID:      streamID,
-			FFmpegCommand: stream.CustomFFmpegCommand,
-			// Other fields will be empty/default when using custom command
+			FFmpegCommand: streamConfig.CustomFFmpegCommand,
 		}, nil
 	}
 
 	// Determine if we should use test source (either TestMode or device not enabled)
-	useTestSource := stream.TestMode || !stream.Enabled
+	useTestSource := streamConfig.TestMode || !enabled
 
 	// Resolve device path (skip if using test source)
 	var devicePath string
 	if !useTestSource {
-		devicePath = p.deviceResolver(stream.Device)
+		devicePath = p.deviceResolver(streamConfig.Device)
 		if devicePath == "" {
-			return nil, fmt.Errorf("device %s not found", stream.Device)
+			return nil, fmt.Errorf("device %s not found", streamConfig.Device)
 		}
 	}
 
@@ -133,19 +157,19 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	// Select encoder and get settings
 	var ffmpegParams *ffmpeg.Params
 
-	if stream.FFmpeg.Codec != "" {
+	if streamConfig.FFmpeg.Codec != "" {
 		// Use encoder selector to get optimal encoder and all params
 		// If encoderOverride is provided, selector will use it directly with proper settings
 		// Pass "testsrc" as input format when using test source to get appropriate filters
-		inputFormat := stream.FFmpeg.InputFormat
+		inputFormat := streamConfig.FFmpeg.InputFormat
 		if useTestSource {
 			inputFormat = "testsrc"
 		}
 
 		ffmpegParams = p.encoderSelector(
-			stream.FFmpeg.Codec,
+			streamConfig.FFmpeg.Codec,
 			inputFormat,
-			stream.FFmpeg.QualityParams,
+			streamConfig.FFmpeg.QualityParams,
 			encoderOverride, // Pass encoder override to selector
 		)
 
@@ -168,7 +192,7 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	}
 
 	// Apply common stream settings to FFmpeg params
-	p.applyStreamSettingsToFFmpegParams(ffmpegParams, &stream, devicePath, socketPath)
+	p.applyStreamSettingsToFFmpegParams(ffmpegParams, &streamConfig, devicePath, socketPath, enabled)
 
 	// Build FFmpeg command using the new Params struct
 	ffmpegCmd := ffmpeg.BuildCommand(ffmpegParams)

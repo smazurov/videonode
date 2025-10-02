@@ -2,53 +2,24 @@ package exporters
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/obs"
 )
 
-// MockSSEBroadcaster for testing
-type MockSSEBroadcaster struct {
-	mu     sync.Mutex
-	events []SSEEvent
-}
-
-type SSEEvent struct {
-	EventType string
-	Data      interface{}
-}
-
-func (m *MockSSEBroadcaster) BroadcastEvent(eventType string, data interface{}) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.events = append(m.events, SSEEvent{
-		EventType: eventType,
-		Data:      data,
-	})
-	return nil
-}
-
-func (m *MockSSEBroadcaster) GetEvents() []SSEEvent {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	result := make([]SSEEvent, len(m.events))
-	copy(result, m.events)
-	return result
-}
-
-func (m *MockSSEBroadcaster) Reset() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.events = nil
-}
-
 func TestSSEExporter_SystemMetrics(t *testing.T) {
-	broadcaster := &MockSSEBroadcaster{}
-	exporter := NewSSEExporter(broadcaster)
+	mockBus := &MockEventBus{}
+	exporter := &SSEExporter{
+		eventBus:      mockBus,
+		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
+		logLevel:      "info",
+		streamMetrics: make(map[string]*StreamMetricsAccumulator),
+	}
 
-	// Test metrics event generation (new format - separate metrics)
 	testMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
 			Name:       "test_value_1",
@@ -71,24 +42,27 @@ func TestSSEExporter_SystemMetrics(t *testing.T) {
 		}
 	}
 
-	events := broadcaster.GetEvents()
-	if len(events) != 2 {
-		t.Fatalf("Expected 2 events, got %d", len(events))
+	captured := mockBus.GetEvents()
+	if len(captured) != 2 {
+		t.Fatalf("Expected 2 events, got %d", len(captured))
 	}
 
-	// System metrics are now sent as individual mediamtx-metrics events
-	for i, event := range events {
-		if event.EventType != "mediamtx-metrics" {
-			t.Errorf("Event %d: Expected event type 'mediamtx-metrics', got '%s'", i, event.EventType)
+	for i, event := range captured {
+		if _, ok := event.(events.MediaMTXMetricsEvent); !ok {
+			t.Errorf("Event %d: Expected MediaMTXMetricsEvent, got %T", i, event)
 		}
 	}
 }
 
 func TestSSEExporter_StreamMetrics(t *testing.T) {
-	broadcaster := &MockSSEBroadcaster{}
-	exporter := NewSSEExporter(broadcaster)
+	mockBus := &MockEventBus{}
+	exporter := &SSEExporter{
+		eventBus:      mockBus,
+		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
+		logLevel:      "info",
+		streamMetrics: make(map[string]*StreamMetricsAccumulator),
+	}
 
-	// Test multiple FFmpeg metrics consolidation
 	ffmpegMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
 			Name:       "ffmpeg_fps",
@@ -123,22 +97,20 @@ func TestSSEExporter_StreamMetrics(t *testing.T) {
 		}
 	}
 
-	events := broadcaster.GetEvents()
-	// FFmpeg metrics should now generate combined stream-metrics events
-	if len(events) != 4 {
-		t.Fatalf("Expected 4 events, got %d", len(events))
+	captured := mockBus.GetEvents()
+	if len(captured) != 4 {
+		t.Fatalf("Expected 4 events, got %d", len(captured))
 	}
 
-	// All should now be stream-metrics type (fixed behavior)
-	for i, event := range events {
-		if event.EventType != "stream-metrics" {
-			t.Errorf("Event %d: Expected type 'stream-metrics', got '%s'", i, event.EventType)
+	for i, event := range captured {
+		if _, ok := event.(events.StreamMetricsEvent); !ok {
+			t.Errorf("Event %d: Expected StreamMetricsEvent, got %T", i, event)
 		}
 	}
 }
 
 func TestSSEExporter_LogFiltering(t *testing.T) {
-	broadcaster := &MockSSEBroadcaster{}
+	mockBus := &MockEventBus{}
 	testCases := []struct {
 		name          string
 		configLevel   string
@@ -155,9 +127,14 @@ func TestSSEExporter_LogFiltering(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			broadcaster.Reset()
-			exporter := NewSSEExporter(broadcaster)
-			exporter.logLevel = tc.configLevel
+			mockBus.Reset()
+			exporter := &SSEExporter{
+				eventBus:      mockBus,
+				config:        obs.ExporterConfig{Name: "sse", Enabled: true},
+				logger:        slog.Default(),
+				logLevel:      tc.configLevel,
+				streamMetrics: make(map[string]*StreamMetricsAccumulator),
+			}
 
 			logEntry := &obs.LogEntry{
 				Level:      tc.logLevel,
@@ -171,25 +148,19 @@ func TestSSEExporter_LogFiltering(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Export failed: %v", err)
 			}
-
-			// Note: Currently logs are just printed, not broadcasted
-			// This test verifies the filtering logic would work
 		})
 	}
 }
 
 func TestSSEExporter_ConcurrentExport(t *testing.T) {
-	broadcaster := &MockSSEBroadcaster{}
+	mockBus := &MockEventBus{}
 	exporter := &SSEExporter{
-		broadcaster: broadcaster,
-		config: obs.ExporterConfig{
-			Name:    "sse",
-			Enabled: true,
-		},
-		logLevel: "info",
+		eventBus:      mockBus,
+		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
+		logLevel:      "info",
+		streamMetrics: make(map[string]*StreamMetricsAccumulator),
 	}
 
-	// Test concurrent exports don't cause race conditions
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -208,16 +179,14 @@ func TestSSEExporter_ConcurrentExport(t *testing.T) {
 	}
 
 	wg.Wait()
+	captured := mockBus.GetEvents()
 
-	events := broadcaster.GetEvents()
-	// Should have 100 events total (10 goroutines * 10 metrics each)
-	if len(events) != 100 {
-		t.Errorf("Expected 100 events, got %d", len(events))
+	if len(captured) != 100 {
+		t.Errorf("Expected 100 events, got %d", len(captured))
 	}
 }
 
 func TestSSEExporter_EventRouting(t *testing.T) {
-	// Test that events are routed to correct endpoints
 	routes := GetEventRoutes()
 
 	expectedRoutes := map[string]string{
@@ -237,17 +206,14 @@ func TestSSEExporter_EventRouting(t *testing.T) {
 }
 
 func TestSSEExporter_MetricsFormatting(t *testing.T) {
-	broadcaster := &MockSSEBroadcaster{}
+	mockBus := &MockEventBus{}
 	exporter := &SSEExporter{
-		broadcaster: broadcaster,
-		config: obs.ExporterConfig{
-			Name:    "sse",
-			Enabled: true,
-		},
-		logLevel: "info",
+		eventBus:      mockBus,
+		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
+		logLevel:      "info",
+		streamMetrics: make(map[string]*StreamMetricsAccumulator),
 	}
 
-	// Test metrics are formatted correctly for SSE
 	testMetric := &obs.MetricPoint{
 		Name:       "test_metric",
 		Value:      42.5,
@@ -261,15 +227,14 @@ func TestSSEExporter_MetricsFormatting(t *testing.T) {
 		t.Fatalf("Export failed: %v", err)
 	}
 
-	events := broadcaster.GetEvents()
-	if len(events) != 1 {
-		t.Fatalf("Expected 1 event, got %d", len(events))
+	captured := mockBus.GetEvents()
+	if len(captured) != 1 {
+		t.Fatalf("Expected 1 event, got %d", len(captured))
 	}
 
-	// Check the MediaMTX metrics event structure
-	eventData, ok := events[0].Data.(MediaMTXMetricsEvent)
+	eventData, ok := captured[0].(events.MediaMTXMetricsEvent)
 	if !ok {
-		t.Fatalf("Event data is not MediaMTXMetricsEvent type")
+		t.Fatalf("Event data is not MediaMTXMetricsEvent type, got %T", captured[0])
 	}
 
 	if eventData.Count != 1 {
@@ -280,7 +245,6 @@ func TestSSEExporter_MetricsFormatting(t *testing.T) {
 		t.Fatalf("Expected 1 metric, got %d", len(eventData.Metrics))
 	}
 
-	// Check metric fields
 	metric := eventData.Metrics[0]
 	if metric["name"] != "test_metric" {
 		t.Errorf("Expected name 'test_metric', got '%v'", metric["name"])
@@ -302,20 +266,14 @@ func TestSSEExporter_MetricsFormatting(t *testing.T) {
 }
 
 func TestSSEExporter_HistoryPreservation(t *testing.T) {
-	// SSE should allow seeing historical events (within reason)
-	// This is different from Prometheus which only shows current state
-
-	broadcaster := &MockSSEBroadcaster{}
+	mockBus := &MockEventBus{}
 	exporter := &SSEExporter{
-		broadcaster: broadcaster,
-		config: obs.ExporterConfig{
-			Name:    "sse",
-			Enabled: true,
-		},
-		logLevel: "info",
+		eventBus:      mockBus,
+		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
+		logLevel:      "info",
+		streamMetrics: make(map[string]*StreamMetricsAccumulator),
 	}
 
-	// Send multiple updates for the same metric
 	for i := 0; i < 5; i++ {
 		metric := &obs.MetricPoint{
 			Name:       "history_test",
@@ -326,15 +284,13 @@ func TestSSEExporter_HistoryPreservation(t *testing.T) {
 		exporter.Export([]obs.DataPoint{metric})
 	}
 
-	events := broadcaster.GetEvents()
-	// SSE should have all 5 events (history preserved)
-	if len(events) != 5 {
-		t.Errorf("Expected 5 events (history), got %d", len(events))
+	captured := mockBus.GetEvents()
+	if len(captured) != 5 {
+		t.Errorf("Expected 5 events (history), got %d", len(captured))
 	}
 
-	// Each event should have different value
-	for i, event := range events {
-		eventData := event.Data.(MediaMTXMetricsEvent)
+	for i, event := range captured {
+		eventData := event.(events.MediaMTXMetricsEvent)
 		if len(eventData.Metrics) != 1 {
 			continue
 		}
@@ -346,24 +302,20 @@ func TestSSEExporter_HistoryPreservation(t *testing.T) {
 }
 
 func TestSSEExporter_StartStop(t *testing.T) {
-	broadcaster := &MockSSEBroadcaster{}
+	mockBus := &MockEventBus{}
 	exporter := &SSEExporter{
-		broadcaster: broadcaster,
-		config: obs.ExporterConfig{
-			Name:    "sse",
-			Enabled: true,
-		},
-		logLevel: "info",
+		eventBus:      mockBus,
+		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
+		logLevel:      "info",
+		streamMetrics: make(map[string]*StreamMetricsAccumulator),
 	}
 
-	// Test Start
 	ctx := context.Background()
 	err := exporter.Start(ctx)
 	if err != nil {
 		t.Errorf("Start failed: %v", err)
 	}
 
-	// Test Stop
 	err = exporter.Stop()
 	if err != nil {
 		t.Errorf("Stop failed: %v", err)

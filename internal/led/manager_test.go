@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/smazurov/videonode/internal/events"
 )
 
 // Mock controller for testing
@@ -31,40 +33,26 @@ func (m *mockController) Patterns() []string {
 	return []string{"solid", "blink"}
 }
 
-// Mock event broadcaster for testing
-type mockBroadcaster struct {
-	subscribeCh chan<- interface{}
-}
-
-func (m *mockBroadcaster) Subscribe(ch chan<- interface{}) {
-	m.subscribeCh = ch
-}
-
-func (m *mockBroadcaster) Unsubscribe(ch chan<- interface{}) {
-	m.subscribeCh = nil
-}
-
-// Mock stream state event
-type mockStreamStateEvent struct {
-	streamID string
-	enabled  bool
-}
-
-func (e mockStreamStateEvent) GetStreamID() string { return e.streamID }
-func (e mockStreamStateEvent) IsEnabled() bool     { return e.enabled }
-
 func TestManager_AllStreamsEnabled(t *testing.T) {
 	ctrl := &mockController{}
-	broadcaster := &mockBroadcaster{}
+	eventBus := events.New()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	mgr := NewManager(ctrl, broadcaster, logger)
+	mgr := NewManager(ctrl, eventBus, logger)
 	mgr.Start()
 	defer mgr.Stop()
 
 	// Send events for two streams being enabled
-	broadcaster.subscribeCh <- mockStreamStateEvent{"stream1", true}
-	broadcaster.subscribeCh <- mockStreamStateEvent{"stream2", true}
+	eventBus.Publish(events.StreamStateChangedEvent{
+		StreamID:  "stream1",
+		Enabled:   true,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
+	eventBus.Publish(events.StreamStateChangedEvent{
+		StreamID:  "stream2",
+		Enabled:   true,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
 
 	// Give manager time to process
 	time.Sleep(50 * time.Millisecond)
@@ -82,17 +70,29 @@ func TestManager_AllStreamsEnabled(t *testing.T) {
 
 func TestManager_SomeStreamsDisabled(t *testing.T) {
 	ctrl := &mockController{}
-	broadcaster := &mockBroadcaster{}
+	eventBus := events.New()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	mgr := NewManager(ctrl, broadcaster, logger)
+	mgr := NewManager(ctrl, eventBus, logger)
 	mgr.Start()
 	defer mgr.Stop()
 
 	// Enable two streams, then disable one
-	broadcaster.subscribeCh <- mockStreamStateEvent{"stream1", true}
-	broadcaster.subscribeCh <- mockStreamStateEvent{"stream2", true}
-	broadcaster.subscribeCh <- mockStreamStateEvent{"stream2", false}
+	eventBus.Publish(events.StreamStateChangedEvent{
+		StreamID:  "stream1",
+		Enabled:   true,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
+	eventBus.Publish(events.StreamStateChangedEvent{
+		StreamID:  "stream2",
+		Enabled:   true,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
+	eventBus.Publish(events.StreamStateChangedEvent{
+		StreamID:  "stream2",
+		Enabled:   false,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
 
 	// Give manager time to process
 	time.Sleep(50 * time.Millisecond)
@@ -110,10 +110,10 @@ func TestManager_SomeStreamsDisabled(t *testing.T) {
 
 func TestManager_GetController(t *testing.T) {
 	ctrl := &mockController{}
-	broadcaster := &mockBroadcaster{}
+	eventBus := events.New()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	mgr := NewManager(ctrl, broadcaster, logger)
+	mgr := NewManager(ctrl, eventBus, logger)
 
 	if got := mgr.GetController(); got != ctrl {
 		t.Error("GetController() did not return the original controller")
