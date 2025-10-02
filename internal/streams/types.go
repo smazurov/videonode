@@ -15,20 +15,19 @@ type StreamService interface {
 	GetStream(ctx context.Context, streamID string) (*Stream, error)
 	GetStreamSpec(ctx context.Context, streamID string) (*StreamSpec, error)
 	ListStreams(ctx context.Context) ([]Stream, error)
-	LoadStreamsFromConfig() error
 	GetFFmpegCommand(ctx context.Context, streamID string, encoderOverride string) (string, bool, error)
 
 	// Device event handling
 	BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string)
 }
 
-// Stream represents a video stream
+// Stream represents a video stream's runtime state
+// Configuration is stored separately in StreamSpec
 type Stream struct {
 	ID             string    `json:"stream_id"`
-	DeviceID       string    `json:"device_id"`
-	Codec          string    `json:"codec"`
-	StartTime      time.Time `json:"start_time"`
-	ProgressSocket string    `json:"-"` // Runtime socket path, not serialized
+	Enabled        bool      `json:"enabled"`      // Device online/offline state, set by monitoring
+	StartTime      time.Time `json:"start_time"`   // When stream was started
+	ProgressSocket string    `json:"-"`            // Runtime socket path, not serialized
 }
 
 // StreamCreateParams contains parameters for creating a new stream

@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/streams"
 )
 
@@ -65,7 +66,13 @@ func (s *Server) registerStreamRoutes() {
 		apiStream := s.domainToAPIStream(*stream)
 
 		// Broadcast stream created event
-		BroadcastStreamCreated(apiStream, time.Now().Format(time.RFC3339))
+		if s.eventBus != nil {
+			s.eventBus.Publish(events.StreamCreatedEvent{
+				Stream:    apiStream,
+				Action:    "created",
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
+		}
 
 		return &models.StreamResponse{
 			Body: apiStream,
@@ -108,7 +115,13 @@ func (s *Server) registerStreamRoutes() {
 
 		// Broadcast stream updated event
 		apiStream := s.domainToAPIStream(*stream)
-		BroadcastStreamUpdated(apiStream, time.Now().Format(time.RFC3339))
+		if s.eventBus != nil {
+			s.eventBus.Publish(events.StreamUpdatedEvent{
+				Stream:    apiStream,
+				Action:    "updated",
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
+		}
 
 		return &models.StreamResponse{
 			Body: apiStream,
@@ -134,7 +147,13 @@ func (s *Server) registerStreamRoutes() {
 		}
 
 		// Broadcast stream deleted event
-		BroadcastStreamDeleted(input.StreamID, time.Now().Format(time.RFC3339))
+		if s.eventBus != nil {
+			s.eventBus.Publish(events.StreamDeletedEvent{
+				StreamID:  input.StreamID,
+				Action:    "deleted",
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
+		}
 
 		return &struct{}{}, nil
 	})
@@ -190,39 +209,6 @@ func (s *Server) registerStreamRoutes() {
 		}, nil
 	})
 
-	// Reload streams from configuration
-	huma.Register(s.api, huma.Operation{
-		OperationID: "reload-streams",
-		Method:      http.MethodPost,
-		Path:        "/api/streams/reload",
-		Summary:     "Reload Streams Configuration",
-		Description: "Reload all streams from streams.toml and sync with MediaMTX. This will add/update/remove streams based on the current configuration file.",
-		Tags:        []string{"streams"},
-		Errors:      []int{401, 500},
-		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct{}) (*models.ReloadResponse, error) {
-		// Reload from config file
-		err := s.streamService.LoadStreamsFromConfig()
-		if err != nil {
-			return nil, huma.Error500InternalServerError("failed to reload streams", err)
-		}
-
-		// Get current stream count
-		streams, err := s.streamService.ListStreams(ctx)
-		if err != nil {
-			return nil, huma.Error500InternalServerError("failed to list streams", err)
-		}
-
-		return &models.ReloadResponse{
-			Body: struct {
-				Message string `json:"message" doc:"Operation result message"`
-				Count   int    `json:"count" doc:"Number of streams synced"`
-			}{
-				Message: "Streams reloaded and synced with MediaMTX",
-				Count:   len(streams),
-			},
-		}, nil
-	})
 }
 
 // convertCreateRequest converts API create request to domain params
@@ -255,7 +241,7 @@ func (s *Server) convertCreateRequest(body models.StreamRequestData) streams.Str
 
 // domainToAPIStream converts a domain stream to API stream data with configuration
 func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
-	// Get stream specification for editing details
+	// Get stream specification for configuration details
 	config, err := s.streamService.GetStreamSpec(context.Background(), stream.ID)
 
 	// Format display bitrate from quality params
@@ -264,14 +250,22 @@ func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
 		displayBitrate = fmt.Sprintf("%.1fM", *config.FFmpeg.QualityParams.TargetBitrate)
 	}
 
+	// Get device ID and codec from config (not runtime state)
+	deviceID := ""
+	codec := ""
+	if err == nil {
+		deviceID = config.Device
+		codec = config.FFmpeg.Codec
+	}
+
 	apiData := models.StreamData{
 		StreamID:  stream.ID,
-		DeviceID:  stream.DeviceID,
-		Codec:     stream.Codec,
+		DeviceID:  deviceID,
+		Codec:     codec,
 		Bitrate:   displayBitrate,
 		StartTime: stream.StartTime,
 		WebRTCURL: fmt.Sprintf(":8889/%s", stream.ID),
-		RTSPURL:   fmt.Sprintf(":8554/%s", stream.ID),
+		SRTURL:    fmt.Sprintf(":8890?streamid=read:%s", stream.ID),
 	}
 
 	// Include configuration details if available
@@ -282,7 +276,7 @@ func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
 		apiData.AudioDevice = config.FFmpeg.AudioDevice
 		apiData.CustomFFmpegCmd = config.CustomFFmpegCommand
 		apiData.TestMode = config.TestMode
-		apiData.Enabled = config.Enabled
+		apiData.Enabled = stream.Enabled // Use runtime enabled state from Stream
 	}
 
 	return apiData

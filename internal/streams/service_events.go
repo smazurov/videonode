@@ -4,28 +4,32 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/devices"
+	"github.com/smazurov/videonode/internal/events"
 )
 
 // BroadcastDeviceDiscovery implements devices.EventBroadcaster interface
 // Updates stream enabled state based on device readiness and triggers MediaMTX sync
 func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
+	// Update stream enabled state
 	s.streamsMutex.Lock()
-	defer s.streamsMutex.Unlock()
 
 	// Find streams using this device and update their enabled state
-	allStreams := s.store.GetAllStreams()
+	allStreamConfigs := s.store.GetAllStreams()
 	updated := false
 
-	for streamID, streamConfig := range allStreams {
+	for streamID, streamConfig := range allStreamConfigs {
 		if streamConfig.Device == device.DeviceId {
+			// Get the in-memory stream runtime state
+			stream, exists := s.streams[streamID]
+			if !exists {
+				s.logger.Warn("Stream config exists but runtime state missing", "stream_id", streamID)
+				continue
+			}
+
 			// Only update if the enabled state actually changed
-			if streamConfig.Enabled != device.Ready {
-				// Update enabled state (not persisted to disk due to toml:"-" tag)
-				streamConfig.Enabled = device.Ready
-				if err := s.store.UpdateStream(streamID, streamConfig); err != nil {
-					s.logger.Error("Failed to update stream enabled state", "stream_id", streamID, "error", err)
-					continue
-				}
+			if stream.Enabled != device.Ready {
+				// Update runtime enabled state in-memory only
+				stream.Enabled = device.Ready
 
 				// Log the state change
 				if device.Ready {
@@ -40,9 +44,13 @@ func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceI
 						"device_name", device.DeviceName)
 				}
 
-				// Emit stream state changed event if broadcaster is available
-				if s.eventBroadcaster != nil {
-					s.eventBroadcaster(streamID, device.Ready, time.Now().Format(time.RFC3339))
+				// Emit stream state changed event if event bus is available
+				if s.eventBus != nil {
+					s.eventBus.Publish(events.StreamStateChangedEvent{
+						StreamID:  streamID,
+						Enabled:   device.Ready,
+						Timestamp: time.Now().Format(time.RFC3339),
+					})
 				}
 
 				updated = true
@@ -50,7 +58,9 @@ func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceI
 		}
 	}
 
-	// Trigger MediaMTX sync if any streams were updated
+	s.streamsMutex.Unlock()
+
+	// Trigger MediaMTX sync if any streams were updated (outside of lock to avoid deadlock)
 	if updated {
 		s.logger.Debug("Triggering MediaMTX sync after device state change")
 		if err := s.mediamtxClient.SyncAll(); err != nil {

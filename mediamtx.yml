@@ -1,9 +1,19 @@
+logLevel: info
 api: true
 apiAddress: :9997
 rtspAddress: :8554
 webrtcAddress: :8889
+srt: true
+srtAddress: :8890
 metrics: true
 metricsAddress: :9998
+
+# Increase write queue for high framerate streams (60fps)
+writeQueueSize: 2048
+
+# UDP buffer size for RTSP (8MB to mitigate packet loss)
+rtspUDPReadBufferSize: 8388608
+
 authMethod: internal
 authInternalUsers:
     - user: any

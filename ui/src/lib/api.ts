@@ -1,14 +1,21 @@
 export const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8090`;
 
 // Helper function to build full URLs from backend's :port/path format
-export function buildStreamURL(partialUrl: string | undefined, protocol: 'http' | 'rtsp' = 'http'): string | undefined {
+export function buildStreamURL(partialUrl: string | undefined, protocol: 'http' | 'rtsp' | 'srt' = 'http'): string | undefined {
   if (!partialUrl) return undefined;
-  
-  // Backend returns format like ":8889/stream-001" or ":8554/stream-001"
+
+  // Backend returns format like ":8889/stream-001" or ":8890?streamid=read:stream-001"
   if (partialUrl.startsWith(':')) {
-    return `${protocol}://${window.location.hostname}${partialUrl}`;
+    const fullUrl = `${protocol}://${window.location.hostname}${partialUrl}`;
+
+    // Add 50ms latency for SRT streams
+    if (protocol === 'srt') {
+      return `${fullUrl}&latency=50000`;
+    }
+
+    return fullUrl;
   }
-  
+
   // If it's already a full URL, return as-is
   return partialUrl;
 }
@@ -113,7 +120,7 @@ export interface StreamData {
   bitrate?: string;
   start_time?: string;
   webrtc_url?: string;
-  rtsp_url?: string;
+  srt_url?: string;
   // Configuration fields for editing
   input_format?: string;
   resolution?: string;
