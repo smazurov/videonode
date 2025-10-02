@@ -24,6 +24,9 @@ default_delay_ms = 3000
 username = "pinball"
 password = "ilovepinball"
 
+[features]
+led_control_enabled = false
+
 [logging]
 # Observability logging level: debug, info, warn, error
 obs = "info"

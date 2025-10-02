@@ -1,0 +1,132 @@
+package events
+
+import "github.com/smazurov/videonode/internal/api/models"
+
+// Event type constants for kelindar/event
+const (
+	TypeCaptureSuccess uint32 = iota + 1
+	TypeCaptureError
+	TypeDeviceDiscovery
+	TypeStreamCreated
+	TypeStreamUpdated
+	TypeStreamDeleted
+	TypeStreamStateChanged
+	TypeMediaMTXMetrics
+	TypeOBSAlert
+	TypeStreamMetrics
+)
+
+// Event interface required by kelindar/event
+type Event interface {
+	Type() uint32
+}
+
+// CaptureSuccessEvent represents a successful screenshot capture
+type CaptureSuccessEvent struct {
+	DevicePath string `json:"device_path" example:"/dev/video0" doc:"Path to the video device"`
+	Message    string `json:"message" example:"Screenshot captured successfully" doc:"Success message"`
+	ImageData  string `json:"image_data" doc:"Base64-encoded screenshot image"`
+	Timestamp  string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Capture timestamp"`
+}
+
+func (e CaptureSuccessEvent) Type() uint32 { return TypeCaptureSuccess }
+
+// CaptureErrorEvent represents a failed screenshot capture
+type CaptureErrorEvent struct {
+	DevicePath string `json:"device_path" example:"/dev/video0" doc:"Path to the video device"`
+	Message    string `json:"message" example:"Screenshot capture failed" doc:"Error message"`
+	Error      string `json:"error" example:"Device not found" doc:"Detailed error description"`
+	Timestamp  string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Error timestamp"`
+}
+
+func (e CaptureErrorEvent) Type() uint32 { return TypeCaptureError }
+
+// DeviceDiscoveryEvent represents device hotplug events
+type DeviceDiscoveryEvent struct {
+	models.DeviceInfo
+	Action    string `json:"action" example:"added" doc:"Action type: added, removed, changed"`
+	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+}
+
+func (e DeviceDiscoveryEvent) Type() uint32 { return TypeDeviceDiscovery }
+
+// StreamCreatedEvent represents a successful stream creation
+type StreamCreatedEvent struct {
+	Stream    models.StreamData `json:"stream" doc:"Created stream data"`
+	Action    string            `json:"action" example:"created" doc:"Action type"`
+	Timestamp string            `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+}
+
+func (e StreamCreatedEvent) Type() uint32 { return TypeStreamCreated }
+
+// StreamDeletedEvent represents a successful stream deletion
+type StreamDeletedEvent struct {
+	StreamID  string `json:"stream_id" example:"stream-001" doc:"Deleted stream identifier"`
+	Action    string `json:"action" example:"deleted" doc:"Action type"`
+	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+}
+
+func (e StreamDeletedEvent) Type() uint32 { return TypeStreamDeleted }
+
+// StreamUpdatedEvent represents a successful stream update
+type StreamUpdatedEvent struct {
+	Stream    models.StreamData `json:"stream" doc:"Updated stream data"`
+	Action    string            `json:"action" example:"updated" doc:"Action type"`
+	Timestamp string            `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+}
+
+func (e StreamUpdatedEvent) Type() uint32 { return TypeStreamUpdated }
+
+// StreamStateChangedEvent represents a change in stream enabled state
+// Used for LED control and other reactive subsystems
+type StreamStateChangedEvent struct {
+	StreamID  string `json:"stream_id" example:"stream-001" doc:"Stream identifier"`
+	Enabled   bool   `json:"enabled" example:"true" doc:"Whether stream is enabled"`
+	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+}
+
+func (e StreamStateChangedEvent) Type() uint32 { return TypeStreamStateChanged }
+
+// GetStreamID implements the StreamStateEvent interface for LED manager
+func (e StreamStateChangedEvent) GetStreamID() string {
+	return e.StreamID
+}
+
+// IsEnabled implements the StreamStateEvent interface for LED manager
+func (e StreamStateChangedEvent) IsEnabled() bool {
+	return e.Enabled
+}
+
+// MediaMTXMetricsEvent represents MediaMTX observability metrics
+type MediaMTXMetricsEvent struct {
+	EventType string         `json:"type"`
+	Timestamp string         `json:"timestamp"`
+	Count     int            `json:"count"`
+	Metrics   []map[string]any `json:"metrics"`
+}
+
+func (e MediaMTXMetricsEvent) Type() uint32 { return TypeMediaMTXMetrics }
+
+// OBSAlertEvent represents observability alerts
+type OBSAlertEvent struct {
+	EventType string         `json:"type"`
+	Timestamp string         `json:"timestamp"`
+	Level     string         `json:"level"`
+	Message   string         `json:"message"`
+	Details   map[string]any `json:"details"`
+}
+
+func (e OBSAlertEvent) Type() uint32 { return TypeOBSAlert }
+
+// StreamMetricsEvent represents FFmpeg stream metrics
+type StreamMetricsEvent struct {
+	EventType       string `json:"type"`
+	Timestamp       string `json:"timestamp"`
+	StreamID        string `json:"stream_id"`
+	FPS             string `json:"fps"`
+	DroppedFrames   string `json:"dropped_frames"`
+	DuplicateFrames string `json:"duplicate_frames"`
+	ProcessingSpeed string `json:"processing_speed"`
+}
+
+func (e StreamMetricsEvent) Type() uint32 { return TypeStreamMetrics }

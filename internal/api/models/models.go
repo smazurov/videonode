@@ -70,7 +70,7 @@ type StreamData struct {
 	Bitrate   string    `json:"bitrate,omitempty" example:"2M" doc:"Video bitrate (e.g., 2M, 1500k)"`
 	StartTime time.Time `json:"start_time,omitempty" doc:"When the stream was loaded into memory"`
 	WebRTCURL string    `json:"webrtc_url,omitempty" example:"webrtc://localhost:8090/stream-001" doc:"WebRTC streaming URL"`
-	RTSPURL   string    `json:"rtsp_url,omitempty" example:"rtsp://localhost:8554/stream-001" doc:"RTSP streaming URL"`
+	SRTURL    string    `json:"srt_url,omitempty" example:"srt://localhost:8890?streamid=read:stream-001" doc:"SRT streaming URL"`
 	// Configuration fields for editing
 	InputFormat     string `json:"input_format,omitempty" example:"yuyv422" doc:"V4L2 input format"`
 	Resolution      string `json:"resolution,omitempty" example:"1920x1080" doc:"Video resolution"`
@@ -194,13 +194,5 @@ type FFmpegCommandResponse struct {
 type FFmpegCommandRequest struct {
 	Body struct {
 		Command string `json:"command" minLength:"1" example:"ffmpeg -f v4l2 -i /dev/video0 ..." doc:"Custom FFmpeg command to use"`
-	}
-}
-
-// ReloadResponse is the response for stream reload operation
-type ReloadResponse struct {
-	Body struct {
-		Message string `json:"message" doc:"Operation result message"`
-		Count   int    `json:"count" doc:"Number of streams synced"`
 	}
 }

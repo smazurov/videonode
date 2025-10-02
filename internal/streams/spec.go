@@ -24,10 +24,6 @@ type StreamSpec struct {
 	// This is resolved to a /dev/videoX path at runtime
 	Device string `toml:"device" json:"device"`
 
-	// Enabled determines if this stream should be active
-	// Runtime state only, defaults to false, set by device monitoring
-	Enabled bool `toml:"-" json:"enabled"`
-
 	// TestMode determines if stream should use test pattern instead of device
 	// When true, generates test video/audio instead of capturing from device
 	TestMode bool `toml:"test_mode" json:"test_mode"`

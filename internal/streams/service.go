@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/encoders"
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/mediamtx"
@@ -18,27 +19,27 @@ import (
 
 // ServiceOptions contains optional configuration for StreamServiceImpl
 type ServiceOptions struct {
-	Store            Store                                           // Stream store for persistence (required)
-	OBSManager       *obs.Manager                                    // OBS manager for monitoring
-	EncoderSelector  encoders.Selector                               // Custom encoder selector
-	EventBroadcaster func(streamID string, enabled bool, timestamp string) // Optional event broadcaster
+	Store           Store             // Stream store for persistence (required)
+	OBSManager      *obs.Manager      // OBS manager for monitoring
+	EncoderSelector encoders.Selector // Custom encoder selector
+	EventBus        *events.Bus       // Event bus for broadcasting state changes
 }
 
 // service implements the StreamService interface
 type service struct {
-	store            Store                                           // Stream store for data access
-	processor        *processor                                      // Stream processor for runtime injection
-	streams          map[string]*Stream                               // In-memory stream cache
-	streamsMutex     sync.RWMutex
-	mediamtxClient   *mediamtx.Client                                // MediaMTX API client
-	obsManager       *obs.Manager                                    // OBS manager for monitoring
-	encoderSelector  encoders.Selector                               // Encoder selection strategy
-	eventBroadcaster func(streamID string, enabled bool, timestamp string) // Event broadcaster for state changes
-	logger           *slog.Logger                                    // Module logger
+	store           Store             // Stream store for data access
+	processor       *processor        // Stream processor for runtime injection
+	streams         map[string]*Stream // In-memory stream cache
+	streamsMutex    sync.RWMutex
+	mediamtxClient  *mediamtx.Client  // MediaMTX API client
+	obsManager      *obs.Manager      // OBS manager for monitoring
+	encoderSelector encoders.Selector // Encoder selection strategy
+	eventBus        *events.Bus       // Event bus for broadcasting state changes
+	logger          *slog.Logger      // Module logger
 }
 
 // NewStreamService creates a new stream service with options
-func NewStreamService(opts *ServiceOptions) StreamService {
+func NewStreamService(opts *ServiceOptions) *service {
 	logger := logging.GetLogger("streams")
 
 	if opts == nil || opts.Store == nil {
@@ -67,10 +68,13 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		logger:          logger,
 	}
 
+	// Wire up processor's access to runtime state
+	processor.setStreamStateGetter(svc.getStreamSafe)
+
 	// Apply options if provided
 	if opts != nil {
 		svc.obsManager = opts.OBSManager
-		svc.eventBroadcaster = opts.EventBroadcaster
+		svc.eventBus = opts.EventBus
 	}
 
 	// Initialize MediaMTX API client
@@ -116,7 +120,6 @@ func (s *service) CreateStream(ctx context.Context, params StreamCreateParams) (
 		ID:      streamID,
 		Name:    streamID,
 		Device:  params.DeviceID, // Store stable device ID
-		Enabled: true,
 		FFmpeg: FFmpegConfig{
 			Codec:         params.Codec, // Store generic codec (h264/h265), not specific encoder
 			InputFormat:   params.InputFormat,
@@ -134,6 +137,13 @@ func (s *service) CreateStream(ctx context.Context, params StreamCreateParams) (
 		return nil, NewStreamError(ErrCodeMonitoringError,
 			"failed to initialize stream", err)
 	}
+
+	// Set initial enabled state to true since device was validated as available
+	s.streamsMutex.Lock()
+	if stream, exists := s.streams[streamID]; exists {
+		stream.Enabled = true
+	}
+	s.streamsMutex.Unlock()
 
 	// Save to persistent TOML config
 	if s.store != nil {
@@ -157,8 +167,12 @@ func (s *service) CreateStream(ctx context.Context, params StreamCreateParams) (
 	}
 
 	// Emit stream state changed event
-	if s.eventBroadcaster != nil {
-		s.eventBroadcaster(streamID, true, time.Now().Format(time.RFC3339))
+	if s.eventBus != nil {
+		s.eventBus.Publish(events.StreamStateChangedEvent{
+			StreamID:  streamID,
+			Enabled:   true,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
 	}
 
 	return copyStream(stream), nil
@@ -166,14 +180,21 @@ func (s *service) CreateStream(ctx context.Context, params StreamCreateParams) (
 
 // UpdateStream updates an existing stream with new parameters
 func (s *service) UpdateStream(ctx context.Context, streamID string, params StreamUpdateParams) (*Stream, error) {
-	// Check if stream exists
+	// Check if stream exists in config
 	streamConfig, exists := s.store.GetStream(streamID)
 	if !exists {
 		return nil, NewStreamError(ErrCodeStreamNotFound, fmt.Sprintf("stream %s not found", streamID), nil)
 	}
 
+	// Get in-memory stream for runtime state
+	stream, streamExists := s.getStreamSafe(streamID)
+	if !streamExists {
+		return nil, NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("stream %s not found in memory", streamID), nil)
+	}
+
 	// Track if enabled state changed for event emission
-	oldEnabled := streamConfig.Enabled
+	oldEnabled := stream.Enabled
 	enabledChanged := false
 
 	// Update stream configuration with provided parameters
@@ -213,20 +234,25 @@ func (s *service) UpdateStream(ctx context.Context, streamID string, params Stre
 	if params.TestMode != nil {
 		streamConfig.TestMode = *params.TestMode
 	}
-	if params.Enabled != nil {
-		streamConfig.Enabled = *params.Enabled
-		if oldEnabled != *params.Enabled {
-			enabledChanged = true
-		}
-	}
 
 	// Update timestamp
 	streamConfig.UpdatedAt = time.Now()
 
-	// Save to store.Store
+	// Save config to store
 	if err := s.store.UpdateStream(streamID, streamConfig); err != nil {
 		return nil, fmt.Errorf("failed to save updated stream: %w", err)
 	}
+
+	// Update runtime state in-memory
+	s.streamsMutex.Lock()
+	stream.StartTime = time.Now() // Reset StartTime (stream is effectively restarted)
+	if params.Enabled != nil {
+		stream.Enabled = *params.Enabled
+		if oldEnabled != *params.Enabled {
+			enabledChanged = true
+		}
+	}
+	s.streamsMutex.Unlock()
 
 	// Generate new FFmpeg command and update MediaMTX
 	processed, err := s.processor.processStream(streamID)
@@ -239,22 +265,13 @@ func (s *service) UpdateStream(ctx context.Context, streamID string, params Stre
 		s.logger.Warn("Failed to update MediaMTX path", "stream_id", streamID, "error", err)
 	}
 
-	// Reset StartTime when stream is patched (stream is effectively restarted)
-	s.streamsMutex.Lock()
-	stream, exists := s.streams[streamID]
-	if exists {
-		stream.StartTime = time.Now()
-	}
-	s.streamsMutex.Unlock()
-
-	if !exists {
-		return nil, NewStreamError(ErrCodeStreamNotFound,
-			fmt.Sprintf("updated stream %s not found in memory", streamID), nil)
-	}
-
 	// Emit stream state changed event if enabled state was modified
-	if enabledChanged && s.eventBroadcaster != nil {
-		s.eventBroadcaster(streamID, streamConfig.Enabled, time.Now().Format(time.RFC3339))
+	if enabledChanged && s.eventBus != nil {
+		s.eventBus.Publish(events.StreamStateChangedEvent{
+			StreamID:  streamID,
+			Enabled:   stream.Enabled,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
 	}
 
 	s.logger.Info("Stream updated successfully", "stream_id", streamID)

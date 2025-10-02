@@ -171,7 +171,7 @@ func BuildCommand(p *Params) string {
 	}
 
 	// Output
-	cmd.WriteString(" -rtsp_transport tcp -f rtsp " + p.OutputURL)
+	cmd.WriteString(" -f mpegts " + p.OutputURL)
 
 	return cmd.String()
 }

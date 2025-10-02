@@ -47,6 +47,7 @@ func (s *service) getProcessedStreamsForSync() []*mediamtx.ProcessedStream {
 
 // GetFFmpegCommand retrieves the FFmpeg command for a stream
 // Returns the command and a boolean indicating if it's custom
+// Note: Returns unwrapped command for display/editing. Wrapping happens in MediaMTX client when sending.
 func (s *service) GetFFmpegCommand(ctx context.Context, streamID string, encoderOverride string) (string, bool, error) {
 	// Check if stream exists
 	streamConfig, exists := s.store.GetStream(streamID)
@@ -54,9 +55,9 @@ func (s *service) GetFFmpegCommand(ctx context.Context, streamID string, encoder
 		return "", false, NewStreamError(ErrCodeStreamNotFound, fmt.Sprintf("stream %s not found", streamID), nil)
 	}
 
-	// If custom command is set, return it
+	// If custom command is set, return it unwrapped
 	if streamConfig.CustomFFmpegCommand != "" {
-		return mediamtx.WrapCommand(streamConfig.CustomFFmpegCommand, streamID), true, nil
+		return streamConfig.CustomFFmpegCommand, true, nil
 	}
 
 	// Otherwise, process the stream to generate the command
@@ -65,5 +66,5 @@ func (s *service) GetFFmpegCommand(ctx context.Context, streamID string, encoder
 		return "", false, fmt.Errorf("failed to generate FFmpeg command: %w", err)
 	}
 
-	return mediamtx.WrapCommand(processed.FFmpegCommand, streamID), false, nil
+	return processed.FFmpegCommand, false, nil
 }

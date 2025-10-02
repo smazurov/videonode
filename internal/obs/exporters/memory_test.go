@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/obs"
 )
 
@@ -127,8 +128,13 @@ func TestMetricTTL_NotImplemented(t *testing.T) {
 
 // TestSSEExporter_BrokenAfterFFmpegFix shows SSE stream events are broken
 func TestSSEExporter_BrokenAfterFFmpegFix(t *testing.T) {
-	broadcaster := &MockSSEBroadcasterSimple{}
-	exporter := NewSSEExporter(broadcaster)
+	mockBus := &MockEventBus{}
+	exporter := &SSEExporter{
+		eventBus:      mockBus,
+		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
+		logLevel:      "info",
+		streamMetrics: make(map[string]*StreamMetricsAccumulator),
+	}
 
 	// Send individual FFmpeg metrics (how it works now)
 	ffmpegMetrics := []obs.DataPoint{
@@ -143,10 +149,15 @@ func TestSSEExporter_BrokenAfterFFmpegFix(t *testing.T) {
 	}
 
 	// Check what events were broadcast
-	for i, event := range broadcaster.events {
-		t.Logf("Event %d: type=%s", i, event.EventType)
+	captured := mockBus.GetEvents()
+	for i, event := range captured {
+		streamEvent, ok := event.(events.StreamMetricsEvent)
+		if !ok {
+			continue
+		}
+		t.Logf("Event %d: type=%s", i, streamEvent.EventType)
 
-		if event.EventType == "mediamtx-metrics" {
+		if streamEvent.EventType == "mediamtx_metrics" {
 			t.Log("WARNING: FFmpeg metrics being sent as mediamtx-metrics, not stream-metrics")
 		}
 	}
@@ -154,8 +165,9 @@ func TestSSEExporter_BrokenAfterFFmpegFix(t *testing.T) {
 	// The issue is likely that individual FFmpeg metrics aren't being combined
 	// into a single stream-metrics event anymore
 	hasStreamMetrics := false
-	for _, event := range broadcaster.events {
-		if event.EventType == "stream-metrics" {
+	for _, event := range captured {
+		streamEvent, ok := event.(events.StreamMetricsEvent)
+		if ok && streamEvent.EventType == "stream_metrics" {
 			hasStreamMetrics = true
 			break
 		}

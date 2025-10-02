@@ -10,6 +10,7 @@ import (
 	"github.com/smazurov/videonode/cmd"
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/config"
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/led"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/mediamtx"
@@ -144,6 +145,9 @@ func main() {
 
 		}
 
+		// Create event bus for in-process event handling
+		eventBus := events.New()
+
 		// Initialize LED control if enabled
 		var ledManager *led.Manager
 		var ledController led.Controller
@@ -152,8 +156,7 @@ func main() {
 			ledController = led.New(logger)
 
 			// Create LED manager that subscribes to stream state changes
-			broadcaster := api.GetGlobalEventBroadcaster()
-			ledManager = led.NewManager(ledController, broadcaster, logger)
+			ledManager = led.NewManager(ledController, eventBus, logger)
 		}
 
 		// Default command starts the server using existing API server
@@ -162,15 +165,16 @@ func main() {
 
 		// Create stream service with OBS integration
 		serviceOpts := &streams.ServiceOptions{
-			Store:            streamStore,
-			OBSManager:       obsManager,
-			EventBroadcaster: api.BroadcastStreamStateChanged,
+			Store:      streamStore,
+			OBSManager: obsManager,
+			EventBus:   eventBus,
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)
 
-		// Load existing streams from TOML config into memory
+		// Load existing streams from TOML config into memory at startup
 		// This must happen after stream service is created so OBS callbacks are registered
+		// Runtime stream management should use CRUD APIs (not reload)
 		if err := streamService.LoadStreamsFromConfig(); err != nil {
 			logger.Warn("Failed to load existing streams from config", "error", err)
 		}
@@ -180,6 +184,7 @@ func main() {
 			AuthPassword:          opts.AuthPassword,
 			CaptureDefaultDelayMs: opts.CaptureDefaultDelayMs,
 			StreamService:         streamService,
+			EventBus:              eventBus,
 		}
 
 		// Add Prometheus handler if available
@@ -196,8 +201,7 @@ func main() {
 
 		// Wire up SSE exporter if OBS is enabled and SSE is configured
 		if obsManager != nil && opts.ObsSSEEnabled {
-			sseBroadcaster := server.GetSSEBroadcaster()
-			sseExporter := exporters.NewSSEExporter(sseBroadcaster)
+			sseExporter := exporters.NewSSEExporter(eventBus)
 			sseExporter.SetLogLevel(opts.LoggingObs)
 			obsManager.AddExporter(sseExporter)
 		}

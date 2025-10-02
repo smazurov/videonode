@@ -3,26 +3,15 @@ package led
 import (
 	"log/slog"
 	"sync"
+
+	"github.com/smazurov/videonode/internal/events"
 )
-
-// EventBroadcaster is the interface for subscribing to system events
-type EventBroadcaster interface {
-	Subscribe(ch chan<- interface{})
-	Unsubscribe(ch chan<- interface{})
-}
-
-// StreamStateEvent represents a change in stream enabled state
-// This will be defined in internal/api/events.go
-type StreamStateEvent interface {
-	GetStreamID() string
-	IsEnabled() bool
-}
 
 // Manager subscribes to stream events and controls system LED based on aggregate state
 type Manager struct {
 	controller      Controller
-	broadcaster     EventBroadcaster
-	eventChan       chan interface{}
+	eventBus        *events.Bus
+	unsubscribe     func()
 	stopChan        chan struct{}
 	logger          *slog.Logger
 	streamStates    map[string]bool // streamID -> enabled state
@@ -30,11 +19,10 @@ type Manager struct {
 }
 
 // NewManager creates a new LED manager that reacts to stream state changes
-func NewManager(controller Controller, broadcaster EventBroadcaster, logger *slog.Logger) *Manager {
+func NewManager(controller Controller, eventBus *events.Bus, logger *slog.Logger) *Manager {
 	return &Manager{
 		controller:   controller,
-		broadcaster:  broadcaster,
-		eventChan:    make(chan interface{}, 10),
+		eventBus:     eventBus,
 		stopChan:     make(chan struct{}),
 		logger:       logger,
 		streamStates: make(map[string]bool),
@@ -43,40 +31,26 @@ func NewManager(controller Controller, broadcaster EventBroadcaster, logger *slo
 
 // Start begins listening for stream state change events
 func (m *Manager) Start() {
-	m.broadcaster.Subscribe(m.eventChan)
-	go m.eventLoop()
+	// Subscribe to stream state changed events
+	m.unsubscribe = m.eventBus.Subscribe(func(e events.StreamStateChangedEvent) {
+		m.handleEvent(e)
+	})
 	m.logger.Info("LED manager started")
 }
 
 // Stop stops the LED manager and unsubscribes from events
 func (m *Manager) Stop() {
+	if m.unsubscribe != nil {
+		m.unsubscribe()
+	}
 	close(m.stopChan)
-	m.broadcaster.Unsubscribe(m.eventChan)
 	m.logger.Info("LED manager stopped")
 }
 
-// eventLoop processes incoming stream state events
-func (m *Manager) eventLoop() {
-	for {
-		select {
-		case <-m.stopChan:
-			return
-		case event := <-m.eventChan:
-			m.handleEvent(event)
-		}
-	}
-}
-
-// handleEvent processes a single event
-func (m *Manager) handleEvent(event interface{}) {
-	// Type assert to stream state event
-	stateEvent, ok := event.(StreamStateEvent)
-	if !ok {
-		return // Not a stream state event, ignore
-	}
-
-	streamID := stateEvent.GetStreamID()
-	enabled := stateEvent.IsEnabled()
+// handleEvent processes a single stream state changed event
+func (m *Manager) handleEvent(event events.StreamStateChangedEvent) {
+	streamID := event.GetStreamID()
+	enabled := event.IsEnabled()
 
 	m.streamStatesMux.Lock()
 	m.streamStates[streamID] = enabled

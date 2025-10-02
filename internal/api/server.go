@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/devices"
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/version"
@@ -25,7 +26,7 @@ type Server struct {
 	streamService  streams.StreamService
 	options        *Options
 	deviceDetector devices.DeviceDetector
-	obsSSEAdapter  *OBSSSEAdapter
+	eventBus       *events.Bus
 	logger         *slog.Logger
 }
 
@@ -109,6 +110,7 @@ type Options struct {
 	AuthPassword          string
 	CaptureDefaultDelayMs int
 	StreamService         streams.StreamService
+	EventBus              *events.Bus  // Event bus for in-process events
 	PrometheusHandler     http.Handler // Optional Prometheus metrics handler
 	LEDController         interface {  // Optional LED controller
 		Set(ledType string, enabled bool, pattern string) error
@@ -148,6 +150,7 @@ func NewServer(opts *Options) *Server {
 		mux:           mux,
 		streamService: opts.StreamService,
 		options:       opts,
+		eventBus:      opts.EventBus,
 		logger:        logging.GetLogger("api"),
 	}
 
@@ -212,7 +215,11 @@ func (cb *CompositeBroadcaster) BroadcastDeviceDiscovery(action string, device d
 // BroadcastDeviceDiscovery implements the EventBroadcaster interface for device monitoring
 // This is for the Server to broadcast to SSE clients
 func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
-	// Convert devices.DeviceInfo to models.DeviceInfo
+	if s.eventBus == nil {
+		return
+	}
+
+	// Convert devices.DeviceInfo to models.DeviceInfo and publish
 	apiDevice := models.DeviceInfo{
 		DevicePath: device.DevicePath,
 		DeviceName: device.DeviceName,
@@ -221,8 +228,12 @@ func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceIn
 		Ready:      device.Ready,
 		Type:       models.DeviceType(device.Type),
 	}
-	// Use the global broadcast function from events.go
-	BroadcastDeviceDiscovery(action, apiDevice, timestamp)
+
+	s.eventBus.Publish(events.DeviceDiscoveryEvent{
+		DeviceInfo: apiDevice,
+		Action:     action,
+		Timestamp:  timestamp,
+	})
 }
 
 func (s *Server) Start(addr string) error {

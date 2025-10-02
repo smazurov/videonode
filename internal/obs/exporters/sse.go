@@ -8,42 +8,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/obs"
 )
 
-// OBS SSE Event Types - these should be registered with Huma SSE
-type MediaMTXMetricsEvent struct {
-	Type      string                   `json:"type"`
-	Timestamp string                   `json:"timestamp"`
-	Count     int                      `json:"count"`
-	Metrics   []map[string]interface{} `json:"metrics"`
-}
-
-type OBSAlertEvent struct {
-	Type      string                 `json:"type"`
-	Timestamp string                 `json:"timestamp"`
-	Level     string                 `json:"level"`
-	Message   string                 `json:"message"`
-	Details   map[string]interface{} `json:"details"`
-}
-
-type StreamMetricsEvent struct {
-	Type            string `json:"type"`
-	Timestamp       string `json:"timestamp"`
-	StreamID        string `json:"stream_id"`
-	FPS             string `json:"fps"`
-	DroppedFrames   string `json:"dropped_frames"`
-	DuplicateFrames string `json:"duplicate_frames"`
-	ProcessingSpeed string `json:"processing_speed"`
-}
+// OBS SSE Event Type exports for SSE endpoint registration
+// The actual event types are now defined in internal/events package
 
 // GetEventTypes returns a map of event names to their corresponding struct types
 // This should be used when registering with Huma SSE
 func GetEventTypes() map[string]any {
 	return map[string]any{
-		"mediamtx-metrics": MediaMTXMetricsEvent{},
-		"obs-alert":        OBSAlertEvent{},
-		"stream-metrics":   StreamMetricsEvent{},
+		"mediamtx-metrics": events.MediaMTXMetricsEvent{},
+		"obs-alert":        events.OBSAlertEvent{},
+		"stream-metrics":   events.StreamMetricsEvent{},
 	}
 }
 
@@ -52,12 +30,12 @@ func GetEventTypesForEndpoint(endpoint string) map[string]any {
 	switch endpoint {
 	case "metrics":
 		return map[string]any{
-			"mediamtx-metrics": MediaMTXMetricsEvent{},
+			"mediamtx-metrics": events.MediaMTXMetricsEvent{},
 		}
 	case "events":
 		return map[string]any{
-			"obs-alert":      OBSAlertEvent{},
-			"stream-metrics": StreamMetricsEvent{},
+			"obs-alert":      events.OBSAlertEvent{},
+			"stream-metrics": events.StreamMetricsEvent{},
 		}
 	default:
 		return map[string]any{}
@@ -74,9 +52,9 @@ func GetEventRoutes() map[string]string {
 	}
 }
 
-// SSEBroadcaster defines the interface for broadcasting SSE events
-type SSEBroadcaster interface {
-	BroadcastEvent(eventType string, data interface{}) error
+// EventPublisher interface for publishing events (allows mocking in tests)
+type EventPublisher interface {
+	Publish(ev events.Event)
 }
 
 // StreamMetricsAccumulator accumulates FFmpeg metrics for a stream
@@ -93,24 +71,24 @@ type StreamMetricsAccumulator struct {
 type SSEExporter struct {
 	config        obs.ExporterConfig
 	logger        *slog.Logger
-	broadcaster   SSEBroadcaster
+	eventBus      EventPublisher
 	logLevel      string
 	streamMetrics map[string]*StreamMetricsAccumulator // stream_id -> accumulated metrics
 	streamMutex   sync.RWMutex
 }
 
 // NewSSEExporter creates a new SSE exporter
-func NewSSEExporter(broadcaster SSEBroadcaster) *SSEExporter {
+func NewSSEExporter(eventBus EventPublisher) *SSEExporter {
 	config := obs.ExporterConfig{
 		Name:    "sse",
 		Enabled: true,
-		Config:  make(map[string]interface{}),
+		Config:  make(map[string]any),
 	}
 
 	return &SSEExporter{
 		config:        config,
 		logger:        slog.With("component", "sse_exporter"),
-		broadcaster:   broadcaster,
+		eventBus:      eventBus,
 		logLevel:      "info", // Default log level
 		streamMetrics: make(map[string]*StreamMetricsAccumulator),
 	}
@@ -169,25 +147,23 @@ func (s *SSEExporter) processMetricImmediately(metric *obs.MetricPoint) {
 	case strings.HasPrefix(metric.Name, "system_"):
 		// System metrics are now separate metrics - send as individual MediaMTX events for now
 		// TODO: Could accumulate these too if needed
-		metricsEvent := MediaMTXMetricsEvent{
-			Type:      "mediamtx_metrics",
+		s.eventBus.Publish(events.MediaMTXMetricsEvent{
+			EventType: "mediamtx_metrics",
 			Timestamp: time.Now().Format(time.RFC3339),
 			Count:     1,
 			Metrics:   s.formatMetricsForSSE([]*obs.MetricPoint{metric}),
-		}
-		s.broadcaster.BroadcastEvent("mediamtx-metrics", metricsEvent)
+		})
 	case strings.HasPrefix(metric.Name, "ffmpeg_"):
 		// Accumulate FFmpeg metrics and send combined stream-metrics event
 		s.accumulateStreamMetric(metric)
 	default:
 		// Send other metrics as MediaMTX metrics individually
-		metricsEvent := MediaMTXMetricsEvent{
-			Type:      "mediamtx_metrics",
+		s.eventBus.Publish(events.MediaMTXMetricsEvent{
+			EventType: "mediamtx_metrics",
 			Timestamp: time.Now().Format(time.RFC3339),
 			Count:     1,
 			Metrics:   s.formatMetricsForSSE([]*obs.MetricPoint{metric}),
-		}
-		s.broadcaster.BroadcastEvent("mediamtx-metrics", metricsEvent)
+		})
 	}
 }
 
@@ -232,11 +208,11 @@ func (s *SSEExporter) shouldLog(entryLevel obs.LogLevel) bool {
 }
 
 // formatMetricsForSSE formats metrics for SSE transmission
-func (s *SSEExporter) formatMetricsForSSE(metrics []*obs.MetricPoint) []map[string]interface{} {
-	var result []map[string]interface{}
+func (s *SSEExporter) formatMetricsForSSE(metrics []*obs.MetricPoint) []map[string]any {
+	var result []map[string]any
 
 	for _, metric := range metrics {
-		item := map[string]interface{}{
+		item := map[string]any{
 			"name":      metric.Name,
 			"value":     metric.Value,
 			"unit":      metric.Unit,
@@ -250,16 +226,15 @@ func (s *SSEExporter) formatMetricsForSSE(metrics []*obs.MetricPoint) []map[stri
 }
 
 // SendAlert sends an alert via SSE
-func (s *SSEExporter) SendAlert(level obs.LogLevel, message string, details map[string]interface{}) error {
-	alertEvent := OBSAlertEvent{
-		Type:      "alert",
+func (s *SSEExporter) SendAlert(level obs.LogLevel, message string, details map[string]any) error {
+	s.eventBus.Publish(events.OBSAlertEvent{
+		EventType: "alert",
 		Level:     string(level),
 		Message:   message,
 		Details:   details,
 		Timestamp: time.Now().Format(time.RFC3339),
-	}
-
-	return s.broadcaster.BroadcastEvent("obs-alert", alertEvent)
+	})
+	return nil
 }
 
 // accumulateStreamMetric accumulates FFmpeg metrics and sends combined stream event
@@ -301,26 +276,24 @@ func (s *SSEExporter) accumulateStreamMetric(metric *obs.MetricPoint) {
 
 // sendStreamMetricsEvent sends a combined stream metrics event
 func (s *SSEExporter) sendStreamMetricsEvent(accumulator *StreamMetricsAccumulator) {
-	event := StreamMetricsEvent{
-		Type:            "stream_metrics",
+	s.eventBus.Publish(events.StreamMetricsEvent{
+		EventType:       "stream_metrics",
 		Timestamp:       accumulator.LastUpdate.Format(time.RFC3339),
 		StreamID:        accumulator.StreamID,
 		FPS:             accumulator.FPS,
 		DroppedFrames:   accumulator.DroppedFrames,
 		DuplicateFrames: accumulator.DuplicateFrames,
 		ProcessingSpeed: accumulator.ProcessingSpeed,
-	}
-
-	s.broadcaster.BroadcastEvent("stream-metrics", event)
+	})
 }
 
 // Stats returns statistics about the exporter
-func (s *SSEExporter) Stats() map[string]interface{} {
+func (s *SSEExporter) Stats() map[string]any {
 	s.streamMutex.RLock()
 	streamCount := len(s.streamMetrics)
 	s.streamMutex.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"name":         s.config.Name,
 		"enabled":      s.config.Enabled,
 		"mode":         "immediate", // No buffering
