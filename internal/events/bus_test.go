@@ -32,7 +32,7 @@ func TestBus_PublishSubscribe(t *testing.T) {
 	}
 }
 
-func TestBus_MultipleSubscribers(t *testing.T) {
+func TestBus_MultipleSubscribers(_ *testing.T) {
 	bus := New()
 	received1 := make(chan StreamCreatedEvent, 1)
 	received2 := make(chan StreamCreatedEvent, 1)
@@ -85,12 +85,12 @@ func TestBus_TypeSafety(t *testing.T) {
 	captureReceived := make(chan bool, 1)
 	streamReceived := make(chan bool, 1)
 
-	unsub1 := bus.Subscribe(func(e CaptureSuccessEvent) {
+	unsub1 := bus.Subscribe(func(_ CaptureSuccessEvent) {
 		captureReceived <- true
 	})
 	defer unsub1()
 
-	unsub2 := bus.Subscribe(func(e StreamCreatedEvent) {
+	unsub2 := bus.Subscribe(func(_ StreamCreatedEvent) {
 		streamReceived <- true
 	})
 	defer unsub2()
@@ -118,7 +118,7 @@ func TestBus_TypeSafety(t *testing.T) {
 	}
 }
 
-func TestBus_ThreadSafety(t *testing.T) {
+func TestBus_ThreadSafety(_ *testing.T) {
 	bus := New()
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -127,16 +127,16 @@ func TestBus_ThreadSafety(t *testing.T) {
 
 	receivedCh := make(chan bool, expected)
 
-	unsub := bus.Subscribe(func(e DeviceDiscoveryEvent) {
+	unsub := bus.Subscribe(func(_ DeviceDiscoveryEvent) {
 		receivedCh <- true
 	})
 	defer unsub()
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < eventsPerGoroutine; j++ {
+			for range eventsPerGoroutine {
 				bus.Publish(DeviceDiscoveryEvent{
 					Action:    "added",
 					Timestamp: time.Now().Format(time.RFC3339),
@@ -148,7 +148,7 @@ func TestBus_ThreadSafety(t *testing.T) {
 	wg.Wait()
 
 	// Read all expected events
-	for i := 0; i < expected; i++ {
+	for range expected {
 		<-receivedCh
 	}
 }
@@ -173,7 +173,7 @@ func TestBus_AllEventTypes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(_ *testing.T) {
 			received := make(chan Event, 1)
 
 			var unsub func()
@@ -247,8 +247,8 @@ func TestEventJSONSerialization(t *testing.T) {
 			}
 
 			var result map[string]any
-			if err := json.Unmarshal(data, &result); err != nil {
-				t.Fatalf("Failed to unmarshal: %v", err)
+			if unmarshalErr := json.Unmarshal(data, &result); unmarshalErr != nil {
+				t.Fatalf("Failed to unmarshal: %v", unmarshalErr)
 			}
 
 			if len(result) == 0 {
@@ -297,7 +297,7 @@ func TestSubscribeToChannel(t *testing.T) {
 	}
 }
 
-func TestSubscribeToChannel_NonBlocking(t *testing.T) {
+func TestSubscribeToChannel_NonBlocking(_ *testing.T) {
 	bus := New()
 	ch := make(chan any) // No buffer
 

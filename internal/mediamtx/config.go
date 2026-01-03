@@ -2,7 +2,7 @@ package mediamtx
 
 import "sync"
 
-// Config holds configuration for MediaMTX integration
+// Config holds configuration for MediaMTX integration.
 type Config struct {
 	UseSystemd bool // Use systemd-run instead of wrapper script
 }
@@ -13,7 +13,7 @@ var (
 )
 
 // SetConfig sets the global configuration for the mediamtx package
-// This should be called once at startup from main.go
+// This should be called once at startup from main.go.
 func SetConfig(cfg *Config) {
 	configOnce.Do(func() {
 		if cfg != nil {

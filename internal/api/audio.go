@@ -9,7 +9,7 @@ import (
 	"github.com/smazurov/videonode/internal/audio"
 )
 
-// registerAudioRoutes registers all audio-related API endpoints under /api/devices/audio
+// registerAudioRoutes registers all audio-related API endpoints under /api/devices/audio.
 func (s *Server) registerAudioRoutes() {
 	// GET /api/devices/audio - List all audio devices with capabilities
 	huma.Register(s.api, huma.Operation{
@@ -17,10 +17,11 @@ func (s *Server) registerAudioRoutes() {
 		Method:      http.MethodGet,
 		Path:        "/api/devices/audio",
 		Summary:     "List Audio Devices",
-		Description: "List all available audio devices with their capabilities including supported sample rates, formats, and channel configurations",
-		Tags:        []string{"devices"},
-		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct{}) (*models.AudioDevicesResponse, error) {
+		Description: "List all available audio devices with their capabilities including supported " +
+			"sample rates, formats, and channel configurations",
+		Tags:     []string{"devices"},
+		Security: withAuth(),
+	}, func(_ context.Context, _ *struct{}) (*models.AudioDevicesResponse, error) {
 		detector := audio.NewDetector()
 		devices, err := detector.ListDevices()
 		if err != nil {

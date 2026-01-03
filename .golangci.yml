@@ -1,0 +1,139 @@
+version: "2"
+
+linters:
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - copyloopvar
+    - dupl
+    - errname
+    - errorlint
+    - gochecknoinits
+    - gocritic
+    - godot
+    - misspell
+    - modernize
+    - nilerr
+    - prealloc
+    - predeclared
+    - reassign
+    - revive
+    - usestdlibvars
+    - unconvert
+    - tparallel
+    - wastedassign
+    - whitespace
+  settings:
+    lll:
+      line-length: 140
+    errcheck:
+      exclude-functions:
+        - io.Copy
+        - (io.Closer).Close
+        - (io.Writer).Write
+        - (hash.Hash).Write
+        - (net.Conn).Close
+        - (net.Conn).SetReadDeadline
+        - (net.Conn).SetWriteDeadline
+        - (*net.TCPConn).SetKeepAlive
+        - (*net.TCPConn).SetKeepAlivePeriod
+        - (*net.TCPConn).SetNoDelay
+        - (net.Listener).Close
+        - (net.Listener).SetDeadline
+        - (*net.UnixListener).SetDeadline
+        - (net.PacketConn).Close
+        - (net.PacketConn).SetReadDeadline
+        - (net.PacketConn).SetWriteDeadline
+        - (net/http.ResponseWriter).Write
+        - (*net/http.Server).Serve
+        - (*net/http.Server).ServeTLS
+        - (*net/http.Server).Shutdown
+        - os.Chdir
+        - os.Mkdir
+        - os.MkdirAll
+        - os.Remove
+        - os.RemoveAll
+        - os.Setenv
+        - os.Unsetenv
+        - (*os.File).WriteString
+        - (*os.File).Close
+        - (*os.File).Seek
+        - (*os.Process).Kill
+        - fmt.Sscanf
+        - (*github.com/fsnotify/fsnotify.Watcher).Close
+        - (*github.com/godbus/dbus/v5.Conn).Close
+        - (*github.com/jochenvg/go-udev.Monitor).FilterAddMatchSubsystemDevtype
+        - (*github.com/danielgtaylor/huma/v2.API).WriteErr
+        - github.com/danielgtaylor/huma/v2.WriteErr
+        - (github.com/smazurov/videonode/internal/obs.Collector).Stop
+        - (github.com/smazurov/videonode/internal/obs.Exporter).Stop
+        - (*github.com/smazurov/videonode/internal/obs.Manager).Stop
+        - (*github.com/smazurov/videonode/internal/config.Watcher).Stop
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - reflectvaluecompare
+      settings:
+        shadow:
+          strict: true
+    modernize:
+      disable:
+        - reflecttypefor
+        - stringsbuilder
+        - testingcontext
+    godot:
+      scope: declarations
+      capital: true
+      period: true
+    revive:
+      enable-all-rules: false
+      rules:
+        - name: exported
+          severity: warning
+          arguments:
+            - checkPrivateReceivers
+            - sayRepetitiveInsteadOfStutters
+        - name: package-comments
+          severity: warning
+        - name: var-naming
+          severity: warning
+          arguments:
+            - [
+                "ID",
+                "URL",
+                "API",
+                "HTTP",
+                "JSON",
+                "XML",
+                "SSE",
+                "SBC",
+                "FFmpeg",
+                "V4L2",
+                "HDMI",
+                "RTSP",
+                "WebRTC",
+                "LED",
+                "USB",
+                "OBS",
+                "MPP",
+                "ALSA",
+              ]
+            - []
+            - - skipPackageNameChecks: true
+        - name: unused-parameter
+          severity: warning
+
+issues:
+  include:
+    - EXC0012
+    - EXC0013
+    - EXC0014
+    - EXC0015
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports

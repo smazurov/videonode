@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
-import { 
+import {
   API_BASE_URL,
-  SSEStreamEvent, 
-  SSEStreamLifecycleEvent, 
+  SSEStreamLifecycleEvent,
   SSEStreamMetricsEvent,
   SSEStreamCreatedEvent,
   SSEStreamUpdatedEvent,
@@ -12,7 +11,6 @@ import {
 type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
 
 interface SSEManagerOptions {
-  onStreamEvent?: (event: SSEStreamEvent) => void;
   onStreamLifecycleEvent?: (event: SSEStreamLifecycleEvent) => void;
   onStreamMetricsEvent?: (event: SSEStreamMetricsEvent) => void;
   onConnectionStatusChange?: (status: ConnectionStatus) => void;
@@ -29,7 +27,6 @@ let globalReconnectDelay = INITIAL_RECONNECT_DELAY;
 
 // Global handlers for different event types
 const globalConnectionHandlers = new Set<(status: ConnectionStatus) => void>();
-const globalStreamEventHandlers = new Set<(event: SSEStreamEvent) => void>();
 const globalStreamLifecycleHandlers = new Set<(event: SSEStreamLifecycleEvent) => void>();
 const globalStreamMetricsHandlers = new Set<(event: SSEStreamMetricsEvent) => void>();
 
@@ -153,15 +150,12 @@ function disconnectGlobalSSE(): void {
 }
 
 export function useSSEManager(options: SSEManagerOptions = {}) {
-  const { onStreamEvent, onStreamLifecycleEvent, onStreamMetricsEvent, onConnectionStatusChange } = options;
+  const { onStreamLifecycleEvent, onStreamMetricsEvent, onConnectionStatusChange } = options;
 
   useEffect(() => {
     // Register this component's handlers
     if (onConnectionStatusChange) {
       globalConnectionHandlers.add(onConnectionStatusChange);
-    }
-    if (onStreamEvent) {
-      globalStreamEventHandlers.add(onStreamEvent);
     }
     if (onStreamLifecycleEvent) {
       globalStreamLifecycleHandlers.add(onStreamLifecycleEvent);
@@ -178,9 +172,6 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
       if (onConnectionStatusChange) {
         globalConnectionHandlers.delete(onConnectionStatusChange);
       }
-      if (onStreamEvent) {
-        globalStreamEventHandlers.delete(onStreamEvent);
-      }
       if (onStreamLifecycleEvent) {
         globalStreamLifecycleHandlers.delete(onStreamLifecycleEvent);
       }
@@ -189,14 +180,13 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
       }
 
       // Only disconnect if no handlers remain
-      if (globalConnectionHandlers.size === 0 && 
-          globalStreamEventHandlers.size === 0 && 
+      if (globalConnectionHandlers.size === 0 &&
           globalStreamLifecycleHandlers.size === 0 &&
           globalStreamMetricsHandlers.size === 0) {
         disconnectGlobalSSE();
       }
     };
-  }, [onStreamEvent, onStreamLifecycleEvent, onStreamMetricsEvent, onConnectionStatusChange]);
+  }, [onStreamLifecycleEvent, onStreamMetricsEvent, onConnectionStatusChange]);
 
   return {
     disconnect: disconnectGlobalSSE,

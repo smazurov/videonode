@@ -3,6 +3,7 @@ package exporters
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -12,13 +13,13 @@ import (
 )
 
 // TestOBSBug_MetricAccumulation demonstrates the bug where metrics accumulate
-// instead of being replaced when label values change
+// instead of being replaced when label values change.
 func TestOBSBug_MetricAccumulation(t *testing.T) {
 	exporter := NewPromExporter()
 
 	// Simulate changing test metrics - these SHOULD update the same metric
 	// but currently create new metrics each time
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		metric := &obs.MetricPoint{
 			Name:  "test_metrics",
 			Value: 1.0,
@@ -33,9 +34,11 @@ func TestOBSBug_MetricAccumulation(t *testing.T) {
 				"net_rx_bytes":  fmt.Sprintf("%d", 1000000+i*100000), // Changes each iteration
 				"net_tx_bytes":  fmt.Sprintf("%d", 500000+i*50000),   // Changes each iteration
 			},
-			Timestamp_: time.Now(),
+			TimestampUnix: time.Now(),
 		}
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 		exporter.ForceFlush()
 	}
 
@@ -57,7 +60,7 @@ func TestOBSBug_MetricAccumulation(t *testing.T) {
 	}
 }
 
-// TestOBSBug_FFmpegStreamMetrics demonstrates the specific bug with FFmpeg metrics
+// TestOBSBug_FFmpegStreamMetrics demonstrates the specific bug with FFmpeg metrics.
 func TestOBSBug_FFmpegStreamMetrics(t *testing.T) {
 	exporter := NewPromExporter()
 
@@ -87,9 +90,11 @@ func TestOBSBug_FFmpegStreamMetrics(t *testing.T) {
 				"duplicate_frames": update.duplicate,
 				"processing_speed": update.speed,
 			},
-			Timestamp_: time.Now(),
+			TimestampUnix: time.Now(),
 		}
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	exporter.ForceFlush()
@@ -107,7 +112,7 @@ func TestOBSBug_FFmpegStreamMetrics(t *testing.T) {
 	}
 
 	// Test the actual Prometheus output
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	handler := exporter.GetHandler()
 	handler.ServeHTTP(w, req)
@@ -132,7 +137,7 @@ func TestOBSBug_FFmpegStreamMetrics(t *testing.T) {
 	}
 }
 
-// TestOBSBug_PrometheusKeyGeneration tests the root cause - the key generation
+// TestOBSBug_PrometheusKeyGeneration tests the root cause - the key generation.
 func TestOBSBug_PrometheusKeyGeneration(t *testing.T) {
 	collector := NewDynamicCollector()
 
@@ -167,61 +172,65 @@ func TestOBSBug_PrometheusKeyGeneration(t *testing.T) {
 }
 
 // TestOBS_CorrectMetricSeparation tests that FFmpeg should send separate metrics
-// not one combined metric with values as labels
+// not one combined metric with values as labels.
 func TestOBS_CorrectMetricSeparation(t *testing.T) {
 	exporter := NewPromExporter()
 
 	// How it SHOULD work: separate metrics for each measurement
 	correctMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "ffmpeg_fps",
-			Value:      30.0,
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_fps",
+			Value:         30.0,
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "ffmpeg_dropped_frames_total",
-			Value:      5.0,
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_dropped_frames_total",
+			Value:         5.0,
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "ffmpeg_duplicate_frames_total",
-			Value:      100.0,
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_duplicate_frames_total",
+			Value:         100.0,
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	for _, m := range correctMetrics {
-		exporter.Export([]obs.DataPoint{m})
+		if err := exporter.Export([]obs.DataPoint{m}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 	exporter.ForceFlush()
 
 	// Update with new values
 	updatedMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "ffmpeg_fps",
-			Value:      29.5,
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_fps",
+			Value:         29.5,
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "ffmpeg_dropped_frames_total",
-			Value:      6.0,
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_dropped_frames_total",
+			Value:         6.0,
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "ffmpeg_duplicate_frames_total",
-			Value:      120.0,
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_duplicate_frames_total",
+			Value:         120.0,
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	for _, m := range updatedMetrics {
-		exporter.Export([]obs.DataPoint{m})
+		if err := exporter.Export([]obs.DataPoint{m}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 	exporter.ForceFlush()
 
@@ -250,21 +259,23 @@ func TestOBS_CorrectMetricSeparation(t *testing.T) {
 	}
 }
 
-// TestOBS_NoMetricExpiration tests that metrics never expire (memory leak)
+// TestOBS_NoMetricExpiration tests that metrics never expire (memory leak).
 func TestOBS_NoMetricExpiration(t *testing.T) {
 	exporter := NewPromExporter()
 
 	// Create metrics with old timestamps
 	oldTime := time.Now().Add(-1 * time.Hour)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		metric := &obs.MetricPoint{
-			Name:       "old_metric",
-			Value:      float64(i),
-			LabelsMap:  obs.Labels{"index": fmt.Sprintf("%d", i)},
-			Timestamp_: oldTime,
+			Name:          "old_metric",
+			Value:         float64(i),
+			LabelsMap:     obs.Labels{"index": fmt.Sprintf("%d", i)},
+			TimestampUnix: oldTime,
 		}
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	exporter.ForceFlush()
@@ -281,7 +292,7 @@ func TestOBS_NoMetricExpiration(t *testing.T) {
 	t.Log("Note: There is no CleanupStaleMetrics method implemented")
 }
 
-// TestOBSBug_StateTransitions tests that state changes don't create duplicate metrics
+// TestOBSBug_StateTransitions tests that state changes don't create duplicate metrics.
 func TestOBSBug_StateTransitions(t *testing.T) {
 	exporter := NewPromExporter()
 
@@ -294,7 +305,7 @@ func TestOBSBug_StateTransitions(t *testing.T) {
 				"name":  "proper_stream",
 				"state": "notReady",
 			},
-			Timestamp_: time.Now(),
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
 			Name:  "paths",
@@ -303,12 +314,14 @@ func TestOBSBug_StateTransitions(t *testing.T) {
 				"name":  "proper_stream",
 				"state": "ready", // State changed
 			},
-			Timestamp_: time.Now(),
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	for _, m := range metrics {
-		exporter.Export([]obs.DataPoint{m})
+		if err := exporter.Export([]obs.DataPoint{m}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 	exporter.ForceFlush()
 
@@ -336,7 +349,7 @@ func TestOBSBug_StateTransitions(t *testing.T) {
 	}
 }
 
-// TestOBS_DuplicateCollectorStartup tests that collectors are started only once
+// TestOBS_DuplicateCollectorStartup tests that collectors are started only once.
 func TestOBS_DuplicateCollectorStartup(t *testing.T) {
 	config := obs.DefaultManagerConfig()
 	config.WorkerCount = 1
@@ -383,7 +396,7 @@ func TestOBS_DuplicateCollectorStartup(t *testing.T) {
 	}
 }
 
-// TestCounterCollector is a simple collector that tracks how many times Start() is called
+// TestCounterCollector is a simple collector that tracks how many times Start() is called.
 type TestCounterCollector struct {
 	*obs.BaseCollector
 	counter    int
@@ -398,10 +411,10 @@ func (t *TestCounterCollector) Start(ctx context.Context, dataChan chan<- obs.Da
 	// Send one metric immediately to prove we're running
 	t.counter++
 	point := &obs.MetricPoint{
-		Name:       "test_start_counter",
-		Value:      float64(t.counter),
-		LabelsMap:  obs.Labels{"start_count": fmt.Sprintf("%d", t.startCount)},
-		Timestamp_: time.Now(),
+		Name:          "test_start_counter",
+		Value:         float64(t.counter),
+		LabelsMap:     obs.Labels{"start_count": fmt.Sprintf("%d", t.startCount)},
+		TimestampUnix: time.Now(),
 	}
 
 	select {
@@ -418,7 +431,7 @@ func (t *TestCounterCollector) Stop() error {
 	return t.BaseCollector.Stop()
 }
 
-// TestOBS_SystemMetricsFormat tests that system metrics are using wrong format
+// TestOBS_SystemMetricsFormat tests that system metrics are using wrong format.
 func TestOBS_SystemMetricsFormat(t *testing.T) {
 	// Test that system metrics are properly formatted as separate metrics
 	exporter := NewPromExporter()
@@ -426,32 +439,34 @@ func TestOBS_SystemMetricsFormat(t *testing.T) {
 	// This is the CORRECT format - separate metrics with proper values
 	testMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "test_value_1",
-			Value:      2.5,
-			LabelsMap:  obs.Labels{"collector": "test"},
-			Timestamp_: time.Now(),
+			Name:          "test_value_1",
+			Value:         2.5,
+			LabelsMap:     obs.Labels{"collector": "test"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "test_value_2",
-			Value:      2.8,
-			LabelsMap:  obs.Labels{"collector": "test"},
-			Timestamp_: time.Now(),
+			Name:          "test_value_2",
+			Value:         2.8,
+			LabelsMap:     obs.Labels{"collector": "test"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "system_net_rx_bytes",
-			Value:      1000000,
-			LabelsMap:  obs.Labels{"collector": "system", "interface": "lo"},
-			Timestamp_: time.Now(),
+			Name:          "system_net_rx_bytes",
+			Value:         1000000,
+			LabelsMap:     obs.Labels{"collector": "system", "interface": "lo"},
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	for _, metric := range testMetrics {
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 	exporter.ForceFlush()
 
 	// Check the output
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	handler := exporter.GetHandler()
 	handler.ServeHTTP(w, req)

@@ -4,12 +4,12 @@ import (
 	"github.com/kelindar/event"
 )
 
-// Bus wraps kelindar/event dispatcher for event broadcasting
+// Bus wraps kelindar/event dispatcher for event broadcasting.
 type Bus struct {
 	dispatcher *event.Dispatcher
 }
 
-// New creates a new event bus
+// New creates a new event bus.
 func New() *Bus {
 	return &Bus{
 		dispatcher: event.NewDispatcher(),
@@ -17,7 +17,7 @@ func New() *Bus {
 }
 
 // Publish publishes an event to all subscribers
-// Usage: bus.Publish(CaptureSuccessEvent{...})
+// Usage: bus.Publish(CaptureSuccessEvent{...}).
 func (b *Bus) Publish(ev Event) {
 	// Use type switch to call the generic Publish with the correct type
 	switch e := ev.(type) {
@@ -47,7 +47,7 @@ func (b *Bus) Publish(ev Event) {
 // Subscribe subscribes to events with a handler function
 // The handler type determines which events it receives (type inference)
 // Returns an unsubscribe function
-// Usage: unsub := bus.Subscribe(func(e CaptureSuccessEvent) { ... })
+// Usage: unsub := bus.Subscribe(func(e CaptureSuccessEvent) { ... }).
 func (b *Bus) Subscribe(handler any) func() {
 	// This is a bit tricky - we need to extract the type from the handler
 	// The kelindar/event library uses reflection to determine the event type

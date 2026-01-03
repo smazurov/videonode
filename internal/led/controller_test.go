@@ -3,6 +3,7 @@ package led
 import (
 	"log/slog"
 	"os"
+	"slices"
 	"testing"
 )
 
@@ -61,13 +62,7 @@ func TestSysfsController_Available(t *testing.T) {
 			}
 
 			if tt.contains != "" {
-				found := false
-				for _, ledType := range available {
-					if ledType == tt.contains {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(available, tt.contains)
 				if !found {
 					t.Errorf("Available() does not contain %q", tt.contains)
 				}
@@ -86,13 +81,7 @@ func TestSysfsController_Patterns(t *testing.T) {
 	}
 
 	for _, expected := range expectedPatterns {
-		found := false
-		for _, pattern := range patterns {
-			if pattern == expected {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(patterns, expected)
 		if !found {
 			t.Errorf("Patterns() missing %q", expected)
 		}

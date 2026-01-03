@@ -18,7 +18,7 @@ import (
 	"github.com/smazurov/videonode/ui"
 )
 
-// Server represents the new Huma v2 API server
+// Server represents the new Huma v2 API server.
 type Server struct {
 	api            huma.API
 	mux            *http.ServeMux
@@ -30,7 +30,7 @@ type Server struct {
 	logger         *slog.Logger
 }
 
-// basicAuthMiddleware creates middleware for HTTP basic authentication
+// basicAuthMiddleware creates middleware for HTTP basic authentication.
 func (s *Server) basicAuthMiddleware(username, password string) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		// Skip auth for operations without security requirements
@@ -68,13 +68,13 @@ func (s *Server) basicAuthMiddleware(username, password string) func(huma.Contex
 			// For SSE endpoints, try query parameters as fallback
 			queryAuth := ctx.Query("auth")
 			if queryAuth != "" {
-				decoded, err := base64.StdEncoding.DecodeString(queryAuth)
-				if err != nil {
+				decodedQuery, decodeErr := base64.StdEncoding.DecodeString(queryAuth)
+				if decodeErr != nil {
 					ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
-					huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials format", err)
+					huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials format", decodeErr)
 					return
 				}
-				credentials = string(decoded)
+				credentials = string(decodedQuery)
 			}
 		}
 
@@ -104,7 +104,7 @@ func (s *Server) basicAuthMiddleware(username, password string) func(huma.Contex
 	}
 }
 
-// Options represents the main application options (imported from main package)
+// Options represents the main application options (imported from main package).
 type Options struct {
 	AuthUsername          string
 	AuthPassword          string
@@ -117,9 +117,20 @@ type Options struct {
 		Available() []string
 		Patterns() []string
 	}
+	SystemdManager interface { // Optional systemd manager for service control
+		GetServiceStatus(ctx context.Context, serviceName string) (string, error)
+		RestartService(ctx context.Context, serviceName string) error
+		StopService(ctx context.Context, serviceName string) error
+		StartService(ctx context.Context, serviceName string) error
+		Close()
+	}
+	MediaMTXServiceName   string // MediaMTX systemd service name
+	NATSControlPublisher  interface { // Optional NATS control publisher for stream restart
+		Restart(streamID, reason string) error
+	}
 }
 
-// NewServer creates a new API server with Huma v2 using Go 1.22+ native routing
+// NewServer creates a new API server with Huma v2 using Go 1.22+ native routing.
 func NewServer(opts *Options) *Server {
 	mux := http.NewServeMux()
 
@@ -190,22 +201,22 @@ func NewServer(opts *Options) *Server {
 	return server
 }
 
-// GetMux returns the underlying HTTP ServeMux for additional setup
+// GetMux returns the underlying HTTP ServeMux for additional setup.
 func (s *Server) GetMux() *http.ServeMux {
 	return s.mux
 }
 
-// GetAPI returns the Huma API instance
+// GetAPI returns the Huma API instance.
 func (s *Server) GetAPI() huma.API {
 	return s.api
 }
 
-// CompositeBroadcaster broadcasts device events to multiple EventBroadcasters
+// CompositeBroadcaster broadcasts device events to multiple EventBroadcasters.
 type CompositeBroadcaster struct {
 	broadcasters []devices.EventBroadcaster
 }
 
-// BroadcastDeviceDiscovery implements devices.EventBroadcaster interface
+// BroadcastDeviceDiscovery implements devices.EventBroadcaster interface.
 func (cb *CompositeBroadcaster) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
 	for _, broadcaster := range cb.broadcasters {
 		broadcaster.BroadcastDeviceDiscovery(action, device, timestamp)
@@ -213,7 +224,7 @@ func (cb *CompositeBroadcaster) BroadcastDeviceDiscovery(action string, device d
 }
 
 // BroadcastDeviceDiscovery implements the EventBroadcaster interface for device monitoring
-// This is for the Server to broadcast to SSE clients
+// This is for the Server to broadcast to SSE clients.
 func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
 	if s.eventBus == nil {
 		return
@@ -223,7 +234,7 @@ func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceIn
 	apiDevice := models.DeviceInfo{
 		DevicePath: device.DevicePath,
 		DeviceName: device.DeviceName,
-		DeviceId:   device.DeviceId,
+		DeviceID:   device.DeviceID,
 		Caps:       device.Caps,
 		Ready:      device.Ready,
 		Type:       models.DeviceType(device.Type),
@@ -236,6 +247,7 @@ func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceIn
 	})
 }
 
+// Start starts the API server on the specified address and begins device monitoring.
 func (s *Server) Start(addr string) error {
 	s.logger.Info("Starting VideoNode API server", "addr", addr)
 	s.logger.Info("OpenAPI documentation available", "url", "http://"+addr+"/docs")
@@ -259,7 +271,7 @@ func (s *Server) Start(addr string) error {
 	return s.httpServer.ListenAndServe()
 }
 
-// Stop gracefully shuts down the server
+// Stop gracefully shuts down the server.
 func (s *Server) Stop() error {
 	s.logger.Info("Stopping API server")
 
@@ -276,7 +288,7 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-// registerRoutes sets up all API endpoints
+// registerRoutes sets up all API endpoints.
 func (s *Server) registerRoutes() {
 	// Health check endpoint - no auth required
 	huma.Register(s.api, huma.Operation{
@@ -287,7 +299,7 @@ func (s *Server) registerRoutes() {
 		Description: "Check API health status",
 		Tags:        []string{"health"},
 		Security:    []map[string][]string{}, // Empty security = no auth required
-	}, func(ctx context.Context, input *struct{}) (*models.HealthResponse, error) {
+	}, func(_ context.Context, _ *struct{}) (*models.HealthResponse, error) {
 		return &models.HealthResponse{
 			Body: models.HealthData{
 				Status:  "ok",
@@ -305,7 +317,7 @@ func (s *Server) registerRoutes() {
 		Description: "Get application version information",
 		Tags:        []string{"system"},
 		Security:    []map[string][]string{}, // Empty security = no auth required
-	}, func(ctx context.Context, input *struct{}) (*models.VersionResponse, error) {
+	}, func(_ context.Context, _ *struct{}) (*models.VersionResponse, error) {
 		versionInfo := version.Get()
 		return &models.VersionResponse{
 			Body: models.VersionData{
@@ -338,6 +350,9 @@ func (s *Server) registerRoutes() {
 	// LED endpoints (if LED controller is available)
 	s.registerLEDRoutes()
 
+	// systemd service control endpoints (if systemd manager is available)
+	s.registerSystemdRoutes()
+
 	// SSE endpoints
 	s.registerSSERoutes()
 
@@ -345,7 +360,7 @@ func (s *Server) registerRoutes() {
 	s.registerMetricsRoutes()
 }
 
-// withAuth returns security requirement for basic auth
+// withAuth returns security requirement for basic auth.
 func withAuth() []map[string][]string {
 	return []map[string][]string{
 		{"basicAuth": {}},

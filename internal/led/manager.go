@@ -7,7 +7,7 @@ import (
 	"github.com/smazurov/videonode/internal/events"
 )
 
-// Manager subscribes to stream events and controls system LED based on aggregate state
+// Manager subscribes to stream events and controls system LED based on aggregate state.
 type Manager struct {
 	controller      Controller
 	eventBus        *events.Bus
@@ -18,7 +18,7 @@ type Manager struct {
 	streamStatesMux sync.RWMutex
 }
 
-// NewManager creates a new LED manager that reacts to stream state changes
+// NewManager creates a new LED manager that reacts to stream state changes.
 func NewManager(controller Controller, eventBus *events.Bus, logger *slog.Logger) *Manager {
 	return &Manager{
 		controller:   controller,
@@ -29,7 +29,7 @@ func NewManager(controller Controller, eventBus *events.Bus, logger *slog.Logger
 	}
 }
 
-// Start begins listening for stream state change events
+// Start begins listening for stream state change events.
 func (m *Manager) Start() {
 	// Subscribe to stream state changed events
 	m.unsubscribe = m.eventBus.Subscribe(func(e events.StreamStateChangedEvent) {
@@ -38,7 +38,7 @@ func (m *Manager) Start() {
 	m.logger.Info("LED manager started")
 }
 
-// Stop stops the LED manager and unsubscribes from events
+// Stop stops the LED manager and unsubscribes from events.
 func (m *Manager) Stop() {
 	if m.unsubscribe != nil {
 		m.unsubscribe()
@@ -47,7 +47,7 @@ func (m *Manager) Stop() {
 	m.logger.Info("LED manager stopped")
 }
 
-// handleEvent processes a single stream state changed event
+// handleEvent processes a single stream state changed event.
 func (m *Manager) handleEvent(event events.StreamStateChangedEvent) {
 	streamID := event.GetStreamID()
 	enabled := event.IsEnabled()
@@ -64,7 +64,7 @@ func (m *Manager) handleEvent(event events.StreamStateChangedEvent) {
 	m.updateSystemLED()
 }
 
-// updateSystemLED sets the system LED pattern based on whether all streams are enabled
+// updateSystemLED sets the system LED pattern based on whether all streams are enabled.
 func (m *Manager) updateSystemLED() {
 	m.streamStatesMux.RLock()
 	defer m.streamStatesMux.RUnlock()
@@ -103,7 +103,7 @@ func (m *Manager) updateSystemLED() {
 	}
 }
 
-// GetController returns the underlying LED controller for direct API access
+// GetController returns the underlying LED controller for direct API access.
 func (m *Manager) GetController() Controller {
 	return m.controller
 }

@@ -37,7 +37,7 @@ func TestSetConfigOnceWithConcurrency(t *testing.T) {
 	const goroutines = 10
 	var wg sync.WaitGroup
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()

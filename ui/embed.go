@@ -1,3 +1,4 @@
+// Package ui embeds the frontend assets for the web interface.
 package ui
 
 import (
@@ -16,7 +17,7 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-// Handler returns an http.Handler that serves the embedded frontend
+// Handler returns an http.Handler that serves the embedded frontend.
 func Handler() (http.Handler, error) {
 	// Always serve from embedded filesystem
 	fsys, err := fs.Sub(distFS, "dist")
@@ -31,12 +32,12 @@ func Handler() (http.Handler, error) {
 		p := path.Clean(r.URL.Path)
 
 		// Try to open the file
-		f, err := fsys.Open(strings.TrimPrefix(p, "/"))
-		if err == nil {
-			defer f.Close()
+		f, openErr := fsys.Open(strings.TrimPrefix(p, "/"))
+		if openErr == nil {
+			defer func() { _ = f.Close() }()
 			// Check if it's a file (not a directory)
-			stat, err := f.Stat()
-			if err == nil && !stat.IsDir() {
+			stat, statErr := f.Stat()
+			if statErr == nil && !stat.IsDir() {
 				// File exists, serve it
 				fileServer.ServeHTTP(w, r)
 				return

@@ -2,6 +2,7 @@ package exporters
 
 import (
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -17,21 +18,23 @@ func TestPrometheusExporter_MetricDeduplication(t *testing.T) {
 	// Send same metric with changing value
 	metrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "test_counter",
-			Value:      1.0,
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now(),
+			Name:          "test_counter",
+			Value:         1.0,
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "test_counter",
-			Value:      2.0,
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now(),
+			Name:          "test_counter",
+			Value:         2.0,
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	for _, m := range metrics {
-		exporter.Export([]obs.DataPoint{m})
+		if err := exporter.Export([]obs.DataPoint{m}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	// Force flush to process buffer
@@ -63,7 +66,7 @@ func TestPrometheusExporter_StableLabelKeys(t *testing.T) {
 				"collector": "test",
 				"instance":  "default",
 			},
-			Timestamp_: time.Now(),
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
 			Name:  "test_metrics",
@@ -72,12 +75,14 @@ func TestPrometheusExporter_StableLabelKeys(t *testing.T) {
 				"collector": "test",
 				"instance":  "default",
 			},
-			Timestamp_: time.Now(),
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	for _, m := range metrics {
-		exporter.Export([]obs.DataPoint{m})
+		if err := exporter.Export([]obs.DataPoint{m}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	exporter.ForceFlush()
@@ -95,22 +100,24 @@ func TestPrometheusExporter_MPPMetrics(t *testing.T) {
 	// Add MPP test metrics
 	mppMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "mpp_device_load",
-			Value:      15.50,
-			LabelsMap:  obs.Labels{"device": "fdb51000.avsd-plus", "collector": "mpp"},
-			Timestamp_: time.Now(),
+			Name:          "mpp_device_load",
+			Value:         15.50,
+			LabelsMap:     obs.Labels{"device": "fdb51000.avsd-plus", "collector": "mpp"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "mpp_device_utilization",
-			Value:      12.25,
-			LabelsMap:  obs.Labels{"device": "fdb51000.avsd-plus", "collector": "mpp"},
-			Timestamp_: time.Now(),
+			Name:          "mpp_device_utilization",
+			Value:         12.25,
+			LabelsMap:     obs.Labels{"device": "fdb51000.avsd-plus", "collector": "mpp"},
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	// Export metrics
 	for _, m := range mppMetrics {
-		exporter.Export([]obs.DataPoint{m})
+		if err := exporter.Export([]obs.DataPoint{m}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	// Force flush to process buffer
@@ -156,45 +163,47 @@ func TestPrometheusExporter_MPPMultipleDevices(t *testing.T) {
 	// Add metrics for 3 different devices
 	mppMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "mpp_device_load",
-			Value:      5.00,
-			LabelsMap:  obs.Labels{"device": "fdb51000.avsd-plus", "collector": "mpp"},
-			Timestamp_: time.Now(),
+			Name:          "mpp_device_load",
+			Value:         5.00,
+			LabelsMap:     obs.Labels{"device": "fdb51000.avsd-plus", "collector": "mpp"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "mpp_device_utilization",
-			Value:      3.00,
-			LabelsMap:  obs.Labels{"device": "fdb51000.avsd-plus", "collector": "mpp"},
-			Timestamp_: time.Now(),
+			Name:          "mpp_device_utilization",
+			Value:         3.00,
+			LabelsMap:     obs.Labels{"device": "fdb51000.avsd-plus", "collector": "mpp"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "mpp_device_load",
-			Value:      15.50,
-			LabelsMap:  obs.Labels{"device": "fdb50400.vdpu", "collector": "mpp"},
-			Timestamp_: time.Now(),
+			Name:          "mpp_device_load",
+			Value:         15.50,
+			LabelsMap:     obs.Labels{"device": "fdb50400.vdpu", "collector": "mpp"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "mpp_device_utilization",
-			Value:      12.25,
-			LabelsMap:  obs.Labels{"device": "fdb50400.vdpu", "collector": "mpp"},
-			Timestamp_: time.Now(),
+			Name:          "mpp_device_utilization",
+			Value:         12.25,
+			LabelsMap:     obs.Labels{"device": "fdb50400.vdpu", "collector": "mpp"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "mpp_device_load",
-			Value:      85.75,
-			LabelsMap:  obs.Labels{"device": "fdbd0000.rkvenc-core", "collector": "mpp"},
-			Timestamp_: time.Now(),
+			Name:          "mpp_device_load",
+			Value:         85.75,
+			LabelsMap:     obs.Labels{"device": "fdbd0000.rkvenc-core", "collector": "mpp"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "mpp_device_utilization",
-			Value:      80.50,
-			LabelsMap:  obs.Labels{"device": "fdbd0000.rkvenc-core", "collector": "mpp"},
-			Timestamp_: time.Now(),
+			Name:          "mpp_device_utilization",
+			Value:         80.50,
+			LabelsMap:     obs.Labels{"device": "fdbd0000.rkvenc-core", "collector": "mpp"},
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	// Export all metrics in one batch
-	exporter.Export(mppMetrics)
+	if err := exporter.Export(mppMetrics); err != nil {
+		t.Fatalf("Export failed: %v", err)
+	}
 
 	// Force flush to process buffer
 	exporter.ForceFlush()
@@ -264,33 +273,35 @@ func TestPrometheusExporter_HTTPHandler(t *testing.T) {
 	// Add test metrics
 	testMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "test_gauge",
-			Value:      42.0,
-			LabelsMap:  obs.Labels{"job": "test"},
-			Timestamp_: time.Now(),
+			Name:          "test_gauge",
+			Value:         42.0,
+			LabelsMap:     obs.Labels{"job": "test"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "test_counter_total",
-			Value:      100.0,
-			LabelsMap:  obs.Labels{"job": "test"},
-			Timestamp_: time.Now(),
+			Name:          "test_counter_total",
+			Value:         100.0,
+			LabelsMap:     obs.Labels{"job": "test"},
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	for _, m := range testMetrics {
-		exporter.Export([]obs.DataPoint{m})
+		if err := exporter.Export([]obs.DataPoint{m}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 	exporter.ForceFlush()
 
 	// Test HTTP handler
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 
 	handler := exporter.GetHandler()
 	handler.ServeHTTP(w, req)
 
 	resp := w.Result()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
@@ -332,17 +343,19 @@ func TestPrometheusExporter_MetricTypes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			metric := &obs.MetricPoint{
-				Name:       tc.metricName,
-				Value:      1.0,
-				LabelsMap:  obs.Labels{"test": "true"},
-				Timestamp_: time.Now(),
+				Name:          tc.metricName,
+				Value:         1.0,
+				LabelsMap:     obs.Labels{"test": "true"},
+				TimestampUnix: time.Now(),
 			}
 
-			exporter.Export([]obs.DataPoint{metric})
+			if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+				t.Fatalf("Export failed: %v", err)
+			}
 			exporter.ForceFlush()
 
 			// Check the metric type was determined correctly
-			req := httptest.NewRequest("GET", "/metrics", nil)
+			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 			w := httptest.NewRecorder()
 			handler := exporter.GetHandler()
 			handler.ServeHTTP(w, req)
@@ -365,14 +378,16 @@ func TestPrometheusExporter_BufferProcessing(t *testing.T) {
 	exporter := NewPromExporter()
 
 	// Fill buffer with metrics
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		metric := &obs.MetricPoint{
-			Name:       "buffer_test",
-			Value:      float64(i),
-			LabelsMap:  obs.Labels{"index": "stable"}, // Keep label stable
-			Timestamp_: time.Now(),
+			Name:          "buffer_test",
+			Value:         float64(i),
+			LabelsMap:     obs.Labels{"index": "stable"}, // Keep label stable
+			TimestampUnix: time.Now(),
 		}
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	exporter.ForceFlush()
@@ -397,23 +412,25 @@ func TestPrometheusExporter_ConcurrentAccess(t *testing.T) {
 	done := make(chan bool)
 
 	// Multiple goroutines writing metrics with stable labels
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
-			for j := 0; j < 100; j++ {
+			for j := range 100 {
 				metric := &obs.MetricPoint{
-					Name:       "concurrent_test",
-					Value:      float64(j),
-					LabelsMap:  obs.Labels{"stream_id": fmt.Sprintf("stream_%d", id)}, // stable label
-					Timestamp_: time.Now(),
+					Name:          "concurrent_test",
+					Value:         float64(j),
+					LabelsMap:     obs.Labels{"stream_id": fmt.Sprintf("stream_%d", id)}, // stable label
+					TimestampUnix: time.Now(),
 				}
-				exporter.Export([]obs.DataPoint{metric})
+				if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+					t.Errorf("Export failed: %v", err)
+				}
 			}
 			done <- true
 		}(i)
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
@@ -425,7 +442,7 @@ func TestPrometheusExporter_ConcurrentAccess(t *testing.T) {
 	}
 }
 
-// TestPrometheusExporter_RetransmissionFilter tests that Prometheus metrics from scraping are filtered
+// TestPrometheusExporter_RetransmissionFilter tests that Prometheus metrics from scraping are filtered.
 func TestPrometheusExporter_RetransmissionFilter(t *testing.T) {
 	exporter := NewPromExporter()
 
@@ -433,10 +450,10 @@ func TestPrometheusExporter_RetransmissionFilter(t *testing.T) {
 	metrics := []obs.DataPoint{
 		// Normal metric - should be exported
 		&obs.MetricPoint{
-			Name:       "normal_metric",
-			Value:      1.0,
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now(),
+			Name:          "normal_metric",
+			Value:         1.0,
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now(),
 		},
 		// Prometheus collector metric - should be filtered
 		&obs.MetricPoint{
@@ -446,7 +463,7 @@ func TestPrometheusExporter_RetransmissionFilter(t *testing.T) {
 				"collector_type":      "prometheus",
 				"prometheus_endpoint": "http://localhost:9090/metrics",
 			},
-			Timestamp_: time.Now(),
+			TimestampUnix: time.Now(),
 		},
 		// Another test metric
 		&obs.MetricPoint{
@@ -455,12 +472,14 @@ func TestPrometheusExporter_RetransmissionFilter(t *testing.T) {
 			LabelsMap: obs.Labels{
 				"source": "test_collector",
 			},
-			Timestamp_: time.Now(),
+			TimestampUnix: time.Now(),
 		},
 	}
 
 	for _, metric := range metrics {
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	exporter.ForceFlush()

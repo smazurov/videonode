@@ -2,7 +2,7 @@ package events
 
 import "github.com/smazurov/videonode/internal/api/models"
 
-// Event type constants for kelindar/event
+// Event type constants for kelindar/event.
 const (
 	TypeCaptureSuccess uint32 = iota + 1
 	TypeCaptureError
@@ -16,22 +16,23 @@ const (
 	TypeStreamMetrics
 )
 
-// Event interface required by kelindar/event
+// Event interface required by kelindar/event.
 type Event interface {
 	Type() uint32
 }
 
-// CaptureSuccessEvent represents a successful screenshot capture
+// CaptureSuccessEvent represents a successful screenshot capture.
 type CaptureSuccessEvent struct {
 	DevicePath string `json:"device_path" example:"/dev/video0" doc:"Path to the video device"`
-	Message    string `json:"message" example:"Screenshot captured successfully" doc:"Success message"`
+	Message    string `json:"message" example:"Screenshot captured successfully" doc:"Message"`
 	ImageData  string `json:"image_data" doc:"Base64-encoded screenshot image"`
 	Timestamp  string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Capture timestamp"`
 }
 
+// Type returns the event type identifier for CaptureSuccessEvent.
 func (e CaptureSuccessEvent) Type() uint32 { return TypeCaptureSuccess }
 
-// CaptureErrorEvent represents a failed screenshot capture
+// CaptureErrorEvent represents a failed screenshot capture.
 type CaptureErrorEvent struct {
 	DevicePath string `json:"device_path" example:"/dev/video0" doc:"Path to the video device"`
 	Message    string `json:"message" example:"Screenshot capture failed" doc:"Error message"`
@@ -39,75 +40,82 @@ type CaptureErrorEvent struct {
 	Timestamp  string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Error timestamp"`
 }
 
+// Type returns the event type identifier for CaptureErrorEvent.
 func (e CaptureErrorEvent) Type() uint32 { return TypeCaptureError }
 
-// DeviceDiscoveryEvent represents device hotplug events
+// DeviceDiscoveryEvent represents device hotplug events.
 type DeviceDiscoveryEvent struct {
 	models.DeviceInfo
 	Action    string `json:"action" example:"added" doc:"Action type: added, removed, changed"`
 	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
+// Type returns the event type identifier for DeviceDiscoveryEvent.
 func (e DeviceDiscoveryEvent) Type() uint32 { return TypeDeviceDiscovery }
 
-// StreamCreatedEvent represents a successful stream creation
+// StreamCreatedEvent represents a successful stream creation.
 type StreamCreatedEvent struct {
 	Stream    models.StreamData `json:"stream" doc:"Created stream data"`
 	Action    string            `json:"action" example:"created" doc:"Action type"`
 	Timestamp string            `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
+// Type returns the event type identifier for StreamCreatedEvent.
 func (e StreamCreatedEvent) Type() uint32 { return TypeStreamCreated }
 
-// StreamDeletedEvent represents a successful stream deletion
+// StreamDeletedEvent represents a successful stream deletion.
 type StreamDeletedEvent struct {
 	StreamID  string `json:"stream_id" example:"stream-001" doc:"Deleted stream identifier"`
 	Action    string `json:"action" example:"deleted" doc:"Action type"`
 	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
+// Type returns the event type identifier for StreamDeletedEvent.
 func (e StreamDeletedEvent) Type() uint32 { return TypeStreamDeleted }
 
-// StreamUpdatedEvent represents a successful stream update
+// StreamUpdatedEvent represents a successful stream update.
 type StreamUpdatedEvent struct {
 	Stream    models.StreamData `json:"stream" doc:"Updated stream data"`
 	Action    string            `json:"action" example:"updated" doc:"Action type"`
 	Timestamp string            `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
+// Type returns the event type identifier for StreamUpdatedEvent.
 func (e StreamUpdatedEvent) Type() uint32 { return TypeStreamUpdated }
 
 // StreamStateChangedEvent represents a change in stream enabled state
-// Used for LED control and other reactive subsystems
+// Used for LED control and other reactive subsystems.
 type StreamStateChangedEvent struct {
 	StreamID  string `json:"stream_id" example:"stream-001" doc:"Stream identifier"`
 	Enabled   bool   `json:"enabled" example:"true" doc:"Whether stream is enabled"`
 	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
+// Type returns the event type identifier for StreamStateChangedEvent.
 func (e StreamStateChangedEvent) Type() uint32 { return TypeStreamStateChanged }
 
-// GetStreamID implements the StreamStateEvent interface for LED manager
+// GetStreamID implements the StreamStateEvent interface for LED manager.
 func (e StreamStateChangedEvent) GetStreamID() string {
 	return e.StreamID
 }
 
-// IsEnabled implements the StreamStateEvent interface for LED manager
+// IsEnabled implements the StreamStateEvent interface for LED manager.
 func (e StreamStateChangedEvent) IsEnabled() bool {
 	return e.Enabled
 }
 
-// MediaMTXMetricsEvent represents MediaMTX observability metrics
+// MediaMTXMetricsEvent represents MediaMTX observability metrics.
 type MediaMTXMetricsEvent struct {
-	EventType string         `json:"type"`
-	Timestamp string         `json:"timestamp"`
-	Count     int            `json:"count"`
+	EventType string           `json:"type"`
+	Timestamp string           `json:"timestamp"`
+	Count     int              `json:"count"`
 	Metrics   []map[string]any `json:"metrics"`
 }
 
+// Type returns the event type identifier for MediaMTXMetricsEvent.
 func (e MediaMTXMetricsEvent) Type() uint32 { return TypeMediaMTXMetrics }
 
-// OBSAlertEvent represents observability alerts
+// OBSAlertEvent represents observability alerts.
 type OBSAlertEvent struct {
 	EventType string         `json:"type"`
 	Timestamp string         `json:"timestamp"`
@@ -116,9 +124,10 @@ type OBSAlertEvent struct {
 	Details   map[string]any `json:"details"`
 }
 
+// Type returns the event type identifier for OBSAlertEvent.
 func (e OBSAlertEvent) Type() uint32 { return TypeOBSAlert }
 
-// StreamMetricsEvent represents FFmpeg stream metrics
+// StreamMetricsEvent represents FFmpeg stream metrics.
 type StreamMetricsEvent struct {
 	EventType       string `json:"type"`
 	Timestamp       string `json:"timestamp"`
@@ -129,4 +138,5 @@ type StreamMetricsEvent struct {
 	ProcessingSpeed string `json:"processing_speed"`
 }
 
+// Type returns the event type identifier for StreamMetricsEvent.
 func (e StreamMetricsEvent) Type() uint32 { return TypeStreamMetrics }

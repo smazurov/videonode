@@ -12,13 +12,12 @@ func TestNewCommandBuilder(t *testing.T) {
 	}
 
 	// Test that it implements the CommandBuilder interface
-	var _ CommandBuilder = builder
+	_ = builder
 }
 
 func TestBuildEncodersListCommand(t *testing.T) {
 	builder := NewCommandBuilder()
 	cmd, err := builder.BuildEncodersListCommand()
-
 	if err != nil {
 		t.Fatalf("BuildEncodersListCommand() failed: %v", err)
 	}
@@ -294,10 +293,8 @@ func TestValidateOptions(t *testing.T) {
 				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
 					t.Errorf("ValidateOptions() error message should contain %q, got: %v", tt.errMsg, err)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("ValidateOptions() unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("ValidateOptions() unexpected error: %v", err)
 			}
 		})
 	}

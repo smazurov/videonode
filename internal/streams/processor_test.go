@@ -8,20 +8,23 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// mockStore is a test implementation of Store
+// mockStore is a test implementation of Store.
 type mockStore struct {
 	streams map[string]StreamSpec
 }
 
-func (m *mockStore) Load() error                                         { return nil }
-func (m *mockStore) Save() error                                         { return nil }
-func (m *mockStore) AddStream(stream StreamSpec) error                   { m.streams[stream.ID] = stream; return nil }
-func (m *mockStore) UpdateStream(id string, stream StreamSpec) error     { m.streams[id] = stream; return nil }
-func (m *mockStore) RemoveStream(id string) error                        { delete(m.streams, id); return nil }
-func (m *mockStore) GetStream(id string) (StreamSpec, bool)              { s, ok := m.streams[id]; return s, ok }
-func (m *mockStore) GetAllStreams() map[string]StreamSpec                { return m.streams }
-func (m *mockStore) GetValidation() *types.ValidationResults             { return nil }
-func (m *mockStore) UpdateValidation(*types.ValidationResults) error     { return nil }
+func (m *mockStore) Load() error                       { return nil }
+func (m *mockStore) Save() error                       { return nil }
+func (m *mockStore) AddStream(stream StreamSpec) error { m.streams[stream.ID] = stream; return nil }
+func (m *mockStore) UpdateStream(id string, stream StreamSpec) error {
+	m.streams[id] = stream
+	return nil
+}
+func (m *mockStore) RemoveStream(id string) error                    { delete(m.streams, id); return nil }
+func (m *mockStore) GetStream(id string) (StreamSpec, bool)          { s, ok := m.streams[id]; return s, ok }
+func (m *mockStore) GetAllStreams() map[string]StreamSpec            { return m.streams }
+func (m *mockStore) GetValidation() *types.ValidationResults         { return nil }
+func (m *mockStore) UpdateValidation(*types.ValidationResults) error { return nil }
 
 func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 	// Create mock repository
@@ -40,12 +43,27 @@ func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 			},
 		},
 	}
-	repo.AddStream(stream)
+	if err := repo.AddStream(stream); err != nil {
+		t.Fatalf("AddStream failed: %v", err)
+	}
 
 	processor := newProcessor(repo)
 
 	// Mock encoder selector that returns FFmpegParams
 	processor.setEncoderSelector(func(codec, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) *ffmpeg.Params {
+		// Verify expected parameters from stream config
+		if codec != "h264" {
+			t.Errorf("expected codec h264, got %s", codec)
+		}
+		if inputFormat != "yuyv422" {
+			t.Errorf("expected inputFormat yuyv422, got %s", inputFormat)
+		}
+		if qualityParams == nil || qualityParams.Mode != types.RateControlCBR {
+			t.Errorf("expected CBR mode, got %+v", qualityParams)
+		}
+		if qualityParams == nil || qualityParams.TargetBitrate == nil || *qualityParams.TargetBitrate != 5.0 {
+			t.Errorf("expected targetBitrate 5.0, got %+v", qualityParams)
+		}
 		params := &ffmpeg.Params{
 			Encoder:      "h264_vaapi",
 			Bitrate:      "5M",
@@ -61,7 +79,7 @@ func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 	})
 
 	// Mock device resolver
-	processor.setDeviceResolver(func(device string) string {
+	processor.setDeviceResolver(func(_ string) string {
 		return "/dev/video0"
 	})
 
@@ -103,10 +121,12 @@ func TestPrecedenceNoSignalOverCustomCommand(t *testing.T) {
 			InputFormat: "yuyv422",
 		},
 	}
-	repo.AddStream(stream)
+	if err := repo.AddStream(stream); err != nil {
+		t.Fatalf("AddStream failed: %v", err)
+	}
 
 	processor := newProcessor(repo)
-	processor.setDeviceResolver(func(device string) string {
+	processor.setDeviceResolver(func(_ string) string {
 		return "/dev/video0"
 	})
 
@@ -144,7 +164,9 @@ func TestPrecedenceCustomCommandWhenOnline(t *testing.T) {
 			InputFormat: "yuyv422",
 		},
 	}
-	repo.AddStream(stream)
+	if err := repo.AddStream(stream); err != nil {
+		t.Fatalf("AddStream failed: %v", err)
+	}
 
 	processor := newProcessor(repo)
 
@@ -175,10 +197,12 @@ func TestPrecedenceTestModeWhenOnlineNoCustomCommand(t *testing.T) {
 			InputFormat: "yuyv422",
 		},
 	}
-	repo.AddStream(stream)
+	if err := repo.AddStream(stream); err != nil {
+		t.Fatalf("AddStream failed: %v", err)
+	}
 
 	processor := newProcessor(repo)
-	processor.setDeviceResolver(func(device string) string {
+	processor.setDeviceResolver(func(_ string) string {
 		return "/dev/video0"
 	})
 
@@ -214,7 +238,9 @@ func TestPrecedenceTestModeIgnoredWhenCustomCommand(t *testing.T) {
 			InputFormat: "yuyv422",
 		},
 	}
-	repo.AddStream(stream)
+	if err := repo.AddStream(stream); err != nil {
+		t.Fatalf("AddStream failed: %v", err)
+	}
 
 	processor := newProcessor(repo)
 

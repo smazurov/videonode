@@ -9,7 +9,7 @@ import (
 	"github.com/smazurov/videonode/internal/logging"
 )
 
-// Exporter defines the interface for exporting observability data
+// Exporter defines the interface for exporting observability data.
 type Exporter interface {
 	Name() string
 	Start(ctx context.Context) error
@@ -18,16 +18,16 @@ type Exporter interface {
 	Config() ExporterConfig
 }
 
-// ExporterConfig represents configuration for exporters
+// ExporterConfig represents configuration for exporters.
 type ExporterConfig struct {
-	Name          string                 `json:"name"`
-	Enabled       bool                   `json:"enabled"`
-	BufferSize    int                    `json:"buffer_size"`
-	FlushInterval time.Duration          `json:"flush_interval"`
-	Config        map[string]interface{} `json:"config"`
+	Name          string         `json:"name"`
+	Enabled       bool           `json:"enabled"`
+	BufferSize    int            `json:"buffer_size"`
+	FlushInterval time.Duration  `json:"flush_interval"`
+	Config        map[string]any `json:"config"`
 }
 
-// Manager coordinates collectors, store, and exporters
+// Manager coordinates collectors, store, and exporters.
 type Manager struct {
 	store      *Store
 	collectors *CollectorRegistry
@@ -42,7 +42,7 @@ type Manager struct {
 	running    bool
 }
 
-// ManagerConfig represents configuration for the manager
+// ManagerConfig represents configuration for the manager.
 type ManagerConfig struct {
 	StoreConfig  StoreConfig `json:"store_config"`
 	DataChanSize int         `json:"data_chan_size"`
@@ -50,7 +50,7 @@ type ManagerConfig struct {
 	LogLevel     string      `json:"log_level"`
 }
 
-// DefaultManagerConfig returns a default configuration
+// DefaultManagerConfig returns a default configuration.
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
 		StoreConfig:  DefaultStoreConfig(),
@@ -60,7 +60,7 @@ func DefaultManagerConfig() ManagerConfig {
 	}
 }
 
-// NewManager creates a new observability manager
+// NewManager creates a new observability manager.
 func NewManager(config ManagerConfig) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
@@ -75,7 +75,7 @@ func NewManager(config ManagerConfig) *Manager {
 	}
 }
 
-// Start starts the manager and all registered collectors/exporters
+// Start starts the manager and all registered collectors/exporters.
 func (m *Manager) Start() error {
 	m.logger.Info("Starting OBS manager")
 
@@ -113,7 +113,7 @@ func (m *Manager) Start() error {
 	return nil
 }
 
-// Stop stops the manager and all collectors/exporters
+// Stop stops the manager and all collectors/exporters.
 func (m *Manager) Stop() error {
 	m.logger.Info("Stopping OBS manager")
 
@@ -144,7 +144,7 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
-// AddCollector registers a collector
+// AddCollector registers a collector.
 func (m *Manager) AddCollector(collector Collector) error {
 	err := m.collectors.Register(collector)
 	if err != nil {
@@ -163,7 +163,7 @@ func (m *Manager) AddCollector(collector Collector) error {
 	return nil
 }
 
-// RemoveCollector unregisters a collector
+// RemoveCollector unregisters a collector.
 func (m *Manager) RemoveCollector(name string) error {
 	collector, exists := m.collectors.Get(name)
 	if !exists {
@@ -174,39 +174,39 @@ func (m *Manager) RemoveCollector(name string) error {
 	return m.collectors.Unregister(name)
 }
 
-// AddExporter registers an exporter
+// AddExporter registers an exporter.
 func (m *Manager) AddExporter(exporter Exporter) error {
 	name := exporter.Name()
 	if _, exists := m.exporters[name]; exists {
-		return NewObsError(ErrCollectorExists, "exporter already registered", map[string]interface{}{"name": name})
+		return NewObsError(ErrCollectorExists, "exporter already registered", map[string]any{"name": name})
 	}
 	m.exporters[name] = exporter
 	return nil
 }
 
-// RemoveExporter unregisters an exporter
+// RemoveExporter unregisters an exporter.
 func (m *Manager) RemoveExporter(name string) error {
 	exporter, exists := m.exporters[name]
 	if !exists {
-		return NewObsError(ErrCollectorNotFound, "exporter not found", map[string]interface{}{"name": name})
+		return NewObsError(ErrCollectorNotFound, "exporter not found", map[string]any{"name": name})
 	}
 	exporter.Stop()
 	delete(m.exporters, name)
 	return nil
 }
 
-// Query queries the data store
+// Query queries the data store.
 func (m *Manager) Query(opts QueryOptions) (*QueryResult, error) {
 	return m.store.Query(opts)
 }
 
-// ListSeries returns information about all time series
+// ListSeries returns information about all time series.
 func (m *Manager) ListSeries() []SeriesInfo {
 	return m.store.ListSeries()
 }
 
-// Stats returns statistics about the manager
-func (m *Manager) Stats() map[string]interface{} {
+// Stats returns statistics about the manager.
+func (m *Manager) Stats() map[string]any {
 	stats := m.store.Stats()
 	stats["running"] = m.ctx.Err() == nil
 	stats["data_chan_size"] = len(m.dataChan)
@@ -214,7 +214,7 @@ func (m *Manager) Stats() map[string]interface{} {
 	return stats
 }
 
-// SendData sends a data point to the manager (used by collectors)
+// SendData sends a data point to the manager (used by collectors).
 func (m *Manager) SendData(point DataPoint) {
 	select {
 	case m.dataChan <- point:
@@ -225,7 +225,7 @@ func (m *Manager) SendData(point DataPoint) {
 	}
 }
 
-// runCollector runs a single collector
+// runCollector runs a single collector.
 func (m *Manager) runCollector(collector Collector) {
 	defer m.wg.Done()
 
@@ -235,8 +235,8 @@ func (m *Manager) runCollector(collector Collector) {
 	}
 }
 
-// dataWorker processes incoming data points
-func (m *Manager) dataWorker(id int) {
+// dataWorker processes incoming data points.
+func (m *Manager) dataWorker(_ int) {
 	defer m.wg.Done()
 
 	for {
