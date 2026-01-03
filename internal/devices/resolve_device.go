@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ResolveDevicePath converts a device_id to a usable device path for FFmpeg
+// ResolveDevicePath converts a device_id to a usable device path for FFmpeg.
 func ResolveDevicePath(deviceID string) (string, error) {
 	// If it's already a full path, use it directly
 	if strings.HasPrefix(deviceID, "/dev/") {

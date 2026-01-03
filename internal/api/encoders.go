@@ -13,14 +13,15 @@ import (
 	"github.com/smazurov/videonode/internal/streams/store"
 )
 
-// getValidatedEncoders returns only encoders that passed validation and are saved in streams.toml
+// getValidatedEncoders returns only encoders that passed validation and are saved in streams.toml.
 func (s *Server) getValidatedEncoders() (*encoders.EncoderList, error) {
 	// Create validation service to load validation results
 	streamStore := store.NewTOML("streams.toml")
 	validationService := streams.NewValidationService(streamStore)
 
 	// Load validation results from storage
-	results, err := encoders.LoadValidationResults(validationService)
+	validator := encoders.NewValidator(validationService)
+	results, err := validator.LoadValidationResults()
 	if err != nil {
 		// If no validation data exists, return error - system needs to be validated first
 		return nil, fmt.Errorf("validation data not found - run encoder validation first: %w", err)
@@ -104,7 +105,7 @@ func (s *Server) getValidatedEncoders() (*encoders.EncoderList, error) {
 	return validatedList, nil
 }
 
-// convertEncoders converts internal encoder types to API response types
+// convertEncoders converts internal encoder types to API response types.
 func convertEncoders(encoderList *encoders.EncoderList) models.EncoderData {
 	convertEncoder := func(e encoders.Encoder, encoderType models.EncoderType) models.EncoderInfo {
 		return models.EncoderInfo{
@@ -134,7 +135,7 @@ func convertEncoders(encoderList *encoders.EncoderList) models.EncoderData {
 	}
 }
 
-// GetEncodersData fetches the list of validated encoders
+// GetEncodersData fetches the list of validated encoders.
 func (s *Server) GetEncodersData() (models.EncoderData, error) {
 	// Get validated encoders
 	encoderList, err := s.getValidatedEncoders()
@@ -145,7 +146,7 @@ func (s *Server) GetEncodersData() (models.EncoderData, error) {
 	return convertEncoders(encoderList), nil
 }
 
-// registerEncoderRoutes registers all encoder-related endpoints
+// registerEncoderRoutes registers all encoder-related endpoints.
 func (s *Server) registerEncoderRoutes() {
 	// List encoders
 	huma.Register(s.api, huma.Operation{
@@ -157,7 +158,7 @@ func (s *Server) registerEncoderRoutes() {
 		Tags:        []string{"encoders"},
 		Security:    withAuth(),
 		Errors:      []int{400, 401, 500},
-	}, func(ctx context.Context, input *struct{}) (*models.EncodersResponse, error) {
+	}, func(_ context.Context, _ *struct{}) (*models.EncodersResponse, error) {
 		data, err := s.GetEncodersData()
 		if err != nil {
 			// Check if error is due to missing validation data

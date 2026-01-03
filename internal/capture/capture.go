@@ -13,7 +13,7 @@ import (
 	"github.com/smazurov/videonode/internal/ffmpeg"
 )
 
-// listDevices lists all available video devices
+// ListDevices lists all available video devices.
 func ListDevices() {
 	detector := devices.NewDetector()
 	deviceList, err := detector.FindDevices()
@@ -32,25 +32,25 @@ func ListDevices() {
 	for i, dev := range deviceList {
 		fmt.Printf("%d. Device Path: %s\n", i+1, dev.DevicePath)
 		fmt.Printf("   Device Name: %s\n", dev.DeviceName)
-		fmt.Printf("   Device ID: %s\n", dev.DeviceId)
+		fmt.Printf("   Device ID: %s\n", dev.DeviceID)
 		fmt.Println()
 	}
 }
 
-// getOptimalEncoder returns the best available encoder with its settings
+// getOptimalEncoder returns the best available encoder with its settings.
 func getOptimalEncoder() (string, *validation.EncoderSettings, error) {
 	// For capture operations, we can use software encoder since it's just a single frame
 	// This avoids needing StreamManager dependency in the capture package
 	return "libx264", nil, nil
 }
 
-// CaptureToBytes captures a screenshot from the specified video device
+// ToBytes captures a screenshot from the specified video device
 // and returns the image data as bytes.
 //
 // If delaySeconds > 0, it will record video for that duration and extract
 // the last frame, which allows devices like Elgato to naturally show
 // their "no signal" message after a few seconds of video capture.
-func CaptureToBytes(devicePath string, delaySeconds float64) ([]byte, error) {
+func ToBytes(devicePath string, delaySeconds float64) ([]byte, error) {
 	// Check if the device exists
 	if _, err := os.Stat(devicePath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("device %s does not exist", devicePath)
@@ -65,17 +65,17 @@ func CaptureToBytes(devicePath string, delaySeconds float64) ([]byte, error) {
 	return captureDelayedFrameToBytes(devicePath, delaySeconds)
 }
 
-// CaptureScreenshot captures a screenshot from the specified video device
+// Screenshot captures a screenshot from the specified video device
 // and saves it to the specified output path.
 //
 // If delaySeconds > 0, it will record video for that duration and extract
 // the last frame, which allows devices like Elgato to naturally show
 // their "no signal" message after a few seconds of video capture.
-func CaptureScreenshot(devicePath, outputPath string, delaySeconds float64) error {
+func Screenshot(devicePath, outputPath string, delaySeconds float64) error {
 	// Ensure the output directory exists
 	outputDir := filepath.Dir(outputPath)
 	if outputDir != "." {
-		err := os.MkdirAll(outputDir, 0755)
+		err := os.MkdirAll(outputDir, 0o755)
 		if err != nil {
 			return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 		}
@@ -95,7 +95,7 @@ func CaptureScreenshot(devicePath, outputPath string, delaySeconds float64) erro
 	return captureDelayedFrame(devicePath, outputPath, delaySeconds)
 }
 
-// captureDirectFrame captures a single frame immediately
+// captureDirectFrame captures a single frame immediately.
 func captureDirectFrame(devicePath, outputPath string) error {
 	fmt.Printf("Capturing immediate screenshot from %s...\n", devicePath)
 
@@ -130,9 +130,9 @@ func captureDirectFrame(devicePath, outputPath string) error {
 
 	// Wait for completion or timeout
 	select {
-	case err := <-done:
-		if err != nil {
-			return fmt.Errorf("error capturing screenshot: %w", err)
+	case runErr := <-done:
+		if runErr != nil {
+			return fmt.Errorf("error capturing screenshot: %w", runErr)
 		}
 	case <-time.After(10 * time.Second):
 		if cmd.Process != nil {
@@ -145,7 +145,7 @@ func captureDirectFrame(devicePath, outputPath string) error {
 	return nil
 }
 
-// captureDelayedFrame records video for the specified duration and extracts the last frame
+// captureDelayedFrame records video for the specified duration and extracts the last frame.
 func captureDelayedFrame(devicePath, outputPath string, delaySeconds float64) error {
 	fmt.Printf("Capturing frames for %.1f seconds from %s to allow 'no signal' message...\n",
 		delaySeconds, devicePath)
@@ -164,9 +164,9 @@ func captureDelayedFrame(devicePath, outputPath string, delaySeconds float64) er
 	captureTimeout := time.Duration(delaySeconds*float64(time.Second)) + (5 * time.Second)
 
 	// Get the optimal encoder with its settings
-	encoderName, settings, err := getOptimalEncoder()
-	if err != nil {
-		return fmt.Errorf("failed to get optimal encoder: %w", err)
+	encoderName, settings, encoderErr := getOptimalEncoder()
+	if encoderErr != nil {
+		return fmt.Errorf("failed to get optimal encoder: %w", encoderErr)
 	}
 
 	// Step 1: Capture video for the specified duration
@@ -205,9 +205,9 @@ func captureDelayedFrame(devicePath, outputPath string, delaySeconds float64) er
 	}()
 
 	select {
-	case err := <-done:
-		if err != nil {
-			return fmt.Errorf("error capturing video: %w", err)
+	case runErr := <-done:
+		if runErr != nil {
+			return fmt.Errorf("error capturing video: %w", runErr)
 		}
 	case <-time.After(captureTimeout):
 		if cmd.Process != nil {
@@ -233,7 +233,7 @@ func captureDelayedFrame(devicePath, outputPath string, delaySeconds float64) er
 	return nil
 }
 
-// captureDirectFrameToBytes captures a single frame immediately and returns as bytes
+// captureDirectFrameToBytes captures a single frame immediately and returns as bytes.
 func captureDirectFrameToBytes(devicePath string) ([]byte, error) {
 	fmt.Printf("Capturing immediate screenshot from %s...\n", devicePath)
 
@@ -261,7 +261,7 @@ func captureDirectFrameToBytes(devicePath string) ([]byte, error) {
 	return data, nil
 }
 
-// captureDelayedFrameToBytes records video for the specified duration and extracts the last frame as bytes
+// captureDelayedFrameToBytes records video for the specified duration and extracts the last frame as bytes.
 func captureDelayedFrameToBytes(devicePath string, delaySeconds float64) ([]byte, error) {
 	fmt.Printf("Capturing frames for %.1f seconds from %s to allow 'no signal' message...\n",
 		delaySeconds, devicePath)
@@ -275,15 +275,15 @@ func captureDelayedFrameToBytes(devicePath string, delaySeconds float64) ([]byte
 	tempFile.Close()
 
 	// Use our delayed capture function to save to the temp file
-	err = captureDelayedFrame(devicePath, tempFile.Name(), delaySeconds)
-	if err != nil {
-		return nil, err
+	captureErr := captureDelayedFrame(devicePath, tempFile.Name(), delaySeconds)
+	if captureErr != nil {
+		return nil, captureErr
 	}
 
 	// Read the file back as bytes
-	data, err := os.ReadFile(tempFile.Name())
-	if err != nil {
-		return nil, fmt.Errorf("failed to read captured image: %w", err)
+	data, readErr := os.ReadFile(tempFile.Name())
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read captured image: %w", readErr)
 	}
 
 	fmt.Printf("Screenshot with 'no signal' message captured (%d bytes)\n", len(data))

@@ -8,25 +8,25 @@ import (
 
 const sysfsLEDPath = "/sys/class/leds"
 
-// sysfs implements Controller using Linux sysfs LED interface
+// sysfs implements Controller using Linux sysfs LED interface.
 type sysfs struct {
 	leds     map[string]string // LED type -> sysfs name mapping
 	patterns []string          // Available trigger patterns
 }
 
-// newSysfs creates a new sysfs LED controller with board-specific LED mappings
+// newSysfs creates a new sysfs LED controller with board-specific LED mappings.
 func newSysfs(leds map[string]string) *sysfs {
 	return &sysfs{
 		leds: leds,
 		patterns: []string{
-			"none",        // Manual control
-			"heartbeat",   // Blinking heartbeat pattern
-			"default-on",  // Always on (solid)
+			"none",       // Manual control
+			"heartbeat",  // Blinking heartbeat pattern
+			"default-on", // Always on (solid)
 		},
 	}
 }
 
-// Set controls an LED's state and optional pattern
+// Set controls an LED's state and optional pattern.
 func (s *sysfs) Set(ledType string, enabled bool, pattern string) error {
 	sysfsName, ok := s.leds[ledType]
 	if !ok {
@@ -56,14 +56,14 @@ func (s *sysfs) Set(ledType string, enabled bool, pattern string) error {
 			triggerValue = pattern // Allow raw trigger names
 		}
 
-		if err := os.WriteFile(triggerPath, []byte(triggerValue), 0644); err != nil {
+		if err := os.WriteFile(triggerPath, []byte(triggerValue), 0o644); err != nil {
 			return fmt.Errorf("failed to set LED trigger: %w", err)
 		}
 
 		// If pattern is set, we often want the LED on
 		// Set trigger to "none" first to allow manual control if needed
 		if pattern == "solid" {
-			if err := os.WriteFile(triggerPath, []byte("none"), 0644); err != nil {
+			if err := os.WriteFile(triggerPath, []byte("none"), 0o644); err != nil {
 				return fmt.Errorf("failed to set LED trigger to none: %w", err)
 			}
 		}
@@ -78,14 +78,14 @@ func (s *sysfs) Set(ledType string, enabled bool, pattern string) error {
 		brightnessValue = "0"
 	}
 
-	if err := os.WriteFile(brightnessPath, []byte(brightnessValue), 0644); err != nil {
+	if err := os.WriteFile(brightnessPath, []byte(brightnessValue), 0o644); err != nil {
 		return fmt.Errorf("failed to set LED brightness: %w", err)
 	}
 
 	return nil
 }
 
-// Available returns the list of LED types supported by this controller
+// Available returns the list of LED types supported by this controller.
 func (s *sysfs) Available() []string {
 	types := make([]string, 0, len(s.leds))
 	for ledType := range s.leds {
@@ -94,7 +94,7 @@ func (s *sysfs) Available() []string {
 	return types
 }
 
-// Patterns returns the list of patterns supported by this controller
+// Patterns returns the list of patterns supported by this controller.
 func (s *sysfs) Patterns() []string {
 	return []string{"solid", "blink", "heartbeat"}
 }

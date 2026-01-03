@@ -5,10 +5,10 @@ import (
 	"strings"
 )
 
-// OptionType represents a strongly typed FFmpeg option
+// OptionType represents a strongly typed FFmpeg option.
 type OptionType string
 
-// FFmpeg option constants
+// FFmpeg option constants.
 const (
 	OptionIgnoreErrors        OptionType = "ignore_err"
 	OptionWallclockWithGenpts OptionType = "wallclock_with_genpts"
@@ -19,43 +19,54 @@ const (
 	OptionVsyncPassthrough    OptionType = "vsync_passthrough"
 )
 
-// FFmpegBase returns the ffmpeg command with standard flags
-func FFmpegBase() string {
+// Base returns the ffmpeg command with standard flags.
+func Base() string {
 	return "ffmpeg -hide_banner -nostats -nostdin"
 }
 
-// FFprobeBase returns the ffprobe command with standard flags
+// FFmpegBase returns the ffmpeg command with standard flags.
+//
+// Deprecated: Use Base() instead.
+//
+//nolint:revive // Keeping for backward compatibility despite stutter
+func FFmpegBase() string {
+	return Base()
+}
+
+// FFprobeBase returns the ffprobe command with standard flags.
 func FFprobeBase() string {
 	return "ffprobe -hide_banner -nostats"
 }
 
-// Helper functions for internal use
+// Helper functions for internal use.
 func ffmpegBase() string {
-	return FFmpegBase()
+	return Base()
 }
 
 func ffprobeBase() string {
 	return FFprobeBase()
 }
 
-// OptionCategory represents option categories
+// OptionCategory represents option categories.
 type OptionCategory string
 
+// Option category constants.
 const (
 	CategoryTiming      OptionCategory = "Timing"
 	CategoryErrorHandle OptionCategory = "Error Handling"
 	CategoryPerformance OptionCategory = "Performance"
 )
 
-// ExclusiveGroup represents a group of mutually exclusive options
+// ExclusiveGroup represents a group of mutually exclusive options.
 type ExclusiveGroup string
 
+// Exclusive group constants for mutually exclusive options.
 const (
 	GroupThreadQueue       ExclusiveGroup = "thread_queue"
 	GroupTimestampHandling ExclusiveGroup = "timestamp_handling"
 )
 
-// Option represents available FFmpeg feature flags with metadata
+// Option represents available FFmpeg feature flags with metadata.
 type Option struct {
 	Key            OptionType      `json:"key"`
 	Name           string          `json:"name"`
@@ -66,9 +77,8 @@ type Option struct {
 	ConflictsWith  []OptionType    `json:"conflicts_with,omitempty"`  // Options that may conflict
 }
 
-// AllOptions contains all available FFmpeg feature flags with comprehensive metadata
+// AllOptions contains all available FFmpeg feature flags with comprehensive metadata.
 var AllOptions = []Option{
-
 	{
 		Key:         OptionIgnoreErrors,
 		Name:        "Ignore Errors",
@@ -125,7 +135,7 @@ var AllOptions = []Option{
 	},
 }
 
-// GetOptionByKey returns an option by its key
+// GetOptionByKey returns an option by its key.
 func GetOptionByKey(key OptionType) *Option {
 	for i := range AllOptions {
 		if AllOptions[i].Key == key {
@@ -135,7 +145,7 @@ func GetOptionByKey(key OptionType) *Option {
 	return nil
 }
 
-// GetOptionsByCategory returns options grouped by category
+// GetOptionsByCategory returns options grouped by category.
 func GetOptionsByCategory() map[OptionCategory][]Option {
 	categories := make(map[OptionCategory][]Option)
 	for _, option := range AllOptions {
@@ -144,7 +154,7 @@ func GetOptionsByCategory() map[OptionCategory][]Option {
 	return categories
 }
 
-// GetExclusiveGroups returns options grouped by their exclusive groups
+// GetExclusiveGroups returns options grouped by their exclusive groups.
 func GetExclusiveGroups() map[ExclusiveGroup][]Option {
 	groups := make(map[ExclusiveGroup][]Option)
 	for _, option := range AllOptions {
@@ -155,7 +165,7 @@ func GetExclusiveGroups() map[ExclusiveGroup][]Option {
 	return groups
 }
 
-// ValidateOptions checks for conflicts and exclusive group violations
+// ValidateOptions checks for conflicts and exclusive group violations.
 func ValidateOptions(selectedOptions []OptionType) error {
 	// Check for exclusive group violations
 	exclusiveGroups := make(map[ExclusiveGroup][]OptionType)
@@ -211,7 +221,7 @@ func ValidateOptions(selectedOptions []OptionType) error {
 	return nil
 }
 
-// GetDefaultOptions returns the options that are enabled by default in the application
+// GetDefaultOptions returns the options that are enabled by default in the application.
 func GetDefaultOptions() []OptionType {
 	var defaults []OptionType
 	for _, option := range AllOptions {
@@ -222,7 +232,7 @@ func GetDefaultOptions() []OptionType {
 	return defaults
 }
 
-// CaptureConfig represents parameters for screenshot capture
+// CaptureConfig represents parameters for screenshot capture.
 type CaptureConfig struct {
 	DevicePath    string
 	OutputPath    string
@@ -233,22 +243,22 @@ type CaptureConfig struct {
 	FFmpegOptions []OptionType
 }
 
-// CommandBuilder interface for generating FFmpeg commands
+// CommandBuilder interface for generating FFmpeg commands.
 type CommandBuilder interface {
 	BuildCaptureCommand(config CaptureConfig) (string, error)
 	BuildProbeCommand(devicePath string) (string, error)
 	BuildEncodersListCommand() (string, error)
 }
 
-// DefaultCommandBuilder implements CommandBuilder with manual command construction
+// DefaultCommandBuilder implements CommandBuilder with manual command construction.
 type DefaultCommandBuilder struct{}
 
-// NewCommandBuilder creates a new default command builder
+// NewCommandBuilder creates a new default command builder.
 func NewCommandBuilder() CommandBuilder {
 	return &DefaultCommandBuilder{}
 }
 
-// ApplyOptionsToCommand applies FFmpeg options to a command string builder
+// ApplyOptionsToCommand applies FFmpeg options to a command string builder.
 func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionType {
 	var appliedOptions []OptionType
 	var fflags []string
@@ -287,13 +297,13 @@ func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionT
 
 	// Apply fflags if any were collected
 	if len(fflags) > 0 {
-		cmd.WriteString(fmt.Sprintf(" -fflags %s", strings.Join(fflags, "")))
+		fmt.Fprintf(cmd, " -fflags %s", strings.Join(fflags, ""))
 	}
 
 	return appliedOptions
 }
 
-// BuildCaptureCommand creates an FFmpeg command for screenshot capture
+// BuildCaptureCommand creates an FFmpeg command for screenshot capture.
 func (cb *DefaultCommandBuilder) BuildCaptureCommand(config CaptureConfig) (string, error) {
 	if config.DevicePath == "" {
 		return "", fmt.Errorf("device path is required")
@@ -350,7 +360,7 @@ func (cb *DefaultCommandBuilder) BuildCaptureCommand(config CaptureConfig) (stri
 	return cmd.String(), nil
 }
 
-// BuildProbeCommand creates an FFmpeg command for probing device capabilities
+// BuildProbeCommand creates an FFmpeg command for probing device capabilities.
 func (cb *DefaultCommandBuilder) BuildProbeCommand(devicePath string) (string, error) {
 	if devicePath == "" {
 		return "", fmt.Errorf("device path is required")
@@ -359,12 +369,12 @@ func (cb *DefaultCommandBuilder) BuildProbeCommand(devicePath string) (string, e
 	return fmt.Sprintf("%s -f v4l2 -list_formats all -i %s", ffprobeBase(), devicePath), nil
 }
 
-// BuildEncodersListCommand creates an FFmpeg command for listing available encoders
+// BuildEncodersListCommand creates an FFmpeg command for listing available encoders.
 func (cb *DefaultCommandBuilder) BuildEncodersListCommand() (string, error) {
 	return fmt.Sprintf("%s -encoders", ffmpegBase()), nil
 }
 
-// isHardwareEncoder checks if the given codec name represents a hardware encoder
+// isHardwareEncoder checks if the given codec name represents a hardware encoder.
 func isHardwareEncoder(codec string) bool {
 	hardwareCodecs := []string{
 		"nvenc", "amf", "vaapi", "qsv", "videotoolbox", "rkmpp", "v4l2m2m",

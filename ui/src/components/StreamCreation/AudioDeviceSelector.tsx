@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAudioDevices } from '../../hooks/useAudioDevices';
 
 interface AudioDeviceSelectorProps {
@@ -11,24 +11,25 @@ interface AudioDeviceSelectorProps {
 
 const CUSTOM_OPTION = '__custom__';
 
-export function AudioDeviceSelector({ 
-  value, 
-  onChange, 
+export function AudioDeviceSelector({
+  value,
+  onChange,
   disabled = false,
   error,
   className = ''
 }: Readonly<AudioDeviceSelectorProps>) {
   const { devices, loading, error: loadError } = useAudioDevices();
-  const [isCustom, setIsCustom] = useState(false);
+
+  // Track if user manually selected custom mode from dropdown
+  const [manualCustom, setManualCustom] = useState(false);
   const [customValue, setCustomValue] = useState('');
 
-  // Check if the current value is a custom one (not in the device list and not empty)
-  useEffect(() => {
-    if (value && value !== '' && !devices.some(d => d.alsa_device === value)) {
-      setIsCustom(true);
-      setCustomValue(value);
-    }
-  }, [value, devices]);
+  // Derive isCustom: either user manually selected it, or value is not in the device list
+  const valueIsCustom = !loading && value !== '' && !devices.some(d => d.alsa_device === value);
+  const isCustom = manualCustom || valueIsCustom;
+
+  // Display value for custom input
+  const displayCustomValue = customValue || (valueIsCustom ? value : '');
 
   const renderContent = () => {
     if (loading) {
@@ -55,11 +56,11 @@ export function AudioDeviceSelector({
             value={isCustom ? CUSTOM_OPTION : value}
             onChange={(e) => {
               if (e.target.value === CUSTOM_OPTION) {
-                setIsCustom(true);
+                setManualCustom(true);
                 setCustomValue('');
                 onChange('');
               } else {
-                setIsCustom(false);
+                setManualCustom(false);
                 setCustomValue('');
                 onChange(e.target.value);
               }
@@ -79,7 +80,7 @@ export function AudioDeviceSelector({
           {isCustom && (
             <input
               type="text"
-              value={customValue}
+              value={displayCustomValue}
               onChange={(e) => {
                 setCustomValue(e.target.value);
                 onChange(e.target.value);

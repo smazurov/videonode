@@ -10,13 +10,13 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// Validator manages encoder validation with access to ValidationProvider
+// Validator manages encoder validation with access to ValidationProvider.
 type Validator struct {
 	provider types.ValidationProvider
 	logger   ValidationLogger
 }
 
-// NewValidator creates a new Validator with the given ValidationProvider
+// NewValidator creates a new Validator with the given ValidationProvider.
 func NewValidator(provider types.ValidationProvider) *Validator {
 	return &Validator{
 		provider: provider,
@@ -24,12 +24,12 @@ func NewValidator(provider types.ValidationProvider) *Validator {
 	}
 }
 
-// SetLogger sets the logger for validation output
+// SetLogger sets the logger for validation output.
 func (v *Validator) SetLogger(logger ValidationLogger) {
 	v.logger = logger
 }
 
-// ValidateEncoder tests a single encoder using the appropriate validator
+// ValidateEncoder tests a single encoder using the appropriate validator.
 func ValidateEncoder(encoderName string) (bool, error) {
 	registry := CreateValidatorRegistry()
 	validator := registry.FindValidator(encoderName)
@@ -41,32 +41,35 @@ func ValidateEncoder(encoderName string) (bool, error) {
 	return validator.Validate(encoderName)
 }
 
-// ValidationLogger interface for conditional logging
+// ValidationLogger interface for conditional logging.
 type ValidationLogger interface {
-	Printf(format string, v ...interface{})
+	Printf(format string, v ...any)
 }
 
-// SilentLogger discards all log output
+// SilentLogger discards all log output.
 type SilentLogger struct{}
 
-func (l SilentLogger) Printf(format string, v ...interface{}) {}
+// Printf implements ValidationLogger interface by discarding all output.
+func (l SilentLogger) Printf(_ string, _ ...any) {}
 
-// VerboseLogger outputs using slog
+// VerboseLogger outputs using slog.
 type VerboseLogger struct {
 	logger *slog.Logger
 }
 
+// NewVerboseLogger creates a verbose logger that outputs via slog.
 func NewVerboseLogger() *VerboseLogger {
 	return &VerboseLogger{
 		logger: slog.With("component", "encoder_validation"),
 	}
 }
 
-func (l *VerboseLogger) Printf(format string, v ...interface{}) {
+// Printf implements ValidationLogger interface.
+func (l *VerboseLogger) Printf(format string, v ...any) {
 	l.logger.Info(fmt.Sprintf(format, v...))
 }
 
-// ValidateEncoders validates all encoders and returns results
+// ValidateEncoders validates all encoders and returns results.
 func (v *Validator) ValidateEncoders() (*types.ValidationResults, error) {
 	results := &types.ValidationResults{
 		Timestamp:      time.Now().Format(time.RFC3339),
@@ -124,13 +127,13 @@ func (v *Validator) ValidateEncoders() (*types.ValidationResults, error) {
 	return results, nil
 }
 
-// SaveValidationResults saves validation results using ValidationProvider
+// SaveValidationResults saves validation results using ValidationProvider.
 func (v *Validator) SaveValidationResults(results *types.ValidationResults) error {
 	// Update validation data directly through provider
 	return v.provider.UpdateValidation(results)
 }
 
-// LoadValidationResults loads validation results from ValidationProvider
+// LoadValidationResults loads validation results from ValidationProvider.
 func (v *Validator) LoadValidationResults() (*types.ValidationResults, error) {
 	// Get validation data from provider
 	validation := v.provider.GetValidation()
@@ -141,13 +144,15 @@ func (v *Validator) LoadValidationResults() (*types.ValidationResults, error) {
 	return validation, nil
 }
 
-// Deprecated: Use Validator.LoadValidationResults() instead
+// LoadValidationResults loads validation results from ValidationProvider.
+//
+// Deprecated: Use Validator.LoadValidationResults() instead.
 func LoadValidationResults(provider types.ValidationProvider) (*types.ValidationResults, error) {
 	v := NewValidator(provider)
 	return v.LoadValidationResults()
 }
 
-// PrintValidationSummary prints a summary of validation results
+// PrintValidationSummary prints a summary of validation results.
 func PrintValidationSummary(results *types.ValidationResults) {
 	fmt.Println("\n=== VALIDATION SUMMARY ===")
 
@@ -172,7 +177,7 @@ func PrintValidationSummary(results *types.ValidationResults) {
 	}
 }
 
-// RunValidateCommand runs the validation command logic
+// RunValidateCommand runs the validation command logic.
 func (v *Validator) RunValidateCommand(quiet bool) error {
 	if quiet {
 		v.SetLogger(SilentLogger{})
@@ -187,9 +192,9 @@ func (v *Validator) RunValidateCommand(quiet bool) error {
 	}
 
 	// Save results
-	err = v.SaveValidationResults(results)
-	if err != nil {
-		return fmt.Errorf("error saving validation results: %w", err)
+	saveErr := v.SaveValidationResults(results)
+	if saveErr != nil {
+		return fmt.Errorf("error saving validation results: %w", saveErr)
 	}
 
 	// Print summary
@@ -199,17 +204,17 @@ func (v *Validator) RunValidateCommand(quiet bool) error {
 	return nil
 }
 
-// RunValidateCommandWithOptions runs validation with ValidationProvider - for backward compatibility
+// RunValidateCommandWithOptions runs validation with ValidationProvider - for backward compatibility.
 func RunValidateCommandWithOptions(provider types.ValidationProvider, quiet bool) {
 	v := NewValidator(provider)
-	if err := v.RunValidateCommand(quiet); err != nil {
+	if cmdErr := v.RunValidateCommand(quiet); cmdErr != nil {
 		logger := slog.With("component", "encoder_validation")
-		logger.Error("Validation command failed", "error", err)
-		panic(err) // Maintain the same behavior as log.Fatal
+		logger.Error("Validation command failed", "error", cmdErr)
+		panic(cmdErr) // Maintain the same behavior as log.Fatal
 	}
 }
 
-// getFFmpegVersion gets the FFmpeg version string
+// getFFmpegVersion gets the FFmpeg version string.
 func getFFmpegVersion() string {
 	cmd := exec.Command("ffmpeg", "-version")
 	output, err := cmd.Output()

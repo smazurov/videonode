@@ -3,6 +3,8 @@ package encoders
 import (
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/smazurov/videonode/internal/encoders/validation"
@@ -11,7 +13,7 @@ import (
 	valmanager "github.com/smazurov/videonode/internal/validation"
 )
 
-// Selector interface defines the contract for encoder selection strategies
+// Selector interface defines the contract for encoder selection strategies.
 type Selector interface {
 	// SelectEncoder chooses the best encoder for the given codec type and input format
 	// Returns FFmpegParams with all encoding parameters populated
@@ -21,14 +23,14 @@ type Selector interface {
 	ValidateEncoder(encoder string) error
 }
 
-// DefaultSelector implements Selector using validation data and registry
+// DefaultSelector implements Selector using validation data and registry.
 type DefaultSelector struct {
 	logger            *slog.Logger
 	validationManager *valmanager.Manager
 	registry          *validation.ValidatorRegistry
 }
 
-// NewDefaultSelector creates a new DefaultSelector
+// NewDefaultSelector creates a new DefaultSelector.
 func NewDefaultSelector(validationManager *valmanager.Manager) *DefaultSelector {
 	return &DefaultSelector{
 		logger:            slog.With("component", "encoder_selector"),
@@ -37,7 +39,7 @@ func NewDefaultSelector(validationManager *valmanager.Manager) *DefaultSelector 
 	}
 }
 
-// SelectEncoder chooses the best available encoder for the given codec type and input format
+// SelectEncoder chooses the best available encoder for the given codec type and input format.
 func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) (*ffmpeg.Params, error) {
 	params := &ffmpeg.Params{}
 
@@ -91,19 +93,17 @@ func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string,
 
 		// Check each encoder from this validator
 		for _, encoder := range encoderList {
-			for _, working := range workingEncoders {
-				if encoder == working {
-					// Found a working encoder
-					params.Encoder = encoder
-					s.logger.Info("Selected encoder with priority", "codec_type", codecType, "encoder", encoder)
+			if slices.Contains(workingEncoders, encoder) {
+				// Found a working encoder
+				params.Encoder = encoder
+				s.logger.Info("Selected encoder with priority", "codec_type", codecType, "encoder", encoder)
 
-					// Get settings from validator and convert to params
-					settings := s.getEncoderSettingsFromValidator(validator, encoder, inputFormat, qualityParams)
-					if settings != nil {
-						s.convertSettingsToParams(params, settings, qualityParams)
-					}
-					return params, nil
+				// Get settings from validator and convert to params
+				settings := s.getEncoderSettingsFromValidator(validator, encoder, inputFormat, qualityParams)
+				if settings != nil {
+					s.convertSettingsToParams(params, settings, qualityParams)
 				}
+				return params, nil
 			}
 		}
 	}
@@ -117,7 +117,7 @@ func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string,
 	return params, nil
 }
 
-// ValidateEncoder checks if an encoder is in the validated working list
+// ValidateEncoder checks if an encoder is in the validated working list.
 func (s *DefaultSelector) ValidateEncoder(encoder string) error {
 	if s.validationManager.IsEncoderWorking(encoder) {
 		return nil
@@ -133,7 +133,7 @@ func (s *DefaultSelector) ValidateEncoder(encoder string) error {
 	return fmt.Errorf("encoder %s is not in the validated working list", encoder)
 }
 
-// getFallbackEncoder returns a software encoder fallback
+// getFallbackEncoder returns a software encoder fallback.
 func (s *DefaultSelector) getFallbackEncoder(codecType CodecType) string {
 	switch codecType {
 	case CodecH264:
@@ -145,7 +145,7 @@ func (s *DefaultSelector) getFallbackEncoder(codecType CodecType) string {
 	}
 }
 
-// getSettingsForEncoder retrieves settings for a specific encoder
+// getSettingsForEncoder retrieves settings for a specific encoder.
 func (s *DefaultSelector) getSettingsForEncoder(encoderName string, inputFormat string, qualityParams *types.QualityParams) *validation.EncoderSettings {
 	// Try to find settings from validators
 	// Use GetAllValidators for encoder overrides - don't check if compiled
@@ -161,7 +161,7 @@ func (s *DefaultSelector) getSettingsForEncoder(encoderName string, inputFormat 
 	return nil
 }
 
-// getEncoderSettingsFromValidator retrieves settings for a specific encoder from a validator
+// getEncoderSettingsFromValidator retrieves settings for a specific encoder from a validator.
 func (s *DefaultSelector) getEncoderSettingsFromValidator(validator validation.EncoderValidator, encoderName string, inputFormat string, qualityParams *types.QualityParams) *validation.EncoderSettings {
 	// Get production settings from the validator
 	settings, err := validator.GetProductionSettings(encoderName, inputFormat)
@@ -172,9 +172,9 @@ func (s *DefaultSelector) getEncoderSettingsFromValidator(validator validation.E
 
 	// If quality params are provided, get quality-specific encoder params and merge
 	if qualityParams != nil {
-		qualityEncoderParams, err := validator.GetQualityParams(encoderName, qualityParams)
-		if err != nil {
-			s.logger.Warn("Failed to get quality params", "encoder", encoderName, "error", err)
+		qualityEncoderParams, qualityErr := validator.GetQualityParams(encoderName, qualityParams)
+		if qualityErr != nil {
+			s.logger.Warn("Failed to get quality params", "encoder", encoderName, "error", qualityErr)
 			// Return settings without quality params rather than failing completely
 			return settings
 		}
@@ -186,14 +186,10 @@ func (s *DefaultSelector) getEncoderSettingsFromValidator(validator validation.E
 
 		// First copy existing params
 		mergedParams := make(map[string]string)
-		for k, v := range settings.OutputParams {
-			mergedParams[k] = v
-		}
+		maps.Copy(mergedParams, settings.OutputParams)
 
 		// Then apply quality params (these override)
-		for k, v := range qualityEncoderParams {
-			mergedParams[k] = v
-		}
+		maps.Copy(mergedParams, qualityEncoderParams)
 
 		settings.OutputParams = mergedParams
 	}
@@ -201,7 +197,7 @@ func (s *DefaultSelector) getEncoderSettingsFromValidator(validator validation.E
 	return settings
 }
 
-// populateQualityParams populates FFmpeg params from quality parameters
+// populateQualityParams populates FFmpeg params from quality parameters.
 func (s *DefaultSelector) populateQualityParams(params *ffmpeg.Params, qualityParams *types.QualityParams, isHardware bool) {
 	if qualityParams == nil {
 		return
@@ -263,7 +259,7 @@ func (s *DefaultSelector) populateQualityParams(params *ffmpeg.Params, qualityPa
 	}
 }
 
-// convertSettingsToParams converts EncoderSettings to FFmpegParams
+// convertSettingsToParams converts EncoderSettings to FFmpegParams.
 func (s *DefaultSelector) convertSettingsToParams(params *ffmpeg.Params, settings *validation.EncoderSettings, qualityParams *types.QualityParams) {
 	// Set global args and video filters
 	params.GlobalArgs = settings.GlobalArgs
@@ -319,7 +315,7 @@ func (s *DefaultSelector) convertSettingsToParams(params *ffmpeg.Params, setting
 	s.populateQualityParams(params, qualityParams, isHardware)
 }
 
-// isHardwareEncoder checks if an encoder is hardware-accelerated
+// isHardwareEncoder checks if an encoder is hardware-accelerated.
 func (s *DefaultSelector) isHardwareEncoder(encoder string) bool {
 	// List of known hardware encoder prefixes/suffixes
 	hardwareEncoders := []string{
@@ -335,13 +331,13 @@ func (s *DefaultSelector) isHardwareEncoder(encoder string) bool {
 	return false
 }
 
-// PrioritySelector extends DefaultSelector with custom priority logic
+// PrioritySelector extends DefaultSelector with custom priority logic.
 type PrioritySelector struct {
 	*DefaultSelector
 	priorities map[string]int // encoder name -> priority (lower is better)
 }
 
-// NewPrioritySelector creates a new PrioritySelector
+// NewPrioritySelector creates a new PrioritySelector.
 func NewPrioritySelector(validationManager *valmanager.Manager, priorities map[string]int) *PrioritySelector {
 	return &PrioritySelector{
 		DefaultSelector: NewDefaultSelector(validationManager),
@@ -349,7 +345,7 @@ func NewPrioritySelector(validationManager *valmanager.Manager, priorities map[s
 	}
 }
 
-// SelectEncoder chooses encoder based on custom priorities
+// SelectEncoder chooses encoder based on custom priorities.
 func (s *PrioritySelector) SelectEncoder(codecType CodecType, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) (*ffmpeg.Params, error) {
 	// If encoder override provided, delegate to default selector
 	if encoderOverride != "" {

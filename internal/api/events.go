@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/smazurov/videonode/internal/obs/exporters"
 )
 
-// registerSSERoutes registers the native Huma SSE endpoint
+// registerSSERoutes registers the native Huma SSE endpoint.
 func (s *Server) registerSSERoutes() {
 	// Register SSE endpoint with event type mapping
 	sse.Register(s.api, huma.Operation{
@@ -36,12 +37,10 @@ func (s *Server) registerSSERoutes() {
 		}
 
 		// Add OBS events for this endpoint
-		for eventName, eventType := range exporters.GetEventTypesForEndpoint("events") {
-			eventTypes[eventName] = eventType
-		}
+		maps.Copy(eventTypes, exporters.GetEventTypesForEndpoint("events"))
 
 		return eventTypes
-	}(), func(ctx context.Context, input *struct{}, send sse.Sender) {
+	}(), func(ctx context.Context, _ *struct{}, send sse.Sender) {
 		// Create event channel for this connection
 		eventCh := make(chan any, 10)
 

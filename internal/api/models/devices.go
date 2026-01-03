@@ -1,3 +1,4 @@
+// Package models provides API model types for device handling and video formats.
 package models
 
 import (
@@ -7,10 +8,10 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// VideoFormat represents supported video format names
+// VideoFormat represents supported video format names.
 type VideoFormat string
 
-// Single source of truth - all definitions here
+// Single source of truth - all definitions here.
 const (
 	FormatYUYV422 VideoFormat = "yuyv422"
 	FormatNV12    VideoFormat = "nv12"
@@ -24,7 +25,7 @@ const (
 	FormatNV16    VideoFormat = "nv16"  // Y/UV 4:2:2 (half chroma)
 )
 
-// Pixel format mappings - single source of truth
+// Pixel format mappings - single source of truth.
 var videoFormatToPixelFormat = map[VideoFormat]uint32{
 	FormatYUYV422: 1448695129, // YUYV
 	FormatNV12:    842094158,  // NV12
@@ -38,8 +39,8 @@ var videoFormatToPixelFormat = map[VideoFormat]uint32{
 	FormatNV16:    909203022,  // NV16
 }
 
-// Implement SchemaProvider for dynamic enum validation
-func (VideoFormat) Schema(r huma.Registry) *huma.Schema {
+// Schema implements SchemaProvider for dynamic enum validation.
+func (VideoFormat) Schema(_ huma.Registry) *huma.Schema {
 	// Generate enum values dynamically from our map
 	enumValues := make([]any, 0, len(videoFormatToPixelFormat))
 	for format := range videoFormatToPixelFormat {
@@ -53,7 +54,7 @@ func (VideoFormat) Schema(r huma.Registry) *huma.Schema {
 	}
 }
 
-// Utility methods derived from the map
+// ToPixelFormat converts VideoFormat to V4L2 pixel format code.
 func (vf VideoFormat) ToPixelFormat() (uint32, error) {
 	if pf, exists := videoFormatToPixelFormat[vf]; exists {
 		return pf, nil
@@ -61,12 +62,13 @@ func (vf VideoFormat) ToPixelFormat() (uint32, error) {
 	return 0, fmt.Errorf("unsupported format: %s", vf)
 }
 
+// IsValid checks if the VideoFormat is supported.
 func (vf VideoFormat) IsValid() bool {
 	_, exists := videoFormatToPixelFormat[vf]
 	return exists
 }
 
-// PixelFormatToHumanReadable converts V4L2 pixel format codes to human-readable names
+// PixelFormatToHumanReadable converts V4L2 pixel format codes to human-readable names.
 func PixelFormatToHumanReadable(pixelFormat uint32) string {
 	// Reverse lookup in our map
 	for format, code := range videoFormatToPixelFormat {
@@ -80,9 +82,10 @@ func PixelFormatToHumanReadable(pixelFormat uint32) string {
 	return "unknown"
 }
 
-// DeviceType represents the type of V4L2 device
+// DeviceType represents the type of V4L2 device.
 type DeviceType int
 
+// DeviceType constants for different V4L2 device types.
 const (
 	DeviceTypeWebcam  DeviceType = 0
 	DeviceTypeHDMI    DeviceType = 1
@@ -100,68 +103,75 @@ func (dt DeviceType) String() string {
 	}
 }
 
-// DeviceInfo represents a video device with snake_case fields
+// DeviceInfo represents a video device with snake_case fields.
 type DeviceInfo struct {
 	DevicePath   string     `json:"device_path" example:"/dev/video0" doc:"System device path"`
 	DeviceName   string     `json:"device_name" example:"USB Camera" doc:"Device name"`
-	DeviceId     string     `json:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
+	DeviceID     string     `json:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
 	Caps         uint32     `json:"caps" example:"84000001" doc:"Raw V4L2 capability flags"`
-	Capabilities []string   `json:"capabilities" example:"[\"Video Capture\", \"Streaming I/O\"]" doc:"Device capabilities"`
-	Ready        bool       `json:"ready" example:"true" doc:"Whether device is ready (has signal for HDMI, exists for webcam)"`
+	Capabilities []string   `json:"capabilities" example:"[\"Video Capture\", \"Streaming I/O\"]" doc:"Capabilities"`
+	Ready        bool       `json:"ready" example:"true" doc:"Device ready status"`
 	Type         DeviceType `json:"type" example:"1" doc:"Device type (0=webcam, 1=hdmi, -1=unknown)"`
 }
 
-// FormatInfo represents a video format with human-readable format names and snake_case fields
+// FormatInfo represents a video format with human-readable format names and snake_case fields.
 type FormatInfo struct {
 	FormatName   string `json:"format_name" example:"yuyv422" doc:"Human-readable format name"`
 	OriginalName string `json:"original_name" example:"YUYV 4:2:2" doc:"Original V4L2 format name"`
 	Emulated     bool   `json:"emulated" example:"false" doc:"Whether format is emulated"`
 }
 
-// Resolution represents video resolution with snake_case fields
+// Resolution represents video resolution with snake_case fields.
 type Resolution struct {
 	Width  uint32 `json:"width" example:"1920" doc:"Video width in pixels"`
 	Height uint32 `json:"height" example:"1080" doc:"Video height in pixels"`
 }
 
-// Framerate represents video framerate with snake_case fields
+// Framerate represents video framerate with snake_case fields.
 type Framerate struct {
 	Numerator   uint32  `json:"numerator" example:"1" doc:"Framerate fraction numerator"`
 	Denominator uint32  `json:"denominator" example:"30" doc:"Framerate fraction denominator"`
 	Fps         float64 `json:"fps" example:"30.0" doc:"Frames per second"`
 }
 
-// Device API response models
+// DeviceData contains device listing information.
 type DeviceData struct {
 	Devices []DeviceInfo `json:"devices" doc:"List of available video devices"`
 	Count   int          `json:"count" example:"2" doc:"Number of devices found"`
 }
 
+// DeviceResponse is the HTTP response wrapper for DeviceData.
 type DeviceResponse struct {
 	Body DeviceData
 }
 
+// DeviceCapabilitiesData contains device capabilities information.
 type DeviceCapabilitiesData struct {
 	DevicePath string       `json:"device_path" example:"/dev/video0" doc:"Path to the video device"`
 	Formats    []FormatInfo `json:"formats" doc:"Supported video formats"`
 }
 
+// DeviceCapabilitiesResponse is the HTTP response wrapper for DeviceCapabilitiesData.
 type DeviceCapabilitiesResponse struct {
 	Body DeviceCapabilitiesData
 }
 
+// DeviceResolutionsData contains device resolution information.
 type DeviceResolutionsData struct {
 	Resolutions []Resolution `json:"resolutions" doc:"Supported resolutions for the format"`
 }
 
+// DeviceResolutionsResponse is the HTTP response wrapper for DeviceResolutionsData.
 type DeviceResolutionsResponse struct {
 	Body DeviceResolutionsData
 }
 
+// DeviceFrameratesData contains device framerate information.
 type DeviceFrameratesData struct {
-	Framerates []Framerate `json:"framerates" doc:"Supported framerates for the format and resolution"`
+	Framerates []Framerate `json:"framerates" doc:"Supported framerates"`
 }
 
+// DeviceFrameratesResponse is the HTTP response wrapper for DeviceFrameratesData.
 type DeviceFrameratesResponse struct {
 	Body DeviceFrameratesData
 }

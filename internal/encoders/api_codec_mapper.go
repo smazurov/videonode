@@ -8,13 +8,13 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// EncoderConfig represents a complete encoder configuration
+// EncoderConfig represents a complete encoder configuration.
 type EncoderConfig struct {
 	EncoderName string
 	Settings    *validation.EncoderSettings
 }
 
-// MapAPICodec maps API codec types to the best available FFmpeg encoder
+// MapAPICodec maps API codec types to the best available FFmpeg encoder.
 func MapAPICodec(apiCodec string, provider types.ValidationProvider) (*EncoderConfig, error) {
 	// Load validated encoders from provider
 	results := provider.GetValidation()
@@ -58,7 +58,7 @@ func MapAPICodec(apiCodec string, provider types.ValidationProvider) (*EncoderCo
 	return nil, fmt.Errorf("no working encoder found for API codec: %s", apiCodec)
 }
 
-// matchesAPICodec checks if an encoder name matches the requested API codec
+// matchesAPICodec checks if an encoder name matches the requested API codec.
 func matchesAPICodec(encoderName, apiCodec string) bool {
 	switch apiCodec {
 	case "h264":

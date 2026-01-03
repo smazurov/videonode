@@ -3,6 +3,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -15,7 +16,7 @@ import (
 	"github.com/smazurov/videonode/internal/obs"
 )
 
-// FFmpegCollector collects FFmpeg progress data and logs
+// FFmpegCollector collects FFmpeg progress data and logs.
 type FFmpegCollector struct {
 	*obs.BaseCollector
 	logger     *slog.Logger
@@ -27,7 +28,7 @@ type FFmpegCollector struct {
 	stopOnce   sync.Once
 }
 
-// NewFFmpegCollector creates a new FFmpeg collector
+// NewFFmpegCollector creates a new FFmpeg collector.
 func NewFFmpegCollector(socketPath, logPath, streamID string) *FFmpegCollector {
 	config := obs.DefaultCollectorConfig("ffmpeg")
 	config.Interval = 0 // Event-driven, not time-based
@@ -35,7 +36,7 @@ func NewFFmpegCollector(socketPath, logPath, streamID string) *FFmpegCollector {
 		"collector_type": "ffmpeg",
 		"stream_id":      streamID,
 	}
-	config.Config = map[string]interface{}{
+	config.Config = map[string]any{
 		"socket_path": socketPath,
 		"log_path":    logPath,
 		"stream_id":   streamID,
@@ -50,7 +51,7 @@ func NewFFmpegCollector(socketPath, logPath, streamID string) *FFmpegCollector {
 	}
 }
 
-// Start begins collecting FFmpeg data
+// Start begins collecting FFmpeg data.
 func (f *FFmpegCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoint) error {
 	f.logger.Info("Starting FFmpeg collector", "socket", f.socketPath)
 	f.SetRunning(true)
@@ -75,7 +76,7 @@ func (f *FFmpegCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoi
 	return nil
 }
 
-// startSocketListener starts listening for FFmpeg progress on Unix socket
+// startSocketListener starts listening for FFmpeg progress on Unix socket.
 func (f *FFmpegCollector) startSocketListener(ctx context.Context, dataChan chan<- obs.DataPoint) {
 	f.logger.Info("Starting to listen on socket", "socket", f.socketPath)
 
@@ -125,10 +126,11 @@ func (f *FFmpegCollector) startSocketListener(ctx context.Context, dataChan chan
 		f.sendLog(dataChan, obs.LogLevelDebug, fmt.Sprintf("Waiting for FFmpeg connection on stream '%s'...", f.streamID), time.Now())
 
 		// Accept connection
-		conn, err := listener.Accept()
-		if err != nil {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
 			// Check if it's a timeout error
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			var netErr net.Error
+			if errors.As(acceptErr, &netErr) {
 				// Timeout is expected, just continue to check context
 				continue
 			}
@@ -140,11 +142,11 @@ func (f *FFmpegCollector) startSocketListener(ctx context.Context, dataChan chan
 				return
 			default:
 				// Check if it's because the listener was closed
-				if strings.Contains(err.Error(), "use of closed network connection") {
+				if strings.Contains(acceptErr.Error(), "use of closed network connection") {
 					f.sendLog(dataChan, obs.LogLevelInfo, fmt.Sprintf("Socket listener closed for stream '%s'", f.streamID), time.Now())
 					return
 				}
-				f.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Error accepting connection on socket %s: %v", f.socketPath, err), time.Now())
+				f.sendLog(dataChan, obs.LogLevelError, fmt.Sprintf("Error accepting connection on socket %s: %v", f.socketPath, acceptErr), time.Now())
 				continue
 			}
 		}
@@ -156,7 +158,7 @@ func (f *FFmpegCollector) startSocketListener(ctx context.Context, dataChan chan
 	}
 }
 
-// handleConnection processes data from an FFmpeg connection
+// handleConnection processes data from an FFmpeg connection.
 func (f *FFmpegCollector) handleConnection(ctx context.Context, conn net.Conn, dataChan chan<- obs.DataPoint) {
 	connectionStart := time.Now()
 	defer func() {
@@ -208,7 +210,7 @@ func (f *FFmpegCollector) handleConnection(ctx context.Context, conn net.Conn, d
 	f.sendLog(dataChan, obs.LogLevelDebug, fmt.Sprintf("Scanner finished reading from socket %s", f.socketPath), time.Now())
 }
 
-// sendProgressMetrics converts FFmpeg progress data to metrics
+// sendProgressMetrics converts FFmpeg progress data to metrics.
 func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, progressData map[string]string, timestamp time.Time) {
 	// Extract and clean values
 	fpsStr := progressData["fps"]
@@ -229,10 +231,10 @@ func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, pro
 	if fps, err := strconv.ParseFloat(fpsStr, 64); err == nil {
 		select {
 		case dataChan <- &obs.MetricPoint{
-			Name:       "ffmpeg_fps",
-			Value:      fps,
-			LabelsMap:  f.AddLabels(labels),
-			Timestamp_: timestamp,
+			Name:          "ffmpeg_fps",
+			Value:         fps,
+			LabelsMap:     f.AddLabels(labels),
+			TimestampUnix: timestamp,
 		}:
 		default:
 		}
@@ -242,10 +244,10 @@ func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, pro
 	if dropFrames, err := strconv.ParseFloat(dropFramesStr, 64); err == nil {
 		select {
 		case dataChan <- &obs.MetricPoint{
-			Name:       "ffmpeg_dropped_frames_total",
-			Value:      dropFrames,
-			LabelsMap:  f.AddLabels(labels),
-			Timestamp_: timestamp,
+			Name:          "ffmpeg_dropped_frames_total",
+			Value:         dropFrames,
+			LabelsMap:     f.AddLabels(labels),
+			TimestampUnix: timestamp,
 		}:
 		default:
 		}
@@ -255,10 +257,10 @@ func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, pro
 	if dupFrames, err := strconv.ParseFloat(dupFramesStr, 64); err == nil {
 		select {
 		case dataChan <- &obs.MetricPoint{
-			Name:       "ffmpeg_duplicate_frames_total",
-			Value:      dupFrames,
-			LabelsMap:  f.AddLabels(labels),
-			Timestamp_: timestamp,
+			Name:          "ffmpeg_duplicate_frames_total",
+			Value:         dupFrames,
+			LabelsMap:     f.AddLabels(labels),
+			TimestampUnix: timestamp,
 		}:
 		default:
 		}
@@ -268,17 +270,17 @@ func (f *FFmpegCollector) sendProgressMetrics(dataChan chan<- obs.DataPoint, pro
 	if speed, err := strconv.ParseFloat(speedStr, 64); err == nil {
 		select {
 		case dataChan <- &obs.MetricPoint{
-			Name:       "ffmpeg_processing_speed",
-			Value:      speed,
-			LabelsMap:  f.AddLabels(labels),
-			Timestamp_: timestamp,
+			Name:          "ffmpeg_processing_speed",
+			Value:         speed,
+			LabelsMap:     f.AddLabels(labels),
+			TimestampUnix: timestamp,
 		}:
 		default:
 		}
 	}
 }
 
-// startLogMonitoring monitors FFmpeg log file for errors and warnings
+// startLogMonitoring monitors FFmpeg log file for errors and warnings.
 func (f *FFmpegCollector) startLogMonitoring(ctx context.Context, dataChan chan<- obs.DataPoint) {
 	// This is a simplified implementation - for production use, consider using a proper log tailing library
 	if _, err := os.Stat(f.logPath); os.IsNotExist(err) {
@@ -292,7 +294,7 @@ func (f *FFmpegCollector) startLogMonitoring(ctx context.Context, dataChan chan<
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	var lastSize int64 = 0
+	var lastSize int64
 
 	for {
 		select {
@@ -304,7 +306,7 @@ func (f *FFmpegCollector) startLogMonitoring(ctx context.Context, dataChan chan<
 	}
 }
 
-// checkLogFile checks for new content in the log file
+// checkLogFile checks for new content in the log file.
 func (f *FFmpegCollector) checkLogFile(dataChan chan<- obs.DataPoint, lastSize *int64) {
 	file, err := os.Open(f.logPath)
 	if err != nil {
@@ -338,7 +340,7 @@ func (f *FFmpegCollector) checkLogFile(dataChan chan<- obs.DataPoint, lastSize *
 	*lastSize = currentSize
 }
 
-// parseLogLine parses a single log line and extracts relevant information
+// parseLogLine parses a single log line and extracts relevant information.
 func (f *FFmpegCollector) parseLogLine(dataChan chan<- obs.DataPoint, line string, timestamp time.Time) {
 	line = strings.TrimSpace(line)
 	if line == "" {
@@ -365,12 +367,12 @@ func (f *FFmpegCollector) parseLogLine(dataChan chan<- obs.DataPoint, line strin
 
 	// Send log entry
 	logEntry := &obs.LogEntry{
-		Message:    line,
-		Level:      level,
-		LabelsMap:  f.AddLabels(baseLabels),
-		Fields:     map[string]interface{}{"raw_line": line},
-		Timestamp_: timestamp,
-		Source:     "ffmpeg_log",
+		Message:       line,
+		Level:         level,
+		LabelsMap:     f.AddLabels(baseLabels),
+		Fields:        map[string]any{"raw_line": line},
+		TimestampUnix: timestamp,
+		Source:        "ffmpeg_log",
 	}
 
 	select {
@@ -383,7 +385,7 @@ func (f *FFmpegCollector) parseLogLine(dataChan chan<- obs.DataPoint, line strin
 	f.extractMetricsFromLogLine(dataChan, line, timestamp, baseLabels)
 }
 
-// extractMetricsFromLogLine extracts metrics from log content
+// extractMetricsFromLogLine extracts metrics from log content.
 func (f *FFmpegCollector) extractMetricsFromLogLine(dataChan chan<- obs.DataPoint, line string, timestamp time.Time, baseLabels obs.Labels) {
 	// Example: Extract encoding parameters, errors, etc.
 
@@ -403,7 +405,7 @@ func (f *FFmpegCollector) extractMetricsFromLogLine(dataChan chan<- obs.DataPoin
 	}
 }
 
-// Stop stops the FFmpeg collector
+// Stop stops the FFmpeg collector.
 func (f *FFmpegCollector) Stop() error {
 	var stopErr error
 
@@ -436,11 +438,11 @@ func (f *FFmpegCollector) Stop() error {
 
 func (f *FFmpegCollector) sendMetric(dataChan chan<- obs.DataPoint, name string, value float64, labels obs.Labels, timestamp time.Time) {
 	point := &obs.MetricPoint{
-		Name:       name,
-		Value:      value,
-		LabelsMap:  f.AddLabels(labels),
-		Timestamp_: timestamp,
-		Unit:       f.getMetricUnit(name),
+		Name:          name,
+		Value:         value,
+		LabelsMap:     f.AddLabels(labels),
+		TimestampUnix: timestamp,
+		Unit:          f.getMetricUnit(name),
 	}
 
 	select {
@@ -452,12 +454,12 @@ func (f *FFmpegCollector) sendMetric(dataChan chan<- obs.DataPoint, name string,
 
 func (f *FFmpegCollector) sendLog(dataChan chan<- obs.DataPoint, level obs.LogLevel, message string, timestamp time.Time) {
 	point := &obs.LogEntry{
-		Message:    message,
-		Level:      level,
-		LabelsMap:  f.AddLabels(obs.Labels{"source": "ffmpeg_collector"}),
-		Fields:     make(map[string]interface{}),
-		Timestamp_: timestamp,
-		Source:     "ffmpeg_collector",
+		Message:       message,
+		Level:         level,
+		LabelsMap:     f.AddLabels(obs.Labels{"source": "ffmpeg_collector"}),
+		Fields:        make(map[string]any),
+		TimestampUnix: timestamp,
+		Source:        "ffmpeg_collector",
 	}
 
 	select {

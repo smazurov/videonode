@@ -7,25 +7,25 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// RkmppValidator validates Rockchip MPP encoders
+// RkmppValidator validates Rockchip MPP encoders.
 type RkmppValidator struct{}
 
-// NewRkmppValidator creates a new RKMPP validator
+// NewRkmppValidator creates a new RKMPP validator.
 func NewRkmppValidator() *RkmppValidator {
 	return &RkmppValidator{}
 }
 
-// CanValidate returns true if this validator can handle the given encoder name
+// CanValidate returns true if this validator can handle the given encoder name.
 func (v *RkmppValidator) CanValidate(encoderName string) bool {
 	return strings.Contains(encoderName, "rkmpp")
 }
 
-// Validate tests the RKMPP encoder using production settings
+// Validate tests the RKMPP encoder using production settings.
 func (v *RkmppValidator) Validate(encoderName string) (bool, error) {
 	return ValidateEncoderWithSettings(v, encoderName)
 }
 
-// GetEncoderNames returns the list of RKMPP encoder names
+// GetEncoderNames returns the list of RKMPP encoder names.
 func (v *RkmppValidator) GetEncoderNames() []string {
 	return []string{
 		"h264_rkmpp",
@@ -35,12 +35,12 @@ func (v *RkmppValidator) GetEncoderNames() []string {
 	}
 }
 
-// GetDescription returns a description of this validator
+// GetDescription returns a description of this validator.
 func (v *RkmppValidator) GetDescription() string {
 	return "RKMPP (Rockchip Media Process Platform) - Hardware acceleration for Rockchip SoCs"
 }
 
-// GetProductionSettings returns production settings for RKMPP encoders
+// GetProductionSettings returns production settings for RKMPP encoders.
 func (v *RkmppValidator) GetProductionSettings(encoderName string, inputFormat string) (*EncoderSettings, error) {
 	if !v.CanValidate(encoderName) {
 		return nil, fmt.Errorf("encoder %s is not supported by RKMPP validator", encoderName)
@@ -105,7 +105,7 @@ func (v *RkmppValidator) GetProductionSettings(encoderName string, inputFormat s
 	return settings, nil
 }
 
-// GetQualityParams translates quality settings to RKMPP encoder parameters
+// GetQualityParams translates quality settings to RKMPP encoder parameters.
 func (v *RkmppValidator) GetQualityParams(encoderName string, params *types.QualityParams) (EncoderParams, error) {
 	if !v.CanValidate(encoderName) {
 		return nil, fmt.Errorf("encoder %s is not supported by RKMPP validator", encoderName)

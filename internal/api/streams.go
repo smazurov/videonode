@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -12,7 +13,7 @@ import (
 	"github.com/smazurov/videonode/internal/streams"
 )
 
-// registerStreamRoutes registers all stream-related endpoints
+// registerStreamRoutes registers all stream-related endpoints.
 func (s *Server) registerStreamRoutes() {
 	// List active streams
 	huma.Register(s.api, huma.Operation{
@@ -24,7 +25,7 @@ func (s *Server) registerStreamRoutes() {
 		Tags:        []string{"streams"},
 		Errors:      []int{401, 500},
 		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct{}) (*models.StreamListResponse, error) {
+	}, func(ctx context.Context, _ *struct{}) (*models.StreamListResponse, error) {
 		streams, err := s.streamService.ListStreams(ctx)
 		if err != nil {
 			return nil, s.mapStreamError(err)
@@ -92,7 +93,8 @@ func (s *Server) registerStreamRoutes() {
 	}, func(ctx context.Context, input *struct {
 		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
 		Body     models.StreamUpdateRequestData
-	}) (*models.StreamResponse, error) {
+	},
+	) (*models.StreamResponse, error) {
 		// Convert API request to domain parameters
 		params := streams.StreamUpdateParams{
 			Codec:               input.Body.Codec,
@@ -140,7 +142,8 @@ func (s *Server) registerStreamRoutes() {
 		Security:    withAuth(),
 	}, func(ctx context.Context, input *struct {
 		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
-	}) (*struct{}, error) {
+	},
+	) (*struct{}, error) {
 		err := s.streamService.DeleteStream(ctx, input.StreamID)
 		if err != nil {
 			return nil, s.mapStreamError(err)
@@ -170,7 +173,8 @@ func (s *Server) registerStreamRoutes() {
 		Security:    withAuth(),
 	}, func(ctx context.Context, input *struct {
 		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
-	}) (*models.StreamResponse, error) {
+	},
+	) (*models.StreamResponse, error) {
 		stream, err := s.streamService.GetStream(ctx, input.StreamID)
 		if err != nil {
 			return nil, s.mapStreamError(err)
@@ -193,8 +197,9 @@ func (s *Server) registerStreamRoutes() {
 		Security:    withAuth(),
 	}, func(ctx context.Context, input *struct {
 		StreamID        string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
-		EncoderOverride string `query:"override" example:"h264_vaapi" doc:"Override the auto-selected encoder (e.g., h264_vaapi, h265_nvenc)"`
-	}) (*models.FFmpegCommandResponse, error) {
+		EncoderOverride string `query:"override" example:"h264_vaapi" doc:"Override the auto-selected encoder"`
+	},
+	) (*models.FFmpegCommandResponse, error) {
 		command, isCustom, err := s.streamService.GetFFmpegCommand(ctx, input.StreamID, input.EncoderOverride)
 		if err != nil {
 			return nil, s.mapStreamError(err)
@@ -209,9 +214,41 @@ func (s *Server) registerStreamRoutes() {
 		}, nil
 	})
 
+	// Restart stream process
+	huma.Register(s.api, huma.Operation{
+		OperationID: "restart-stream",
+		Method:      http.MethodPost,
+		Path:        "/api/streams/{stream_id}/restart",
+		Summary:     "Restart Stream",
+		Description: "Send restart command to a stream process via NATS. Requires NATS to be enabled.",
+		Tags:        []string{"streams"},
+		Errors:      []int{401, 404, 500, 503},
+		Security:    withAuth(),
+	}, func(_ context.Context, input *struct {
+		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
+		Body     struct {
+			Reason string `json:"reason,omitempty" example:"user_requested" doc:"Optional reason for restart"`
+		}
+	},
+	) (*struct{}, error) {
+		if s.options.NATSControlPublisher == nil {
+			return nil, huma.Error503ServiceUnavailable("NATS control not available")
+		}
+
+		reason := input.Body.Reason
+		if reason == "" {
+			reason = "api_restart"
+		}
+
+		if err := s.options.NATSControlPublisher.Restart(input.StreamID, reason); err != nil {
+			return nil, huma.Error500InternalServerError("failed to send restart command", err)
+		}
+
+		return &struct{}{}, nil
+	})
 }
 
-// convertCreateRequest converts API create request to domain params
+// convertCreateRequest converts API create request to domain params.
 func (s *Server) convertCreateRequest(body models.StreamRequestData) streams.StreamCreateParams {
 	params := streams.StreamCreateParams{
 		StreamID:    body.StreamID,
@@ -239,7 +276,7 @@ func (s *Server) convertCreateRequest(body models.StreamRequestData) streams.Str
 	return params
 }
 
-// domainToAPIStream converts a domain stream to API stream data with configuration
+// domainToAPIStream converts a domain stream to API stream data with configuration.
 func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
 	// Get stream specification for configuration details
 	config, err := s.streamService.GetStreamSpec(context.Background(), stream.ID)
@@ -277,14 +314,24 @@ func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
 		apiData.CustomFFmpegCmd = config.CustomFFmpegCommand
 		apiData.TestMode = config.TestMode
 		apiData.Enabled = stream.Enabled // Use runtime enabled state from Stream
+
+		// Convert options from OptionType to string
+		if len(config.FFmpeg.Options) > 0 {
+			options := make([]string, len(config.FFmpeg.Options))
+			for i, opt := range config.FFmpeg.Options {
+				options[i] = string(opt)
+			}
+			apiData.Options = options
+		}
 	}
 
 	return apiData
 }
 
-// mapStreamError maps domain errors to HTTP errors
+// mapStreamError maps domain errors to HTTP errors.
 func (s *Server) mapStreamError(err error) error {
-	if streamErr, ok := err.(*streams.StreamError); ok {
+	streamErr := &streams.StreamError{}
+	if errors.As(err, &streamErr) {
 		switch streamErr.Code {
 		case streams.ErrCodeStreamNotFound:
 			return huma.Error404NotFound(streamErr.Message, err)

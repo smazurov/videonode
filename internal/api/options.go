@@ -9,7 +9,7 @@ import (
 	"github.com/smazurov/videonode/internal/ffmpeg"
 )
 
-// registerOptionsRoutes registers all FFmpeg options-related API routes
+// registerOptionsRoutes registers all FFmpeg options-related API routes.
 func (s *Server) registerOptionsRoutes() {
 	// Get available FFmpeg options
 	huma.Register(s.api, huma.Operation{
@@ -21,7 +21,7 @@ func (s *Server) registerOptionsRoutes() {
 		Tags:        []string{"configuration"},
 		Security:    withAuth(),
 		Errors:      []int{401, 500},
-	}, func(ctx context.Context, input *struct{}) (*models.OptionsResponse, error) {
+	}, func(_ context.Context, _ *struct{}) (*models.OptionsResponse, error) {
 		return &models.OptionsResponse{
 			Body: models.OptionsData{
 				Options: ffmpeg.AllOptions,

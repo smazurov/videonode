@@ -14,14 +14,14 @@ var (
 	mutex         sync.RWMutex
 )
 
-// Config represents logging configuration
+// Config represents logging configuration.
 type Config struct {
 	Level   string            `toml:"level"`
 	Format  string            `toml:"format"`
 	Modules map[string]string `toml:"modules"`
 }
 
-// Initialize sets up the logging system
+// Initialize sets up the logging system.
 func Initialize(config Config) {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -46,7 +46,7 @@ func Initialize(config Config) {
 	moduleLoggers = make(map[string]*slog.Logger)
 }
 
-// GetLogger returns a logger for the specified module, creating it if needed
+// GetLogger returns a logger for the specified module, creating it if needed.
 func GetLogger(module string) *slog.Logger {
 	mutex.RLock()
 	if logger, exists := moduleLoggers[module]; exists {
@@ -97,14 +97,21 @@ func GetLogger(module string) *slog.Logger {
 	return logger
 }
 
-// createHandler creates a slog handler with the specified format and level
+// createHandler creates a slog handler with the specified format and level.
 func createHandler(format string, level slog.Level) slog.Handler {
+	// Check if systemd journal is available
+	if IsJournalAvailable() {
+		// Use native journal handler for direct systemd integration
+		return NewJournalHandler(level)
+	}
+
+	// Fall back to standard handlers
 	isSystemd := os.Getenv("JOURNAL_STREAM") != ""
 
 	opts := &slog.HandlerOptions{Level: level}
 	if isSystemd {
 		// Remove timestamps for systemd
-		opts.ReplaceAttr = func(groups []string, a slog.Attr) slog.Attr {
+		opts.ReplaceAttr = func(_ []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				return slog.Attr{}
 			}
@@ -118,7 +125,7 @@ func createHandler(format string, level slog.Level) slog.Handler {
 	return slog.NewTextHandler(os.Stdout, opts)
 }
 
-// parseLevel converts string level to slog.Level
+// parseLevel converts string level to slog.Level.
 func parseLevel(level string) *slog.Level {
 	switch strings.ToLower(level) {
 	case "debug":

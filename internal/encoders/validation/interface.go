@@ -6,23 +6,24 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// EncoderParams is a map of encoder-specific parameters
+// EncoderParams is a map of encoder-specific parameters.
 type EncoderParams map[string]string
 
-// EncoderSettings contains the specific FFmpeg settings needed for an encoder
+// EncoderSettings contains the specific FFmpeg settings needed for an encoder.
 type EncoderSettings struct {
 	GlobalArgs   []string          `json:"global_args"`   // Global FFmpeg arguments (e.g., -vaapi_device)
 	OutputParams map[string]string `json:"output_params"` // Output parameters (e.g., qp, preset, cq)
 	VideoFilters string            `json:"video_filters"` // Video filter chain (e.g., format=nv12,hwupload)
 }
 
-// EncoderValidator defines the interface for validating specific encoder types
+// EncoderValidator defines the interface for validating specific encoder types.
 type EncoderValidator interface {
 	// CanValidate returns true if this validator can handle the given encoder name
 	CanValidate(encoderName string) bool
@@ -46,24 +47,24 @@ type EncoderValidator interface {
 	GetQualityParams(encoderName string, params *types.QualityParams) (EncoderParams, error)
 }
 
-// ValidatorRegistry holds all registered validators
+// ValidatorRegistry holds all registered validators.
 type ValidatorRegistry struct {
 	validators []EncoderValidator
 }
 
-// NewValidatorRegistry creates a new validator registry
+// NewValidatorRegistry creates a new validator registry.
 func NewValidatorRegistry() *ValidatorRegistry {
 	return &ValidatorRegistry{
 		validators: make([]EncoderValidator, 0),
 	}
 }
 
-// Register adds a validator to the registry
+// Register adds a validator to the registry.
 func (r *ValidatorRegistry) Register(validator EncoderValidator) {
 	r.validators = append(r.validators, validator)
 }
 
-// FindValidator finds the appropriate validator for the given encoder name
+// FindValidator finds the appropriate validator for the given encoder name.
 func (r *ValidatorRegistry) FindValidator(encoderName string) EncoderValidator {
 	for _, validator := range r.validators {
 		if validator.CanValidate(encoderName) {
@@ -73,18 +74,12 @@ func (r *ValidatorRegistry) FindValidator(encoderName string) EncoderValidator {
 	return nil
 }
 
-// GetAvailableValidators returns validators for encoders that are compiled into ffmpeg
+// GetAvailableValidators returns validators for encoders that are compiled into ffmpeg.
 func (r *ValidatorRegistry) GetAvailableValidators() []EncoderValidator {
 	available := make([]EncoderValidator, 0)
 
 	for _, validator := range r.validators {
-		hasCompiledEncoder := false
-		for _, encoderName := range validator.GetEncoderNames() {
-			if isEncoderCompiled(encoderName) {
-				hasCompiledEncoder = true
-				break
-			}
-		}
+		hasCompiledEncoder := slices.ContainsFunc(validator.GetEncoderNames(), isEncoderCompiled)
 		if hasCompiledEncoder {
 			available = append(available, validator)
 		}
@@ -94,12 +89,12 @@ func (r *ValidatorRegistry) GetAvailableValidators() []EncoderValidator {
 }
 
 // GetAllValidators returns all registered validators without checking if encoders are compiled
-// This is used for encoder overrides where we want to force a specific encoder
+// This is used for encoder overrides where we want to force a specific encoder.
 func (r *ValidatorRegistry) GetAllValidators() []EncoderValidator {
 	return r.validators
 }
 
-// GetCompiledEncoders returns only the encoder names that are compiled into ffmpeg
+// GetCompiledEncoders returns only the encoder names that are compiled into ffmpeg.
 func (r *ValidatorRegistry) GetCompiledEncoders(validator EncoderValidator) []string {
 	compiled := make([]string, 0)
 
@@ -112,7 +107,7 @@ func (r *ValidatorRegistry) GetCompiledEncoders(validator EncoderValidator) []st
 	return compiled
 }
 
-// isEncoderCompiled checks if an encoder is compiled into ffmpeg
+// isEncoderCompiled checks if an encoder is compiled into ffmpeg.
 func isEncoderCompiled(encoderName string) bool {
 	cmd := exec.Command("ffmpeg", "-hide_banner", "-nostats", "-encoders")
 	output, err := cmd.Output()
@@ -123,7 +118,7 @@ func isEncoderCompiled(encoderName string) bool {
 	return strings.Contains(string(output), encoderName)
 }
 
-// createTempDir creates a temporary directory for validation tests
+// createTempDir creates a temporary directory for validation tests.
 func createTempDir() (string, func(), error) {
 	tempDir, err := os.MkdirTemp("", "encoder_validate")
 	if err != nil {
@@ -137,7 +132,7 @@ func createTempDir() (string, func(), error) {
 	return tempDir, cleanup, nil
 }
 
-// ValidateEncoderWithSettings provides a common validation implementation for all validators
+// ValidateEncoderWithSettings provides a common validation implementation for all validators.
 func ValidateEncoderWithSettings(validator EncoderValidator, encoderName string) (bool, error) {
 	tempDir, cleanup, err := createTempDir()
 	if err != nil {
@@ -199,12 +194,12 @@ func ValidateEncoderWithSettings(validator EncoderValidator, encoderName string)
 	}()
 
 	select {
-	case err := <-done:
-		if err != nil {
+	case runErr := <-done:
+		if runErr != nil {
 			if stderr.Len() > 0 {
 				fmt.Printf("FFmpeg stderr: %s\n", stderr.String())
 			}
-			return false, err
+			return false, runErr
 		}
 	case <-time.After(10 * time.Second):
 		if cmd.Process != nil {
@@ -213,7 +208,7 @@ func ValidateEncoderWithSettings(validator EncoderValidator, encoderName string)
 		return false, fmt.Errorf("validation command timed out")
 	}
 
-	if fileInfo, err := os.Stat(testFile); err == nil && fileInfo.Size() > 1000 {
+	if fileInfo, statErr := os.Stat(testFile); statErr == nil && fileInfo.Size() > 1000 {
 		return true, nil
 	}
 	return false, fmt.Errorf("output file missing or too small")

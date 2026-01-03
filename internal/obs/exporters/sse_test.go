@@ -22,16 +22,16 @@ func TestSSEExporter_SystemMetrics(t *testing.T) {
 
 	testMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "test_value_1",
-			Value:      2.5,
-			LabelsMap:  obs.Labels{},
-			Timestamp_: time.Now(),
+			Name:          "test_value_1",
+			Value:         2.5,
+			LabelsMap:     obs.Labels{},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "test_bytes",
-			Value:      1000000,
-			LabelsMap:  obs.Labels{"interface": "eth0"},
-			Timestamp_: time.Now(),
+			Name:          "test_bytes",
+			Value:         1000000,
+			LabelsMap:     obs.Labels{"interface": "eth0"},
+			TimestampUnix: time.Now(),
 		},
 	}
 
@@ -65,28 +65,28 @@ func TestSSEExporter_StreamMetrics(t *testing.T) {
 
 	ffmpegMetrics := []obs.DataPoint{
 		&obs.MetricPoint{
-			Name:       "ffmpeg_fps",
-			Value:      30.0,
-			LabelsMap:  obs.Labels{"stream_id": "test_stream"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_fps",
+			Value:         30.0,
+			LabelsMap:     obs.Labels{"stream_id": "test_stream"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "ffmpeg_dropped_frames_total",
-			Value:      5.0,
-			LabelsMap:  obs.Labels{"stream_id": "test_stream"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_dropped_frames_total",
+			Value:         5.0,
+			LabelsMap:     obs.Labels{"stream_id": "test_stream"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "ffmpeg_duplicate_frames_total",
-			Value:      10.0,
-			LabelsMap:  obs.Labels{"stream_id": "test_stream"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_duplicate_frames_total",
+			Value:         10.0,
+			LabelsMap:     obs.Labels{"stream_id": "test_stream"},
+			TimestampUnix: time.Now(),
 		},
 		&obs.MetricPoint{
-			Name:       "ffmpeg_processing_speed",
-			Value:      0.95,
-			LabelsMap:  obs.Labels{"stream_id": "test_stream"},
-			Timestamp_: time.Now(),
+			Name:          "ffmpeg_processing_speed",
+			Value:         0.95,
+			LabelsMap:     obs.Labels{"stream_id": "test_stream"},
+			TimestampUnix: time.Now(),
 		},
 	}
 
@@ -137,11 +137,11 @@ func TestSSEExporter_LogFiltering(t *testing.T) {
 			}
 
 			logEntry := &obs.LogEntry{
-				Level:      tc.logLevel,
-				Message:    "test log",
-				Source:     "test",
-				Timestamp_: time.Now(),
-				LabelsMap:  obs.Labels{},
+				Level:         tc.logLevel,
+				Message:       "test log",
+				Source:        "test",
+				TimestampUnix: time.Now(),
+				LabelsMap:     obs.Labels{},
 			}
 
 			err := exporter.Export([]obs.DataPoint{logEntry})
@@ -162,18 +162,20 @@ func TestSSEExporter_ConcurrentExport(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < 10; j++ {
+			for j := range 10 {
 				metric := &obs.MetricPoint{
-					Name:       "concurrent_test",
-					Value:      float64(j),
-					LabelsMap:  obs.Labels{"goroutine": string(rune('0' + id))},
-					Timestamp_: time.Now(),
+					Name:          "concurrent_test",
+					Value:         float64(j),
+					LabelsMap:     obs.Labels{"goroutine": string(rune('0' + id))},
+					TimestampUnix: time.Now(),
 				}
-				exporter.Export([]obs.DataPoint{metric})
+				if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+					t.Errorf("Export failed: %v", err)
+				}
 			}
 		}(i)
 	}
@@ -215,11 +217,11 @@ func TestSSEExporter_MetricsFormatting(t *testing.T) {
 	}
 
 	testMetric := &obs.MetricPoint{
-		Name:       "test_metric",
-		Value:      42.5,
-		LabelsMap:  obs.Labels{"test": "true", "env": "testing"},
-		Timestamp_: time.Now(),
-		Unit:       "requests",
+		Name:          "test_metric",
+		Value:         42.5,
+		LabelsMap:     obs.Labels{"test": "true", "env": "testing"},
+		TimestampUnix: time.Now(),
+		Unit:          "requests",
 	}
 
 	err := exporter.Export([]obs.DataPoint{testMetric})
@@ -274,14 +276,16 @@ func TestSSEExporter_HistoryPreservation(t *testing.T) {
 		streamMetrics: make(map[string]*StreamMetricsAccumulator),
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		metric := &obs.MetricPoint{
-			Name:       "history_test",
-			Value:      float64(i),
-			LabelsMap:  obs.Labels{"stream_id": "test"},
-			Timestamp_: time.Now().Add(time.Duration(i) * time.Second),
+			Name:          "history_test",
+			Value:         float64(i),
+			LabelsMap:     obs.Labels{"stream_id": "test"},
+			TimestampUnix: time.Now().Add(time.Duration(i) * time.Second),
 		}
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	captured := mockBus.GetEvents()

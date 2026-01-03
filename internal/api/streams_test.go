@@ -10,25 +10,25 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// mockStreamService is a test implementation of streams.StreamService
+// mockStreamService is a test implementation of streams.StreamService.
 type mockStreamService struct {
 	streams     map[string]*streams.Stream
 	streamSpecs map[string]*streams.StreamSpec
 }
 
-func (m *mockStreamService) CreateStream(ctx context.Context, params streams.StreamCreateParams) (*streams.Stream, error) {
+func (m *mockStreamService) CreateStream(_ context.Context, _ streams.StreamCreateParams) (*streams.Stream, error) {
 	return nil, nil
 }
 
-func (m *mockStreamService) UpdateStream(ctx context.Context, streamID string, params streams.StreamUpdateParams) (*streams.Stream, error) {
+func (m *mockStreamService) UpdateStream(_ context.Context, _ string, _ streams.StreamUpdateParams) (*streams.Stream, error) {
 	return nil, nil
 }
 
-func (m *mockStreamService) DeleteStream(ctx context.Context, streamID string) error {
+func (m *mockStreamService) DeleteStream(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *mockStreamService) GetStream(ctx context.Context, streamID string) (*streams.Stream, error) {
+func (m *mockStreamService) GetStream(_ context.Context, streamID string) (*streams.Stream, error) {
 	s, ok := m.streams[streamID]
 	if !ok {
 		return nil, &streams.StreamError{Code: streams.ErrCodeStreamNotFound}
@@ -36,7 +36,7 @@ func (m *mockStreamService) GetStream(ctx context.Context, streamID string) (*st
 	return s, nil
 }
 
-func (m *mockStreamService) GetStreamSpec(ctx context.Context, streamID string) (*streams.StreamSpec, error) {
+func (m *mockStreamService) GetStreamSpec(_ context.Context, streamID string) (*streams.StreamSpec, error) {
 	spec, ok := m.streamSpecs[streamID]
 	if !ok {
 		return nil, &streams.StreamError{Code: streams.ErrCodeStreamNotFound}
@@ -44,19 +44,23 @@ func (m *mockStreamService) GetStreamSpec(ctx context.Context, streamID string) 
 	return spec, nil
 }
 
-func (m *mockStreamService) ListStreams(ctx context.Context) ([]streams.Stream, error) {
-	var result []streams.Stream
+func (m *mockStreamService) ListStreams(_ context.Context) ([]streams.Stream, error) {
+	result := make([]streams.Stream, 0, len(m.streams))
 	for _, s := range m.streams {
 		result = append(result, *s)
 	}
 	return result, nil
 }
 
-func (m *mockStreamService) GetFFmpegCommand(ctx context.Context, streamID string, encoderOverride string) (string, bool, error) {
+func (m *mockStreamService) GetFFmpegCommand(_ context.Context, _ string, _ string) (string, bool, error) {
 	return "", false, nil
 }
 
-func (m *mockStreamService) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
+func (m *mockStreamService) BroadcastDeviceDiscovery(_ string, _ devices.DeviceInfo, _ string) {
+}
+
+func (m *mockStreamService) LoadStreamsFromConfig() error {
+	return nil
 }
 
 func TestDomainToAPIStream_ReadsCodecFromConfig(t *testing.T) {

@@ -1,7 +1,7 @@
 package ffmpeg
 
 // Params represents all parameters needed to generate an FFmpeg command
-// This replaces the map[string]string approach with strongly typed fields
+// This replaces the map[string]string approach with strongly typed fields.
 type Params struct {
 	// Input Configuration
 	DevicePath   string
@@ -38,7 +38,7 @@ type Params struct {
 
 	// Output
 	ProgressSocket string // /tmp/ffmpeg-progress-xxx.sock
-	OutputURL      string // rtsp://localhost:8554/$MTX_PATH
+	OutputURL      string // srt://localhost:8890?streamid=publish:<stream-id>
 
 	// Behavior Options
 	Options []OptionType // FFmpeg behavior flags

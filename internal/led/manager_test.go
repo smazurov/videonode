@@ -9,7 +9,7 @@ import (
 	"github.com/smazurov/videonode/internal/events"
 )
 
-// Mock controller for testing
+// Mock controller for testing.
 type mockController struct {
 	setCalls []setCall
 }

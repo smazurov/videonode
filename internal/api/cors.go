@@ -8,7 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// CORSConfig holds CORS configuration
+// CORSConfig holds CORS configuration.
 type CORSConfig struct {
 	AllowOrigin  string
 	AllowMethods []string
@@ -16,7 +16,7 @@ type CORSConfig struct {
 	MaxAge       int
 }
 
-// DefaultCORSConfig returns permissive CORS config for internal tools
+// DefaultCORSConfig returns permissive CORS config for internal tools.
 func DefaultCORSConfig() CORSConfig {
 	return CORSConfig{
 		AllowOrigin:  "*",
@@ -26,7 +26,7 @@ func DefaultCORSConfig() CORSConfig {
 	}
 }
 
-// NewCORSMiddleware creates CORS middleware with the given configuration
+// NewCORSMiddleware creates CORS middleware with the given configuration.
 func NewCORSMiddleware(config CORSConfig) func(huma.Context, func(huma.Context)) {
 	// Pre-compute header values
 	allowMethods := strings.Join(config.AllowMethods, ", ")
@@ -53,14 +53,14 @@ func NewCORSMiddleware(config CORSConfig) func(huma.Context, func(huma.Context))
 }
 
 // AddCORSHandler adds a CORS preflight handler to the mux for OPTIONS requests
-// This is needed because Huma middleware doesn't intercept OPTIONS before routing
+// This is needed because Huma middleware doesn't intercept OPTIONS before routing.
 func AddCORSHandler(mux *http.ServeMux, config CORSConfig) {
 	// Pre-compute header values
 	allowMethods := strings.Join(config.AllowMethods, ", ")
 	allowHeaders := strings.Join(config.AllowHeaders, ", ")
 	maxAge := strconv.Itoa(config.MaxAge)
 
-	mux.HandleFunc("OPTIONS /", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("OPTIONS /", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", config.AllowOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", allowMethods)
 		w.Header().Set("Access-Control-Allow-Headers", allowHeaders)

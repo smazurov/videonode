@@ -9,6 +9,7 @@ package audio
 #include <string.h>
 */
 import "C"
+
 import (
 	"fmt"
 	"unsafe"
@@ -20,20 +21,13 @@ func newPlatformDetector() Detector {
 	return &linuxDetector{}
 }
 
+// ListDevices enumerates all available ALSA audio capture devices.
 func (d *linuxDetector) ListDevices() ([]Device, error) {
 	var devices []Device
 
 	// Get the list of cards using ALSA API
 	cardNum := C.int(-1)
-	for {
-		// Get next sound card
-		if C.snd_card_next(&cardNum) < 0 {
-			break
-		}
-		if cardNum < 0 {
-			break // No more cards
-		}
-
+	for C.snd_card_next(&cardNum) >= 0 && cardNum >= 0 {
 		// Get card info
 		cardInfo := d.getCardInfo(int(cardNum))
 		if cardInfo == nil {
@@ -63,14 +57,14 @@ func (d *linuxDetector) getCardInfo(cardNum int) *cardInfo {
 	defer C.free(unsafe.Pointer(cCardName))
 
 	// Open control interface for the card
-	if C.snd_ctl_open(&ctl, cCardName, 0) < 0 {
+	if C.snd_ctl_open(&ctl, cCardName, 0) < 0 { //nolint:gocritic // CGO false positive
 		return nil
 	}
 	defer C.snd_ctl_close(ctl)
 
 	// Allocate and get card info
 	var info *C.snd_ctl_card_info_t
-	C.snd_ctl_card_info_malloc(&info)
+	C.snd_ctl_card_info_malloc(&info) //nolint:gocritic // CGO false positive
 	defer C.snd_ctl_card_info_free(info)
 
 	if C.snd_ctl_card_info(ctl, info) < 0 {
@@ -95,21 +89,14 @@ func (d *linuxDetector) enumeratePCMDevices(cardNum int, card *cardInfo) []Devic
 	defer C.free(unsafe.Pointer(cCardName))
 
 	// Open control interface
-	if C.snd_ctl_open(&ctl, cCardName, 0) < 0 {
+	if C.snd_ctl_open(&ctl, cCardName, 0) < 0 { //nolint:gocritic // CGO false positive
 		return devices
 	}
 	defer C.snd_ctl_close(ctl)
 
 	// Iterate through PCM devices
 	deviceNum := C.int(-1)
-	for {
-		if C.snd_ctl_pcm_next_device(ctl, &deviceNum) < 0 {
-			break
-		}
-		if deviceNum < 0 {
-			break // No more devices
-		}
-
+	for C.snd_ctl_pcm_next_device(ctl, &deviceNum) >= 0 && deviceNum >= 0 {
 		// Only check for capture devices
 		captureInfo := d.getPCMInfo(ctl, int(deviceNum), C.SND_PCM_STREAM_CAPTURE)
 
@@ -144,7 +131,7 @@ type pcmInfo struct {
 
 func (d *linuxDetector) getPCMInfo(ctl *C.snd_ctl_t, deviceNum int, stream C.snd_pcm_stream_t) *pcmInfo {
 	var info *C.snd_pcm_info_t
-	C.snd_pcm_info_malloc(&info)
+	C.snd_pcm_info_malloc(&info) //nolint:gocritic // CGO false positive
 	defer C.snd_pcm_info_free(info)
 
 	C.snd_pcm_info_set_device(info, C.uint(deviceNum))
@@ -169,7 +156,7 @@ func (d *linuxDetector) queryDeviceCapabilities(device *Device, stream C.snd_pcm
 	var handle *C.snd_pcm_t
 
 	// Try to open the device
-	if err := C.snd_pcm_open(&handle, deviceName, stream, C.SND_PCM_NONBLOCK); err < 0 {
+	if err := C.snd_pcm_open(&handle, deviceName, stream, C.SND_PCM_NONBLOCK); err < 0 { //nolint:gocritic // CGO false positive
 		// If we can't open the device, just return without capabilities
 		return
 	}
@@ -177,7 +164,7 @@ func (d *linuxDetector) queryDeviceCapabilities(device *Device, stream C.snd_pcm
 
 	// Allocate hardware parameters structure
 	var hwparams *C.snd_pcm_hw_params_t
-	C.snd_pcm_hw_params_malloc(&hwparams)
+	C.snd_pcm_hw_params_malloc(&hwparams) //nolint:gocritic // CGO false positive
 	defer C.snd_pcm_hw_params_free(hwparams)
 
 	// Fill params with a full configuration space for the PCM

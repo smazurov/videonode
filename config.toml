@@ -19,6 +19,9 @@ mediamtx_config = "mediamtx.yml"
 # When enabled, each stream runs as a systemd unit with proper signal handling
 use_systemd = false
 
+# MediaMTX systemd service name (for service control via API)
+service_name = "videonode_mediamtx.service"
+
 [obs]
 # Observability settings
 # Maximum retention duration for metrics and logs
@@ -54,3 +57,10 @@ default_delay_ms = 3000
 # Basic HTTP authentication credentials
 username = "pinball"
 password = "ilovepinball"
+
+[features]
+# Enable LED control (requires appropriate hardware)
+led_control_enabled = false
+
+# Enable MediaMTX service control via systemd/DBus
+mediamtx_control_enabled = false

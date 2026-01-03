@@ -4,31 +4,32 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// ValidationService handles encoder validation data operations
+// ValidationService handles encoder validation data operations.
 type ValidationService struct {
 	store Store
 }
 
-// NewValidationService creates a new validation service
+// NewValidationService creates a new validation service.
 func NewValidationService(store Store) *ValidationService {
-	store.Load()
+	// Load existing validation data, ignore errors as empty results are acceptable
+	_ = store.Load()
 
 	return &ValidationService{
 		store: store,
 	}
 }
 
-// GetValidation returns the current validation data
+// GetValidation returns the current validation data.
 func (v *ValidationService) GetValidation() *types.ValidationResults {
 	return v.store.GetValidation()
 }
 
-// UpdateValidation updates the validation data
+// UpdateValidation updates the validation data.
 func (v *ValidationService) UpdateValidation(results *types.ValidationResults) error {
 	return v.store.UpdateValidation(results)
 }
 
-// Load retrieves validation data, returning empty results if none exist
+// Load retrieves validation data, returning empty results if none exist.
 func (v *ValidationService) Load() (*types.ValidationResults, error) {
 	validation := v.GetValidation()
 	if validation == nil {
@@ -46,7 +47,7 @@ func (v *ValidationService) Load() (*types.ValidationResults, error) {
 	return validation, nil
 }
 
-// Save is an alias for UpdateValidation
+// Save is an alias for UpdateValidation.
 func (v *ValidationService) Save(validation *types.ValidationResults) error {
 	return v.UpdateValidation(validation)
 }

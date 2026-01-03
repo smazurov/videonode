@@ -9,35 +9,38 @@ import (
 	"github.com/smazurov/videonode/internal/obs"
 )
 
-// TestMemoryLeak_NoTTL demonstrates that metrics accumulate in memory forever
+// TestMemoryLeak_NoTTL demonstrates that metrics accumulate in memory forever.
 func TestMemoryLeak_NoTTL(t *testing.T) {
 	exporter := NewPromExporter()
 
 	// Create 1000 unique metrics
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		metric := &obs.MetricPoint{
-			Name:       "test_metric",
-			Value:      float64(i),
-			LabelsMap:  obs.Labels{"unique_id": fmt.Sprintf("metric_%d", i)},
-			Timestamp_: time.Now().Add(-time.Duration(i) * time.Second),
+			Name:          "test_metric",
+			Value:         float64(i),
+			LabelsMap:     obs.Labels{"unique_id": fmt.Sprintf("metric_%d", i)},
+			TimestampUnix: time.Now().Add(-time.Duration(i) * time.Second),
 		}
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	exporter.ForceFlush()
 
 	// With stable labels fix, these should be deduplicated to 1 metric
 	actualCount := len(exporter.collector.metrics)
-	if actualCount == 1000 {
+	switch actualCount {
+	case 1000:
 		t.Errorf("MEMORY LEAK: All 1000 unique metrics kept in memory - no cleanup mechanism")
-	} else if actualCount == 1 {
+	case 1:
 		t.Log("FIXED: Stable labels working - metrics are deduplicated")
-	} else {
+	default:
 		t.Logf("Got %d metrics (unexpected)", actualCount)
 	}
 }
 
-// TestRingBufferWorks shows Prometheus exporter now uses ring buffer and deduplication
+// TestRingBufferWorks shows Prometheus exporter now uses ring buffer and deduplication.
 func TestRingBufferWorks(t *testing.T) {
 	// Store uses ring buffer - only keeps recent points
 	storeConfig := obs.StoreConfig{
@@ -48,14 +51,16 @@ func TestRingBufferWorks(t *testing.T) {
 	store := obs.NewStore(storeConfig)
 
 	// Add 50 points to same series
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		point := &obs.MetricPoint{
-			Name:       "test_series",
-			Value:      float64(i),
-			LabelsMap:  obs.Labels{"series": "test"},
-			Timestamp_: time.Now().Add(time.Duration(i) * time.Second),
+			Name:          "test_series",
+			Value:         float64(i),
+			LabelsMap:     obs.Labels{"series": "test"},
+			TimestampUnix: time.Now().Add(time.Duration(i) * time.Second),
 		}
-		store.Add(point)
+		if err := store.Add(point); err != nil {
+			t.Fatalf("store.Add failed: %v", err)
+		}
 	}
 
 	// Store should only keep last 10 points
@@ -71,13 +76,15 @@ func TestRingBufferWorks(t *testing.T) {
 	// Prometheus exporter now has stable labels and deduplication
 	exporter := NewPromExporter()
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		metric := &obs.MetricPoint{
 			Name:      "prom_test",
 			Value:     float64(i),
 			LabelsMap: obs.Labels{"stream_id": "test"}, // Use stable label
 		}
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	exporter.ForceFlush()
@@ -88,21 +95,23 @@ func TestRingBufferWorks(t *testing.T) {
 	}
 }
 
-// TestFFmpegMemoryGrowth simulates real FFmpeg scenario
+// TestFFmpegMemoryGrowth simulates real FFmpeg scenario.
 func TestFFmpegMemoryGrowth(t *testing.T) {
 	exporter := NewPromExporter()
 
 	// Simulate 1 hour of changing duplicate frame counts
-	for second := 0; second < 3600; second++ {
+	for second := range 3600 {
 		metric := &obs.MetricPoint{
 			Name:  "ffmpeg_duplicate_frames_total",
 			Value: float64(100 + second), // Constantly increasing
 			LabelsMap: obs.Labels{
 				"stream_id": "test_stream",
 			},
-			Timestamp_: time.Now().Add(time.Duration(second) * time.Second),
+			TimestampUnix: time.Now().Add(time.Duration(second) * time.Second),
 		}
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	exporter.ForceFlush()
@@ -113,7 +122,7 @@ func TestFFmpegMemoryGrowth(t *testing.T) {
 	}
 }
 
-// TestMetricTTL_NotImplemented shows there's no TTL mechanism
+// TestMetricTTL_NotImplemented shows there's no TTL mechanism.
 func TestMetricTTL_NotImplemented(t *testing.T) {
 	collector := NewDynamicCollector()
 
@@ -126,7 +135,7 @@ func TestMetricTTL_NotImplemented(t *testing.T) {
 	t.Log("NOTE: Metrics are never removed from memory")
 }
 
-// TestSSEExporter_BrokenAfterFFmpegFix shows SSE stream events are broken
+// TestSSEExporter_BrokenAfterFFmpegFix shows SSE stream events are broken.
 func TestSSEExporter_BrokenAfterFFmpegFix(t *testing.T) {
 	mockBus := &MockEventBus{}
 	exporter := &SSEExporter{
@@ -145,7 +154,9 @@ func TestSSEExporter_BrokenAfterFFmpegFix(t *testing.T) {
 	}
 
 	for _, metric := range ffmpegMetrics {
-		exporter.Export([]obs.DataPoint{metric})
+		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
 	}
 
 	// Check what events were broadcast
@@ -185,10 +196,10 @@ type MockSSEBroadcasterSimple struct {
 
 type SSEEventSimple struct {
 	EventType string
-	Data      interface{}
+	Data      any
 }
 
-func (m *MockSSEBroadcasterSimple) BroadcastEvent(eventType string, data interface{}) error {
+func (m *MockSSEBroadcasterSimple) BroadcastEvent(eventType string, data any) error {
 	m.events = append(m.events, SSEEventSimple{
 		EventType: eventType,
 		Data:      data,

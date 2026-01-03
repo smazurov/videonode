@@ -17,42 +17,42 @@ import (
 	"github.com/smazurov/videonode/internal/events"
 )
 
-// Device path parameter input
+// DevicePathInput represents device path parameter input.
 type DevicePathInput struct {
 	DeviceID string `path:"device_id" example:"usb-0000:00:14.0-1" doc:"Stable device identifier"`
 }
 
-// Device format query input
+// DeviceFormatInput represents device format query input.
 type DeviceFormatInput struct {
 	DevicePathInput
 	FormatName models.VideoFormat `query:"format_name" example:"yuyv422" doc:"Human-readable format name"`
 }
 
-// Device resolution query input
+// DeviceResolutionInput represents device resolution query input.
 type DeviceResolutionInput struct {
 	DeviceFormatInput
 	Width  string `query:"width" example:"1920" doc:"Video width in pixels"`
 	Height string `query:"height" example:"1080" doc:"Video height in pixels"`
 }
 
-// DeviceCaptureBody represents the request body for device capture
+// DeviceCaptureBody represents the request body for device capture.
 type DeviceCaptureBody struct {
-	Resolution string  `json:"resolution,omitempty" example:"1920x1080" doc:"Optional resolution in format widthxheight"`
-	Delay      float64 `json:"delay,omitempty" example:"2.0" doc:"Optional delay in seconds before capturing"`
+	Resolution string  `json:"resolution,omitempty" example:"1920x1080" doc:"Optional resolution"`
+	Delay      float64 `json:"delay,omitempty" example:"2.0" doc:"Delay before capture in seconds"`
 }
 
-// DeviceCaptureInput combines path parameters and request body
+// DeviceCaptureInput combines path parameters and request body.
 type DeviceCaptureInput struct {
 	DevicePathInput
 	Body DeviceCaptureBody
 }
 
-// humanReadableToPixelFormat converts human-readable format names to V4L2 pixel format codes
+// humanReadableToPixelFormat converts human-readable format names to V4L2 pixel format codes.
 func humanReadableToPixelFormat(formatName models.VideoFormat) (uint32, error) {
 	return formatName.ToPixelFormat()
 }
 
-// pixelFormatToFourCC converts a V4L2 pixel format code to its FourCC string representation
+// pixelFormatToFourCC converts a V4L2 pixel format code to its FourCC string representation.
 func pixelFormatToFourCC(pixelFormat uint32) string {
 	// Convert to 4-byte array in little-endian order
 	bytes := []byte{
@@ -72,12 +72,12 @@ func pixelFormatToFourCC(pixelFormat uint32) string {
 	return string(bytes)
 }
 
-// resolveDevicePath is a wrapper around devices.ResolveDevicePath
+// resolveDevicePath is a wrapper around devices.ResolveDevicePath.
 func resolveDevicePath(deviceID string) (string, error) {
 	return devices.ResolveDevicePath(deviceID)
 }
 
-// V4L2ToFFmpegFormat maps V4L2 pixel format codes to FFmpeg input format names
+// V4L2ToFFmpegFormat maps V4L2 pixel format codes to FFmpeg input format names.
 func V4L2ToFFmpegFormat(pixelFormat uint32) (string, error) {
 	switch pixelFormat {
 	case 1448695129: // YUYV
@@ -106,74 +106,74 @@ func V4L2ToFFmpegFormat(pixelFormat uint32) (string, error) {
 	}
 }
 
-// V4L2 capability constants (from linux/videodev2.h)
+// V4L2 capability constants (from linux/videodev2.h).
 const (
-	V4L2_CAP_VIDEO_CAPTURE        = 0x00000001
-	V4L2_CAP_VIDEO_OUTPUT         = 0x00000002
-	V4L2_CAP_VIDEO_OVERLAY        = 0x00000004
-	V4L2_CAP_VBI_CAPTURE          = 0x00000010
-	V4L2_CAP_VBI_OUTPUT           = 0x00000020
-	V4L2_CAP_SLICED_VBI_CAPTURE   = 0x00000040
-	V4L2_CAP_SLICED_VBI_OUTPUT    = 0x00000080
-	V4L2_CAP_RDS_CAPTURE          = 0x00000100
-	V4L2_CAP_VIDEO_OUTPUT_OVERLAY = 0x00000200
-	V4L2_CAP_HW_FREQ_SEEK         = 0x00000400
-	V4L2_CAP_RDS_OUTPUT           = 0x00000800
-	V4L2_CAP_VIDEO_CAPTURE_MPLANE = 0x00001000
-	V4L2_CAP_VIDEO_OUTPUT_MPLANE  = 0x00002000
-	V4L2_CAP_VIDEO_M2M_MPLANE     = 0x00004000
-	V4L2_CAP_VIDEO_M2M            = 0x00008000
-	V4L2_CAP_TUNER                = 0x00010000
-	V4L2_CAP_AUDIO                = 0x00020000
-	V4L2_CAP_RADIO                = 0x00040000
-	V4L2_CAP_MODULATOR            = 0x00080000
-	V4L2_CAP_SDR_CAPTURE          = 0x00100000
-	V4L2_CAP_EXT_PIX_FORMAT       = 0x00200000
-	V4L2_CAP_SDR_OUTPUT           = 0x00400000
-	V4L2_CAP_META_CAPTURE         = 0x00800000
-	V4L2_CAP_READWRITE            = 0x01000000
-	V4L2_CAP_ASYNCIO              = 0x02000000
-	V4L2_CAP_STREAMING            = 0x04000000
-	V4L2_CAP_META_OUTPUT          = 0x08000000
-	V4L2_CAP_TOUCH                = 0x10000000
-	V4L2_CAP_IO_MC                = 0x20000000
-	V4L2_CAP_DEVICE_CAPS          = 0x80000000
+	V4L2CapVideoCapture       = 0x00000001
+	V4L2CapVideoOutput        = 0x00000002
+	V4L2CapVideoOverlay       = 0x00000004
+	V4L2CapVbiCapture         = 0x00000010
+	V4L2CapVbiOutput          = 0x00000020
+	V4L2CapSlicedVbiCapture   = 0x00000040
+	V4L2CapSlicedVbiOutput    = 0x00000080
+	V4L2CapRdsCapture         = 0x00000100
+	V4L2CapVideoOutputOverlay = 0x00000200
+	V4L2CapHwFreqSeek         = 0x00000400
+	V4L2CapRdsOutput          = 0x00000800
+	V4L2CapVideoCaptureMplane = 0x00001000
+	V4L2CapVideoOutputMplane  = 0x00002000
+	V4L2CapVideoM2mMplane     = 0x00004000
+	V4L2CapVideoM2m           = 0x00008000
+	V4L2CapTuner              = 0x00010000
+	V4L2CapAudio              = 0x00020000
+	V4L2CapRadio              = 0x00040000
+	V4L2CapModulator          = 0x00080000
+	V4L2CapSdrCapture         = 0x00100000
+	V4L2CapExtPixFormat       = 0x00200000
+	V4L2CapSdrOutput          = 0x00400000
+	V4L2CapMetaCapture        = 0x00800000
+	V4L2CapReadwrite          = 0x01000000
+	V4L2CapAsyncio            = 0x02000000
+	V4L2CapStreaming          = 0x04000000
+	V4L2CapMetaOutput         = 0x08000000
+	V4L2CapTouch              = 0x10000000
+	V4L2CapIoMc               = 0x20000000
+	V4L2CapDeviceCaps         = 0x80000000
 )
 
-// translateCapabilities converts V4L2 capability flags to readable strings
+// translateCapabilities converts V4L2 capability flags to readable strings.
 func translateCapabilities(caps uint32) []string {
 	var capabilities []string
 
 	capMap := map[uint32]string{
-		V4L2_CAP_VIDEO_CAPTURE:        "Video Capture",
-		V4L2_CAP_VIDEO_OUTPUT:         "Video Output",
-		V4L2_CAP_VIDEO_OVERLAY:        "Video Overlay",
-		V4L2_CAP_VBI_CAPTURE:          "VBI Capture",
-		V4L2_CAP_VBI_OUTPUT:           "VBI Output",
-		V4L2_CAP_SLICED_VBI_CAPTURE:   "Sliced VBI Capture",
-		V4L2_CAP_SLICED_VBI_OUTPUT:    "Sliced VBI Output",
-		V4L2_CAP_RDS_CAPTURE:          "RDS Capture",
-		V4L2_CAP_VIDEO_OUTPUT_OVERLAY: "Video Output Overlay",
-		V4L2_CAP_HW_FREQ_SEEK:         "Hardware Frequency Seek",
-		V4L2_CAP_RDS_OUTPUT:           "RDS Output",
-		V4L2_CAP_VIDEO_CAPTURE_MPLANE: "Multi-planar Video Capture",
-		V4L2_CAP_VIDEO_OUTPUT_MPLANE:  "Multi-planar Video Output",
-		V4L2_CAP_VIDEO_M2M_MPLANE:     "Multi-planar Memory-to-Memory",
-		V4L2_CAP_VIDEO_M2M:            "Memory-to-Memory",
-		V4L2_CAP_TUNER:                "Tuner",
-		V4L2_CAP_AUDIO:                "Audio",
-		V4L2_CAP_RADIO:                "Radio",
-		V4L2_CAP_MODULATOR:            "Modulator",
-		V4L2_CAP_SDR_CAPTURE:          "Software Defined Radio Capture",
-		V4L2_CAP_EXT_PIX_FORMAT:       "Extended Pixel Format",
-		V4L2_CAP_SDR_OUTPUT:           "Software Defined Radio Output",
-		V4L2_CAP_META_CAPTURE:         "Metadata Capture",
-		V4L2_CAP_READWRITE:            "Read/Write I/O",
-		V4L2_CAP_ASYNCIO:              "Asynchronous I/O",
-		V4L2_CAP_STREAMING:            "Streaming I/O",
-		V4L2_CAP_META_OUTPUT:          "Metadata Output",
-		V4L2_CAP_TOUCH:                "Touch Device",
-		V4L2_CAP_IO_MC:                "Media Controller I/O",
+		V4L2CapVideoCapture:       "Video Capture",
+		V4L2CapVideoOutput:        "Video Output",
+		V4L2CapVideoOverlay:       "Video Overlay",
+		V4L2CapVbiCapture:         "VBI Capture",
+		V4L2CapVbiOutput:          "VBI Output",
+		V4L2CapSlicedVbiCapture:   "Sliced VBI Capture",
+		V4L2CapSlicedVbiOutput:    "Sliced VBI Output",
+		V4L2CapRdsCapture:         "RDS Capture",
+		V4L2CapVideoOutputOverlay: "Video Output Overlay",
+		V4L2CapHwFreqSeek:         "Hardware Frequency Seek",
+		V4L2CapRdsOutput:          "RDS Output",
+		V4L2CapVideoCaptureMplane: "Multi-planar Video Capture",
+		V4L2CapVideoOutputMplane:  "Multi-planar Video Output",
+		V4L2CapVideoM2mMplane:     "Multi-planar Memory-to-Memory",
+		V4L2CapVideoM2m:           "Memory-to-Memory",
+		V4L2CapTuner:              "Tuner",
+		V4L2CapAudio:              "Audio",
+		V4L2CapRadio:              "Radio",
+		V4L2CapModulator:          "Modulator",
+		V4L2CapSdrCapture:         "Software Defined Radio Capture",
+		V4L2CapExtPixFormat:       "Extended Pixel Format",
+		V4L2CapSdrOutput:          "Software Defined Radio Output",
+		V4L2CapMetaCapture:        "Metadata Capture",
+		V4L2CapReadwrite:          "Read/Write I/O",
+		V4L2CapAsyncio:            "Asynchronous I/O",
+		V4L2CapStreaming:          "Streaming I/O",
+		V4L2CapMetaOutput:         "Metadata Output",
+		V4L2CapTouch:              "Touch Device",
+		V4L2CapIoMc:               "Media Controller I/O",
 	}
 
 	for flag, name := range capMap {
@@ -185,7 +185,7 @@ func translateCapabilities(caps uint32) []string {
 	return capabilities
 }
 
-// GetDevicesData fetches the list of available video devices
+// GetDevicesData fetches the list of available video devices.
 func GetDevicesData() (models.DeviceData, error) {
 	detector := devices.NewDetector()
 	deviceList, err := detector.FindDevices()
@@ -199,7 +199,7 @@ func GetDevicesData() (models.DeviceData, error) {
 		apiDevices[i] = models.DeviceInfo{
 			DevicePath:   dev.DevicePath,
 			DeviceName:   dev.DeviceName,
-			DeviceId:     dev.DeviceId,
+			DeviceID:     dev.DeviceID,
 			Caps:         dev.Caps,
 			Capabilities: translateCapabilities(dev.Caps),
 			Ready:        dev.Ready,
@@ -213,7 +213,7 @@ func GetDevicesData() (models.DeviceData, error) {
 	}, nil
 }
 
-// GetDeviceCapabilities fetches all capabilities for a specific device
+// GetDeviceCapabilities fetches all capabilities for a specific device.
 func GetDeviceCapabilities(devicePath string) (models.DeviceCapabilitiesData, error) {
 	detector := devices.NewDetector()
 	deviceFormats, err := detector.GetDeviceFormats(devicePath)
@@ -225,11 +225,11 @@ func GetDeviceCapabilities(devicePath string) (models.DeviceCapabilitiesData, er
 	formats := make([]models.FormatInfo, 0, len(deviceFormats))
 	for _, format := range deviceFormats {
 		// Check if format is supported (has FFmpeg equivalent)
-		_, err := V4L2ToFFmpegFormat(format.PixelFormat)
-		if err != nil {
+		_, formatErr := V4L2ToFFmpegFormat(format.PixelFormat)
+		if formatErr != nil {
 			// Skip unsupported formats instead of failing completely
 			logger := slog.With("component", "devices_api")
-			logger.Warn("Skipping unsupported format", "error", err)
+			logger.Warn("Skipping unsupported format", "error", formatErr)
 			continue
 		}
 		formats = append(formats, models.FormatInfo{
@@ -245,7 +245,7 @@ func GetDeviceCapabilities(devicePath string) (models.DeviceCapabilitiesData, er
 	}, nil
 }
 
-// registerDeviceRoutes registers all device-related endpoints
+// registerDeviceRoutes registers all device-related endpoints.
 func (s *Server) registerDeviceRoutes() {
 	// List all devices
 	huma.Register(s.api, huma.Operation{
@@ -257,7 +257,7 @@ func (s *Server) registerDeviceRoutes() {
 		Tags:        []string{"devices"},
 		Security:    withAuth(),
 		Errors:      []int{401, 500},
-	}, func(ctx context.Context, input *struct{}) (*models.DeviceResponse, error) {
+	}, func(_ context.Context, _ *struct{}) (*models.DeviceResponse, error) {
 		data, err := GetDevicesData()
 		if err != nil {
 			return nil, huma.Error500InternalServerError("Failed to get devices", err)
@@ -276,7 +276,7 @@ func (s *Server) registerDeviceRoutes() {
 		Tags:        []string{"devices"},
 		Security:    withAuth(),
 		Errors:      []int{401, 500},
-	}, func(ctx context.Context, input *DevicePathInput) (*models.DeviceCapabilitiesResponse, error) {
+	}, func(_ context.Context, input *DevicePathInput) (*models.DeviceCapabilitiesResponse, error) {
 		// Resolve device ID to device path
 		devicePath, err := resolveDevicePath(input.DeviceID)
 		if err != nil {
@@ -301,7 +301,7 @@ func (s *Server) registerDeviceRoutes() {
 		Tags:        []string{"devices"},
 		Security:    withAuth(),
 		Errors:      []int{400, 401, 500},
-	}, func(ctx context.Context, input *DeviceFormatInput) (*models.DeviceResolutionsResponse, error) {
+	}, func(_ context.Context, input *DeviceFormatInput) (*models.DeviceResolutionsResponse, error) {
 		// Resolve device ID to device path
 		devicePath, err := resolveDevicePath(input.DeviceID)
 		if err != nil {
@@ -344,7 +344,7 @@ func (s *Server) registerDeviceRoutes() {
 		Tags:        []string{"devices"},
 		Security:    withAuth(),
 		Errors:      []int{400, 401, 500},
-	}, func(ctx context.Context, input *DeviceResolutionInput) (*models.DeviceFrameratesResponse, error) {
+	}, func(_ context.Context, input *DeviceResolutionInput) (*models.DeviceFrameratesResponse, error) {
 		// Resolve device ID to device path
 		devicePath, err := resolveDevicePath(input.DeviceID)
 		if err != nil {
@@ -403,7 +403,7 @@ func (s *Server) registerDeviceRoutes() {
 		DefaultStatus: http.StatusAccepted, // 202 Accepted
 		Security:      withAuth(),
 		Errors:        []int{401, 404},
-	}, func(ctx context.Context, input *DeviceCaptureInput) (*models.CaptureResponse, error) {
+	}, func(_ context.Context, input *DeviceCaptureInput) (*models.CaptureResponse, error) {
 		// Resolve device ID to device path
 		devicePath, err := resolveDevicePath(input.DeviceID)
 		if err != nil {
@@ -411,7 +411,7 @@ func (s *Server) registerDeviceRoutes() {
 		}
 
 		// Validate device exists
-		if _, err := os.Stat(devicePath); os.IsNotExist(err) {
+		if _, statErr := os.Stat(devicePath); os.IsNotExist(statErr) {
 			return nil, huma.Error404NotFound(fmt.Sprintf("Device %s does not exist", devicePath), nil)
 		}
 
@@ -426,11 +426,11 @@ func (s *Server) registerDeviceRoutes() {
 			fmt.Printf("API capture with delay: %.1f seconds\n", delay)
 			timestamp := time.Now().Format(time.RFC3339)
 
-			imageBytes, err := capture.CaptureToBytes(devicePath, delay)
+			imageBytes, captureErr := capture.ToBytes(devicePath, delay)
 
-			if err != nil {
+			if captureErr != nil {
 				// Log the capture error
-				fmt.Printf("Screenshot capture failed for %s: %s\n", devicePath, err.Error())
+				fmt.Printf("Screenshot capture failed for %s: %s\n", devicePath, captureErr.Error())
 			} else {
 				// Broadcast success event with base64 image via Huma SSE
 				base64Image := base64.StdEncoding.EncodeToString(imageBytes)

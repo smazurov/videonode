@@ -2,12 +2,13 @@ package obs
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
 )
 
-// Series represents a time series with a ring buffer for efficient storage
+// Series represents a time series with a ring buffer for efficient storage.
 type Series struct {
 	name      string
 	dataType  DataType
@@ -21,7 +22,7 @@ type Series struct {
 	lastSeen  time.Time
 }
 
-// NewSeries creates a new time series with the specified capacity
+// NewSeries creates a new time series with the specified capacity.
 func NewSeries(name string, dataType DataType, labels Labels, capacity int) *Series {
 	return &Series{
 		name:     name,
@@ -34,7 +35,7 @@ func NewSeries(name string, dataType DataType, labels Labels, capacity int) *Ser
 	}
 }
 
-// Add adds a data point to the series
+// Add adds a data point to the series.
 func (s *Series) Add(point DataPoint) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -56,7 +57,7 @@ func (s *Series) Add(point DataPoint) {
 	}
 }
 
-// Query returns points within the specified time range
+// Query returns points within the specified time range.
 func (s *Series) Query(start, end time.Time, limit int) []DataPoint {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
@@ -101,7 +102,7 @@ func (s *Series) Query(start, end time.Time, limit int) []DataPoint {
 	return result
 }
 
-// Info returns metadata about the series
+// Info returns metadata about the series.
 func (s *Series) Info() SeriesInfo {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
@@ -116,14 +117,14 @@ func (s *Series) Info() SeriesInfo {
 	}
 }
 
-// Size returns the current number of points in the series
+// Size returns the current number of points in the series.
 func (s *Series) Size() int {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	return s.size
 }
 
-// Store manages multiple time series with efficient storage and querying
+// Store manages multiple time series with efficient storage and querying.
 type Store struct {
 	config       StoreConfig
 	series       map[string]*Series   // key: seriesKey(name, labels)
@@ -132,7 +133,7 @@ type Store struct {
 	lastCleanup  time.Time
 }
 
-// NewStore creates a new in-memory store
+// NewStore creates a new in-memory store.
 func NewStore(config StoreConfig) *Store {
 	return &Store{
 		config:       config,
@@ -142,7 +143,7 @@ func NewStore(config StoreConfig) *Store {
 	}
 }
 
-// Add adds a data point to the store
+// Add adds a data point to the store.
 func (s *Store) Add(point DataPoint) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -163,7 +164,7 @@ func (s *Store) Add(point DataPoint) error {
 	if !exists {
 		// Check if we're at max series limit
 		if len(s.series) >= s.config.MaxSeries {
-			return NewObsError(ErrStoreFull, "maximum number of series reached", map[string]interface{}{
+			return NewObsError(ErrStoreFull, "maximum number of series reached", map[string]any{
 				"max_series":     s.config.MaxSeries,
 				"current_series": len(s.series),
 				"series_key":     seriesKey,
@@ -184,7 +185,7 @@ func (s *Store) Add(point DataPoint) error {
 	return nil
 }
 
-// Query queries the store for data points matching the given criteria
+// Query queries the store for data points matching the given criteria.
 func (s *Store) Query(opts QueryOptions) (*QueryResult, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
@@ -240,12 +241,12 @@ func (s *Store) Query(opts QueryOptions) (*QueryResult, error) {
 	}, nil
 }
 
-// ListSeries returns information about all series in the store
+// ListSeries returns information about all series in the store.
 func (s *Store) ListSeries() []SeriesInfo {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	var result []SeriesInfo
+	result := make([]SeriesInfo, 0, len(s.series))
 	for _, series := range s.series {
 		result = append(result, series.Info())
 	}
@@ -258,8 +259,8 @@ func (s *Store) ListSeries() []SeriesInfo {
 	return result
 }
 
-// Stats returns statistics about the store
-func (s *Store) Stats() map[string]interface{} {
+// Stats returns statistics about the store.
+func (s *Store) Stats() map[string]any {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -268,7 +269,7 @@ func (s *Store) Stats() map[string]interface{} {
 		totalPoints += series.Size()
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"total_series":           len(s.series),
 		"total_points":           totalPoints,
 		"max_series":             s.config.MaxSeries,
@@ -278,7 +279,7 @@ func (s *Store) Stats() map[string]interface{} {
 	}
 }
 
-// cleanupExpiredData removes old data points based on retention policy
+// cleanupExpiredData removes old data points based on retention policy.
 func (s *Store) cleanupExpiredData() {
 	cutoff := time.Now().Add(-s.config.MaxRetentionDuration)
 
@@ -357,8 +358,6 @@ func copyLabels(labels Labels) Labels {
 	}
 
 	result := make(Labels, len(labels))
-	for k, v := range labels {
-		result[k] = v
-	}
+	maps.Copy(result, labels)
 	return result
 }

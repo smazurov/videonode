@@ -9,7 +9,7 @@ import (
 const deviceTreeModelPath = "/proc/device-tree/model"
 
 // New creates a new LED controller based on board detection
-// Falls back to no-op controller if LEDs are not available
+// Falls back to no-op controller if LEDs are not available.
 func New(logger *slog.Logger) Controller {
 	boardModel := detectBoard()
 
@@ -53,7 +53,7 @@ func New(logger *slog.Logger) Controller {
 	}
 }
 
-// detectBoard reads the device tree model to identify the board
+// detectBoard reads the device tree model to identify the board.
 func detectBoard() string {
 	data, err := os.ReadFile(deviceTreeModelPath)
 	if err != nil {

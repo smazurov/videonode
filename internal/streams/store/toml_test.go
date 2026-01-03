@@ -10,7 +10,7 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// setupTestRepo creates a temporary repository for testing
+// setupTestRepo creates a temporary repository for testing.
 func setupTestRepo(t *testing.T) (*tomlStore, string) {
 	t.Helper()
 
@@ -74,7 +74,7 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 
 	// Verify file exists
-	if _, err := os.Stat(testFile); os.IsNotExist(err) {
+	if _, statErr := os.Stat(testFile); os.IsNotExist(statErr) {
 		t.Error("Config file was not created")
 	}
 
@@ -186,7 +186,7 @@ func TestUpdateStream(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	loaded, _ := repo2.config.Streams["update-test"]
+	loaded := repo2.config.Streams["update-test"]
 	if loaded.Name != "Updated Name" {
 		t.Error("update was not persisted")
 	}
@@ -202,7 +202,9 @@ func TestRemoveStream(t *testing.T) {
 		Device: "device-1",
 	}
 	repo.config.Streams["remove-test"] = stream
-	repo.Save()
+	if err := repo.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
 
 	// Remove stream
 	err := repo.RemoveStream("remove-test")
@@ -377,7 +379,7 @@ func TestLoadHandlesNilStreamsMap(t *testing.T) {
 	// Create a config file without streams section
 	content := `version = 1
 `
-	err := os.WriteFile(testFile, []byte(content), 0644)
+	err := os.WriteFile(testFile, []byte(content), 0o644)
 	if err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -403,7 +405,7 @@ func TestLoadSetsDefaultVersion(t *testing.T) {
 	// Create a config file without version
 	content := `[streams]
 `
-	err := os.WriteFile(testFile, []byte(content), 0644)
+	err := os.WriteFile(testFile, []byte(content), 0o644)
 	if err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -435,7 +437,7 @@ func TestSaveCreatesDirectory(t *testing.T) {
 	}
 
 	// Verify nested directories were created
-	if _, err := os.Stat(nestedPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(nestedPath); os.IsNotExist(statErr) {
 		t.Error("Save should create nested directories")
 	}
 }
@@ -483,7 +485,7 @@ func TestLoadInvalidTOML(t *testing.T) {
 
 	// Write invalid TOML
 	invalidContent := `this is not valid toml [[[`
-	err := os.WriteFile(testFile, []byte(invalidContent), 0644)
+	err := os.WriteFile(testFile, []byte(invalidContent), 0o644)
 	if err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -502,17 +504,21 @@ func TestLoadUnreadableFile(t *testing.T) {
 	repo, testFile := setupTestRepo(t)
 
 	// Create file
-	err := os.WriteFile(testFile, []byte("version = 1\n"), 0644)
+	err := os.WriteFile(testFile, []byte("version = 1\n"), 0o644)
 	if err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
 	// Make file unreadable
-	err = os.Chmod(testFile, 0000)
+	err = os.Chmod(testFile, 0o000)
 	if err != nil {
 		t.Fatalf("failed to chmod file: %v", err)
 	}
-	defer os.Chmod(testFile, 0644) // cleanup
+	defer func() {
+		if chmodErr := os.Chmod(testFile, 0o644); chmodErr != nil {
+			t.Errorf("cleanup chmod failed: %v", chmodErr)
+		}
+	}()
 
 	// Load should fail
 	err = repo.Load()
@@ -526,15 +532,19 @@ func TestSaveToUnwritableDirectory(t *testing.T) {
 	unwritableDir := filepath.Join(tmpDir, "unwritable")
 
 	// Create directory and make it unwritable
-	err := os.Mkdir(unwritableDir, 0755)
+	err := os.Mkdir(unwritableDir, 0o755)
 	if err != nil {
 		t.Fatalf("failed to create dir: %v", err)
 	}
-	err = os.Chmod(unwritableDir, 0444)
+	err = os.Chmod(unwritableDir, 0o444)
 	if err != nil {
 		t.Fatalf("failed to chmod dir: %v", err)
 	}
-	defer os.Chmod(unwritableDir, 0755) // cleanup
+	defer func() {
+		if chmodErr := os.Chmod(unwritableDir, 0o755); chmodErr != nil {
+			t.Errorf("cleanup chmod failed: %v", chmodErr)
+		}
+	}()
 
 	testFile := filepath.Join(unwritableDir, "test.toml")
 	repo := NewTOML(testFile)
@@ -546,7 +556,7 @@ func TestSaveToUnwritableDirectory(t *testing.T) {
 	}
 }
 
-// Helper function
+// Helper function.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsRecursive(s, substr))
 }

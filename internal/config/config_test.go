@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestConfig represents a test configuration structure
+// TestConfig represents a test configuration structure.
 type TestConfig struct {
 	Config string `help:"Config file path"`
 
@@ -39,8 +39,8 @@ value = "nested value"
 	}
 	defer os.Remove(tmpFile.Name())
 
-	if _, err := tmpFile.WriteString(tomlContent); err != nil {
-		t.Fatalf("Failed to write to temp file: %v", err)
+	if _, writeErr := tmpFile.WriteString(tomlContent); writeErr != nil {
+		t.Fatalf("Failed to write to temp file: %v", writeErr)
 	}
 	tmpFile.Close()
 
@@ -139,8 +139,8 @@ slice_field = ["toml1", "toml2"]
 	}
 	defer os.Remove(tmpFile.Name())
 
-	if _, err := tmpFile.WriteString(tomlContent); err != nil {
-		t.Fatalf("Failed to write to temp file: %v", err)
+	if _, writeErr := tmpFile.WriteString(tomlContent); writeErr != nil {
+		t.Fatalf("Failed to write to temp file: %v", writeErr)
 	}
 	tmpFile.Close()
 
@@ -183,9 +183,9 @@ slice_field = ["toml1", "toml2"]
 }
 
 func TestGetNestedValue(t *testing.T) {
-	data := map[string]interface{}{
-		"level1": map[string]interface{}{
-			"level2": map[string]interface{}{
+	data := map[string]any{
+		"level1": map[string]any{
+			"level2": map[string]any{
 				"value": "nested_value",
 			},
 			"simple": "simple_value",
@@ -195,7 +195,7 @@ func TestGetNestedValue(t *testing.T) {
 
 	tests := []struct {
 		path     string
-		expected interface{}
+		expected any
 	}{
 		{"root", "root_value"},
 		{"level1.simple", "simple_value"},
@@ -242,7 +242,7 @@ func TestSetFieldValue(t *testing.T) {
 	}
 
 	// Test slice field
-	sliceValue := []interface{}{"a", "b", "c"}
+	sliceValue := []any{"a", "b", "c"}
 	setFieldValue(v.FieldByName("SliceField"), sliceValue)
 	expectedSlice := []string{"a", "b", "c"}
 	if !reflect.DeepEqual(s.SliceField, expectedSlice) {
@@ -319,8 +319,8 @@ invalid toml syntax
 	}
 	defer os.Remove(tmpFile.Name())
 
-	if _, err := tmpFile.WriteString(invalidToml); err != nil {
-		t.Fatalf("Failed to write to temp file: %v", err)
+	if _, writeErr := tmpFile.WriteString(invalidToml); writeErr != nil {
+		t.Fatalf("Failed to write to temp file: %v", writeErr)
 	}
 	tmpFile.Close()
 

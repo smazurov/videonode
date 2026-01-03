@@ -127,7 +127,6 @@ fdc70000.av1d             load:   5.50% utilization:   3.75%`
 
 	collector := NewMPPCollector(obs.Labels{})
 	devices, err := collector.parseContent(strings.NewReader(input))
-
 	if err != nil {
 		t.Fatalf("Failed to parse MPP content: %v", err)
 	}
@@ -174,7 +173,6 @@ fdb50000.vepu             load:  45.00% utilization:  40.00%
 
 	collector := NewMPPCollector(obs.Labels{})
 	devices, err := collector.parseContent(strings.NewReader(input))
-
 	if err != nil {
 		t.Fatalf("Failed to parse MPP content with empty lines: %v", err)
 	}
@@ -214,7 +212,11 @@ fdb50400.vdpu             load:  25.00% utilization:  20.00%`
 	if err := writeTestFile(collector.procPath, testContent); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
-	defer removeTestFile(collector.procPath)
+	defer func() {
+		if err := removeTestFile(collector.procPath); err != nil {
+			t.Errorf("removeTestFile failed: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -261,7 +263,7 @@ collectLoop:
 
 				// Check required labels
 				labels := mp.Labels()
-				if _, ok := labels["device"]; !ok {
+				if _, hasDevice := labels["device"]; !hasDevice {
 					t.Errorf("Metric %s missing 'device' label", mp.Name)
 				}
 				if labels["collector"] != "mpp" {
@@ -303,9 +305,9 @@ func TestMPPCollectorMissingFile(t *testing.T) {
 	}
 }
 
-// Helper functions for file operations
+// Helper functions for file operations.
 func writeTestFile(path, content string) error {
-	return os.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0o644)
 }
 
 func removeTestFile(path string) error {
@@ -326,7 +328,11 @@ fdbd0000.rkvenc-core      load:  85.75% utilization:  80.50%`
 	if err := writeTestFile(collector.procPath, testContent); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
-	defer removeTestFile(collector.procPath)
+	defer func() {
+		if err := removeTestFile(collector.procPath); err != nil {
+			t.Errorf("removeTestFile failed: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()

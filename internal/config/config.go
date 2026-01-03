@@ -10,8 +10,8 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// LoadConfig automatically loads configuration from TOML file and environment variables
-func LoadConfig(opts interface{}) error {
+// LoadConfig automatically loads configuration from TOML file and environment variables.
+func LoadConfig(opts any) error {
 	v := reflect.ValueOf(opts).Elem()
 	t := v.Type()
 
@@ -28,9 +28,9 @@ func LoadConfig(opts interface{}) error {
 	// Load TOML file if it exists
 	if configPath != "" {
 		if data, err := os.ReadFile(configPath); err == nil {
-			var config map[string]interface{}
-			if err := toml.Unmarshal(data, &config); err != nil {
-				return fmt.Errorf("failed to parse TOML config: %w", err)
+			var config map[string]any
+			if parseErr := toml.Unmarshal(data, &config); parseErr != nil {
+				return fmt.Errorf("failed to parse TOML config: %w", parseErr)
 			}
 
 			// Apply TOML values using reflection
@@ -62,8 +62,8 @@ func LoadConfig(opts interface{}) error {
 	return nil
 }
 
-// getNestedValue retrieves a value from nested map using dot notation
-func getNestedValue(data map[string]interface{}, path string) interface{} {
+// getNestedValue retrieves a value from nested map using dot notation.
+func getNestedValue(data map[string]any, path string) any {
 	parts := strings.Split(path, ".")
 	current := data
 
@@ -71,7 +71,7 @@ func getNestedValue(data map[string]interface{}, path string) interface{} {
 		if i == len(parts)-1 {
 			return current[part]
 		}
-		if next, ok := current[part].(map[string]interface{}); ok {
+		if next, ok := current[part].(map[string]any); ok {
 			current = next
 		} else {
 			return nil
@@ -80,8 +80,8 @@ func getNestedValue(data map[string]interface{}, path string) interface{} {
 	return nil
 }
 
-// setFieldValue sets a field value using reflection
-func setFieldValue(field reflect.Value, value interface{}) {
+// setFieldValue sets a field value using reflection.
+func setFieldValue(field reflect.Value, value any) {
 	if !field.CanSet() {
 		return
 	}
@@ -98,15 +98,15 @@ func setFieldValue(field reflect.Value, value interface{}) {
 	case reflect.Int:
 		if i, ok := value.(int64); ok {
 			field.SetInt(i)
-		} else if i, ok := value.(int); ok {
+		} else if i, intOk := value.(int); intOk {
 			field.SetInt(int64(i))
 		}
 	case reflect.Slice:
 		if field.Type().Elem().Kind() == reflect.String {
-			if arr, ok := value.([]interface{}); ok {
+			if arr, ok := value.([]any); ok {
 				slice := make([]string, len(arr))
 				for i, v := range arr {
-					if s, ok := v.(string); ok {
+					if s, strOk := v.(string); strOk {
 						slice[i] = s
 					}
 				}
@@ -116,7 +116,7 @@ func setFieldValue(field reflect.Value, value interface{}) {
 	}
 }
 
-// setFieldValueFromString sets a field value from string (for env vars)
+// setFieldValueFromString sets a field value from string (for env vars).
 func setFieldValueFromString(field reflect.Value, value string) {
 	if !field.CanSet() {
 		return

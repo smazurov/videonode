@@ -2,32 +2,33 @@ package validation
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/smazurov/videonode/internal/types"
 )
 
 // GenericValidator provides fallback validation for unknown encoder types
 
-// GenericValidator validates unknown encoder types with basic parameters
+// GenericValidator validates unknown encoder types with basic parameters.
 type GenericValidator struct{}
 
-// NewGenericValidator creates a new generic validator
+// NewGenericValidator creates a new generic validator.
 func NewGenericValidator() *GenericValidator {
 	return &GenericValidator{}
 }
 
-// CanValidate returns true for any encoder (this is the fallback validator)
-func (v *GenericValidator) CanValidate(encoderName string) bool {
+// CanValidate returns true for any encoder (this is the fallback validator).
+func (v *GenericValidator) CanValidate(_ string) bool {
 	// Generic validator can handle any encoder as a fallback
 	return true
 }
 
-// Validate tests unknown encoder types using production settings
+// Validate tests unknown encoder types using production settings.
 func (v *GenericValidator) Validate(encoderName string) (bool, error) {
 	return ValidateEncoderWithSettings(v, encoderName)
 }
 
-// GetEncoderNames returns common software encoder names that this validator handles
+// GetEncoderNames returns common software encoder names that this validator handles.
 func (v *GenericValidator) GetEncoderNames() []string {
 	// Generic validator handles common software encoders as fallback
 	return []string{
@@ -40,26 +41,29 @@ func (v *GenericValidator) GetEncoderNames() []string {
 	}
 }
 
-// GetDescription returns a description of this validator
+// GetDescription returns a description of this validator.
 func (v *GenericValidator) GetDescription() string {
 	return "Generic validator - Software encoder fallback and validation for unknown encoder types"
 }
 
-// GetProductionSettings returns production settings for software encoders
+// getVideoFilters returns the appropriate video filter for the input format.
+func getVideoFilters(inputFormat string) string {
+	switch inputFormat {
+	case "", "testsrc":
+		return ""
+	case "mjpeg", "yuyv422", "bgr24", "rgb24", "nv24", "nv16":
+		return "format=yuv420p"
+	default:
+		return ""
+	}
+}
+
+// GetProductionSettings returns production settings for software encoders.
 func (v *GenericValidator) GetProductionSettings(encoderName string, inputFormat string) (*EncoderSettings, error) {
 	// Provide encoder-specific settings for known software encoders
 	switch encoderName {
 	case "libx264":
-		videoFilters := ""
-		// Convert MJPEG/YUYV/RGB/NV24/NV16 to yuv420p for x264
-		// Test sources don't need any conversion
-		if inputFormat == "testsrc" {
-			videoFilters = ""
-		} else if inputFormat == "mjpeg" || inputFormat == "yuyv422" ||
-			inputFormat == "bgr24" || inputFormat == "rgb24" ||
-			inputFormat == "nv24" || inputFormat == "nv16" {
-			videoFilters = "format=yuv420p"
-		}
+		videoFilters := getVideoFilters(inputFormat)
 		return &EncoderSettings{
 			GlobalArgs: []string{},
 			OutputParams: map[string]string{
@@ -70,16 +74,7 @@ func (v *GenericValidator) GetProductionSettings(encoderName string, inputFormat
 		}, nil
 
 	case "libx265":
-		videoFilters := ""
-		// Convert MJPEG/YUYV/RGB/NV24/NV16 to yuv420p for x265
-		// Test sources don't need any conversion
-		if inputFormat == "testsrc" {
-			videoFilters = ""
-		} else if inputFormat == "mjpeg" || inputFormat == "yuyv422" ||
-			inputFormat == "bgr24" || inputFormat == "rgb24" ||
-			inputFormat == "nv24" || inputFormat == "nv16" {
-			videoFilters = "format=yuv420p"
-		}
+		videoFilters := getVideoFilters(inputFormat)
 		return &EncoderSettings{
 			GlobalArgs: []string{},
 			OutputParams: map[string]string{
@@ -90,13 +85,7 @@ func (v *GenericValidator) GetProductionSettings(encoderName string, inputFormat
 		}, nil
 
 	default:
-		// Fallback for any unknown encoders
-		videoFilters := ""
-		if inputFormat == "mjpeg" || inputFormat == "yuyv422" ||
-			inputFormat == "bgr24" || inputFormat == "rgb24" ||
-			inputFormat == "nv24" || inputFormat == "nv16" {
-			videoFilters = "format=yuv420p"
-		}
+		videoFilters := getVideoFilters(inputFormat)
 		return &EncoderSettings{
 			GlobalArgs: []string{},
 			OutputParams: map[string]string{
@@ -107,7 +96,7 @@ func (v *GenericValidator) GetProductionSettings(encoderName string, inputFormat
 	}
 }
 
-// GetQualityParams translates quality settings to encoder parameters for software encoders
+// GetQualityParams translates quality settings to encoder parameters for software encoders.
 func (v *GenericValidator) GetQualityParams(encoderName string, params *types.QualityParams) (EncoderParams, error) {
 	result := make(EncoderParams)
 
@@ -169,14 +158,7 @@ func (v *GenericValidator) GetQualityParams(encoderName string, params *types.Qu
 		if params.Preset != nil {
 			// Validate preset value
 			validPresets := []string{"ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"}
-			isValid := false
-			for _, p := range validPresets {
-				if *params.Preset == p {
-					isValid = true
-					break
-				}
-			}
-			if isValid {
+			if slices.Contains(validPresets, *params.Preset) {
 				result["preset"] = *params.Preset
 			}
 		} else {

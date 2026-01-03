@@ -2,14 +2,15 @@ package ffmpeg
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
-// BuildCommand builds an FFmpeg command from structured parameters
+// BuildCommand builds an FFmpeg command from structured parameters.
 func BuildCommand(p *Params) string {
 	var cmd strings.Builder
 
-	cmd.WriteString(FFmpegBase())
+	cmd.WriteString(Base())
 
 	// Global args (hardware devices, etc.)
 	for _, arg := range p.GlobalArgs {
@@ -41,10 +42,7 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -f v4l2")
 
 		// Apply FFmpeg options (before input)
-		appliedOptions := ApplyOptionsToCommand(p.Options, &cmd)
-		if len(appliedOptions) > 0 {
-			// Options are already applied by ApplyOptionsToCommand
-		}
+		ApplyOptionsToCommand(p.Options, &cmd)
 
 		if p.InputFormat != "" {
 			cmd.WriteString(" -input_format " + p.InputFormat)
@@ -69,13 +67,7 @@ func BuildCommand(p *Params) string {
 			cmd.WriteString(" -thread_queue_size 1024")
 
 			// Check if wallclock_with_genpts is in options for audio timing
-			hasWallclock := false
-			for _, opt := range p.Options {
-				if opt == OptionWallclockWithGenpts {
-					hasWallclock = true
-					break
-				}
-			}
+			hasWallclock := slices.Contains(p.Options, OptionWallclockWithGenpts)
 
 			if hasWallclock {
 				cmd.WriteString(" -use_wallclock_as_timestamps 1 -fflags +genpts+igndts")
@@ -170,8 +162,8 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -progress unix://" + p.ProgressSocket)
 	}
 
-	// Output
-	cmd.WriteString(" -f mpegts " + p.OutputURL)
+	// Output with low-latency mpegts options
+	cmd.WriteString(" -muxdelay 0 -muxpreload 0 -flush_packets 1 -f mpegts " + p.OutputURL)
 
 	return cmd.String()
 }

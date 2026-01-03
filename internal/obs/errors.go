@@ -4,9 +4,10 @@ import (
 	"fmt"
 )
 
-// ErrorCode represents specific error types in the obs package
+// ErrorCode represents specific error types in the obs package.
 type ErrorCode string
 
+// ErrorCode constants for observability errors.
 const (
 	ErrCollectorExists   ErrorCode = "COLLECTOR_EXISTS"
 	ErrCollectorNotFound ErrorCode = "COLLECTOR_NOT_FOUND"
@@ -20,26 +21,26 @@ const (
 	ErrDataPointInvalid  ErrorCode = "DATA_POINT_INVALID"
 )
 
-// ObsError represents an error in the obs package
-type ObsError struct {
-	Code    ErrorCode              `json:"code"`
-	Message string                 `json:"message"`
-	Context map[string]interface{} `json:"context,omitempty"`
-	Cause   error                  `json:"cause,omitempty"`
+// Error represents an error in the obs package.
+type Error struct {
+	Code    ErrorCode      `json:"code"`
+	Message string         `json:"message"`
+	Context map[string]any `json:"context,omitempty"`
+	Cause   error          `json:"cause,omitempty"`
 }
 
-// NewObsError creates a new obs error
-func NewObsError(code ErrorCode, message string, context map[string]interface{}) *ObsError {
-	return &ObsError{
+// NewObsError creates a new obs error.
+func NewObsError(code ErrorCode, message string, context map[string]any) *Error {
+	return &Error{
 		Code:    code,
 		Message: message,
 		Context: context,
 	}
 }
 
-// NewObsErrorWithCause creates a new obs error with a cause
-func NewObsErrorWithCause(code ErrorCode, message string, cause error, context map[string]interface{}) *ObsError {
-	return &ObsError{
+// NewObsErrorWithCause creates a new obs error with a cause.
+func NewObsErrorWithCause(code ErrorCode, message string, cause error, context map[string]any) *Error {
+	return &Error{
 		Code:    code,
 		Message: message,
 		Context: context,
@@ -47,20 +48,20 @@ func NewObsErrorWithCause(code ErrorCode, message string, cause error, context m
 	}
 }
 
-// Error implements the error interface
-func (e *ObsError) Error() string {
+// Error implements the error interface.
+func (e *Error) Error() string {
 	if e.Cause != nil {
 		return fmt.Sprintf("[%s] %s: %v", e.Code, e.Message, e.Cause)
 	}
 	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
 }
 
-// Unwrap returns the underlying cause
-func (e *ObsError) Unwrap() error {
+// Unwrap returns the underlying cause.
+func (e *Error) Unwrap() error {
 	return e.Cause
 }
 
-// Is checks if the error matches a specific code
-func (e *ObsError) Is(code ErrorCode) bool {
+// HasCode checks if the error matches a specific code.
+func (e *Error) HasCode(code ErrorCode) bool {
 	return e.Code == code
 }

@@ -2,13 +2,13 @@ package api
 
 import (
 	"log/slog"
-	"strconv"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/logging"
 )
 
+// HTTPLoggingMiddleware logs HTTP requests with appropriate log levels based on status codes.
 func HTTPLoggingMiddleware(ctx huma.Context, next func(huma.Context)) {
 	start := time.Now()
 	logger := logging.GetLogger("http")
@@ -64,23 +64,4 @@ func HTTPLoggingMiddleware(ctx huma.Context, next func(huma.Context)) {
 		// Success and redirects - INFO level
 		logger.LogAttrs(ctx.Context(), slog.LevelInfo, message, logAttrs...)
 	}
-}
-
-func formatBytes(bytes int64) string {
-	if bytes == 0 {
-		return "0"
-	}
-
-	const unit = 1024
-	if bytes < unit {
-		return strconv.FormatInt(bytes, 10) + "B"
-	}
-
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-
-	return strconv.FormatFloat(float64(bytes)/float64(div), 'f', 1, 64) + []string{"B", "KB", "MB", "GB", "TB"}[exp]
 }

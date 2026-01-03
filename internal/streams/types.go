@@ -7,7 +7,7 @@ import (
 	"github.com/smazurov/videonode/internal/devices"
 )
 
-// StreamService defines the interface for stream operations
+// StreamService defines the interface for stream operations.
 type StreamService interface {
 	CreateStream(ctx context.Context, params StreamCreateParams) (*Stream, error)
 	UpdateStream(ctx context.Context, streamID string, params StreamUpdateParams) (*Stream, error)
@@ -17,20 +17,23 @@ type StreamService interface {
 	ListStreams(ctx context.Context) ([]Stream, error)
 	GetFFmpegCommand(ctx context.Context, streamID string, encoderOverride string) (string, bool, error)
 
+	// Initialization
+	LoadStreamsFromConfig() error
+
 	// Device event handling
 	BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string)
 }
 
 // Stream represents a video stream's runtime state
-// Configuration is stored separately in StreamSpec
+// Configuration is stored separately in StreamSpec.
 type Stream struct {
 	ID             string    `json:"stream_id"`
-	Enabled        bool      `json:"enabled"`      // Device online/offline state, set by monitoring
-	StartTime      time.Time `json:"start_time"`   // When stream was started
-	ProgressSocket string    `json:"-"`            // Runtime socket path, not serialized
+	Enabled        bool      `json:"enabled"`    // Device online/offline state, set by monitoring
+	StartTime      time.Time `json:"start_time"` // When stream was started
+	ProgressSocket string    `json:"-"`          // Runtime socket path, not serialized
 }
 
-// StreamCreateParams contains parameters for creating a new stream
+// StreamCreateParams contains parameters for creating a new stream.
 type StreamCreateParams struct {
 	StreamID    string
 	DeviceID    string
@@ -44,7 +47,7 @@ type StreamCreateParams struct {
 	Options     []string // Optional, FFmpeg option keys
 }
 
-// StreamUpdateParams contains parameters for updating an existing stream
+// StreamUpdateParams contains parameters for updating an existing stream.
 type StreamUpdateParams struct {
 	Codec               *string  // Optional, video codec
 	InputFormat         *string  // Optional, input format

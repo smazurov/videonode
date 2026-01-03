@@ -10,9 +10,10 @@ import (
 	"github.com/smazurov/videonode/internal/ffmpeg"
 )
 
-// EncoderType represents the type of encoder (video, audio, subtitle)
+// EncoderType represents the type of encoder (video, audio, subtitle).
 type EncoderType string
 
+// Encoder type constants.
 const (
 	VideoEncoder    EncoderType = "V"
 	AudioEncoder    EncoderType = "A"
@@ -20,7 +21,7 @@ const (
 	Unknown         EncoderType = "?"
 )
 
-// Encoder represents an FFmpeg encoder
+// Encoder represents an FFmpeg encoder.
 type Encoder struct {
 	Type        EncoderType `json:"type"`
 	Name        string      `json:"name"`
@@ -28,7 +29,7 @@ type Encoder struct {
 	HWAccel     bool        `json:"hwaccel"`
 }
 
-// EncoderList holds a categorized list of encoders
+// EncoderList holds a categorized list of encoders.
 type EncoderList struct {
 	VideoEncoders    []Encoder `json:"video_encoders"`
 	AudioEncoders    []Encoder `json:"audio_encoders"`
@@ -36,14 +37,14 @@ type EncoderList struct {
 	OtherEncoders    []Encoder `json:"other_encoders"`
 }
 
-// EncoderFilter represents filter options for encoders
+// EncoderFilter represents filter options for encoders.
 type EncoderFilter struct {
 	Type    string `json:"type"`    // Filter by encoder type (V, A, S)
 	Search  string `json:"search"`  // Search term for name or description
 	Hwaccel bool   `json:"hwaccel"` // Filter for hardware accelerated encoders
 }
 
-// GetFFmpegEncoders retrieves all available encoders from ffmpeg
+// GetFFmpegEncoders retrieves all available encoders from ffmpeg.
 func GetFFmpegEncoders() (*EncoderList, error) {
 	// Check if ffmpeg is installed
 	if !IsFFmpegInstalled() {
@@ -68,13 +69,13 @@ func GetFFmpegEncoders() (*EncoderList, error) {
 	return parseEncoderOutput(string(output))
 }
 
-// IsFFmpegInstalled checks if ffmpeg is installed and available
+// IsFFmpegInstalled checks if ffmpeg is installed and available.
 func IsFFmpegInstalled() bool {
 	_, err := exec.LookPath("ffmpeg")
 	return err == nil
 }
 
-// parseEncoderOutput processes the output of ffmpeg -encoders command
+// parseEncoderOutput processes the output of ffmpeg -encoders command.
 func parseEncoderOutput(output string) (*EncoderList, error) {
 	result := &EncoderList{
 		VideoEncoders:    []Encoder{},
@@ -114,13 +115,14 @@ func parseEncoderOutput(output string) (*EncoderList, error) {
 			description := matches[3]
 
 			var encoderType EncoderType
-			if strings.Contains(typeFlags, "V") {
+			switch {
+			case strings.Contains(typeFlags, "V"):
 				encoderType = VideoEncoder
-			} else if strings.Contains(typeFlags, "A") {
+			case strings.Contains(typeFlags, "A"):
 				encoderType = AudioEncoder
-			} else if strings.Contains(typeFlags, "S") {
+			case strings.Contains(typeFlags, "S"):
 				encoderType = SubtitleEncoder
-			} else {
+			default:
 				encoderType = Unknown
 			}
 
@@ -149,13 +151,13 @@ func parseEncoderOutput(output string) (*EncoderList, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading output: %v", err)
+		return nil, fmt.Errorf("error reading output: %w", err)
 	}
 
 	return result, nil
 }
 
-// FilterEncoders applies filters to a list of encoders
+// FilterEncoders applies filters to a list of encoders.
 func FilterEncoders(encoders *EncoderList, filter EncoderFilter) *EncoderList {
 	result := &EncoderList{
 		VideoEncoders:    []Encoder{},

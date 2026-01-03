@@ -11,7 +11,7 @@ import (
 	valManager "github.com/smazurov/videonode/internal/validation"
 )
 
-// formatResolution creates a resolution string from width and height values
+// formatResolution creates a resolution string from width and height values.
 func formatResolution(width, height *int) string {
 	if width != nil && height != nil && *width > 0 && *height > 0 {
 		return fmt.Sprintf("%dx%d", *width, *height)
@@ -19,7 +19,7 @@ func formatResolution(width, height *int) string {
 	return ""
 }
 
-// formatFPS creates a framerate string from a framerate value
+// formatFPS creates a framerate string from a framerate value.
 func formatFPS(framerate *int) string {
 	if framerate != nil && *framerate > 0 {
 		return fmt.Sprintf("%d", *framerate)
@@ -27,7 +27,7 @@ func formatFPS(framerate *int) string {
 	return ""
 }
 
-// getStreamSafe retrieves a stream from memory in a thread-safe manner
+// getStreamSafe retrieves a stream from memory in a thread-safe manner.
 func (s *service) getStreamSafe(streamID string) (*Stream, bool) {
 	s.streamsMutex.RLock()
 	defer s.streamsMutex.RUnlock()
@@ -35,7 +35,7 @@ func (s *service) getStreamSafe(streamID string) (*Stream, bool) {
 	return stream, exists
 }
 
-// parseCodecType converts a codec string to a CodecType
+// parseCodecType converts a codec string to a CodecType.
 func parseCodecType(codec string) encoders.CodecType {
 	if codec == "h265" {
 		return encoders.CodecH265
@@ -43,7 +43,7 @@ func parseCodecType(codec string) encoders.CodecType {
 	return encoders.CodecH264
 }
 
-// copyStream creates a copy of a stream to prevent external mutation
+// copyStream creates a copy of a stream to prevent external mutation.
 func copyStream(stream *Stream) *Stream {
 	if stream == nil {
 		return nil
@@ -52,7 +52,7 @@ func copyStream(stream *Stream) *Stream {
 	return &streamCopy
 }
 
-// makeEncoderSelector creates an encoder selector from options or default
+// makeEncoderSelector creates an encoder selector from options or default.
 func makeEncoderSelector(logger *slog.Logger, opts *ServiceOptions, repo Store) encoders.Selector {
 	if opts != nil && opts.EncoderSelector != nil {
 		return opts.EncoderSelector
@@ -67,7 +67,7 @@ func makeEncoderSelector(logger *slog.Logger, opts *ServiceOptions, repo Store) 
 	return encoders.NewDefaultSelector(vm)
 }
 
-// makeEncoderSelectorFunc creates the encoder selector function for the processor
+// makeEncoderSelectorFunc creates the encoder selector function for the processor.
 func makeEncoderSelectorFunc(encoderSelector encoders.Selector, logger *slog.Logger) func(string, string, *types.QualityParams, string) *ffmpeg.Params {
 	return func(codec string, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) *ffmpeg.Params {
 		// Convert codec string to CodecType
@@ -79,11 +79,12 @@ func makeEncoderSelectorFunc(encoderSelector encoders.Selector, logger *slog.Log
 			logger.Error("Failed to select encoder", "error", err)
 			// Return defaults
 			defaultParams := &ffmpeg.Params{}
-			if encoderOverride != "" {
+			switch {
+			case encoderOverride != "":
 				defaultParams.Encoder = encoderOverride
-			} else if codecType == encoders.CodecH265 {
+			case codecType == encoders.CodecH265:
 				defaultParams.Encoder = "libx265"
-			} else {
+			default:
 				defaultParams.Encoder = "libx264"
 			}
 			return defaultParams
@@ -93,7 +94,7 @@ func makeEncoderSelectorFunc(encoderSelector encoders.Selector, logger *slog.Log
 	}
 }
 
-// makeDeviceResolver creates the device resolver function for the processor
+// makeDeviceResolver creates the device resolver function for the processor.
 func makeDeviceResolver(logger *slog.Logger) func(string) string {
 	return func(deviceID string) string {
 		devicePath, err := devices.ResolveDevicePath(deviceID)
@@ -105,7 +106,7 @@ func makeDeviceResolver(logger *slog.Logger) func(string) string {
 	}
 }
 
-// buildQualityParams creates quality parameters from bitrate
+// buildQualityParams creates quality parameters from bitrate.
 func buildQualityParams(bitrate *float64) *types.QualityParams {
 	if bitrate != nil && *bitrate > 0 {
 		return &types.QualityParams{
@@ -116,7 +117,7 @@ func buildQualityParams(bitrate *float64) *types.QualityParams {
 	return nil
 }
 
-// validateCodec validates that codec is either h264 or h265
+// validateCodec validates that codec is either h264 or h265.
 func validateCodec(codec string) error {
 	if codec != "h264" && codec != "h265" {
 		return fmt.Errorf("invalid codec: %s (must be h264 or h265)", codec)
@@ -124,7 +125,7 @@ func validateCodec(codec string) error {
 	return nil
 }
 
-// buildFFmpegOptions converts string options to FFmpeg OptionType or returns defaults
+// buildFFmpegOptions converts string options to FFmpeg OptionType or returns defaults.
 func buildFFmpegOptions(options []string) []ffmpeg.OptionType {
 	if len(options) > 0 {
 		ffmpegOptions := make([]ffmpeg.OptionType, 0, len(options))

@@ -2,12 +2,13 @@ package validation
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// Manager handles encoder validation data storage and retrieval
+// Manager handles encoder validation data storage and retrieval.
 type Manager struct {
 	mu         sync.RWMutex
 	validation *types.ValidationResults
@@ -15,20 +16,20 @@ type Manager struct {
 	storage Storage
 }
 
-// Storage interface for persisting validation data
+// Storage interface for persisting validation data.
 type Storage interface {
 	Save(validation *types.ValidationResults) error
 	Load() (*types.ValidationResults, error)
 }
 
-// NewManager creates a new validation manager with the given storage backend
+// NewManager creates a new validation manager with the given storage backend.
 func NewManager(storage Storage) *Manager {
 	return &Manager{
 		storage: storage,
 	}
 }
 
-// LoadValidation loads validation data from storage
+// LoadValidation loads validation data from storage.
 func (m *Manager) LoadValidation() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -46,7 +47,7 @@ func (m *Manager) LoadValidation() error {
 	return nil
 }
 
-// SaveValidation saves validation data to storage
+// SaveValidation saves validation data to storage.
 func (m *Manager) SaveValidation(validation *types.ValidationResults) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -63,14 +64,14 @@ func (m *Manager) SaveValidation(validation *types.ValidationResults) error {
 	return nil
 }
 
-// GetValidation returns the current validation data
+// GetValidation returns the current validation data.
 func (m *Manager) GetValidation() *types.ValidationResults {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.validation
 }
 
-// IsEncoderWorking checks if an encoder is in the working list
+// IsEncoderWorking checks if an encoder is in the working list.
 func (m *Manager) IsEncoderWorking(encoder string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -80,22 +81,14 @@ func (m *Manager) IsEncoderWorking(encoder string) bool {
 	}
 
 	// Check both H264 and H265 working lists
-	for _, working := range m.validation.H264.Working {
-		if working == encoder {
-			return true
-		}
+	if slices.Contains(m.validation.H264.Working, encoder) {
+		return true
 	}
 
-	for _, working := range m.validation.H265.Working {
-		if working == encoder {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(m.validation.H265.Working, encoder)
 }
 
-// GetWorkingEncodersForCodec returns working encoders for a specific codec type
+// GetWorkingEncodersForCodec returns working encoders for a specific codec type.
 func (m *Manager) GetWorkingEncodersForCodec(codecType string) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

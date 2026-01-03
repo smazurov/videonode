@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +14,7 @@ import (
 	"github.com/smazurov/videonode/internal/logging"
 )
 
-// Client is an HTTP client for the MediaMTX API
+// Client is an HTTP client for the MediaMTX API.
 type Client struct {
 	baseURL      string
 	httpClient   *http.Client
@@ -28,19 +27,19 @@ type Client struct {
 	wg           sync.WaitGroup
 }
 
-// ProcessedStream represents a stream ready to be added to MediaMTX
+// ProcessedStream represents a stream ready to be added to MediaMTX.
 type ProcessedStream struct {
 	StreamID      string
 	FFmpegCommand string
 }
 
-// PathConfig represents the configuration for a MediaMTX path
+// PathConfig represents the configuration for a MediaMTX path.
 type pathConfigRequest struct {
 	RunOnInit        string `json:"runOnInit"`
 	RunOnInitRestart bool   `json:"runOnInitRestart"`
 }
 
-// PathInfo represents information about a MediaMTX path
+// PathInfo represents information about a MediaMTX path.
 type PathInfo struct {
 	Name   string `json:"name"`
 	Source struct {
@@ -49,7 +48,7 @@ type PathInfo struct {
 	Ready bool `json:"ready"`
 }
 
-// PathListResponse represents the response from the paths list endpoint
+// PathListResponse represents the response from the paths list endpoint.
 type PathListResponse struct {
 	ItemCount int         `json:"itemCount"`
 	Items     []*PathInfo `json:"items"`
@@ -84,28 +83,7 @@ func WrapCommand(command string, streamID string) string {
 	return fmt.Sprintf("%s %s", systemdCmd, trimmed)
 }
 
-func shellEscape(value string) string {
-	if value == "" {
-		return "''"
-	}
-
-	needsQuoting := false
-	for _, r := range value {
-		switch r {
-		case ' ', '\t', '\n', '\r', '\'', '"', '\\', '$', '`', '!':
-			needsQuoting = true
-			break
-		}
-	}
-
-	if !needsQuoting {
-		return value
-	}
-
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-// NewClient creates a new MediaMTX API client
+// NewClient creates a new MediaMTX API client.
 func NewClient(baseURL string, syncCallback func() []*ProcessedStream) *Client {
 	return &Client{
 		baseURL:      baseURL,
@@ -116,7 +94,7 @@ func NewClient(baseURL string, syncCallback func() []*ProcessedStream) *Client {
 	}
 }
 
-// StartHealthMonitor starts the health monitoring goroutine
+// StartHealthMonitor starts the health monitoring goroutine.
 func (c *Client) StartHealthMonitor() {
 	c.healthTicker = time.NewTicker(1 * time.Second)
 	c.wg.Add(1)
@@ -131,8 +109,8 @@ func (c *Client) StartHealthMonitor() {
 				if c.isAvailable() {
 					if wasDown {
 						c.logger.Info("MediaMTX API is back online, syncing all streams")
-						if err := c.SyncAll(); err != nil {
-							c.logger.Error("Failed to sync streams", "error", err)
+						if syncErr := c.SyncAll(); syncErr != nil {
+							c.logger.Error("Failed to sync streams", "error", syncErr)
 						}
 					}
 					wasDown = false
@@ -149,7 +127,7 @@ func (c *Client) StartHealthMonitor() {
 	}()
 }
 
-// Stop stops the health monitoring
+// Stop stops the health monitoring.
 func (c *Client) Stop() {
 	if c.healthTicker != nil {
 		c.healthTicker.Stop()
@@ -158,12 +136,12 @@ func (c *Client) Stop() {
 	c.wg.Wait()
 }
 
-// isAvailable checks if the MediaMTX API is reachable
+// isAvailable checks if the MediaMTX API is reachable.
 func (c *Client) isAvailable() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/v3/paths/list", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v3/paths/list", nil)
 	if err != nil {
 		return false
 	}
@@ -177,8 +155,8 @@ func (c *Client) isAvailable() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// AddPath adds a new path to MediaMTX
-func (c *Client) AddPath(streamID, ffmpegCommand string) error {
+// modifyPath is a helper that handles both adding and updating paths.
+func (c *Client) modifyPath(streamID, ffmpegCommand, urlAction, httpMethod, action string) error {
 	config := pathConfigRequest{
 		RunOnInit:        WrapCommand(ffmpegCommand, streamID),
 		RunOnInitRestart: true,
@@ -189,8 +167,8 @@ func (c *Client) AddPath(streamID, ffmpegCommand string) error {
 		return fmt.Errorf("failed to marshal path config: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v3/config/paths/add/%s", c.baseURL, streamID)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
+	url := fmt.Sprintf("%s/v3/config/paths/%s/%s", c.baseURL, urlAction, streamID)
+	req, err := http.NewRequest(httpMethod, url, bytes.NewBuffer(data))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -198,20 +176,25 @@ func (c *Client) AddPath(streamID, ffmpegCommand string) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to add path: %w", err)
+		return fmt.Errorf("failed to %s path: %w", action, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to add path, status: %d", resp.StatusCode)
+		return fmt.Errorf("failed to %s path, status: %d", action, resp.StatusCode)
 	}
 
-	c.logger.Info("Added path to MediaMTX", "path", streamID)
+	c.logger.Info(action+" path in MediaMTX", "path", streamID)
 	return nil
 }
 
+// AddPath adds a new path to MediaMTX.
+func (c *Client) AddPath(streamID, ffmpegCommand string) error {
+	return c.modifyPath(streamID, ffmpegCommand, "add", http.MethodPost, "add")
+}
+
 // RestartPath forces a restart of the FFmpeg process by deleting and recreating the path
-// This should only be used during startup to ensure fresh connections to progress sockets
+// This should only be used during startup to ensure fresh connections to progress sockets.
 func (c *Client) RestartPath(streamID, ffmpegCommand string) error {
 	// First, delete the existing path (ignore errors if it doesn't exist)
 	_ = c.DeletePath(streamID)
@@ -223,43 +206,15 @@ func (c *Client) RestartPath(streamID, ffmpegCommand string) error {
 	return c.AddPath(streamID, ffmpegCommand)
 }
 
-// UpdatePath updates an existing path in MediaMTX
+// UpdatePath updates an existing path in MediaMTX.
 func (c *Client) UpdatePath(streamID, ffmpegCommand string) error {
-	config := pathConfigRequest{
-		RunOnInit:        WrapCommand(ffmpegCommand, streamID),
-		RunOnInitRestart: true,
-	}
-
-	data, err := json.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal path config: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/v3/config/paths/patch/%s", c.baseURL, streamID)
-	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(data))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to update path: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to update path, status: %d", resp.StatusCode)
-	}
-
-	c.logger.Info("Updated path in MediaMTX", "path", streamID)
-	return nil
+	return c.modifyPath(streamID, ffmpegCommand, "patch", http.MethodPatch, "update")
 }
 
-// DeletePath removes a path from MediaMTX
+// DeletePath removes a path from MediaMTX.
 func (c *Client) DeletePath(streamID string) error {
 	url := fmt.Sprintf("%s/v3/config/paths/delete/%s", c.baseURL, streamID)
-	req, err := http.NewRequest("DELETE", url, nil)
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -278,7 +233,7 @@ func (c *Client) DeletePath(streamID string) error {
 	return nil
 }
 
-// ListPaths returns all paths currently in MediaMTX
+// ListPaths returns all paths currently in MediaMTX.
 func (c *Client) ListPaths() ([]*PathInfo, error) {
 	url := fmt.Sprintf("%s/v3/paths/list", c.baseURL)
 	resp, err := c.httpClient.Get(url)
@@ -292,14 +247,14 @@ func (c *Client) ListPaths() ([]*PathInfo, error) {
 	}
 
 	var pathList PathListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&pathList); err != nil {
-		return nil, fmt.Errorf("failed to decode path list: %w", err)
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&pathList); decodeErr != nil {
+		return nil, fmt.Errorf("failed to decode path list: %w", decodeErr)
 	}
 
 	return pathList.Items, nil
 }
 
-// SyncAll synchronizes all streams from the repository with MediaMTX
+// SyncAll synchronizes all streams from the repository with MediaMTX.
 func (c *Client) SyncAll() error {
 	if c.syncCallback == nil {
 		return fmt.Errorf("sync callback not configured")
@@ -330,13 +285,13 @@ func (c *Client) SyncAll() error {
 	for _, stream := range streams {
 		if existingMap[stream.StreamID] {
 			// Path exists, update it
-			if err := c.UpdatePath(stream.StreamID, stream.FFmpegCommand); err != nil {
-				c.logger.Error("Failed to update path", "path", stream.StreamID, "error", err)
+			if updateErr := c.UpdatePath(stream.StreamID, stream.FFmpegCommand); updateErr != nil {
+				c.logger.Error("Failed to update path", "path", stream.StreamID, "error", updateErr)
 			}
 		} else {
 			// Path doesn't exist, add it
-			if err := c.AddPath(stream.StreamID, stream.FFmpegCommand); err != nil {
-				c.logger.Error("Failed to add path", "path", stream.StreamID, "error", err)
+			if addErr := c.AddPath(stream.StreamID, stream.FFmpegCommand); addErr != nil {
+				c.logger.Error("Failed to add path", "path", stream.StreamID, "error", addErr)
 			}
 		}
 	}
@@ -344,8 +299,8 @@ func (c *Client) SyncAll() error {
 	// Delete paths that shouldn't exist
 	for _, path := range existing {
 		if _, shouldExist := desiredMap[path.Name]; !shouldExist {
-			if err := c.DeletePath(path.Name); err != nil {
-				c.logger.Error("Failed to delete path", "path", path.Name, "error", err)
+			if deleteErr := c.DeletePath(path.Name); deleteErr != nil {
+				c.logger.Error("Failed to delete path", "path", path.Name, "error", deleteErr)
 			}
 		}
 	}

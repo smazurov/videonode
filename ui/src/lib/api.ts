@@ -128,6 +128,7 @@ export interface StreamData {
   audio_device?: string;
   custom_ffmpeg_command?: string;
   test_mode?: boolean;
+  options?: string[];
   // Metrics fields
   fps?: string;
   dropped_frames?: string;
@@ -168,18 +169,6 @@ export interface DeviceData {
   count: number;
 }
 
-export interface CaptureRequestData {
-  devicePath: string;
-  resolution?: string;
-  delay?: number;
-}
-
-export interface CaptureData {
-  status: string;
-  message: string;
-  data?: Record<string, string>;
-}
-
 // Stream API functions
 export async function getStreams(): Promise<StreamListData> {
   return apiGet<StreamListData>('/api/streams');
@@ -197,23 +186,9 @@ export async function deleteStream(streamId: string): Promise<void> {
   await apiDelete(`/api/streams/${streamId}`);
 }
 
-export async function getStreamStatus(streamId: string): Promise<{
-  stream_id: string;
-  start_time?: string;
-}> {
-  return apiGet<{
-    stream_id: string;
-    start_time?: string;
-  }>(`/api/streams/${streamId}/status`);
-}
-
 // Device API functions
 export async function getDevices(): Promise<DeviceData> {
   return apiGet<DeviceData>('/api/devices');
-}
-
-export async function captureFromDevice(request: CaptureRequestData): Promise<CaptureData> {
-  return apiPost<CaptureData>('/api/devices/capture', request);
 }
 
 // Device capabilities types
@@ -361,12 +336,6 @@ export interface SSEDeviceDiscoveryEvent {
   timestamp: string;
 }
 
-export interface SSEStreamEvent {
-  type: 'stream_started' | 'stream_stopped' | 'stream_error';
-  stream_id: string;
-  timestamp: string;
-}
-
 export interface SSEStreamCreatedEvent {
   type: 'stream-created';
   stream: StreamData;
@@ -457,4 +426,4 @@ export async function toggleTestMode(streamId: string, enabled: boolean): Promis
   return updateStream(streamId, { test_mode: enabled });
 }
 
-export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamEvent | SSEStreamLifecycleEvent | SSEStreamMetricsEvent;
+export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamLifecycleEvent | SSEStreamMetricsEvent;

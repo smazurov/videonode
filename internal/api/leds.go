@@ -9,24 +9,24 @@ import (
 
 // LED request/response models
 
-// LEDRequest represents a request to control an LED
+// LEDRequest represents a request to control an LED.
 type LEDRequest struct {
 	Body struct {
-		Type    string  `json:"type" example:"user" doc:"LED type (board-specific: user, system, blue, green, etc.)"`
+		Type    string  `json:"type" example:"user" doc:"LED type"`
 		Enabled bool    `json:"enabled" example:"true" doc:"Whether the LED should be on or off"`
-		Pattern *string `json:"pattern,omitempty" example:"solid" doc:"Optional LED pattern (solid, blink, heartbeat)"`
+		Pattern *string `json:"pattern,omitempty" example:"solid" doc:"Optional LED pattern"`
 	}
 }
 
-// LEDCapabilitiesResponse represents the LED capabilities of the current board
+// LEDCapabilitiesResponse represents the LED capabilities of the current board.
 type LEDCapabilitiesResponse struct {
 	Body struct {
-		AvailableTypes    []string `json:"available_types" doc:"List of available LED types on this board"`
-		AvailablePatterns []string `json:"available_patterns" doc:"List of available LED patterns on this board"`
+		AvailableTypes    []string `json:"available_types" doc:"Available LED types"`
+		AvailablePatterns []string `json:"available_patterns" doc:"Available LED patterns"`
 	}
 }
 
-// registerLEDRoutes registers LED control endpoints
+// registerLEDRoutes registers LED control endpoints.
 func (s *Server) registerLEDRoutes() {
 	// Only register if LED controller is available
 	if s.options.LEDController == nil {
@@ -44,7 +44,7 @@ func (s *Server) registerLEDRoutes() {
 		Tags:        []string{"leds"},
 		Errors:      []int{400, 401, 500},
 		Security:    withAuth(),
-	}, func(ctx context.Context, input *LEDRequest) (*struct{}, error) {
+	}, func(_ context.Context, input *LEDRequest) (*struct{}, error) {
 		pattern := ""
 		if input.Body.Pattern != nil {
 			pattern = *input.Body.Pattern
@@ -67,11 +67,11 @@ func (s *Server) registerLEDRoutes() {
 		Tags:        []string{"leds"},
 		Errors:      []int{401},
 		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct{}) (*LEDCapabilitiesResponse, error) {
+	}, func(_ context.Context, _ *struct{}) (*LEDCapabilitiesResponse, error) {
 		return &LEDCapabilitiesResponse{
 			Body: struct {
-				AvailableTypes    []string `json:"available_types" doc:"List of available LED types on this board"`
-				AvailablePatterns []string `json:"available_patterns" doc:"List of available LED patterns on this board"`
+				AvailableTypes    []string `json:"available_types" doc:"Available LED types"`
+				AvailablePatterns []string `json:"available_patterns" doc:"Available LED patterns"`
 			}{
 				AvailableTypes:    s.options.LEDController.Available(),
 				AvailablePatterns: s.options.LEDController.Patterns(),
