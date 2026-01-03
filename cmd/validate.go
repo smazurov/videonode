@@ -7,13 +7,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CreateValidateEncodersCmd creates the validate-encoders command
+// CreateValidateEncodersCmd creates the validate-encoders command.
 func CreateValidateEncodersCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate-encoders",
 		Short: "Validate hardware encoder availability",
-		Long:  `This command tests hardware encoders (H.264 and H.265) to determine which ones actually work on the current system. Results are saved to streams.toml.`,
-		Run: func(cmd *cobra.Command, args []string) {
+		Long: `This command tests hardware encoders (H.264 and H.265) to determine which ones actually work ` +
+			`on the current system. Results are saved to streams.toml.`,
+		Run: func(cmd *cobra.Command, _ []string) {
 			quiet, _ := cmd.Flags().GetBool("quiet")
 			// Create validation service for encoder validation
 			streamStore := store.NewTOML("streams.toml")

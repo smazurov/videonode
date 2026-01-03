@@ -1,6 +1,6 @@
 //go:build linux
 
-package v4l2_detector
+package v4l2detector
 
 /*
 #cgo CFLAGS: -I./src
@@ -11,6 +11,7 @@ package v4l2_detector
 #include <stdlib.h> // Required for C.free
 */
 import "C"
+
 import (
 	"fmt"
 	"log/slog"
@@ -20,34 +21,34 @@ import (
 
 var findDevicesMutex sync.Mutex
 
-// Go representation of C.struct_v4l2_device_info
+// DeviceInfo is a Go representation of C.struct_v4l2_device_info.
 type DeviceInfo struct {
 	DevicePath string
 	DeviceName string
-	DeviceId   string
+	DeviceID   string
 	Caps       uint32
 }
 
-// Go representation of C.struct_v4l2_format_info
+// FormatInfo is a Go representation of C.struct_v4l2_format_info.
 type FormatInfo struct {
 	PixelFormat uint32
 	FormatName  string
 	Emulated    bool
 }
 
-// Go representation of C.struct_v4l2_resolution
+// Resolution is a Go representation of C.struct_v4l2_resolution.
 type Resolution struct {
 	Width  uint32
 	Height uint32
 }
 
-// Go representation of C.struct_v4l2_framerate
+// Framerate is a Go representation of C.struct_v4l2_framerate.
 type Framerate struct {
 	Numerator   uint32
 	Denominator uint32
 }
 
-// Go representation of C.struct_v4l2_control_info
+// ControlInfo is a Go representation of C.struct_v4l2_control_info.
 type ControlInfo struct {
 	ID           uint32
 	Name         string
@@ -59,13 +60,14 @@ type ControlInfo struct {
 	Flags        uint32
 }
 
-// Go representation of C.struct_v4l2_menu_item
+// MenuItem is a Go representation of C.struct_v4l2_menu_item.
 type MenuItem struct {
 	ID    uint32
 	Index uint32
 	Name  string
 }
 
+// FindDevices finds all V4L2 devices available on the system.
 func FindDevices() ([]DeviceInfo, error) {
 	findDevicesMutex.Lock()
 	defer findDevicesMutex.Unlock()
@@ -73,7 +75,7 @@ func FindDevices() ([]DeviceInfo, error) {
 	var cDevices *C.struct_v4l2_device_info
 	var cCount C.size_t
 
-	ret := C.v4l2_find_devices(&cDevices, &cCount)
+	ret := C.v4l2_find_devices(&cDevices, &cCount) //nolint:gocritic // CGO false positive
 	if ret != 0 {
 		return nil, fmt.Errorf("v4l2_find_devices failed with code: %d", ret)
 	}
@@ -97,12 +99,12 @@ func FindDevices() ([]DeviceInfo, error) {
 
 		deviceName := C.GoString(cDev.device_name)
 
-		deviceId := C.GoString(cDev.device_id)
+		deviceID := C.GoString(cDev.device_id)
 
 		goDevices[i] = DeviceInfo{
 			DevicePath: devicePath,
 			DeviceName: deviceName,
-			DeviceId:   deviceId,
+			DeviceID:   deviceID,
 			Caps:       uint32(cDev.caps),
 		}
 	}
@@ -110,7 +112,7 @@ func FindDevices() ([]DeviceInfo, error) {
 	return goDevices, nil
 }
 
-// GetDevicePathByID finds the device path for a given stable device ID
+// GetDevicePathByID finds the device path for a given stable device ID.
 func GetDevicePathByID(deviceID string) (string, error) {
 	devices, err := FindDevices()
 	if err != nil {
@@ -118,7 +120,7 @@ func GetDevicePathByID(deviceID string) (string, error) {
 	}
 
 	for _, device := range devices {
-		if device.DeviceId == deviceID {
+		if device.DeviceID == deviceID {
 			return device.DevicePath, nil
 		}
 	}
@@ -126,7 +128,7 @@ func GetDevicePathByID(deviceID string) (string, error) {
 	return "", fmt.Errorf("device with ID %s not found", deviceID)
 }
 
-// GetDeviceFormats returns all supported formats for a device
+// GetDeviceFormats returns all supported formats for a device.
 func GetDeviceFormats(devicePath string) ([]FormatInfo, error) {
 	var cFormats *C.struct_v4l2_format_info
 	var cCount C.size_t
@@ -134,7 +136,7 @@ func GetDeviceFormats(devicePath string) ([]FormatInfo, error) {
 	cDevicePath := C.CString(devicePath)
 	defer C.free(unsafe.Pointer(cDevicePath))
 
-	ret := C.v4l2_get_formats(cDevicePath, &cFormats, &cCount)
+	ret := C.v4l2_get_formats(cDevicePath, &cFormats, &cCount) //nolint:gocritic // CGO false positive
 	if ret != 0 {
 		return nil, fmt.Errorf("v4l2_get_formats failed with code: %d", ret)
 	}
@@ -167,7 +169,7 @@ func GetDeviceFormats(devicePath string) ([]FormatInfo, error) {
 	return goFormats, nil
 }
 
-// GetDeviceResolutions returns all supported resolutions for a device and format
+// GetDeviceResolutions returns all supported resolutions for a device and format.
 func GetDeviceResolutions(devicePath string, pixelFormat uint32) ([]Resolution, error) {
 	var cResolutions *C.struct_v4l2_resolution
 	var cCount C.size_t
@@ -175,7 +177,7 @@ func GetDeviceResolutions(devicePath string, pixelFormat uint32) ([]Resolution, 
 	cDevicePath := C.CString(devicePath)
 	defer C.free(unsafe.Pointer(cDevicePath))
 
-	ret := C.v4l2_get_resolutions(cDevicePath, C.uint32_t(pixelFormat), &cResolutions, &cCount)
+	ret := C.v4l2_get_resolutions(cDevicePath, C.uint32_t(pixelFormat), &cResolutions, &cCount) //nolint:gocritic // CGO false positive
 	if ret != 0 {
 		// Return empty list for ENOTTY (-25) - multiplanar devices don't support resolution enumeration
 		if ret == -25 {
@@ -208,7 +210,7 @@ func GetDeviceResolutions(devicePath string, pixelFormat uint32) ([]Resolution, 
 	return goResolutions, nil
 }
 
-// GetDeviceFramerates returns all supported framerates for a device, format, and resolution
+// GetDeviceFramerates returns all supported framerates for a device, format, and resolution.
 func GetDeviceFramerates(devicePath string, pixelFormat uint32, width, height uint32) ([]Framerate, error) {
 	var cFramerates *C.struct_v4l2_framerate
 	var cCount C.size_t
@@ -216,7 +218,7 @@ func GetDeviceFramerates(devicePath string, pixelFormat uint32, width, height ui
 	cDevicePath := C.CString(devicePath)
 	defer C.free(unsafe.Pointer(cDevicePath))
 
-	ret := C.v4l2_get_framerates(cDevicePath, C.uint32_t(pixelFormat), C.int(width), C.int(height), &cFramerates, &cCount)
+	ret := C.v4l2_get_framerates(cDevicePath, C.uint32_t(pixelFormat), C.int(width), C.int(height), &cFramerates, &cCount) //nolint:gocritic // CGO false positive
 	if ret != 0 {
 		return nil, fmt.Errorf("v4l2_get_framerates failed with code: %d", ret)
 	}
@@ -243,7 +245,7 @@ func GetDeviceFramerates(devicePath string, pixelFormat uint32, width, height ui
 	return goFramerates, nil
 }
 
-// GetFPS converts a framerate to frames per second as a float
+// GetFPS converts a framerate to frames per second as a float.
 func (f Framerate) GetFPS() float64 {
 	if f.Numerator == 0 {
 		return 0
@@ -251,18 +253,20 @@ func (f Framerate) GetFPS() float64 {
 	return float64(f.Denominator) / float64(f.Numerator)
 }
 
-// DeviceType represents the type of V4L2 device
+// DeviceType represents the type of V4L2 device.
 type DeviceType int
 
+// DeviceType constants define the types of V4L2 devices.
 const (
 	DeviceTypeWebcam  DeviceType = 0
 	DeviceTypeHDMI    DeviceType = 1
 	DeviceTypeUnknown DeviceType = -1
 )
 
-// SignalState represents the state of a video signal
+// SignalState represents the state of a video signal.
 type SignalState int
 
+// SignalState constants define the states of a video signal.
 const (
 	SignalStateNoDevice     SignalState = -1
 	SignalStateNoLink       SignalState = 0 // No cable connected
@@ -273,7 +277,7 @@ const (
 	SignalStateNotSupported SignalState = 5 // Device doesn't support DV timings
 )
 
-// SignalStatus contains detailed signal information
+// SignalStatus contains detailed signal information.
 type SignalStatus struct {
 	State      SignalState
 	Width      uint32
@@ -282,7 +286,7 @@ type SignalStatus struct {
 	Interlaced bool
 }
 
-// GetDeviceType returns the type of a V4L2 device
+// GetDeviceType returns the type of a V4L2 device.
 func GetDeviceType(devicePath string) DeviceType {
 	cPath := C.CString(devicePath)
 	defer C.free(unsafe.Pointer(cPath))
@@ -291,7 +295,7 @@ func GetDeviceType(devicePath string) DeviceType {
 	return DeviceType(deviceType)
 }
 
-// GetDVTimings gets current DV timings and signal status (non-querying)
+// GetDVTimings gets current DV timings and signal status (non-querying).
 func GetDVTimings(devicePath string) SignalStatus {
 	cPath := C.CString(devicePath)
 	defer C.free(unsafe.Pointer(cPath))
@@ -307,7 +311,7 @@ func GetDVTimings(devicePath string) SignalStatus {
 	}
 }
 
-// WaitForSourceChange waits for a source change event (blocking)
+// WaitForSourceChange waits for a source change event (blocking).
 func WaitForSourceChange(devicePath string, timeoutMs int) (int, error) {
 	cPath := C.CString(devicePath)
 	defer C.free(unsafe.Pointer(cPath))
@@ -324,7 +328,7 @@ func WaitForSourceChange(devicePath string, timeoutMs int) (int, error) {
 	return int(result), nil
 }
 
-// IsDeviceReady checks if a V4L2 device is ready (has signal for HDMI, exists for webcam)
+// IsDeviceReady checks if a V4L2 device is ready (has signal for HDMI, exists for webcam).
 func IsDeviceReady(devicePath string) bool {
 	cPath := C.CString(devicePath)
 	defer C.free(unsafe.Pointer(cPath))
@@ -333,13 +337,13 @@ func IsDeviceReady(devicePath string) bool {
 	return ready == 1
 }
 
-// DeviceStatus contains combined device type and ready status
+// DeviceStatus contains combined device type and ready status.
 type DeviceStatus struct {
 	DeviceType DeviceType
 	Ready      bool
 }
 
-// GetDeviceStatus returns device type and ready status in a single device open
+// GetDeviceStatus returns device type and ready status in a single device open.
 func GetDeviceStatus(devicePath string) DeviceStatus {
 	cPath := C.CString(devicePath)
 	defer C.free(unsafe.Pointer(cPath))

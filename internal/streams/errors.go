@@ -2,7 +2,7 @@ package streams
 
 import "fmt"
 
-// StreamError represents a domain-specific error
+// StreamError represents a domain-specific error.
 type StreamError struct {
 	Code    string
 	Message string
@@ -20,7 +20,7 @@ func (e *StreamError) Unwrap() error {
 	return e.Cause
 }
 
-// Error codes
+// Error codes.
 const (
 	ErrCodeStreamNotFound  = "STREAM_NOT_FOUND"
 	ErrCodeDeviceNotFound  = "DEVICE_NOT_FOUND"
@@ -31,7 +31,7 @@ const (
 	ErrCodeMonitoringError = "MONITORING_ERROR"
 )
 
-// NewStreamError creates a new stream error
+// NewStreamError creates a new stream error.
 func NewStreamError(code, message string, cause error) *StreamError {
 	return &StreamError{
 		Code:    code,

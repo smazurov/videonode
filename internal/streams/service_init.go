@@ -8,17 +8,16 @@ import (
 	"github.com/smazurov/videonode/internal/obs/collectors"
 )
 
-// LoadStreamsFromConfig loads existing streams from TOML config into memory
-// This is called only at startup - runtime management is via CRUD APIs
-// Not part of StreamService interface - use CRUD APIs for runtime management
+// LoadStreamsFromConfig loads existing streams from TOML config into memory.
+// Called only at startup - runtime management is via CRUD APIs.
 func (s *service) LoadStreamsFromConfig() error {
 	if s.store == nil {
 		return fmt.Errorf("repository not initialized")
 	}
 
 	// Load the configuration from file
-	if err := s.store.Load(); err != nil {
-		return fmt.Errorf("failed to load streams configuration: %w", err)
+	if loadErr := s.store.Load(); loadErr != nil {
+		return fmt.Errorf("failed to load streams configuration: %w", loadErr)
 	}
 
 	streams := s.store.GetAllStreams()
@@ -27,8 +26,8 @@ func (s *service) LoadStreamsFromConfig() error {
 	for _, streamConfig := range streams {
 		// Initialize ALL streams regardless of enabled state
 		// Enabled state is runtime-only and controlled by device monitoring
-		if err := s.InitializeStream(streamConfig); err != nil {
-			s.logger.Warn("Failed to initialize stream", "stream_id", streamConfig.ID, "error", err)
+		if initErr := s.InitializeStream(streamConfig); initErr != nil {
+			s.logger.Warn("Failed to initialize stream", "stream_id", streamConfig.ID, "error", initErr)
 			continue
 		}
 	}
@@ -36,14 +35,14 @@ func (s *service) LoadStreamsFromConfig() error {
 	s.logger.Info("Loaded streams from configuration")
 
 	// Sync all streams to MediaMTX via API
-	if err := s.mediamtxClient.SyncAll(); err != nil {
-		s.logger.Warn("Failed to sync MediaMTX at startup", "error", err)
+	if syncErr := s.mediamtxClient.SyncAll(); syncErr != nil {
+		s.logger.Warn("Failed to sync MediaMTX at startup", "error", syncErr)
 	}
 
 	return nil
 }
 
-// InitializeStream initializes a single stream with all integrations
+// InitializeStream initializes a single stream with all integrations.
 func (s *service) InitializeStream(streamConfig StreamSpec) error {
 	// Create stream runtime state
 	// Enabled defaults to false and will be set by device monitoring
@@ -63,8 +62,8 @@ func (s *service) InitializeStream(streamConfig StreamSpec) error {
 	if s.obsManager != nil {
 		socketPath := getSocketPath(streamConfig.ID)
 		ffmpegCollector := collectors.NewFFmpegCollector(socketPath, "", streamConfig.ID)
-		if err := s.obsManager.AddCollector(ffmpegCollector); err != nil {
-			s.logger.Warn("Failed to register OBS collector for stream", "stream_id", streamConfig.ID, "error", err)
+		if addErr := s.obsManager.AddCollector(ffmpegCollector); addErr != nil {
+			s.logger.Warn("Failed to register OBS collector for stream", "stream_id", streamConfig.ID, "error", addErr)
 		}
 	}
 
@@ -72,7 +71,7 @@ func (s *service) InitializeStream(streamConfig StreamSpec) error {
 	return nil
 }
 
-// setupMediaMTXClient creates and initializes the MediaMTX API client
+// setupMediaMTXClient creates and initializes the MediaMTX API client.
 func setupMediaMTXClient(service *service) *mediamtx.Client {
 	client := mediamtx.NewClient("http://localhost:9997", service.getProcessedStreamsForSync)
 	client.StartHealthMonitor()

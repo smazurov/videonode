@@ -10,7 +10,7 @@ import (
 	"github.com/smazurov/videonode/internal/obs/exporters"
 )
 
-// registerMetricsRoutes registers the metrics SSE endpoint
+// registerMetricsRoutes registers the metrics SSE endpoint.
 func (s *Server) registerMetricsRoutes() {
 	// Register metrics SSE endpoint
 	sse.Register(s.api, huma.Operation{
@@ -25,7 +25,7 @@ func (s *Server) registerMetricsRoutes() {
 	}, func() map[string]any {
 		// Get metrics event types from OBS exporters
 		return exporters.GetEventTypesForEndpoint("metrics")
-	}(), func(ctx context.Context, input *struct{}, send sse.Sender) {
+	}(), func(ctx context.Context, _ *struct{}, send sse.Sender) {
 		// Create event channel for this connection
 		eventCh := make(chan any, 10)
 

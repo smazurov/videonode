@@ -319,8 +319,7 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
       const format = streamData.input_format || '';
       const bitrate = streamData.bitrate ? parseFloat(streamData.bitrate.replace(/[^\d.]/g, '')) : undefined;
       const audioDevice = streamData.audio_device || '';
-      // Default options will be loaded separately
-      const options: string[] = [];
+      const options = streamData.options || [];
       
       return {
         ...state,
@@ -369,8 +368,10 @@ export function useStreamCreation(initialData?: StreamData) {
     }
   }, [initialData]);
 
-  // Load default FFmpeg options on mount
+  // Load default FFmpeg options on mount (only for new streams, not editing)
   useEffect(() => {
+    if (initialData) return; // Skip if editing existing stream - options loaded via LOAD_INITIAL_DATA
+
     getFFmpegOptions().then(data => {
       const defaultOptions = data.options
         .filter(opt => opt.app_default)
@@ -381,7 +382,7 @@ export function useStreamCreation(initialData?: StreamData) {
       // Use hardcoded defaults as fallback
       dispatch({ type: 'SET_OPTIONS', options: ['thread_queue_1024', 'copyts'] });
     });
-  }, []);
+  }, [initialData]);
   
   // Fetch device capabilities
   const { formats, loading: loadingFormats } = useDeviceFormats(state.deviceId);

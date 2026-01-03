@@ -8,19 +8,8 @@ const importPlugin = require("eslint-plugin-import");
 const security = require("eslint-plugin-security");
 const unicorn = require("eslint-plugin-unicorn").default;
 const sonarjs = require("eslint-plugin-sonarjs");
+const zustandRules = require("eslint-plugin-zustand-rules");
 const globals = require("globals");
-
-// Workaround for zustand-rules plugin - manually load rules
-const zustandRules = {
-  rules: {
-    "enforce-slices-when-large-state": require("eslint-plugin-zustand-rules/lib/rules/enforce-slices-when-large-state"),
-    "use-store-selectors": require("eslint-plugin-zustand-rules/lib/rules/use-store-selectors"),
-    "no-state-mutation": require("eslint-plugin-zustand-rules/lib/rules/no-state-mutation"),
-    "enforce-use-setstate": require("eslint-plugin-zustand-rules/lib/rules/enforce-use-setstate"),
-    "enforce-state-before-actions": require("eslint-plugin-zustand-rules/lib/rules/enforce-state-before-actions"),
-    "no-multiple-stores": require("eslint-plugin-zustand-rules/lib/rules/no-multiple-stores"),
-  }
-};
 
 // Common rules shared between JS and TS
 const commonRules = {

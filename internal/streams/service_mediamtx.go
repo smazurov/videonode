@@ -3,52 +3,65 @@ package streams
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/smazurov/videonode/internal/mediamtx"
 )
 
-// syncToMediaMTX syncs all streams to MediaMTX using the API
-func (s *service) syncToMediaMTX() error {
-	// Process all streams to generate FFmpeg commands
-	processedStreams, err := s.processor.processAllStreams()
+// getExecutablePath returns the absolute path of the running videonode binary.
+// This is needed because MediaMTX runs commands in a separate process without
+// videonode in its PATH.
+func getExecutablePath() string {
+	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to process streams: %w", err)
+		return "videonode"
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return "videonode"
+	}
+	return exe
+}
+
+// syncToMediaMTX syncs all streams to MediaMTX using the API.
+func (s *service) syncToMediaMTX() error {
+	// Generate videonode wrapper commands for all streams
+	allStreams := s.store.GetAllStreams()
+
+	// Restart each stream with videonode wrapper command
+	for streamID := range allStreams {
+		command := fmt.Sprintf("%s stream %s", getExecutablePath(), streamID)
+		// Force restart to ensure fresh videonode processes
+		_ = s.mediamtxClient.RestartPath(streamID, command)
 	}
 
-	// Restart each stream to ensure fresh FFmpeg processes connect to progress sockets
-	for _, stream := range processedStreams {
-		if stream.FFmpegCommand != "" {
-			// Force restart to ensure FFmpeg connects to socket listeners
-			_ = s.mediamtxClient.RestartPath(stream.StreamID, stream.FFmpegCommand)
-		}
-	}
-
-	s.logger.Info("Synchronized streams with MediaMTX API", "count", len(processedStreams))
+	s.logger.Info("Synchronized streams with MediaMTX API", "count", len(allStreams))
 	return nil
 }
 
-// getProcessedStreamsForSync is a callback for the MediaMTX client to get all streams
+// getProcessedStreamsForSync is a callback for the MediaMTX client to get all streams.
 func (s *service) getProcessedStreamsForSync() []*mediamtx.ProcessedStream {
-	processedStreams, err := s.processor.processAllStreams()
-	if err != nil {
-		s.logger.Error("Failed to process streams for sync", "error", err)
-		return nil
+	// Generate videonode wrapper commands for all streams
+	allStreams := s.store.GetAllStreams()
+	result := make([]*mediamtx.ProcessedStream, 0, len(allStreams))
+
+	for streamID := range allStreams {
+		// Generate simple videonode wrapper command
+		result = append(result, &mediamtx.ProcessedStream{
+			StreamID:      streamID,
+			FFmpegCommand: fmt.Sprintf("%s stream %s", getExecutablePath(), streamID),
+		})
 	}
 
-	// Filter out empty commands
-	result := make([]*mediamtx.ProcessedStream, 0, len(processedStreams))
-	for _, stream := range processedStreams {
-		if stream.FFmpegCommand != "" {
-			result = append(result, stream)
-		}
-	}
+	s.logger.Debug("Generated videonode wrapper commands for MediaMTX", "count", len(result))
 	return result
 }
 
 // GetFFmpegCommand retrieves the FFmpeg command for a stream
 // Returns the command and a boolean indicating if it's custom
 // Note: Returns unwrapped command for display/editing. Wrapping happens in MediaMTX client when sending.
-func (s *service) GetFFmpegCommand(ctx context.Context, streamID string, encoderOverride string) (string, bool, error) {
+func (s *service) GetFFmpegCommand(_ context.Context, streamID string, encoderOverride string) (string, bool, error) {
 	// Check if stream exists
 	streamConfig, exists := s.store.GetStream(streamID)
 	if !exists {

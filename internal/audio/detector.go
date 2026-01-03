@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-// Device represents an audio device (ALSA sound card/device)
+// Device represents an audio device (ALSA sound card/device).
 type Device struct {
 	// Basic info
 	CardNumber   int    `json:"card_number" example:"0" doc:"Sound card index"`
@@ -26,18 +26,18 @@ type Device struct {
 	MaxPeriodSize    int      `json:"max_period_size" example:"32768" doc:"Maximum period size in frames"`
 }
 
-// Detector interface for audio device detection
+// Detector interface for audio device detection.
 type Detector interface {
 	// ListDevices returns all available audio devices with their capabilities
 	ListDevices() ([]Device, error)
 }
 
-// NewDetector creates a platform-specific audio detector
+// NewDetector creates a platform-specific audio detector.
 func NewDetector() Detector {
 	return newPlatformDetector()
 }
 
-// FormatALSADevice creates the ALSA device string
+// FormatALSADevice creates the ALSA device string.
 func FormatALSADevice(cardNumber, deviceNumber int) string {
 	return fmt.Sprintf("hw:%d,%d", cardNumber, deviceNumber)
 }
