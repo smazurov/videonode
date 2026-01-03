@@ -10,6 +10,9 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Test all**: `go test ./...`
 - **Test single package**: `go test ./internal/ffmpeg`
 - **Test with verbose**: `go test -v ./internal/ffmpeg`
+- **Lint**: `golangci-lint run ./...`
+- **Lint & fix**: `golangci-lint run --fix ./...`
+- **Clear lint cache**: `golangci-lint cache clean` (run if you see intermittent false positives - golangci-lint has cache bugs)
 - **Build V4L2 detector**: `cd v4l2_detector && ./build.sh`
 - **Run V4L2 detector**: `cd v4l2_detector/build && ./v4l2_detector`
 - **Install deps**: `go mod tidy`
@@ -40,7 +43,7 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Naming**: Use Go conventions - PascalCase for exported, camelCase for unexported
 - **Types**: Define constants for enums (e.g., `VideoFormat` type with const values)
 - **Interfaces**: Keep interfaces small and focused (e.g., `StreamService`)
-- **Comments**: No comments unless explicitly requested by user
+- **Comments**: Document all exported symbols following Go conventions
 
 ### React Frontend
 
@@ -187,7 +190,7 @@ This file provides guidance for agentic coding agents working with this Go-based
 ### MediaMTX Integration
 - **Control API**: MediaMTX provides a RESTful API on port 9997 for dynamic stream management
 - **API Documentation**: https://mediamtx.org/docs/references/control-api
-- **OpenAPI Spec**: https://raw.githubusercontent.com/bluenviron/mediamtx/v1.14.0/api/openapi.yaml
+- **OpenAPI Spec**: https://raw.githubusercontent.com/bluenviron/mediamtx/v1.15.5/api/openapi.yaml
 - **Key Endpoints**:
   - `/v3/config/paths/add/{name}`: Add new stream path dynamically
   - `/v3/config/paths/patch/{name}`: Update existing stream configuration

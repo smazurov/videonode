@@ -16,7 +16,7 @@ import (
 // The actual event types are now defined in internal/events package
 
 // GetEventTypes returns a map of event names to their corresponding struct types
-// This should be used when registering with Huma SSE
+// This should be used when registering with Huma SSE.
 func GetEventTypes() map[string]any {
 	return map[string]any{
 		"mediamtx-metrics": events.MediaMTXMetricsEvent{},
@@ -25,7 +25,7 @@ func GetEventTypes() map[string]any {
 	}
 }
 
-// GetEventTypesForEndpoint returns event types for a specific SSE endpoint
+// GetEventTypesForEndpoint returns event types for a specific SSE endpoint.
 func GetEventTypesForEndpoint(endpoint string) map[string]any {
 	switch endpoint {
 	case "metrics":
@@ -42,7 +42,7 @@ func GetEventTypesForEndpoint(endpoint string) map[string]any {
 	}
 }
 
-// GetEventRoutes returns the routing configuration for events
+// GetEventRoutes returns the routing configuration for events.
 func GetEventRoutes() map[string]string {
 	return map[string]string{
 		"mediamtx-metrics": "metrics",
@@ -52,12 +52,12 @@ func GetEventRoutes() map[string]string {
 	}
 }
 
-// EventPublisher interface for publishing events (allows mocking in tests)
+// EventPublisher interface for publishing events (allows mocking in tests).
 type EventPublisher interface {
 	Publish(ev events.Event)
 }
 
-// StreamMetricsAccumulator accumulates FFmpeg metrics for a stream
+// StreamMetricsAccumulator accumulates FFmpeg metrics for a stream.
 type StreamMetricsAccumulator struct {
 	StreamID        string
 	FPS             string
@@ -67,7 +67,7 @@ type StreamMetricsAccumulator struct {
 	LastUpdate      time.Time
 }
 
-// SSEExporter exports observability data via Server-Sent Events
+// SSEExporter exports observability data via Server-Sent Events.
 type SSEExporter struct {
 	config        obs.ExporterConfig
 	logger        *slog.Logger
@@ -77,7 +77,7 @@ type SSEExporter struct {
 	streamMutex   sync.RWMutex
 }
 
-// NewSSEExporter creates a new SSE exporter
+// NewSSEExporter creates a new SSE exporter.
 func NewSSEExporter(eventBus EventPublisher) *SSEExporter {
 	config := obs.ExporterConfig{
 		Name:    "sse",
@@ -94,34 +94,34 @@ func NewSSEExporter(eventBus EventPublisher) *SSEExporter {
 	}
 }
 
-// SetLogLevel sets the logging level for observability logs
+// SetLogLevel sets the logging level for observability logs.
 func (s *SSEExporter) SetLogLevel(level string) {
 	s.logLevel = level
 }
 
-// Name returns the exporter name
+// Name returns the exporter name.
 func (s *SSEExporter) Name() string {
 	return s.config.Name
 }
 
-// Config returns the exporter configuration
+// Config returns the exporter configuration.
 func (s *SSEExporter) Config() obs.ExporterConfig {
 	return s.config
 }
 
-// Start starts the SSE exporter
-func (s *SSEExporter) Start(ctx context.Context) error {
+// Start starts the SSE exporter.
+func (s *SSEExporter) Start(_ context.Context) error {
 	// Nothing to start - we process immediately
 	return nil
 }
 
-// Stop stops the SSE exporter
+// Stop stops the SSE exporter.
 func (s *SSEExporter) Stop() error {
 	// Nothing to stop - no background workers
 	return nil
 }
 
-// Export processes and exports data points immediately
+// Export processes and exports data points immediately.
 func (s *SSEExporter) Export(points []obs.DataPoint) error {
 	if len(points) == 0 {
 		return nil
@@ -140,7 +140,7 @@ func (s *SSEExporter) Export(points []obs.DataPoint) error {
 	return nil
 }
 
-// processMetricImmediately processes a single metric point immediately
+// processMetricImmediately processes a single metric point immediately.
 func (s *SSEExporter) processMetricImmediately(metric *obs.MetricPoint) {
 	// Handle different metric types
 	switch {
@@ -167,7 +167,7 @@ func (s *SSEExporter) processMetricImmediately(metric *obs.MetricPoint) {
 	}
 }
 
-// processLogImmediately processes a single log entry immediately
+// processLogImmediately processes a single log entry immediately.
 func (s *SSEExporter) processLogImmediately(logEntry *obs.LogEntry) {
 	// Check if we should log this entry based on configured level
 	if !s.shouldLog(logEntry.Level) {
@@ -184,7 +184,7 @@ func (s *SSEExporter) processLogImmediately(logEntry *obs.LogEntry) {
 	s.logger.Info("SSE log entry", "level", logLevel, "timestamp", timestamp, "source", source, "message", message)
 }
 
-// shouldLog determines if a log entry should be logged based on the configured level
+// shouldLog determines if a log entry should be logged based on the configured level.
 func (s *SSEExporter) shouldLog(entryLevel obs.LogLevel) bool {
 	// Define log level hierarchy (lower number = higher priority)
 	levels := map[string]int{
@@ -207,9 +207,9 @@ func (s *SSEExporter) shouldLog(entryLevel obs.LogLevel) bool {
 	return entryLevelNum >= configuredLevel
 }
 
-// formatMetricsForSSE formats metrics for SSE transmission
+// formatMetricsForSSE formats metrics for SSE transmission.
 func (s *SSEExporter) formatMetricsForSSE(metrics []*obs.MetricPoint) []map[string]any {
-	var result []map[string]any
+	result := make([]map[string]any, 0, len(metrics))
 
 	for _, metric := range metrics {
 		item := map[string]any{
@@ -225,7 +225,7 @@ func (s *SSEExporter) formatMetricsForSSE(metrics []*obs.MetricPoint) []map[stri
 	return result
 }
 
-// SendAlert sends an alert via SSE
+// SendAlert sends an alert via SSE.
 func (s *SSEExporter) SendAlert(level obs.LogLevel, message string, details map[string]any) error {
 	s.eventBus.Publish(events.OBSAlertEvent{
 		EventType: "alert",
@@ -237,7 +237,7 @@ func (s *SSEExporter) SendAlert(level obs.LogLevel, message string, details map[
 	return nil
 }
 
-// accumulateStreamMetric accumulates FFmpeg metrics and sends combined stream event
+// accumulateStreamMetric accumulates FFmpeg metrics and sends combined stream event.
 func (s *SSEExporter) accumulateStreamMetric(metric *obs.MetricPoint) {
 	streamID := metric.LabelsMap["stream_id"]
 	if streamID == "" {
@@ -274,7 +274,7 @@ func (s *SSEExporter) accumulateStreamMetric(metric *obs.MetricPoint) {
 	s.sendStreamMetricsEvent(accumulator)
 }
 
-// sendStreamMetricsEvent sends a combined stream metrics event
+// sendStreamMetricsEvent sends a combined stream metrics event.
 func (s *SSEExporter) sendStreamMetricsEvent(accumulator *StreamMetricsAccumulator) {
 	s.eventBus.Publish(events.StreamMetricsEvent{
 		EventType:       "stream_metrics",
@@ -287,7 +287,7 @@ func (s *SSEExporter) sendStreamMetricsEvent(accumulator *StreamMetricsAccumulat
 	})
 }
 
-// Stats returns statistics about the exporter
+// Stats returns statistics about the exporter.
 func (s *SSEExporter) Stats() map[string]any {
 	s.streamMutex.RLock()
 	streamCount := len(s.streamMetrics)

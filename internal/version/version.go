@@ -6,13 +6,17 @@ import (
 )
 
 var (
-	// These variables are set via ldflags during build
-	Version   = "dev"
+	// Version is the application version, set via ldflags during build.
+	Version = "dev"
+	// GitCommit is the git commit hash, set via ldflags during build.
 	GitCommit = "unknown"
+	// BuildDate is the build timestamp, set via ldflags during build.
 	BuildDate = "unknown"
-	BuildID   = "unknown"
+	// BuildID is the build identifier, set via ldflags during build.
+	BuildID = "unknown"
 )
 
+// Info contains version and build metadata.
 type Info struct {
 	Version   string `json:"version"`
 	GitCommit string `json:"git_commit"`
@@ -23,6 +27,7 @@ type Info struct {
 	Platform  string `json:"platform"`
 }
 
+// Get returns version and build information.
 func Get() Info {
 	return Info{
 		Version:   Version,
@@ -35,6 +40,7 @@ func Get() Info {
 	}
 }
 
+// String returns the application version string.
 func String() string {
 	return Version
 }

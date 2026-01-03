@@ -4,23 +4,22 @@ import (
 	"fmt"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
-	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/mediamtx"
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// encoderSelector is a function that selects the best encoder for a given codec
+// encoderSelector is a function that selects the best encoder for a given codec.
 type encoderSelector func(codec string, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) *ffmpeg.Params
 
-// deviceResolver is a function that resolves a device ID to a device path
+// deviceResolver is a function that resolves a device ID to a device path.
 type deviceResolver func(deviceID string) string
 
-// getSocketPath returns the socket path for a stream
+// getSocketPath returns the socket path for a stream.
 func getSocketPath(streamID string) string {
 	return fmt.Sprintf("/tmp/ffmpeg-progress-%s.sock", streamID)
 }
 
-// processor handles runtime data injection for streams
+// processor handles runtime data injection for streams.
 type processor struct {
 	store           Store
 	encoderSelector encoderSelector
@@ -28,19 +27,20 @@ type processor struct {
 	getStreamState  func(streamID string) (*Stream, bool) // Get runtime state
 }
 
-// newProcessor creates a new stream processor
+// newProcessor creates a new stream processor.
 func newProcessor(repo Store) *processor {
 	return &processor{
 		store: repo,
 		// Default implementations that do nothing
-		encoderSelector: func(codec string, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) *ffmpeg.Params {
+		encoderSelector: func(codec string, _ string, _ *types.QualityParams, encoderOverride string) *ffmpeg.Params {
 			// Default to software encoder
 			params := &ffmpeg.Params{}
-			if encoderOverride != "" {
+			switch {
+			case encoderOverride != "":
 				params.Encoder = encoderOverride
-			} else if codec == "h265" {
+			case codec == "h265":
 				params.Encoder = "libx265"
-			} else {
+			default:
 				params.Encoder = "libx264"
 			}
 			return params
@@ -48,29 +48,29 @@ func newProcessor(repo Store) *processor {
 		deviceResolver: func(deviceID string) string {
 			return deviceID // Return as-is by default
 		},
-		getStreamState: func(streamID string) (*Stream, bool) {
+		getStreamState: func(_ string) (*Stream, bool) {
 			return nil, false // No runtime state by default
 		},
 	}
 }
 
-// setEncoderSelector sets the encoder selection function
+// setEncoderSelector sets the encoder selection function.
 func (p *processor) setEncoderSelector(selector encoderSelector) {
 	p.encoderSelector = selector
 }
 
-// setDeviceResolver sets the device resolution function
+// setDeviceResolver sets the device resolution function.
 func (p *processor) setDeviceResolver(resolver deviceResolver) {
 	p.deviceResolver = resolver
 }
 
-// setStreamStateGetter sets the function to get runtime stream state
+// setStreamStateGetter sets the function to get runtime stream state.
 func (p *processor) setStreamStateGetter(getter func(streamID string) (*Stream, bool)) {
 	p.getStreamState = getter
 }
 
-// applyStreamSettingsToFFmpegParams applies common stream settings to FFmpeg params
-func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Params, streamConfig *StreamSpec, devicePath string, socketPath string, enabled bool) {
+// applyStreamSettingsToFFmpegParams applies common stream settings to FFmpeg params.
+func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Params, streamConfig *StreamSpec, streamID string, devicePath string, socketPath string, enabled bool) {
 	// Add stream-specific settings to FFmpeg params
 	ffmpegParams.DevicePath = devicePath
 	ffmpegParams.InputFormat = streamConfig.FFmpeg.InputFormat
@@ -85,30 +85,31 @@ func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Param
 
 	ffmpegParams.ProgressSocket = socketPath
 	ffmpegParams.Options = streamConfig.FFmpeg.Options
-	ffmpegParams.OutputURL = "srt://localhost:8890?streamid=publish:$MTX_PATH"
+	ffmpegParams.OutputURL = fmt.Sprintf("srt://localhost:8890?streamid=publish:%s", streamID)
 
 	// Determine test source mode and overlay text
-	if !enabled {
+	switch {
+	case !enabled:
 		// Device offline or no signal
 		ffmpegParams.IsTestSource = true
 		ffmpegParams.TestOverlay = "NO SIGNAL"
-	} else if streamConfig.TestMode {
+	case streamConfig.TestMode:
 		// Explicit test mode
 		ffmpegParams.IsTestSource = true
 		ffmpegParams.TestOverlay = "TEST MODE"
-	} else {
+	default:
 		// Normal device input
 		ffmpegParams.IsTestSource = false
 		ffmpegParams.TestOverlay = ""
 	}
 }
 
-// processStream processes a single stream and injects runtime data
+// processStream processes a single stream and injects runtime data.
 func (p *processor) processStream(streamID string) (*mediamtx.ProcessedStream, error) {
 	return p.processStreamWithEncoder(streamID, "")
 }
 
-// processStreamWithEncoder processes a single stream with an optional encoder override
+// processStreamWithEncoder processes a single stream with an optional encoder override.
 func (p *processor) processStreamWithEncoder(streamID string, encoderOverride string) (*mediamtx.ProcessedStream, error) {
 	streamConfig, exists := p.store.GetStream(streamID)
 	if !exists {
@@ -128,11 +129,9 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	// 3. Test mode (device online + no custom command + test mode enabled)
 	// 4. Normal capture (device online + no custom command + test mode disabled)
 
-	// If device is offline, ignore custom command and generate NO SIGNAL pattern
-	if !enabled {
-		// Fall through to generate NO SIGNAL test pattern
-	} else if streamConfig.CustomFFmpegCommand != "" {
-		// Device is online AND custom command is set - use custom command
+	// If device is online AND custom command is set - use custom command
+	// (skip if device is offline to generate NO SIGNAL pattern instead)
+	if enabled && streamConfig.CustomFFmpegCommand != "" {
 		return &mediamtx.ProcessedStream{
 			StreamID:      streamID,
 			FFmpegCommand: streamConfig.CustomFFmpegCommand,
@@ -192,7 +191,7 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	}
 
 	// Apply common stream settings to FFmpeg params
-	p.applyStreamSettingsToFFmpegParams(ffmpegParams, &streamConfig, devicePath, socketPath, enabled)
+	p.applyStreamSettingsToFFmpegParams(ffmpegParams, &streamConfig, streamID, devicePath, socketPath, enabled)
 
 	// Build FFmpeg command using the new Params struct
 	ffmpegCmd := ffmpeg.BuildCommand(ffmpegParams)
@@ -201,23 +200,4 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 		StreamID:      streamID,
 		FFmpegCommand: ffmpegCmd,
 	}, nil
-}
-
-// processAllStreams processes all streams (both enabled and disabled)
-// Disabled streams will be rendered as test patterns with "NO SIGNAL" overlay
-func (p *processor) processAllStreams() ([]*mediamtx.ProcessedStream, error) {
-	var processed []*mediamtx.ProcessedStream
-
-	for streamID := range p.store.GetAllStreams() {
-		ps, err := p.processStream(streamID)
-		if err != nil {
-			logger := logging.GetLogger("streams")
-			logger.Error("Error processing stream", "stream_id", streamID, "error", err)
-			continue // Skip failed streams
-		}
-
-		processed = append(processed, ps)
-	}
-
-	return processed, nil
 }

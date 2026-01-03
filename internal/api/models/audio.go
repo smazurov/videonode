@@ -1,6 +1,6 @@
 package models
 
-// AudioDevice represents an audio device with its capabilities
+// AudioDevice represents an audio device with its capabilities.
 type AudioDevice struct {
 	// Basic info
 	CardNumber   int    `json:"card_number" example:"0" doc:"Sound card index"`
@@ -22,13 +22,13 @@ type AudioDevice struct {
 	MaxPeriodSize    int      `json:"max_period_size" example:"32768" doc:"Maximum period size in frames"`
 }
 
-// AudioDevicesData represents the response data for audio device enumeration
+// AudioDevicesData represents the response data for audio device enumeration.
 type AudioDevicesData struct {
 	Devices []AudioDevice `json:"devices" doc:"List of available audio devices"`
 	Count   int           `json:"count" example:"2" doc:"Number of devices found"`
 }
 
-// AudioDevicesResponse represents the HTTP response for audio device enumeration
+// AudioDevicesResponse represents the HTTP response for audio device enumeration.
 type AudioDevicesResponse struct {
 	Body AudioDevicesData
 }

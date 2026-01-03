@@ -7,25 +7,25 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// VaapiValidator validates VAAPI encoders
+// VaapiValidator validates VAAPI encoders.
 type VaapiValidator struct{}
 
-// NewVaapiValidator creates a new VAAPI validator
+// NewVaapiValidator creates a new VAAPI validator.
 func NewVaapiValidator() *VaapiValidator {
 	return &VaapiValidator{}
 }
 
-// CanValidate returns true if this validator can handle the given encoder name
+// CanValidate returns true if this validator can handle the given encoder name.
 func (v *VaapiValidator) CanValidate(encoderName string) bool {
 	return strings.Contains(encoderName, "vaapi")
 }
 
-// Validate tests the VAAPI encoder using production settings
+// Validate tests the VAAPI encoder using production settings.
 func (v *VaapiValidator) Validate(encoderName string) (bool, error) {
 	return ValidateEncoderWithSettings(v, encoderName)
 }
 
-// GetEncoderNames returns the list of VAAPI encoder names
+// GetEncoderNames returns the list of VAAPI encoder names.
 func (v *VaapiValidator) GetEncoderNames() []string {
 	return []string{
 		"h264_vaapi",
@@ -37,12 +37,12 @@ func (v *VaapiValidator) GetEncoderNames() []string {
 	}
 }
 
-// GetDescription returns a description of this validator
+// GetDescription returns a description of this validator.
 func (v *VaapiValidator) GetDescription() string {
 	return "VAAPI (Video Acceleration API) - Intel/AMD hardware acceleration on Linux"
 }
 
-// GetProductionSettings returns production settings for VAAPI encoders
+// GetProductionSettings returns production settings for VAAPI encoders.
 func (v *VaapiValidator) GetProductionSettings(encoderName string, inputFormat string) (*EncoderSettings, error) {
 	if !v.CanValidate(encoderName) {
 		return nil, fmt.Errorf("encoder %s is not supported by VAAPI validator", encoderName)
@@ -99,7 +99,7 @@ func (v *VaapiValidator) GetProductionSettings(encoderName string, inputFormat s
 	return settings, nil
 }
 
-// GetQualityParams translates quality settings to VAAPI-specific encoder parameters
+// GetQualityParams translates quality settings to VAAPI-specific encoder parameters.
 func (v *VaapiValidator) GetQualityParams(encoderName string, params *types.QualityParams) (EncoderParams, error) {
 	if !v.CanValidate(encoderName) {
 		return nil, fmt.Errorf("encoder %s is not supported by VAAPI validator", encoderName)

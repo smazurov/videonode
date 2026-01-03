@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -13,20 +14,20 @@ import (
 	"github.com/smazurov/videonode/internal/obs"
 )
 
-// MPPDevice represents a single MPP device's metrics
+// MPPDevice represents a single MPP device's metrics.
 type MPPDevice struct {
 	Device      string  // Device identifier (e.g., "fdb51000.avsd-plus")
 	Load        float64 // Load percentage
 	Utilization float64 // Utilization percentage
 }
 
-// MPPCollector collects Rockchip MPP (Media Process Platform) metrics
+// MPPCollector collects Rockchip MPP (Media Process Platform) metrics.
 type MPPCollector struct {
 	*obs.BaseCollector
 	procPath string
 }
 
-// NewMPPCollector creates a new MPP metrics collector
+// NewMPPCollector creates a new MPP metrics collector.
 func NewMPPCollector(extraLabels obs.Labels) *MPPCollector {
 	config := obs.DefaultCollectorConfig("mpp")
 	config.Interval = 5 * time.Second
@@ -35,9 +36,7 @@ func NewMPPCollector(extraLabels obs.Labels) *MPPCollector {
 	}
 
 	// Merge extra labels
-	for k, v := range extraLabels {
-		config.Labels[k] = v
-	}
+	maps.Copy(config.Labels, extraLabels)
 
 	return &MPPCollector{
 		BaseCollector: obs.NewBaseCollector("mpp", config),
@@ -45,7 +44,7 @@ func NewMPPCollector(extraLabels obs.Labels) *MPPCollector {
 	}
 }
 
-// Start begins collecting MPP metrics
+// Start begins collecting MPP metrics.
 func (m *MPPCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoint) error {
 	m.SetRunning(true)
 
@@ -71,7 +70,7 @@ func (m *MPPCollector) Start(ctx context.Context, dataChan chan<- obs.DataPoint)
 	}
 }
 
-// collectMetrics reads the proc file and emits metrics
+// collectMetrics reads the proc file and emits metrics.
 func (m *MPPCollector) collectMetrics(dataChan chan<- obs.DataPoint) {
 	file, err := os.Open(m.procPath)
 	if err != nil {
@@ -92,7 +91,7 @@ func (m *MPPCollector) collectMetrics(dataChan chan<- obs.DataPoint) {
 	}
 }
 
-// sendMetrics emits load and utilization metrics for a device
+// sendMetrics emits load and utilization metrics for a device.
 func (m *MPPCollector) sendMetrics(dataChan chan<- obs.DataPoint, device MPPDevice, timestamp time.Time) {
 	baseLabels := m.AddLabels(obs.Labels{
 		"device": device.Device,
@@ -100,18 +99,18 @@ func (m *MPPCollector) sendMetrics(dataChan chan<- obs.DataPoint, device MPPDevi
 
 	// Send load metric
 	loadPoint := &obs.MetricPoint{
-		Name:       "mpp_device_load",
-		Value:      device.Load,
-		LabelsMap:  baseLabels,
-		Timestamp_: timestamp,
+		Name:          "mpp_device_load",
+		Value:         device.Load,
+		LabelsMap:     baseLabels,
+		TimestampUnix: timestamp,
 	}
 
 	// Send utilization metric
 	utilPoint := &obs.MetricPoint{
-		Name:       "mpp_device_utilization",
-		Value:      device.Utilization,
-		LabelsMap:  baseLabels,
-		Timestamp_: timestamp,
+		Name:          "mpp_device_utilization",
+		Value:         device.Utilization,
+		LabelsMap:     baseLabels,
+		TimestampUnix: timestamp,
 	}
 
 	// Send metrics to channel (non-blocking)
@@ -129,7 +128,7 @@ func (m *MPPCollector) sendMetrics(dataChan chan<- obs.DataPoint, device MPPDevi
 }
 
 // parseLine parses a single MPP device line
-// Expected format: "fdb51000.avsd-plus        load:  15.50% utilization:  12.25%"
+// Expected format: "fdb51000.avsd-plus        load:  15.50% utilization:  12.25%".
 func (m *MPPCollector) parseLine(line string) (*MPPDevice, error) {
 	line = strings.TrimSpace(line)
 	if line == "" {
@@ -185,7 +184,7 @@ func (m *MPPCollector) parseLine(line string) (*MPPDevice, error) {
 	}, nil
 }
 
-// parseContent parses the complete /proc/mpp_service/load content
+// parseContent parses the complete /proc/mpp_service/load content.
 func (m *MPPCollector) parseContent(r io.Reader) ([]MPPDevice, error) {
 	var devices []MPPDevice
 	scanner := bufio.NewScanner(r)

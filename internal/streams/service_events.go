@@ -8,8 +8,8 @@ import (
 )
 
 // BroadcastDeviceDiscovery implements devices.EventBroadcaster interface
-// Updates stream enabled state based on device readiness and triggers MediaMTX sync
-func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
+// Updates stream enabled state based on device readiness and triggers MediaMTX sync.
+func (s *service) BroadcastDeviceDiscovery(_ string, device devices.DeviceInfo, _ string) {
 	// Update stream enabled state
 	s.streamsMutex.Lock()
 
@@ -18,7 +18,7 @@ func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceI
 	updated := false
 
 	for streamID, streamConfig := range allStreamConfigs {
-		if streamConfig.Device == device.DeviceId {
+		if streamConfig.Device == device.DeviceID {
 			// Get the in-memory stream runtime state
 			stream, exists := s.streams[streamID]
 			if !exists {
@@ -35,12 +35,12 @@ func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceI
 				if device.Ready {
 					s.logger.Info("Device ready, stream enabled",
 						"stream_id", streamID,
-						"device_id", device.DeviceId,
+						"device_id", device.DeviceID,
 						"device_name", device.DeviceName)
 				} else {
 					s.logger.Info("Device not ready, stream disabled",
 						"stream_id", streamID,
-						"device_id", device.DeviceId,
+						"device_id", device.DeviceID,
 						"device_name", device.DeviceName)
 				}
 

@@ -1,8 +1,9 @@
 package types
 
-// RateControlMode represents the rate control strategy
+// RateControlMode represents the rate control strategy.
 type RateControlMode string
 
+// Rate control modes for video encoding.
 const (
 	RateControlCBR RateControlMode = "cbr" // Constant bitrate
 	RateControlVBR RateControlMode = "vbr" // Variable bitrate
@@ -10,7 +11,7 @@ const (
 	RateControlCQP RateControlMode = "cqp" // Constant quantization parameter
 )
 
-// QualityParams represents quality and rate control settings
+// QualityParams represents quality and rate control settings.
 type QualityParams struct {
 	Mode             RateControlMode
 	TargetBitrate    *float64 // Mbps
@@ -23,7 +24,7 @@ type QualityParams struct {
 	KeyframeInterval *int     // GOP size
 }
 
-// ValidationResults represents the complete validation results
+// ValidationResults represents the complete validation results.
 type ValidationResults struct {
 	Timestamp      string          `toml:"timestamp" json:"timestamp"`
 	FFmpegVersion  string          `toml:"ffmpeg_version" json:"ffmpeg_version"`
@@ -33,7 +34,7 @@ type ValidationResults struct {
 	H265           CodecValidation `toml:"h265" json:"h265"`
 }
 
-// CodecValidation represents validation results for a specific codec
+// CodecValidation represents validation results for a specific codec.
 type CodecValidation struct {
 	Working []string `toml:"working" json:"working"`
 	Failed  []string `toml:"failed" json:"failed"`
