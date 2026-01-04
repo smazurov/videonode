@@ -53,7 +53,6 @@ func (s *Server) registerSSERoutes() {
 			events.SubscribeToChannel[events.StreamUpdatedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.StreamDeletedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.StreamStateChangedEvent](s.eventBus, eventCh),
-			events.SubscribeToChannel[events.OBSAlertEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.StreamMetricsEvent](s.eventBus, eventCh),
 		}
 		defer func() {
