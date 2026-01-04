@@ -13,6 +13,7 @@ import (
 	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/version"
 	"github.com/smazurov/videonode/ui"
@@ -117,17 +118,7 @@ type Options struct {
 		Available() []string
 		Patterns() []string
 	}
-	SystemdManager interface { // Optional systemd manager for service control
-		GetServiceStatus(ctx context.Context, serviceName string) (string, error)
-		RestartService(ctx context.Context, serviceName string) error
-		StopService(ctx context.Context, serviceName string) error
-		StartService(ctx context.Context, serviceName string) error
-		Close()
-	}
-	MediaMTXServiceName   string // MediaMTX systemd service name
-	NATSControlPublisher  interface { // Optional NATS control publisher for stream restart
-		Restart(streamID, reason string) error
-	}
+	WebRTCManager         *streaming.WebRTCManager // WebRTC signaling manager
 }
 
 // NewServer creates a new API server with Huma v2 using Go 1.22+ native routing.
@@ -350,8 +341,10 @@ func (s *Server) registerRoutes() {
 	// LED endpoints (if LED controller is available)
 	s.registerLEDRoutes()
 
-	// systemd service control endpoints (if systemd manager is available)
-	s.registerSystemdRoutes()
+	// WebRTC signaling endpoints (if WebRTC manager is available)
+	if s.options.WebRTCManager != nil {
+		streaming.RegisterWebRTCAPI(s.api, s.options.WebRTCManager)
+	}
 
 	// SSE endpoints
 	s.registerSSERoutes()

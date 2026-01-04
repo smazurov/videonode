@@ -232,6 +232,27 @@ The API includes endpoints for:
 - **Commands**: `cd sbc_scripts && uv run pyinfra inventory.py deploys/<script>.py`
 - **Dependencies**: Managed via `uv` with pyproject.toml
 
+## Package Documentation
+
+Use the `mcp__godoc__get_doc` tool to read Go package documentation:
+
+```
+# Get package overview
+mcp__godoc__get_doc path="./internal/logging" working_dir="/home/stepan/dev/videonode"
+
+# Get specific symbol docs
+mcp__godoc__get_doc path="./internal/logging" target="GetLogger" working_dir="/home/stepan/dev/videonode"
+
+# Get all docs including unexported
+mcp__godoc__get_doc path="./internal/logging" cmd_flags=["-all"] working_dir="/home/stepan/dev/videonode"
+```
+
+Key packages with documentation:
+- `./internal/logging` - Structured logging with journal/stdout routing
+- `./internal/streams` - Stream lifecycle management
+- `./internal/ffmpeg` - FFmpeg command building
+- `./internal/encoders` - Hardware encoder detection
+
 ## Development Notes
 
 - **Never modify internal/server** - it's deprecated, reference only

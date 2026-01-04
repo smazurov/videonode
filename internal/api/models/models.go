@@ -78,8 +78,7 @@ type StreamData struct {
 	Codec     string    `json:"codec" example:"h264" doc:"Video codec being used"`
 	Bitrate   string    `json:"bitrate,omitempty" example:"2M" doc:"Video bitrate"`
 	StartTime time.Time `json:"start_time,omitzero" doc:"When the stream was loaded into memory"`
-	WebRTCURL string    `json:"webrtc_url,omitempty" example:"webrtc://localhost:8090/stream-001" doc:"WebRTC streaming URL"`
-	SRTURL    string    `json:"srt_url,omitempty" example:"srt://localhost:8890?streamid=read:stream-001" doc:"SRT URL"`
+	RTSPURL string `json:"rtsp_url,omitempty" example:"rtsp://localhost:8554/stream-001" doc:"RTSP streaming URL"`
 	// Configuration fields for editing
 	InputFormat     string   `json:"input_format,omitempty" example:"yuyv422" doc:"V4L2 input format"`
 	Resolution      string   `json:"resolution,omitempty" example:"1920x1080" doc:"Video resolution"`

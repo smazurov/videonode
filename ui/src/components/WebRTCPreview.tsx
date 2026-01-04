@@ -1,46 +1,173 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { webrtcSignaling } from '../lib/api';
+
+// Wait for ICE gathering to complete with timeout
+function waitForIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (pc.iceGatheringState === 'complete') {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(() => resolve(), timeoutMs);
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'complete') {
+        clearTimeout(timeout);
+        resolve();
+      }
+    };
+  });
+}
 
 interface WebRTCPreviewProps {
   streamId: string;
-  webrtcUrl: string | undefined;
   className?: string;
   refreshKey?: number;
 }
 
-export function WebRTCPreview({ streamId, webrtcUrl, className = '', refreshKey = 0 }: Readonly<WebRTCPreviewProps>) {
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
+type ConnectionState = 'idle' | 'connecting' | 'connected' | 'failed' | 'closed';
 
-  if (!webrtcUrl) {
+export function WebRTCPreview({ streamId, className = '', refreshKey = 0 }: Readonly<WebRTCPreviewProps>) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [retryCounter, setRetryCounter] = useState(0);
+
+  const cleanup = useCallback(() => {
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    streamRef.current = null;
+  }, []);
+
+  // Connect on mount and when refreshKey/retryCounter changes
+  useEffect(() => {
+    let cancelled = false;
+
+    const startConnection = async () => {
+      cleanup();
+      if (cancelled) return;
+      setConnectionState('connecting');
+      setErrorMessage('');
+
+      try {
+        // Create peer connection
+        const pc = new RTCPeerConnection({
+          iceServers: [], // LAN-only, no STUN/TURN needed
+        });
+        if (cancelled) {
+          pc.close();
+          return;
+        }
+        pcRef.current = pc;
+
+        // Handle incoming tracks - store stream and attach if video exists
+        pc.ontrack = (event) => {
+          if (event.streams[0]) {
+            streamRef.current = event.streams[0];
+            if (videoRef.current) {
+              videoRef.current.srcObject = event.streams[0];
+            }
+          }
+        };
+
+        // Monitor connection state
+        pc.onconnectionstatechange = () => {
+          if (cancelled) return;
+          switch (pc.connectionState) {
+            case 'connected':
+              setConnectionState('connected');
+              break;
+            case 'disconnected':
+            case 'failed':
+              setConnectionState('failed');
+              setErrorMessage('Connection lost');
+              break;
+            case 'closed':
+              setConnectionState('closed');
+              break;
+          }
+        };
+
+        // Add transceivers for receiving video and audio
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+
+        // Create offer
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        // Wait for ICE gathering to complete (or timeout after 1s for LAN)
+        await waitForIceGathering(pc, 1000);
+
+        if (cancelled) {
+          pc.close();
+          return;
+        }
+
+        // Send offer to server
+        const answerSdp = await webrtcSignaling(streamId, pc.localDescription?.sdp || '');
+
+        if (cancelled) {
+          pc.close();
+          return;
+        }
+
+        // Set remote description
+        await pc.setRemoteDescription({
+          type: 'answer',
+          sdp: answerSdp,
+        });
+
+      } catch (error) {
+        if (cancelled) return;
+        console.error('WebRTC connection failed:', error);
+        setConnectionState('failed');
+        setErrorMessage(error instanceof Error ? error.message : 'Connection failed');
+        cleanup();
+      }
+    };
+
+    startConnection();
+
+    return () => {
+      cancelled = true;
+      cleanup();
+    };
+  }, [streamId, refreshKey, retryCounter, cleanup]);
+
+  // Attach stream when video element mounts (fixes race condition)
+  useEffect(() => {
+    if (connectionState === 'connected' && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [connectionState]);
+
+  const handleRetry = () => {
+    setRetryCounter(c => c + 1);
+  };
+
+  if (connectionState === 'idle' || connectionState === 'connecting') {
     return (
       <div className={`flex items-center justify-center bg-gray-100 dark:bg-gray-800 ${className}`}>
         <div className="text-center">
-          <div className="w-16 h-16 bg-gray-300 dark:bg-gray-600 rounded-lg flex items-center justify-center mb-2">
-            <svg
-              className="w-8 h-8 text-gray-500 dark:text-gray-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 002 2v8a2 2 0 002 2z"
-              />
-            </svg>
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">No preview available</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Connecting...</p>
         </div>
       </div>
     );
   }
 
-  if (hasError) {
+  if (connectionState === 'failed' || connectionState === 'closed') {
     return (
       <div className={`flex items-center justify-center bg-gray-100 dark:bg-gray-800 ${className}`}>
         <div className="text-center">
-          <div className="w-16 h-16 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center mb-2">
+          <div className="w-16 h-16 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center mb-2 mx-auto">
             <svg
               className="w-8 h-8 text-red-500 dark:text-red-400"
               fill="none"
@@ -55,12 +182,11 @@ export function WebRTCPreview({ streamId, webrtcUrl, className = '', refreshKey 
               />
             </svg>
           </div>
-          <p className="text-sm text-red-600 dark:text-red-400">Stream unavailable</p>
+          <p className="text-sm text-red-600 dark:text-red-400">
+            {errorMessage || 'Stream unavailable'}
+          </p>
           <button
-            onClick={() => {
-              setHasError(false);
-              setIsLoading(true);
-            }}
+            onClick={handleRetry}
             className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1"
           >
             Retry
@@ -71,26 +197,13 @@ export function WebRTCPreview({ streamId, webrtcUrl, className = '', refreshKey 
   }
 
   return (
-    <div className={`relative ${className}`}>
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800 z-10">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading stream...</p>
-          </div>
-        </div>
-      )}
-      <iframe
-        key={refreshKey}
-        src={webrtcUrl}
-        className="w-full h-full border-0"
-        allow="autoplay; fullscreen; microphone; camera"
-        title={`Stream ${streamId} preview`}
-        onLoad={() => setIsLoading(false)}
-        onError={() => {
-          setIsLoading(false);
-          setHasError(true);
-        }}
+    <div className={`relative bg-black ${className}`}>
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="w-full h-full object-contain"
       />
     </div>
   );

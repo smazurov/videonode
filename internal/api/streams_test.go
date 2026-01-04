@@ -63,6 +63,10 @@ func (m *mockStreamService) LoadStreamsFromConfig() error {
 	return nil
 }
 
+func (m *mockStreamService) GetProcessManager() streams.StreamProcessManager {
+	return nil
+}
+
 func TestDomainToAPIStream_ReadsCodecFromConfig(t *testing.T) {
 	// Setup mock service
 	mockSvc := &mockStreamService{

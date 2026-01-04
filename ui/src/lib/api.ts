@@ -119,8 +119,7 @@ export interface StreamData {
   codec: string;
   bitrate?: string;
   start_time?: string;
-  webrtc_url?: string;
-  srt_url?: string;
+  rtsp_url?: string;
   // Configuration fields for editing
   input_format?: string;
   resolution?: string;
@@ -424,6 +423,34 @@ export async function clearFFmpegCommand(streamId: string): Promise<StreamData> 
 
 export async function toggleTestMode(streamId: string, enabled: boolean): Promise<StreamData> {
   return updateStream(streamId, { test_mode: enabled });
+}
+
+// WebRTC signaling - sends SDP offer, receives SDP answer
+export async function webrtcSignaling(streamId: string, offer: string): Promise<string> {
+  const credentials = localStorage.getItem('auth_credentials');
+
+  if (!credentials) {
+    throw new ApiError(401, 'No credentials found');
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/webrtc?stream=${encodeURIComponent(streamId)}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${credentials}`,
+      'Content-Type': 'application/sdp',
+    },
+    body: offer,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      localStorage.removeItem('auth_credentials');
+    }
+    throw new ApiError(response.status, `WebRTC signaling failed: ${response.statusText}`);
+  }
+
+  // Response is raw SDP
+  return response.text();
 }
 
 export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamLifecycleEvent | SSEStreamMetricsEvent;

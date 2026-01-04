@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/smazurov/videonode/internal/mediamtx"
 	"github.com/smazurov/videonode/internal/obs/collectors"
 )
 
@@ -34,9 +33,11 @@ func (s *service) LoadStreamsFromConfig() error {
 
 	s.logger.Info("Loaded streams from configuration")
 
-	// Sync all streams to MediaMTX via API
-	if syncErr := s.mediamtxClient.SyncAll(); syncErr != nil {
-		s.logger.Warn("Failed to sync MediaMTX at startup", "error", syncErr)
+	// Start all stream processes via process manager
+	if s.processManager != nil {
+		if startErr := s.processManager.StartAll(); startErr != nil {
+			s.logger.Warn("Some streams failed to start", "error", startErr)
+		}
 	}
 
 	return nil
@@ -69,11 +70,4 @@ func (s *service) InitializeStream(streamConfig StreamSpec) error {
 
 	s.logger.Info("Initialized stream", "stream_id", streamConfig.ID, "device", streamConfig.Device, "codec", streamConfig.FFmpeg.Codec)
 	return nil
-}
-
-// setupMediaMTXClient creates and initializes the MediaMTX API client.
-func setupMediaMTXClient(service *service) *mediamtx.Client {
-	client := mediamtx.NewClient("http://localhost:9997", service.getProcessedStreamsForSync)
-	client.StartHealthMonitor()
-	return client
 }

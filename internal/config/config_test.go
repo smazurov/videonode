@@ -306,6 +306,74 @@ func TestLoadConfigMissingFile(t *testing.T) {
 	}
 }
 
+// LoggingConfig matches the logging fields in main.go Options struct
+type LoggingConfig struct {
+	Config           string `help:"Config file path"`
+	LoggingLevel     string `toml:"logging.level" env:"LOGGING_LEVEL"`
+	LoggingFormat    string `toml:"logging.format" env:"LOGGING_FORMAT"`
+	LoggingStreams   string `toml:"logging.streams" env:"LOGGING_STREAMS"`
+	LoggingStreaming string `toml:"logging.streaming" env:"LOGGING_STREAMING"`
+	LoggingWebRTC    string `toml:"logging.webrtc" env:"LOGGING_WEBRTC"`
+	LoggingAPI       string `toml:"logging.api" env:"LOGGING_API"`
+}
+
+func TestLoadLoggingModuleLevels(t *testing.T) {
+	tomlContent := `
+[logging]
+level = "info"
+format = "text"
+streams = "debug"
+streaming = "debug"
+webrtc = "warn"
+api = "error"
+`
+
+	tmpFile, err := os.CreateTemp("", "logging_config_*.toml")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, writeErr := tmpFile.WriteString(tomlContent); writeErr != nil {
+		t.Fatalf("Failed to write to temp file: %v", writeErr)
+	}
+	tmpFile.Close()
+
+	config := &LoggingConfig{
+		Config:           tmpFile.Name(),
+		LoggingLevel:     "info", // defaults
+		LoggingFormat:    "text",
+		LoggingStreams:   "info",
+		LoggingStreaming: "info",
+		LoggingWebRTC:    "info",
+		LoggingAPI:       "info",
+	}
+
+	err = LoadConfig(config)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	tests := []struct {
+		field string
+		got   string
+		want  string
+	}{
+		{"LoggingLevel", config.LoggingLevel, "info"},
+		{"LoggingFormat", config.LoggingFormat, "text"},
+		{"LoggingStreams", config.LoggingStreams, "debug"},
+		{"LoggingStreaming", config.LoggingStreaming, "debug"},
+		{"LoggingWebRTC", config.LoggingWebRTC, "warn"},
+		{"LoggingAPI", config.LoggingAPI, "error"},
+	}
+
+	for _, tt := range tests {
+		if tt.got != tt.want {
+			t.Errorf("%s = %q, want %q", tt.field, tt.got, tt.want)
+		}
+	}
+}
+
 func TestLoadConfigInvalidTOML(t *testing.T) {
 	// Create a temporary file with invalid TOML
 	invalidToml := `

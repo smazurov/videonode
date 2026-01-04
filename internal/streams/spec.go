@@ -12,7 +12,7 @@ import (
 // and nested FFmpeg configuration.
 type StreamSpec struct {
 	// ID is the unique identifier for this stream
-	// This becomes the MediaMTX path name and must be unique
+	// This becomes the RTSP path name and must be unique
 	ID string `toml:"id" json:"id"`
 
 	// Name is a human-readable name for the stream

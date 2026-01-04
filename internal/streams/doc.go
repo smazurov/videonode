@@ -1,2 +1,2 @@
-// Package streams manages video stream lifecycle including creation and MediaMTX integration.
+// Package streams manages video stream lifecycle including creation and FFmpeg process management.
 package streams
