@@ -167,10 +167,6 @@ func TestSSEExporter_BrokenAfterFFmpegFix(t *testing.T) {
 			continue
 		}
 		t.Logf("Event %d: type=%s", i, streamEvent.EventType)
-
-		if streamEvent.EventType == "mediamtx_metrics" {
-			t.Log("WARNING: FFmpeg metrics being sent as mediamtx-metrics, not stream-metrics")
-		}
 	}
 
 	// The issue is likely that individual FFmpeg metrics aren't being combined

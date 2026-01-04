@@ -120,7 +120,7 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **API Server**: Huma v2 API with native Go 1.22+ routing, serves RESTful endpoints with OpenAPI documentation at `/docs`
 - **Video Capture**: FFmpeg integration for screenshot capture from V4L2 devices with configurable delay
 - **Device Detection**: Custom v4l2_detector Go package wrapping C library for V4L2 device enumeration
-- **Stream Management**: MediaMTX integration for RTSP/WebRTC streaming with TOML-based configuration
+- **Stream Management**: go2rtc integration for RTSP/WebRTC streaming with TOML-based configuration
 - **Observability**: Built-in metrics collection with Prometheus export and SSE real-time updates
 
 ### Key Components
@@ -153,7 +153,7 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **service.go**: Stream lifecycle management
 - **domain.go**: Stream domain models and business logic
 - **errors.go**: Stream-specific error types
-- Integration with MediaMTX for RTSP/WebRTC streaming
+- Integration with go2rtc for RTSP/WebRTC streaming
 
 ##### Observability (`internal/obs/`)
 - **manager.go**: Central observability coordination
@@ -184,28 +184,24 @@ This file provides guidance for agentic coding agents working with this Go-based
 ### Configuration
 - **Main Config**: `config.toml` with sections for server, streams, obs, encoders, capture, and auth
 - **Stream Definitions**: `streams.toml` for individual stream configurations
-- **MediaMTX Config**: `mediamtx.yml` for RTSP/WebRTC server settings
+- **go2rtc Config**: `go2rtc.yaml` for RTSP/WebRTC server settings
 - **Environment Variables**: All config values can be overridden via env vars (e.g., `SERVER_PORT`, `AUTH_USERNAME`)
 
-### MediaMTX Integration
-- **Control API**: MediaMTX provides a RESTful API on port 9997 for dynamic stream management
-- **API Documentation**: https://mediamtx.org/docs/references/control-api
-- **OpenAPI Spec**: https://raw.githubusercontent.com/bluenviron/mediamtx/v1.15.5/api/openapi.yaml
+### go2rtc Integration
+- **Control API**: go2rtc provides a RESTful API on port 1984 for dynamic stream management
+- **API Documentation**: https://github.com/AlexxIT/go2rtc/wiki/REST-API
 - **Key Endpoints**:
-  - `/v3/config/paths/add/{name}`: Add new stream path dynamically
-  - `/v3/config/paths/patch/{name}`: Update existing stream configuration
-  - `/v3/config/paths/delete/{name}`: Remove stream path
-  - `/v3/paths/list`: List all active paths and their status
-- **Stream Source Options**: `rtsp://`, `rtmp://`, `http://`, `udp://`, `srt://`, WebRTC, file playback
-- **Authentication**: Supports internal users, HTTP callbacks, and JWT tokens
+  - `/api/streams`: List and manage streams
+  - `/api/ws`: WebSocket for WebRTC signaling
+- **Stream Source Options**: `rtsp://`, `rtmp://`, `http://`, `ffmpeg:`, WebRTC, file playback
 
 ### Debugging & Logging
 
 #### systemd-run Logs
 - **Critical Finding**: `systemd-run --user` logs appear in the **system journal**, NOT the user journal
 - Even though the command runs in user systemd, stdout/stderr goes to system journal
-- Logs are tagged with parent process (e.g., `mediamtx[PID]`) when MediaMTX captures FFmpeg output
-- **View logs**: `journalctl --since "1 hour ago" | grep -E "ffmpeg|mediamtx"`
+- Logs are tagged with parent process (e.g., `go2rtc[PID]`) when go2rtc captures FFmpeg output
+- **View logs**: `journalctl --since "1 hour ago" | grep -E "ffmpeg|go2rtc"`
 - **NOT**: `journalctl --user` (returns empty/minimal results)
 - The `--collect` flag removes the unit after completion, but **logs persist in journald**
 - Per systemd docs: "after unloading the unit it cannot be inspected using systemctl status, but its logs are still in journal"
