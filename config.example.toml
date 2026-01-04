@@ -5,7 +5,6 @@ port = ":8090"
 
 [streams]
 config_file = "streams.toml"
-mediamtx_config = "mediamtx.yml"
 
 [obs]
 retention_duration = "12h"

@@ -11,49 +11,6 @@ import (
 	"github.com/smazurov/videonode/internal/obs"
 )
 
-func TestSSEExporter_SystemMetrics(t *testing.T) {
-	mockBus := &MockEventBus{}
-	exporter := &SSEExporter{
-		eventBus:      mockBus,
-		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
-		logLevel:      "info",
-		streamMetrics: make(map[string]*StreamMetricsAccumulator),
-	}
-
-	testMetrics := []obs.DataPoint{
-		&obs.MetricPoint{
-			Name:          "test_value_1",
-			Value:         2.5,
-			LabelsMap:     obs.Labels{},
-			TimestampUnix: time.Now(),
-		},
-		&obs.MetricPoint{
-			Name:          "test_bytes",
-			Value:         1000000,
-			LabelsMap:     obs.Labels{"interface": "eth0"},
-			TimestampUnix: time.Now(),
-		},
-	}
-
-	for _, metric := range testMetrics {
-		err := exporter.Export([]obs.DataPoint{metric})
-		if err != nil {
-			t.Fatalf("Export failed: %v", err)
-		}
-	}
-
-	captured := mockBus.GetEvents()
-	if len(captured) != 2 {
-		t.Fatalf("Expected 2 events, got %d", len(captured))
-	}
-
-	for i, event := range captured {
-		if _, ok := event.(events.MediaMTXMetricsEvent); !ok {
-			t.Errorf("Event %d: Expected MediaMTXMetricsEvent, got %T", i, event)
-		}
-	}
-}
-
 func TestSSEExporter_StreamMetrics(t *testing.T) {
 	mockBus := &MockEventBus{}
 	exporter := &SSEExporter{
@@ -168,9 +125,9 @@ func TestSSEExporter_ConcurrentExport(t *testing.T) {
 			defer wg.Done()
 			for j := range 10 {
 				metric := &obs.MetricPoint{
-					Name:          "concurrent_test",
+					Name:          "ffmpeg_fps",
 					Value:         float64(j),
-					LabelsMap:     obs.Labels{"goroutine": string(rune('0' + id))},
+					LabelsMap:     obs.Labels{"stream_id": string(rune('a' + id))},
 					TimestampUnix: time.Now(),
 				}
 				if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
@@ -183,6 +140,7 @@ func TestSSEExporter_ConcurrentExport(t *testing.T) {
 	wg.Wait()
 	captured := mockBus.GetEvents()
 
+	// Each goroutine sends 10 FFmpeg metrics, each produces a StreamMetricsEvent
 	if len(captured) != 100 {
 		t.Errorf("Expected 100 events, got %d", len(captured))
 	}
@@ -192,10 +150,7 @@ func TestSSEExporter_EventRouting(t *testing.T) {
 	routes := GetEventRoutes()
 
 	expectedRoutes := map[string]string{
-		"mediamtx-metrics": "metrics",
-		"system-metrics":   "events",
-		"obs-alert":        "events",
-		"stream-metrics":   "events",
+		"stream-metrics": "events",
 	}
 
 	for eventType, expectedEndpoint := range expectedRoutes {
@@ -203,104 +158,6 @@ func TestSSEExporter_EventRouting(t *testing.T) {
 			t.Errorf("Missing route for event type '%s'", eventType)
 		} else if endpoint != expectedEndpoint {
 			t.Errorf("Event type '%s' routed to '%s', expected '%s'", eventType, endpoint, expectedEndpoint)
-		}
-	}
-}
-
-func TestSSEExporter_MetricsFormatting(t *testing.T) {
-	mockBus := &MockEventBus{}
-	exporter := &SSEExporter{
-		eventBus:      mockBus,
-		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
-		logLevel:      "info",
-		streamMetrics: make(map[string]*StreamMetricsAccumulator),
-	}
-
-	testMetric := &obs.MetricPoint{
-		Name:          "test_metric",
-		Value:         42.5,
-		LabelsMap:     obs.Labels{"test": "true", "env": "testing"},
-		TimestampUnix: time.Now(),
-		Unit:          "requests",
-	}
-
-	err := exporter.Export([]obs.DataPoint{testMetric})
-	if err != nil {
-		t.Fatalf("Export failed: %v", err)
-	}
-
-	captured := mockBus.GetEvents()
-	if len(captured) != 1 {
-		t.Fatalf("Expected 1 event, got %d", len(captured))
-	}
-
-	eventData, ok := captured[0].(events.MediaMTXMetricsEvent)
-	if !ok {
-		t.Fatalf("Event data is not MediaMTXMetricsEvent type, got %T", captured[0])
-	}
-
-	if eventData.Count != 1 {
-		t.Errorf("Expected count 1, got %d", eventData.Count)
-	}
-
-	if len(eventData.Metrics) != 1 {
-		t.Fatalf("Expected 1 metric, got %d", len(eventData.Metrics))
-	}
-
-	metric := eventData.Metrics[0]
-	if metric["name"] != "test_metric" {
-		t.Errorf("Expected name 'test_metric', got '%v'", metric["name"])
-	}
-	if metric["value"] != 42.5 {
-		t.Errorf("Expected value 42.5, got '%v'", metric["value"])
-	}
-	if metric["unit"] != "requests" {
-		t.Errorf("Expected unit 'requests', got '%v'", metric["unit"])
-	}
-
-	labels, ok := metric["labels"].(obs.Labels)
-	if !ok {
-		t.Fatalf("Labels are not obs.Labels type, got %T: %+v", metric["labels"], metric["labels"])
-	}
-	if labels["test"] != "true" {
-		t.Errorf("Expected label test='true', got '%s'", labels["test"])
-	}
-}
-
-func TestSSEExporter_HistoryPreservation(t *testing.T) {
-	mockBus := &MockEventBus{}
-	exporter := &SSEExporter{
-		eventBus:      mockBus,
-		config:        obs.ExporterConfig{Name: "sse", Enabled: true},
-		logLevel:      "info",
-		streamMetrics: make(map[string]*StreamMetricsAccumulator),
-	}
-
-	for i := range 5 {
-		metric := &obs.MetricPoint{
-			Name:          "history_test",
-			Value:         float64(i),
-			LabelsMap:     obs.Labels{"stream_id": "test"},
-			TimestampUnix: time.Now().Add(time.Duration(i) * time.Second),
-		}
-		if err := exporter.Export([]obs.DataPoint{metric}); err != nil {
-			t.Fatalf("Export failed: %v", err)
-		}
-	}
-
-	captured := mockBus.GetEvents()
-	if len(captured) != 5 {
-		t.Errorf("Expected 5 events (history), got %d", len(captured))
-	}
-
-	for i, event := range captured {
-		eventData := event.(events.MediaMTXMetricsEvent)
-		if len(eventData.Metrics) != 1 {
-			continue
-		}
-		value := eventData.Metrics[0]["value"].(float64)
-		if value != float64(i) {
-			t.Errorf("Event %d: Expected value %d, got %f", i, i, value)
 		}
 	}
 }

@@ -23,7 +23,7 @@ Configure via `config.toml` or environment variables. See `config.toml` for all 
 
 - V4L2 device detection and capture
 - Hardware encoder validation (NVENC, VAAPI, QSV, AMF)
-- RTSP/WebRTC streaming via MediaMTX
+- RTSP/WebRTC streaming via go2rtc
 - Real-time device monitoring
 - Prometheus metrics export
 

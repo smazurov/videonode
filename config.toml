@@ -11,17 +11,6 @@ port = ":8090"
 # Configuration file for stream definitions
 config_file = "streams.toml"
 
-# MediaMTX configuration file
-mediamtx_config = "mediamtx.yml"
-
-[mediamtx]
-# Use systemd-run to wrap ffmpeg commands for better process management
-# When enabled, each stream runs as a systemd unit with proper signal handling
-use_systemd = false
-
-# MediaMTX systemd service name (for service control via API)
-service_name = "videonode_mediamtx.service"
-
 [obs]
 # Observability settings
 # Maximum retention duration for metrics and logs
@@ -62,8 +51,6 @@ password = "ilovepinball"
 # Enable LED control (requires appropriate hardware)
 led_control_enabled = false
 
-# Enable MediaMTX service control via systemd/DBus
-mediamtx_control_enabled = false
 
 [logging]
 level = "info"

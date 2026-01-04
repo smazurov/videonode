@@ -296,7 +296,7 @@ func TestOBS_NoMetricExpiration(t *testing.T) {
 func TestOBSBug_StateTransitions(t *testing.T) {
 	exporter := NewPromExporter()
 
-	// Simulate MediaMTX stream state transition: notReady -> ready
+	// Simulate stream state transition: notReady -> ready
 	metrics := []obs.DataPoint{
 		&obs.MetricPoint{
 			Name:  "paths",

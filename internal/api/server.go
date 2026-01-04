@@ -348,9 +348,6 @@ func (s *Server) registerRoutes() {
 
 	// SSE endpoints
 	s.registerSSERoutes()
-
-	// Metrics SSE endpoint
-	s.registerMetricsRoutes()
 }
 
 // withAuth returns security requirement for basic auth.

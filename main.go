@@ -121,8 +121,6 @@ func main() {
 
 			// Add collectors
 
-			// MediaMTX metrics are collected via Prometheus scraping
-
 			// Add MPP metrics collector (Rockchip only)
 			if _, statErr := os.Stat("/proc/mpp_service/load"); statErr == nil {
 				mppCollector := collectors.NewMPPCollector(obs.Labels{

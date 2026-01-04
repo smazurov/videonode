@@ -167,8 +167,6 @@ func TestBus_AllEventTypes(t *testing.T) {
 		{"StreamUpdated", StreamUpdatedEvent{Action: "updated"}},
 		{"StreamDeleted", StreamDeletedEvent{StreamID: "test"}},
 		{"StreamStateChanged", StreamStateChangedEvent{StreamID: "test", Enabled: true}},
-		{"MediaMTXMetrics", MediaMTXMetricsEvent{EventType: "mediamtx_metrics"}},
-		{"OBSAlert", OBSAlertEvent{EventType: "alert"}},
 		{"StreamMetrics", StreamMetricsEvent{EventType: "stream_metrics"}},
 	}
 
@@ -192,10 +190,6 @@ func TestBus_AllEventTypes(t *testing.T) {
 				unsub = bus.Subscribe(func(e StreamDeletedEvent) { received <- e })
 			case StreamStateChangedEvent:
 				unsub = bus.Subscribe(func(e StreamStateChangedEvent) { received <- e })
-			case MediaMTXMetricsEvent:
-				unsub = bus.Subscribe(func(e MediaMTXMetricsEvent) { received <- e })
-			case OBSAlertEvent:
-				unsub = bus.Subscribe(func(e OBSAlertEvent) { received <- e })
 			case StreamMetricsEvent:
 				unsub = bus.Subscribe(func(e StreamMetricsEvent) { received <- e })
 			}

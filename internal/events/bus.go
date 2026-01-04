@@ -35,10 +35,6 @@ func (b *Bus) Publish(ev Event) {
 		event.Publish(b.dispatcher, e)
 	case StreamStateChangedEvent:
 		event.Publish(b.dispatcher, e)
-	case MediaMTXMetricsEvent:
-		event.Publish(b.dispatcher, e)
-	case OBSAlertEvent:
-		event.Publish(b.dispatcher, e)
 	case StreamMetricsEvent:
 		event.Publish(b.dispatcher, e)
 	}
@@ -68,10 +64,6 @@ func (b *Bus) Subscribe(handler any) func() {
 	case func(StreamDeletedEvent):
 		return event.Subscribe(b.dispatcher, h)
 	case func(StreamStateChangedEvent):
-		return event.Subscribe(b.dispatcher, h)
-	case func(MediaMTXMetricsEvent):
-		return event.Subscribe(b.dispatcher, h)
-	case func(OBSAlertEvent):
 		return event.Subscribe(b.dispatcher, h)
 	case func(StreamMetricsEvent):
 		return event.Subscribe(b.dispatcher, h)

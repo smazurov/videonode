@@ -11,8 +11,6 @@ const (
 	TypeStreamUpdated
 	TypeStreamDeleted
 	TypeStreamStateChanged
-	TypeMediaMTXMetrics
-	TypeOBSAlert
 	TypeStreamMetrics
 )
 
@@ -103,29 +101,6 @@ func (e StreamStateChangedEvent) GetStreamID() string {
 func (e StreamStateChangedEvent) IsEnabled() bool {
 	return e.Enabled
 }
-
-// MediaMTXMetricsEvent represents MediaMTX observability metrics.
-type MediaMTXMetricsEvent struct {
-	EventType string           `json:"type"`
-	Timestamp string           `json:"timestamp"`
-	Count     int              `json:"count"`
-	Metrics   []map[string]any `json:"metrics"`
-}
-
-// Type returns the event type identifier for MediaMTXMetricsEvent.
-func (e MediaMTXMetricsEvent) Type() uint32 { return TypeMediaMTXMetrics }
-
-// OBSAlertEvent represents observability alerts.
-type OBSAlertEvent struct {
-	EventType string         `json:"type"`
-	Timestamp string         `json:"timestamp"`
-	Level     string         `json:"level"`
-	Message   string         `json:"message"`
-	Details   map[string]any `json:"details"`
-}
-
-// Type returns the event type identifier for OBSAlertEvent.
-func (e OBSAlertEvent) Type() uint32 { return TypeOBSAlert }
 
 // StreamMetricsEvent represents FFmpeg stream metrics.
 type StreamMetricsEvent struct {
