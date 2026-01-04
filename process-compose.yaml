@@ -1,18 +1,9 @@
 version: "0.5"
 
 processes:
-  # MediaMTX streaming server
-  mediamtx:
-    command: "./mediamtx"
-    availability:
-      restart: "on_failure"
-
-  # Backend with hot reload
+  # Backend with hot reload (includes embedded RTSP server)
   backend:
     command: "air"
-    depends_on:
-      mediamtx:
-        condition: process_started
     availability:
       restart: "on_failure"
 
