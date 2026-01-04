@@ -19,36 +19,24 @@ import (
 // This should be used when registering with Huma SSE.
 func GetEventTypes() map[string]any {
 	return map[string]any{
-		"mediamtx-metrics": events.MediaMTXMetricsEvent{},
-		"obs-alert":        events.OBSAlertEvent{},
-		"stream-metrics":   events.StreamMetricsEvent{},
+		"stream-metrics": events.StreamMetricsEvent{},
 	}
 }
 
 // GetEventTypesForEndpoint returns event types for a specific SSE endpoint.
 func GetEventTypesForEndpoint(endpoint string) map[string]any {
-	switch endpoint {
-	case "metrics":
+	if endpoint == "events" {
 		return map[string]any{
-			"mediamtx-metrics": events.MediaMTXMetricsEvent{},
-		}
-	case "events":
-		return map[string]any{
-			"obs-alert":      events.OBSAlertEvent{},
 			"stream-metrics": events.StreamMetricsEvent{},
 		}
-	default:
-		return map[string]any{}
 	}
+	return map[string]any{}
 }
 
 // GetEventRoutes returns the routing configuration for events.
 func GetEventRoutes() map[string]string {
 	return map[string]string{
-		"mediamtx-metrics": "metrics",
-		"system-metrics":   "events",
-		"obs-alert":        "events",
-		"stream-metrics":   "events",
+		"stream-metrics": "events",
 	}
 }
 
@@ -142,29 +130,11 @@ func (s *SSEExporter) Export(points []obs.DataPoint) error {
 
 // processMetricImmediately processes a single metric point immediately.
 func (s *SSEExporter) processMetricImmediately(metric *obs.MetricPoint) {
-	// Handle different metric types
-	switch {
-	case strings.HasPrefix(metric.Name, "system_"):
-		// System metrics are now separate metrics - send as individual MediaMTX events for now
-		// TODO: Could accumulate these too if needed
-		s.eventBus.Publish(events.MediaMTXMetricsEvent{
-			EventType: "mediamtx_metrics",
-			Timestamp: time.Now().Format(time.RFC3339),
-			Count:     1,
-			Metrics:   s.formatMetricsForSSE([]*obs.MetricPoint{metric}),
-		})
-	case strings.HasPrefix(metric.Name, "ffmpeg_"):
-		// Accumulate FFmpeg metrics and send combined stream-metrics event
+	// Only handle FFmpeg metrics for SSE
+	if strings.HasPrefix(metric.Name, "ffmpeg_") {
 		s.accumulateStreamMetric(metric)
-	default:
-		// Send other metrics as MediaMTX metrics individually
-		s.eventBus.Publish(events.MediaMTXMetricsEvent{
-			EventType: "mediamtx_metrics",
-			Timestamp: time.Now().Format(time.RFC3339),
-			Count:     1,
-			Metrics:   s.formatMetricsForSSE([]*obs.MetricPoint{metric}),
-		})
 	}
+	// Other metrics are ignored (handled by Prometheus exporter)
 }
 
 // processLogImmediately processes a single log entry immediately.
@@ -205,36 +175,6 @@ func (s *SSEExporter) shouldLog(entryLevel obs.LogLevel) bool {
 
 	// Log if entry level is >= configured level
 	return entryLevelNum >= configuredLevel
-}
-
-// formatMetricsForSSE formats metrics for SSE transmission.
-func (s *SSEExporter) formatMetricsForSSE(metrics []*obs.MetricPoint) []map[string]any {
-	result := make([]map[string]any, 0, len(metrics))
-
-	for _, metric := range metrics {
-		item := map[string]any{
-			"name":      metric.Name,
-			"value":     metric.Value,
-			"unit":      metric.Unit,
-			"labels":    metric.Labels(),
-			"timestamp": metric.Timestamp().Format(time.RFC3339),
-		}
-		result = append(result, item)
-	}
-
-	return result
-}
-
-// SendAlert sends an alert via SSE.
-func (s *SSEExporter) SendAlert(level obs.LogLevel, message string, details map[string]any) error {
-	s.eventBus.Publish(events.OBSAlertEvent{
-		EventType: "alert",
-		Level:     string(level),
-		Message:   message,
-		Details:   details,
-		Timestamp: time.Now().Format(time.RFC3339),
-	})
-	return nil
 }
 
 // accumulateStreamMetric accumulates FFmpeg metrics and sends combined stream event.

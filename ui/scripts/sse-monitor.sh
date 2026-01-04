@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
             echo "  $0                                    # Monitor all events"
             echo "  $0 --metrics                          # Monitor metrics endpoint"
             echo "  $0 --filter=capture-success,capture-error  # Only show capture events"
-            echo "  $0 --metrics --filter=mediamtx-metrics     # Only MediaMTX metrics"
+            echo "  $0 --metrics --filter=system-metrics     # Only system metrics"
             exit 0
             ;;
         *)
