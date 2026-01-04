@@ -4,9 +4,14 @@ import (
 	"fmt"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
-	"github.com/smazurov/videonode/internal/mediamtx"
 	"github.com/smazurov/videonode/internal/types"
 )
+
+// ProcessedStream represents a stream with its FFmpeg command ready to run.
+type ProcessedStream struct {
+	StreamID      string
+	FFmpegCommand string
+}
 
 // encoderSelector is a function that selects the best encoder for a given codec.
 type encoderSelector func(codec string, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) *ffmpeg.Params
@@ -85,7 +90,7 @@ func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Param
 
 	ffmpegParams.ProgressSocket = socketPath
 	ffmpegParams.Options = streamConfig.FFmpeg.Options
-	ffmpegParams.OutputURL = fmt.Sprintf("srt://localhost:8890?streamid=publish:%s", streamID)
+	ffmpegParams.OutputURL = fmt.Sprintf("rtsp://127.0.0.1:8554/%s", streamID)
 
 	// Determine test source mode and overlay text
 	switch {
@@ -105,12 +110,12 @@ func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Param
 }
 
 // processStream processes a single stream and injects runtime data.
-func (p *processor) processStream(streamID string) (*mediamtx.ProcessedStream, error) {
+func (p *processor) processStream(streamID string) (*ProcessedStream, error) {
 	return p.processStreamWithEncoder(streamID, "")
 }
 
 // processStreamWithEncoder processes a single stream with an optional encoder override.
-func (p *processor) processStreamWithEncoder(streamID string, encoderOverride string) (*mediamtx.ProcessedStream, error) {
+func (p *processor) processStreamWithEncoder(streamID string, encoderOverride string) (*ProcessedStream, error) {
 	streamConfig, exists := p.store.GetStream(streamID)
 	if !exists {
 		return nil, fmt.Errorf("stream %s not found", streamID)
@@ -132,7 +137,7 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	// If device is online AND custom command is set - use custom command
 	// (skip if device is offline to generate NO SIGNAL pattern instead)
 	if enabled && streamConfig.CustomFFmpegCommand != "" {
-		return &mediamtx.ProcessedStream{
+		return &ProcessedStream{
 			StreamID:      streamID,
 			FFmpegCommand: streamConfig.CustomFFmpegCommand,
 		}, nil
@@ -196,7 +201,7 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	// Build FFmpeg command using the new Params struct
 	ffmpegCmd := ffmpeg.BuildCommand(ffmpegParams)
 
-	return &mediamtx.ProcessedStream{
+	return &ProcessedStream{
 		StreamID:      streamID,
 		FFmpegCommand: ffmpegCmd,
 	}, nil

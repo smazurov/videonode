@@ -64,3 +64,8 @@ led_control_enabled = false
 
 # Enable MediaMTX service control via systemd/DBus
 mediamtx_control_enabled = false
+
+[logging]
+level = "info"
+webrtc = "debug"
+streaming = "debug"
