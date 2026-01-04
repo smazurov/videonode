@@ -20,6 +20,9 @@ type StreamService interface {
 	// Initialization
 	LoadStreamsFromConfig() error
 
+	// Process management
+	GetProcessManager() StreamProcessManager
+
 	// Device event handling
 	BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string)
 }

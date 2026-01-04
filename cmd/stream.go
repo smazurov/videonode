@@ -11,7 +11,6 @@ import (
 	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
-	videonats "github.com/smazurov/videonode/internal/nats"
 	"github.com/smazurov/videonode/internal/process"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/store"
@@ -25,7 +24,6 @@ func CreateStreamCmd() *cobra.Command {
 	var configFile string
 	var encoderOverride string
 	var logJSON bool
-	var natsURL string
 
 	cmd := &cobra.Command{
 		Use:   "stream [stream-id]",
@@ -91,22 +89,8 @@ func CreateStreamCmd() *cobra.Command {
 
 			logger.Info("Generated command")
 
-			// Initialize NATS client for hub communication
-			natsClient := videonats.NewStreamClient(natsURL, streamID, logger)
-			if connectErr := natsClient.Connect(); connectErr != nil {
-				logger.Warn("NATS connection failed, running in offline mode", "error", connectErr)
-			} else {
-				defer natsClient.Close()
-			}
-
-			// Create process manager (we'll set up restart handler after mgr is created)
+			// Create process manager
 			mgr := process.NewManager(streamID, processed.Command, logger)
-
-			// Set up NATS restart handler - receives restart commands from hub
-			natsClient.OnRestart(func() {
-				logger.Info("Received restart command via NATS")
-				mgr.RequestRestart(mgr.GetCommand())
-			})
 
 			// Create typed config watcher with fresh config loading
 			streamsLoader := func(path string) (map[string]streams.StreamSpec, error) {
@@ -170,7 +154,6 @@ func CreateStreamCmd() *cobra.Command {
 	cmd.Flags().StringVar(&encoderOverride, "encoder-override", "",
 		"Override encoder selection (e.g., h264_vaapi, libx264)")
 	cmd.Flags().BoolVar(&logJSON, "log-json", false, "Use JSON log format")
-	cmd.Flags().StringVar(&natsURL, "nats-url", "nats://localhost:4222", "NATS server URL for hub communication")
 
 	return cmd
 }

@@ -106,6 +106,11 @@ func BuildCommand(p *Params) string {
 	// Encoder
 	cmd.WriteString(" -c:v " + p.Encoder)
 
+	// Force constrained baseline profile for WebRTC compatibility
+	if strings.Contains(p.Encoder, "h264") {
+		cmd.WriteString(" -profile:v constrained_baseline")
+	}
+
 	// Rate control - only add what's set
 	if p.RCMode != "" && isHardwareEncoder(p.Encoder) {
 		cmd.WriteString(" -rc_mode " + p.RCMode)
@@ -162,8 +167,14 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -progress unix://" + p.ProgressSocket)
 	}
 
-	// Output with low-latency mpegts options
-	cmd.WriteString(" -muxdelay 0 -muxpreload 0 -flush_packets 1 -f mpegts " + p.OutputURL)
+	// Output configuration - detect format from URL
+	if strings.HasPrefix(p.OutputURL, "rtsp://") {
+		// RTSP output for streaming server
+		cmd.WriteString(" -rtsp_transport tcp -f rtsp " + p.OutputURL)
+	} else {
+		// Default: mpegts with low-latency options (for SRT, etc.)
+		cmd.WriteString(" -muxdelay 0 -muxpreload 0 -flush_packets 1 -f mpegts " + p.OutputURL)
+	}
 
 	return cmd.String()
 }

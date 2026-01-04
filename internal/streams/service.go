@@ -12,17 +12,17 @@ import (
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
-	"github.com/smazurov/videonode/internal/mediamtx"
 	"github.com/smazurov/videonode/internal/obs"
 	"github.com/smazurov/videonode/internal/types"
 )
 
 // ServiceOptions contains optional configuration for StreamServiceImpl.
 type ServiceOptions struct {
-	Store           Store             // Stream store for persistence (required)
-	OBSManager      *obs.Manager      // OBS manager for monitoring
-	EncoderSelector encoders.Selector // Custom encoder selector
-	EventBus        *events.Bus       // Event bus for broadcasting state changes
+	Store           Store                // Stream store for persistence (required)
+	OBSManager      *obs.Manager         // OBS manager for monitoring
+	EncoderSelector encoders.Selector    // Custom encoder selector
+	EventBus        *events.Bus          // Event bus for broadcasting state changes
+	ProcessManager  StreamProcessManager // Process manager for FFmpeg subprocesses (optional, created if nil)
 }
 
 // service implements the StreamService interface.
@@ -31,11 +31,11 @@ type service struct {
 	processor       *processor         // Stream processor for runtime injection
 	streams         map[string]*Stream // In-memory stream cache
 	streamsMutex    sync.RWMutex
-	mediamtxClient  *mediamtx.Client  // MediaMTX API client
-	obsManager      *obs.Manager      // OBS manager for monitoring
-	encoderSelector encoders.Selector // Encoder selection strategy
-	eventBus        *events.Bus       // Event bus for broadcasting state changes
-	logger          *slog.Logger      // Module logger
+	processManager  StreamProcessManager // Process manager for FFmpeg subprocesses
+	obsManager      *obs.Manager         // OBS manager for monitoring
+	encoderSelector encoders.Selector    // Encoder selection strategy
+	eventBus        *events.Bus          // Event bus for broadcasting state changes
+	logger          *slog.Logger         // Module logger
 }
 
 // NewStreamService creates a new stream service with options.
@@ -78,8 +78,16 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 	svc.obsManager = opts.OBSManager
 	svc.eventBus = opts.EventBus
 
-	// Initialize MediaMTX API client
-	svc.mediamtxClient = setupMediaMTXClient(svc)
+	// Initialize process manager
+	if opts.ProcessManager != nil {
+		svc.processManager = opts.ProcessManager
+	} else {
+		svc.processManager = NewStreamProcessManager(&ProcessManagerOptions{
+			Store:     repo,
+			Processor: processor,
+			EventBus:  opts.EventBus,
+		})
+	}
 
 	return svc
 }
@@ -153,9 +161,11 @@ func (s *service) CreateStream(_ context.Context, params StreamCreateParams) (*S
 		} else {
 			s.logger.Info("Saved stream to persistent TOML config", "stream_id", streamID)
 
-			// Sync to MediaMTX API
-			if syncErr := s.syncToMediaMTX(); syncErr != nil {
-				s.logger.Warn("Failed to sync MediaMTX after creation", "error", syncErr)
+			// Start FFmpeg process via process manager
+			if s.processManager != nil {
+				if startErr := s.processManager.Start(streamID); startErr != nil {
+					s.logger.Warn("Failed to start stream process", "stream_id", streamID, "error", startErr)
+				}
 			}
 		}
 	}
@@ -255,10 +265,11 @@ func (s *service) UpdateStream(_ context.Context, streamID string, params Stream
 	}
 	s.streamsMutex.Unlock()
 
-	// Update in MediaMTX via API with videonode wrapper command
-	command := fmt.Sprintf("%s stream %s", getExecutablePath(), streamID)
-	if err := s.mediamtxClient.UpdatePath(streamID, command); err != nil {
-		s.logger.Warn("Failed to update MediaMTX path", "stream_id", streamID, "error", err)
+	// Restart FFmpeg process with new config via process manager
+	if s.processManager != nil {
+		if restartErr := s.processManager.Restart(streamID); restartErr != nil {
+			s.logger.Warn("Failed to restart stream process", "stream_id", streamID, "error", restartErr)
+		}
 	}
 
 	// Emit stream state changed event if enabled state was modified
@@ -284,6 +295,13 @@ func (s *service) DeleteStream(_ context.Context, streamID string) error {
 			fmt.Sprintf("stream %s not found", streamID), nil)
 	}
 
+	// Stop FFmpeg process first via process manager
+	if s.processManager != nil {
+		if stopErr := s.processManager.Stop(streamID); stopErr != nil {
+			s.logger.Warn("Failed to stop stream process", "stream_id", streamID, "error", stopErr)
+		}
+	}
+
 	// Remove from store.Store
 	if err := s.store.RemoveStream(streamID); err != nil {
 		return NewStreamError(ErrCodeConfigError,
@@ -294,9 +312,6 @@ func (s *service) DeleteStream(_ context.Context, streamID string) error {
 	s.streamsMutex.Lock()
 	delete(s.streams, streamID)
 	s.streamsMutex.Unlock()
-
-	// Remove from MediaMTX via API (ignore errors, will sync on reconnect)
-	_ = s.mediamtxClient.DeletePath(streamID)
 
 	// Remove OBS monitoring if configured
 	if s.obsManager != nil {
@@ -353,4 +368,40 @@ func (s *service) ListStreams(_ context.Context) ([]Stream, error) {
 	})
 
 	return streams, nil
+}
+
+// GetProcessManager returns the process manager for shutdown handling.
+func (s *service) GetProcessManager() StreamProcessManager {
+	return s.processManager
+}
+
+// GetFFmpegCommand returns the FFmpeg command for a stream.
+// Returns the command string, whether it's a custom command, and any error.
+func (s *service) GetFFmpegCommand(_ context.Context, streamID string, encoderOverride string) (string, bool, error) {
+	// Check if stream has custom command
+	streamConfig, exists := s.store.GetStream(streamID)
+	if !exists {
+		return "", false, NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("stream %s not found", streamID), nil)
+	}
+
+	// Get runtime state for enabled status
+	stream, hasState := s.getStreamSafe(streamID)
+	enabled := false
+	if hasState {
+		enabled = stream.Enabled
+	}
+
+	// If device is online AND custom command is set - return it
+	if enabled && streamConfig.CustomFFmpegCommand != "" {
+		return streamConfig.CustomFFmpegCommand, true, nil
+	}
+
+	// Otherwise, generate command via processor
+	processed, err := s.processor.processStreamWithEncoder(streamID, encoderOverride)
+	if err != nil {
+		return "", false, err
+	}
+
+	return processed.FFmpegCommand, false, nil
 }

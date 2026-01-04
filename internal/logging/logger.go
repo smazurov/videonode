@@ -98,31 +98,39 @@ func GetLogger(module string) *slog.Logger {
 }
 
 // createHandler creates a slog handler with the specified format and level.
+// Logs to both stdout and journal when both are available.
 func createHandler(format string, level slog.Level) slog.Handler {
-	// Check if systemd journal is available
-	if IsJournalAvailable() {
-		// Use native journal handler for direct systemd integration
-		return NewJournalHandler(level)
-	}
-
-	// Fall back to standard handlers
-	isSystemd := os.Getenv("JOURNAL_STREAM") != ""
-
 	opts := &slog.HandlerOptions{Level: level}
-	if isSystemd {
-		// Remove timestamps for systemd
-		opts.ReplaceAttr = func(_ []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.TimeKey {
-				return slog.Attr{}
-			}
-			return a
-		}
+
+	var stdoutHandler slog.Handler
+	if format == "json" {
+		stdoutHandler = slog.NewJSONHandler(os.Stdout, opts)
+	} else {
+		stdoutHandler = slog.NewTextHandler(os.Stdout, opts)
 	}
 
-	if format == "json" {
-		return slog.NewJSONHandler(os.Stdout, opts)
+	journalAvailable := IsJournalAvailable()
+	stdoutAvailable := isStdoutAvailable()
+
+	switch {
+	case journalAvailable && stdoutAvailable:
+		return NewMultiHandler(stdoutHandler, NewJournalHandler(level))
+	case journalAvailable:
+		return NewJournalHandler(level)
+	default:
+		return stdoutHandler
 	}
-	return slog.NewTextHandler(os.Stdout, opts)
+}
+
+// isStdoutAvailable checks if stdout is connected to a terminal or pipe.
+func isStdoutAvailable() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	mode := fi.Mode()
+	// Available if terminal, pipe, or regular file (not /dev/null which is ModeDevice)
+	return (mode&os.ModeCharDevice) != 0 || (mode&os.ModeNamedPipe) != 0 || mode.IsRegular()
 }
 
 // parseLevel converts string level to slog.Level.

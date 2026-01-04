@@ -220,28 +220,21 @@ func (s *Server) registerStreamRoutes() {
 		Method:      http.MethodPost,
 		Path:        "/api/streams/{stream_id}/restart",
 		Summary:     "Restart Stream",
-		Description: "Send restart command to a stream process via NATS. Requires NATS to be enabled.",
+		Description: "Restart a stream process. Stops and restarts the FFmpeg process with current configuration.",
 		Tags:        []string{"streams"},
 		Errors:      []int{401, 404, 500, 503},
 		Security:    withAuth(),
 	}, func(_ context.Context, input *struct {
 		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
-		Body     struct {
-			Reason string `json:"reason,omitempty" example:"user_requested" doc:"Optional reason for restart"`
-		}
 	},
 	) (*struct{}, error) {
-		if s.options.NATSControlPublisher == nil {
-			return nil, huma.Error503ServiceUnavailable("NATS control not available")
+		pm := s.streamService.GetProcessManager()
+		if pm == nil {
+			return nil, huma.Error503ServiceUnavailable("process manager not available")
 		}
 
-		reason := input.Body.Reason
-		if reason == "" {
-			reason = "api_restart"
-		}
-
-		if err := s.options.NATSControlPublisher.Restart(input.StreamID, reason); err != nil {
-			return nil, huma.Error500InternalServerError("failed to send restart command", err)
+		if err := pm.Restart(input.StreamID); err != nil {
+			return nil, huma.Error500InternalServerError("failed to restart stream", err)
 		}
 
 		return &struct{}{}, nil
@@ -301,8 +294,7 @@ func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
 		Codec:     codec,
 		Bitrate:   displayBitrate,
 		StartTime: stream.StartTime,
-		WebRTCURL: fmt.Sprintf(":8889/%s", stream.ID),
-		SRTURL:    fmt.Sprintf(":8890?streamid=read:%s", stream.ID),
+		RTSPURL:   fmt.Sprintf(":8554/%s", stream.ID),
 	}
 
 	// Include configuration details if available
@@ -341,7 +333,7 @@ func (s *Server) mapStreamError(err error) error {
 			return huma.Error409Conflict(streamErr.Message, err)
 		case streams.ErrCodeInvalidParams:
 			return huma.Error400BadRequest(streamErr.Message, err)
-		case streams.ErrCodeConfigError, streams.ErrCodeMediaMTXError:
+		case streams.ErrCodeConfigError:
 			return huma.Error500InternalServerError(streamErr.Message, err)
 		default:
 			return huma.Error500InternalServerError("internal server error", err)

@@ -27,7 +27,6 @@ const (
 	ErrCodeStreamExists    = "STREAM_EXISTS"
 	ErrCodeInvalidParams   = "INVALID_PARAMS"
 	ErrCodeConfigError     = "CONFIG_ERROR"
-	ErrCodeMediaMTXError   = "MEDIAMTX_ERROR"
 	ErrCodeMonitoringError = "MONITORING_ERROR"
 )
 

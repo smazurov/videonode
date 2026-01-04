@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -15,14 +14,12 @@ import (
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/led"
 	"github.com/smazurov/videonode/internal/logging"
-	"github.com/smazurov/videonode/internal/mediamtx"
-	videonats "github.com/smazurov/videonode/internal/nats"
 	"github.com/smazurov/videonode/internal/obs"
 	"github.com/smazurov/videonode/internal/obs/collectors"
 	"github.com/smazurov/videonode/internal/obs/exporters"
+	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/store"
-	"github.com/smazurov/videonode/internal/systemd"
 )
 
 // Options for the CLI - flat structure with toml mapping.
@@ -34,11 +31,9 @@ type Options struct {
 
 	// Streams settings
 	StreamsConfigFile string `help:"Stream definitions file" default:"streams.toml" toml:"streams.config_file" env:"STREAMS_CONFIG_FILE"`
-	MediamtxConfig    string `help:"MediaMTX config file" default:"mediamtx.yml" toml:"streams.mediamtx_config" env:"STREAMS_MEDIAMTX_CONFIG"`
 
-	// MediaMTX settings
-	MediaMTXUseSystemd  bool   `help:"Use systemd-run to wrap ffmpeg commands" default:"false" toml:"mediamtx.use_systemd" env:"MEDIAMTX_USE_SYSTEMD"`
-	MediaMTXServiceName string `help:"MediaMTX systemd service name" default:"videonode_mediamtx.service" toml:"mediamtx.service_name" env:"MEDIAMTX_SERVICE_NAME"`
+	// Streaming server settings
+	StreamingRTSPPort string `help:"RTSP server port" default:":8554" toml:"streaming.rtsp_port" env:"STREAMING_RTSP_PORT"`
 
 	// Observability settings
 	ObsRetentionDuration  string `help:"Metrics retention" default:"12h" toml:"obs.retention_duration" env:"OBS_RETENTION_DURATION"`
@@ -57,23 +52,19 @@ type Options struct {
 	AuthPassword string `help:"Basic auth password" default:"password" toml:"auth.password" env:"AUTH_PASSWORD"`
 
 	// Features settings
-	FeaturesLEDControl      bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
-	FeaturesMediaMTXControl bool `help:"Enable MediaMTX service control" default:"false" toml:"features.mediamtx_control_enabled" env:"FEATURES_MEDIAMTX_CONTROL"`
+	FeaturesLEDControl bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
 
 	// Logging settings
 	LoggingLevel    string `help:"Global logging level (debug, info, warn, error)" default:"info" toml:"logging.level" env:"LOGGING_LEVEL"`
 	LoggingFormat   string `help:"Logging format (text, json)" default:"text" toml:"logging.format" env:"LOGGING_FORMAT"`
-	LoggingObs      string `help:"Observability logging level (debug, info, warn, error)" default:"info" toml:"logging.obs" env:"LOGGING_OBS"`
-	LoggingStreams  string `help:"Streams logging level" default:"info" toml:"logging.streams" env:"LOGGING_STREAMS"`
-	LoggingMediaMTX string `help:"MediaMTX logging level" default:"info" toml:"logging.mediamtx" env:"LOGGING_MEDIAMTX"`
+	LoggingObs       string `help:"Observability logging level (debug, info, warn, error)" default:"info" toml:"logging.obs" env:"LOGGING_OBS"`
+	LoggingStreams   string `help:"Streams logging level" default:"info" toml:"logging.streams" env:"LOGGING_STREAMS"`
+	LoggingStreaming string `help:"Streaming server logging level" default:"info" toml:"logging.streaming" env:"LOGGING_STREAMING"`
 	LoggingDevices  string `help:"Devices logging level" default:"info" toml:"logging.devices" env:"LOGGING_DEVICES"`
 	LoggingEncoders string `help:"Encoders logging level" default:"info" toml:"logging.encoders" env:"LOGGING_ENCODERS"`
 	LoggingCapture  string `help:"Capture logging level" default:"info" toml:"logging.capture" env:"LOGGING_CAPTURE"`
 	LoggingAPI      string `help:"API logging level" default:"info" toml:"logging.api" env:"LOGGING_API"`
-
-	// NATS settings
-	NATSEnabled bool `help:"Enable embedded NATS server" default:"true" toml:"nats.enabled" env:"NATS_ENABLED"`
-	NATSPort    int  `help:"NATS server port" default:"4222" toml:"nats.port" env:"NATS_PORT"`
+	LoggingWebRTC   string `help:"WebRTC logging level" default:"info" toml:"logging.webrtc" env:"LOGGING_WEBRTC"`
 }
 
 func main() {
@@ -89,23 +80,19 @@ func main() {
 			Level:  opts.LoggingLevel,
 			Format: opts.LoggingFormat,
 			Modules: map[string]string{
-				"streams":  opts.LoggingStreams,
-				"mediamtx": opts.LoggingMediaMTX,
-				"obs":      opts.LoggingObs,
-				"devices":  opts.LoggingDevices,
-				"encoders": opts.LoggingEncoders,
-				"capture":  opts.LoggingCapture,
-				"api":      opts.LoggingAPI,
+				"streams":   opts.LoggingStreams,
+				"streaming": opts.LoggingStreaming,
+				"obs":       opts.LoggingObs,
+				"devices":   opts.LoggingDevices,
+				"encoders":  opts.LoggingEncoders,
+				"capture":   opts.LoggingCapture,
+				"api":       opts.LoggingAPI,
+				"webrtc":    opts.LoggingWebRTC,
 			},
 		}
 		logging.Initialize(loggingConfig)
 
 		logger := logging.GetLogger("main")
-
-		// Set MediaMTX global configuration
-		mediamtx.SetConfig(&mediamtx.Config{
-			UseSystemd: opts.MediaMTXUseSystemd,
-		})
 
 		// Initialize observability system if enabled
 		var obsManager *obs.Manager
@@ -159,41 +146,6 @@ func main() {
 		// Create event bus for in-process event handling
 		eventBus := events.New()
 
-		// Initialize NATS server and bridge if enabled
-		var natsServer *videonats.Server
-		var natsBridge *videonats.Bridge
-		var natsControlPublisher *videonats.ControlPublisher
-		if opts.NATSEnabled {
-			natsServer = videonats.NewServer(videonats.ServerOptions{
-				Port:   opts.NATSPort,
-				Name:   "videonode",
-				Logger: logging.GetLogger("nats"),
-			})
-			if startErr := natsServer.Start(); startErr != nil {
-				logger.Error("Failed to start NATS server", "error", startErr)
-			} else {
-				// Create bridge to forward NATS messages to event bus
-				natsBridge = videonats.NewBridge(
-					natsServer.ClientURL(),
-					eventBus,
-					logging.GetLogger("nats"),
-				)
-				if bridgeErr := natsBridge.Start(); bridgeErr != nil {
-					logger.Warn("Failed to start NATS bridge", "error", bridgeErr)
-				}
-
-				// Create control publisher for restart commands
-				var ctrlErr error
-				natsControlPublisher, ctrlErr = videonats.NewControlPublisher(
-					natsServer.ClientURL(),
-					logging.GetLogger("nats"),
-				)
-				if ctrlErr != nil {
-					logger.Warn("Failed to create NATS control publisher", "error", ctrlErr)
-				}
-			}
-		}
-
 		// Initialize LED control if enabled
 		var ledManager *led.Manager
 		var ledController led.Controller
@@ -205,17 +157,11 @@ func main() {
 			ledManager = led.NewManager(ledController, eventBus, logger)
 		}
 
-		// Initialize systemd manager if enabled
-		var systemdManager *systemd.Manager
-		if opts.FeaturesMediaMTXControl {
-			logger.Info("MediaMTX control enabled, initializing systemd manager")
-			mgr, err := systemd.NewManager(context.Background())
-			if err != nil {
-				logger.Warn("Failed to initialize systemd manager", "error", err)
-			} else {
-				systemdManager = mgr
-			}
-		}
+		// Initialize streaming server (RTSP + WebRTC)
+		streamingLogger := logging.GetLogger("streaming")
+		streamingHub := streaming.NewHub(streamingLogger)
+		streamingServer := streaming.NewServer(streamingHub, streamingLogger)
+		webrtcManager := streaming.NewWebRTCManager(streamingHub, streaming.WebRTCConfig{}, logging.GetLogger("webrtc"))
 
 		// Default command starts the server using existing API server
 		// Create stream store
@@ -243,6 +189,7 @@ func main() {
 			CaptureDefaultDelayMs: opts.CaptureDefaultDelayMs,
 			StreamService:         streamService,
 			EventBus:              eventBus,
+			WebRTCManager:         webrtcManager,
 		}
 
 		// Add Prometheus handler if available
@@ -253,17 +200,6 @@ func main() {
 		// Add LED controller if available
 		if ledController != nil {
 			apiOpts.LEDController = ledController
-		}
-
-		// Add systemd manager if available
-		if systemdManager != nil {
-			apiOpts.SystemdManager = systemdManager
-			apiOpts.MediaMTXServiceName = opts.MediaMTXServiceName
-		}
-
-		// Add NATS control publisher if available
-		if natsControlPublisher != nil {
-			apiOpts.NATSControlPublisher = natsControlPublisher
 		}
 
 		server := api.NewServer(apiOpts)
@@ -278,6 +214,12 @@ func main() {
 		}
 
 		hooks.OnStart(func() {
+			// Start RTSP streaming server first (must be ready for FFmpeg)
+			if startErr := streamingServer.Start(opts.StreamingRTSPPort); startErr != nil {
+				logger.Error("Failed to start RTSP server", "error", startErr)
+				os.Exit(1)
+			}
+
 			// NOW start the OBS manager after all exporters are added (only when running server)
 			if obsManager != nil {
 				if startErr := obsManager.Start(); startErr != nil {
@@ -290,9 +232,9 @@ func main() {
 				ledManager.Start()
 			}
 
-			logger.Info("Starting server", "port", opts.Port)
+			logger.Info("Starting HTTP server", "port", opts.Port)
 			if startErr := server.Start(opts.Port); startErr != nil && !errors.Is(startErr, http.ErrServerClosed) {
-				logger.Error("Failed to start server", "error", startErr)
+				logger.Error("Failed to start HTTP server", "error", startErr)
 				os.Exit(1)
 			}
 		})
@@ -300,26 +242,28 @@ func main() {
 		hooks.OnStop(func() {
 			logger.Info("Shutting down server")
 			if stopErr := server.Stop(); stopErr != nil {
-				logger.Error("Error stopping server", "error", stopErr)
+				logger.Error("Error stopping HTTP server", "error", stopErr)
 			}
+
+			// Stop all FFmpeg processes (after HTTP server stops accepting new requests)
+			if pm := streamService.GetProcessManager(); pm != nil {
+				logger.Info("Stopping all stream processes")
+				pm.StopAll()
+			}
+
+			// Stop streaming server after FFmpeg processes
+			if stopErr := streamingServer.Stop(); stopErr != nil {
+				logger.Error("Error stopping RTSP server", "error", stopErr)
+			}
+
+			// Stop WebRTC peers
+			webrtcManager.Stop()
+
 			if ledManager != nil {
 				ledManager.Stop()
 			}
-			if systemdManager != nil {
-				systemdManager.Close()
-			}
 			if obsManager != nil {
 				obsManager.Stop()
-			}
-			// Stop NATS components
-			if natsControlPublisher != nil {
-				natsControlPublisher.Close()
-			}
-			if natsBridge != nil {
-				natsBridge.Stop()
-			}
-			if natsServer != nil {
-				natsServer.Stop()
 			}
 		})
 	})

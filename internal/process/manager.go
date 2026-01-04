@@ -81,8 +81,6 @@ func (m *Manager) Shutdown() {
 // Run starts the subprocess and blocks until it exits or receives a signal
 // Returns the exit code of the subprocess.
 func (m *Manager) Run() int {
-	m.logger.Info("Starting stream process")
-
 	// Parse command string to arguments
 	args, err := parseCommand(m.command)
 	if err != nil {
@@ -212,8 +210,6 @@ func (m *Manager) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 	m.commandMu.RLock()
 	command := m.command
 	m.commandMu.RUnlock()
-
-	m.logger.Info("Starting stream process")
 
 	// Parse command string to arguments
 	args, err := parseCommand(command)
@@ -405,12 +401,11 @@ func (m *Manager) Stop(timeout time.Duration) int {
 	}
 }
 
-// streamOutput streams output from the subprocess with a prefix
-// Uses structured logging to send to journal with proper fields.
+// streamOutput streams output from the subprocess.
+// Routes all output through slog for consistent logging.
 func (m *Manager) streamOutput(reader io.Reader, source string) {
 	scanner := bufio.NewScanner(reader)
 
-	// Create a logger with subprocess context
 	subprocessLogger := m.logger.With(
 		"stream_id", m.streamID,
 		"output_source", source,
@@ -420,31 +415,16 @@ func (m *Manager) streamOutput(reader io.Reader, source string) {
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// Call output handler if set
 		if m.outputHandler != nil {
 			m.outputHandler.HandleLine(source, line)
 		}
 
-		// Log with info level - journal fields will be added automatically
-		// For non-journal output, include [stream_id] prefix for readability
-		if !isJournalLogging() {
-			// Standard output format with prefix for text/json logging
-			fmt.Printf("[%s] %s\n", m.streamID, line)
-		} else {
-			// Structured logging to journal - fields are automatically added
-			subprocessLogger.Info(line)
-		}
+		subprocessLogger.Info(line)
 	}
 
 	if err := scanner.Err(); err != nil {
 		m.logger.Warn("Error reading output", "source", source, "error", err)
 	}
-}
-
-// isJournalLogging checks if journal logging is active.
-func isJournalLogging() bool {
-	// Check JOURNAL_STREAM environment variable set by systemd
-	return os.Getenv("JOURNAL_STREAM") != ""
 }
 
 // parseCommand parses a command string into arguments
