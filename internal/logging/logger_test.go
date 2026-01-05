@@ -26,11 +26,11 @@ func TestModuleLevelOverride(t *testing.T) {
 	})
 
 	tests := []struct {
-		module       string
-		wantDebug    bool
-		wantInfo     bool
-		wantWarn     bool
-		description  string
+		module      string
+		wantDebug   bool
+		wantInfo    bool
+		wantWarn    bool
+		description string
 	}{
 		{"streams", true, true, true, "streams module should log debug (override to debug)"},
 		{"api", false, false, true, "api module should only log warn (override to warn)"},

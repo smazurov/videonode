@@ -65,7 +65,6 @@ export const createStreamDataSlice: StateCreator<
           ...(metrics.fps !== undefined && { fps: metrics.fps }),
           ...(metrics.dropped_frames !== undefined && { dropped_frames: metrics.dropped_frames }),
           ...(metrics.duplicate_frames !== undefined && { duplicate_frames: metrics.duplicate_frames }),
-          ...(metrics.processing_speed !== undefined && { processing_speed: metrics.processing_speed }),
         };
         newStreams.set(metrics.stream_id, updatedStream);
         return { streams: newStreams };

@@ -15,6 +15,7 @@ func NewMultiHandler(handlers ...slog.Handler) *MultiHandler {
 	return &MultiHandler{handlers: handlers}
 }
 
+// Enabled implements slog.Handler.
 func (m *MultiHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	for _, h := range m.handlers {
 		if h.Enabled(ctx, level) {
@@ -24,6 +25,7 @@ func (m *MultiHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return false
 }
 
+// Handle implements slog.Handler.
 func (m *MultiHandler) Handle(ctx context.Context, r slog.Record) error {
 	for _, h := range m.handlers {
 		if h.Enabled(ctx, r.Level) {
@@ -33,6 +35,7 @@ func (m *MultiHandler) Handle(ctx context.Context, r slog.Record) error {
 	return nil
 }
 
+// WithAttrs implements slog.Handler.
 func (m *MultiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	handlers := make([]slog.Handler, len(m.handlers))
 	for i, h := range m.handlers {
@@ -41,6 +44,7 @@ func (m *MultiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &MultiHandler{handlers: handlers}
 }
 
+// WithGroup implements slog.Handler.
 func (m *MultiHandler) WithGroup(name string) slog.Handler {
 	handlers := make([]slog.Handler, len(m.handlers))
 	for i, h := range m.handlers {

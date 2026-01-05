@@ -1,3 +1,4 @@
+// Package streaming provides WebRTC and RTSP streaming functionality.
 package streaming
 
 import (
@@ -36,7 +37,7 @@ func RegisterWebRTCAPI(api huma.API, webrtcManager *WebRTCManager) {
 		Summary:     "WebRTC signaling",
 		Description: "Exchange SDP offer/answer for WebRTC streaming",
 		Tags:        []string{"streaming"},
-	}, func(ctx context.Context, input *WebRTCOfferInput) (*WebRTCAnswerOutput, error) {
+	}, func(_ context.Context, input *WebRTCOfferInput) (*WebRTCAnswerOutput, error) {
 		answer, err := webrtcManager.CreateConsumer(input.StreamID, string(input.RawBody))
 		if err != nil {
 			return nil, huma.Error404NotFound("stream not found or connection failed", err)
@@ -55,7 +56,7 @@ func RegisterWebRTCAPI(api huma.API, webrtcManager *WebRTCManager) {
 		Summary:     "List live streams",
 		Description: "Returns a list of stream IDs that currently have active producers",
 		Tags:        []string{"streaming"},
-	}, func(ctx context.Context, input *struct{}) (*StreamListOutput, error) {
+	}, func(_ context.Context, _ *struct{}) (*StreamListOutput, error) {
 		streams := webrtcManager.hub.ListStreams()
 		return &StreamListOutput{
 			Body: struct {
@@ -66,4 +67,3 @@ func RegisterWebRTCAPI(api huma.API, webrtcManager *WebRTCManager) {
 		}, nil
 	})
 }
-

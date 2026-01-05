@@ -306,7 +306,7 @@ func TestLoadConfigMissingFile(t *testing.T) {
 	}
 }
 
-// LoggingConfig matches the logging fields in main.go Options struct
+// LoggingConfig matches the logging fields in main.go Options struct.
 type LoggingConfig struct {
 	Config           string `help:"Config file path"`
 	LoggingLevel     string `toml:"logging.level" env:"LOGGING_LEVEL"`

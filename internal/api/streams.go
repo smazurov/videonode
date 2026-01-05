@@ -224,17 +224,23 @@ func (s *Server) registerStreamRoutes() {
 		Tags:        []string{"streams"},
 		Errors:      []int{401, 404, 500, 503},
 		Security:    withAuth(),
-	}, func(_ context.Context, input *struct {
+	}, func(ctx context.Context, input *struct {
 		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
 	},
 	) (*struct{}, error) {
-		pm := s.streamService.GetProcessManager()
-		if pm == nil {
-			return nil, huma.Error503ServiceUnavailable("process manager not available")
+		if err := s.streamService.RestartStream(ctx, input.StreamID); err != nil {
+			return nil, s.mapStreamError(err)
 		}
 
-		if err := pm.Restart(input.StreamID); err != nil {
-			return nil, huma.Error500InternalServerError("failed to restart stream", err)
+		// Get updated stream to broadcast
+		stream, err := s.streamService.GetStream(ctx, input.StreamID)
+		if err == nil && s.eventBus != nil {
+			apiStream := s.domainToAPIStream(*stream)
+			s.eventBus.Publish(events.StreamUpdatedEvent{
+				Stream:    apiStream,
+				Action:    "restarted",
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
 		}
 
 		return &struct{}{}, nil

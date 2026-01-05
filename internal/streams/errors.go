@@ -28,6 +28,7 @@ const (
 	ErrCodeInvalidParams   = "INVALID_PARAMS"
 	ErrCodeConfigError     = "CONFIG_ERROR"
 	ErrCodeMonitoringError = "MONITORING_ERROR"
+	ErrCodeProcessError    = "PROCESS_ERROR"
 )
 
 // NewStreamError creates a new stream error.

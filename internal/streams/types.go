@@ -12,6 +12,7 @@ type StreamService interface {
 	CreateStream(ctx context.Context, params StreamCreateParams) (*Stream, error)
 	UpdateStream(ctx context.Context, streamID string, params StreamUpdateParams) (*Stream, error)
 	DeleteStream(ctx context.Context, streamID string) error
+	RestartStream(ctx context.Context, streamID string) error
 	GetStream(ctx context.Context, streamID string) (*Stream, error)
 	GetStreamSpec(ctx context.Context, streamID string) (*StreamSpec, error)
 	ListStreams(ctx context.Context) ([]Stream, error)

@@ -51,8 +51,6 @@ type StreamMetricsAccumulator struct {
 	FPS             string
 	DroppedFrames   string
 	DuplicateFrames string
-	ProcessingSpeed string
-	LastUpdate      time.Time
 }
 
 // SSEExporter exports observability data via Server-Sent Events.
@@ -204,11 +202,7 @@ func (s *SSEExporter) accumulateStreamMetric(metric *obs.MetricPoint) {
 		accumulator.DroppedFrames = strconv.FormatFloat(metric.Value, 'f', 0, 64)
 	case "ffmpeg_duplicate_frames_total":
 		accumulator.DuplicateFrames = strconv.FormatFloat(metric.Value, 'f', 0, 64)
-	case "ffmpeg_processing_speed":
-		accumulator.ProcessingSpeed = strconv.FormatFloat(metric.Value, 'f', 3, 64)
 	}
-
-	accumulator.LastUpdate = time.Now()
 
 	// Send combined stream metrics event
 	s.sendStreamMetricsEvent(accumulator)
@@ -218,12 +212,10 @@ func (s *SSEExporter) accumulateStreamMetric(metric *obs.MetricPoint) {
 func (s *SSEExporter) sendStreamMetricsEvent(accumulator *StreamMetricsAccumulator) {
 	s.eventBus.Publish(events.StreamMetricsEvent{
 		EventType:       "stream_metrics",
-		Timestamp:       accumulator.LastUpdate.Format(time.RFC3339),
 		StreamID:        accumulator.StreamID,
 		FPS:             accumulator.FPS,
 		DroppedFrames:   accumulator.DroppedFrames,
 		DuplicateFrames: accumulator.DuplicateFrames,
-		ProcessingSpeed: accumulator.ProcessingSpeed,
 	})
 }
 

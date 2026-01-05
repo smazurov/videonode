@@ -5,6 +5,7 @@ import { Toaster } from "react-hot-toast";
 
 import Root from "./root";
 import LoginRoute from "./routes/login";
+import VideoRoute from "./routes/video";
 import Streams from "./routes/streams";
 import CreateStream from "./routes/create-stream";
 import EditStream from "./routes/edit-stream";
@@ -16,6 +17,11 @@ const router = createBrowserRouter([
   {
     path: "/login",
     element: <LoginRoute />,
+    errorElement: <ErrorBoundary />,
+  },
+  {
+    path: "/video",
+    element: <VideoRoute />,
     errorElement: <ErrorBoundary />,
   },
   {
