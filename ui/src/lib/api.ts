@@ -132,7 +132,6 @@ export interface StreamData {
   fps?: string;
   dropped_frames?: string;
   duplicate_frames?: string;
-  processing_speed?: string;
 }
 
 export interface StreamListData {
@@ -361,11 +360,9 @@ export interface SSEStreamUpdatedEvent {
 export interface SSEStreamMetricsEvent {
   type: 'stream-metrics';
   stream_id: string;
-  timestamp: string;
   fps?: string;
   dropped_frames?: string;
   duplicate_frames?: string;
-  processing_speed?: string;
 }
 
 export type SSEStreamLifecycleEvent = SSEStreamCreatedEvent | SSEStreamUpdatedEvent | SSEStreamDeletedEvent;
@@ -425,21 +422,28 @@ export async function toggleTestMode(streamId: string, enabled: boolean): Promis
   return updateStream(streamId, { test_mode: enabled });
 }
 
+export async function restartStream(streamId: string): Promise<void> {
+  await makeApiRequest(`/api/streams/${streamId}/restart`, { method: 'POST' });
+}
+
 // WebRTC signaling - sends SDP offer, receives SDP answer
-export async function webrtcSignaling(streamId: string, offer: string): Promise<string> {
+// Auth is optional since the backend /api/webrtc endpoint is public
+export async function webrtcSignaling(streamId: string, offer: string, signal?: AbortSignal): Promise<string> {
   const credentials = localStorage.getItem('auth_credentials');
 
-  if (!credentials) {
-    throw new ApiError(401, 'No credentials found');
+  const headers: HeadersInit = {
+    'Content-Type': 'application/sdp',
+  };
+
+  if (credentials) {
+    headers['Authorization'] = `Basic ${credentials}`;
   }
 
   const response = await fetch(`${API_BASE_URL}/api/webrtc?stream=${encodeURIComponent(streamId)}`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Basic ${credentials}`,
-      'Content-Type': 'application/sdp',
-    },
+    headers,
     body: offer,
+    signal: signal ?? null,
   });
 
   if (!response.ok) {
