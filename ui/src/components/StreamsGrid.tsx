@@ -39,7 +39,7 @@ export function StreamsGrid({
       {streams.map((stream) => (
         <StreamCard
           key={stream.stream_id}
-          stream={stream}
+          streamId={stream.stream_id}
           showVideo={showVideos}
           {...(onDeleteStream && { onDelete: onDeleteStream })}
           {...(onRefresh && { onRefresh: () => onRefresh() })}

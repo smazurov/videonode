@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react-swc";
+import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { vitePluginVersionMark } from "vite-plugin-version-mark";
@@ -8,7 +8,11 @@ export default defineConfig(({ mode, command }) => {
   const plugins = [
     tailwindcss(),
     tsconfigPaths(),
-    react(),
+    react({
+      babel: {
+        plugins: ["babel-plugin-react-compiler"],
+      },
+    }),
     vitePluginVersionMark({
       name: 'videonode-ui',
       command: {
