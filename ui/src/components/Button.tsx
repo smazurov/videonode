@@ -1,5 +1,5 @@
 import React, { JSX } from "react";
-import { Link, LinkProps, useNavigation } from "react-router-dom";
+import { Link, LinkProps } from "react-router-dom";
 import { cva, cn } from "../utils";
 
 const sizes = {
@@ -159,12 +159,15 @@ type ButtonPropsType = Pick<
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonPropsType>(
   ({ type, disabled, onClick, formNoValidate, loading, ...props }, ref) => {
+    const renderCount = React.useRef(0);
+    renderCount.current++;
+    console.log('[Button] render #' + renderCount.current, { title: props.title });
+
     const classes = cn(
       "group outline-none",
       props.fullWidth ? "w-full" : "",
       loading ? "pointer-events-none" : "",
     );
-    const navigation = useNavigation();
 
     return (
       <button
@@ -173,30 +176,17 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonPropsType>(
         className={classes}
         type={type}
         disabled={disabled}
-        onClick={(e) => {
-          console.log('[Button] click fired', { title: props.title, disabled, loading });
-          onClick?.(e);
-        }}
-        onMouseDown={(e) => {
-          console.log('[Button] mousedown', { title: props.title });
-          props?.onMouseDown?.(e);
-        }}
-        onMouseUp={() => {
-          console.log('[Button] mouseup', { title: props.title });
-        }}
+        onClick={onClick}
         onMouseLeave={props?.onMouseLeave}
+        onMouseDown={props?.onMouseDown}
+        onMouseUp={props?.onMouseUp}
         name={props.name}
         value={props.value}
         title={props.title}
       >
         <ButtonContent
           {...props}
-          loading={
-            loading ??
-            (type === "submit" &&
-              (navigation.state === "submitting" || navigation.state === "loading") &&
-              navigation.formMethod?.toLowerCase() === "post")
-          }
+          loading={loading ?? false}
         />
       </button>
     );

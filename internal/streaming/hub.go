@@ -1,10 +1,8 @@
 package streaming
 
 import (
-	"encoding/hex"
 	"errors"
 	"log/slog"
-	"strings"
 	"sync"
 
 	"github.com/AlexxIT/go2rtc/pkg/core"
@@ -15,38 +13,6 @@ import (
 
 // ErrStreamNotFound is returned when a requested stream doesn't exist.
 var ErrStreamNotFound = errors.New("stream not found")
-
-// h264ProfileFromFmtp extracts the H264 profile byte from an fmtp line.
-// Returns the profile_idc byte (e.g., 0x64 for High, 0x42 for Baseline).
-// Checks profile-level-id first, falls back to sprop-parameter-sets SPS.
-func h264ProfileFromFmtp(fmtp string) byte {
-	// Try profile-level-id first (format: PPCCLL where PP is profile_idc)
-	if idx := strings.Index(fmtp, "profile-level-id="); idx >= 0 {
-		plid := fmtp[idx+17:]
-		if end := strings.IndexAny(plid, ";, "); end > 0 {
-			plid = plid[:end]
-		}
-		if len(plid) >= 2 {
-			if b, err := hex.DecodeString(plid[:2]); err == nil && len(b) > 0 {
-				return b[0]
-			}
-		}
-	}
-
-	// Fall back to SPS from sprop-parameter-sets
-	profile, _ := core.DecodeH264(fmtp)
-	switch profile {
-	case "Baseline":
-		return 0x42
-	case "Main":
-		return 0x4D
-	case "Extended":
-		return 0x58
-	case "High":
-		return 0x64
-	}
-	return 0
-}
 
 // Hub manages stream producers and routes consumers to them.
 // Producers are RTSP connections from FFmpeg (ANNOUNCE).
@@ -179,58 +145,18 @@ func (h *Hub) WireConsumer(streamID string, cons core.Consumer) error {
 			continue
 		}
 
-		// Find the matching codec from the consumer's media
-		// For H264, match by profile to ensure SDP reflects actual stream profile
+		// Find matching codec by name
 		var consumerCodec *core.Codec
-		var fallbackCodec *core.Codec
-
-		producerProfile := byte(0)
-		if receiver.Codec.Name == core.CodecH264 {
-			producerProfile = h264ProfileFromFmtp(receiver.Codec.FmtpLine)
-		}
-
-		// First pass: find exact profile match or collect fallback
 		for _, c := range matchedMedia.Codecs {
-			if c.Name != receiver.Codec.Name {
-				continue
-			}
-
-			// For non-H264 or unknown producer profile, take first match
-			if receiver.Codec.Name != core.CodecH264 || producerProfile == 0 {
+			if c.Name == receiver.Codec.Name {
 				consumerCodec = c
 				break
 			}
-
-			// H264: check profile match
-			consumerProfile := h264ProfileFromFmtp(c.FmtpLine)
-			if consumerProfile == producerProfile {
-				consumerCodec = c
-				break
-			}
-
-			// Keep first H264 as fallback
-			if fallbackCodec == nil {
-				fallbackCodec = c
-			}
-		}
-
-		// Use fallback if no exact profile match
-		if consumerCodec == nil {
-			consumerCodec = fallbackCodec
 		}
 
 		if consumerCodec == nil {
 			h.logger.Warn("No matching codec", "stream_id", streamID, "codec", receiver.Codec.Name)
 			continue
-		}
-
-		if receiver.Codec.Name == core.CodecH264 {
-			consumerProfile := h264ProfileFromFmtp(consumerCodec.FmtpLine)
-			h.logger.Debug("H264 codec selected",
-				"stream_id", streamID,
-				"producer_profile", producerProfile,
-				"consumer_profile", consumerProfile,
-				"producer_fmtp", receiver.Codec.FmtpLine)
 		}
 
 		// Track sender count for RTP passthrough optimization
