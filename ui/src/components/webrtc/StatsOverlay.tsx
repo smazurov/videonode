@@ -13,32 +13,6 @@ interface StatsOverlayProps {
   onClose?: () => void;
 }
 
-function parseH264Profile(sdpFmtpLine: string | undefined): string | null {
-  if (!sdpFmtpLine) return null;
-
-  const match = sdpFmtpLine.match(/profile-level-id=([0-9a-fA-F]{6})/);
-  if (!match?.[1]) return null;
-
-  const profileLevelId = match[1];
-  const profileIdc = parseInt(profileLevelId.substring(0, 2), 16);
-  const levelIdc = parseInt(profileLevelId.substring(4, 6), 16);
-
-  const profiles: Record<number, string> = {
-    66: 'Baseline',
-    77: 'Main',
-    88: 'Extended',
-    100: 'High',
-    110: 'High10',
-    122: 'High422',
-    244: 'High444',
-  };
-
-  const profileName = profiles[profileIdc] ?? `Profile ${profileIdc}`;
-  const level = (levelIdc / 10).toFixed(1);
-
-  return `(${profileName} L${level})`;
-}
-
 function calculateQuality(stats: WebRTCStats, packetsStalled: boolean): QualityScore {
   const { packetsLost, packetsReceived } = stats;
 
@@ -140,20 +114,7 @@ export function StatsOverlay({ pc, videoRef, streamId, onClose }: Readonly<Stats
             if (r.codecId) {
               const mimeType = codecMap.get(r.codecId);
               if (mimeType) {
-                const codecName = mimeType.split('/')[1]?.toUpperCase() ?? 'unknown';
-                let profile: string | null = null;
-
-                if (codecName === 'H264') {
-                  const videoReceiver = pc.getReceivers().find(recv => recv.track?.kind === 'video');
-                  const h264Codec = videoReceiver?.getParameters().codecs?.find(c =>
-                    c.mimeType.toLowerCase().includes('h264')
-                  );
-                  if (h264Codec) {
-                    profile = parseH264Profile(h264Codec.sdpFmtpLine);
-                  }
-                }
-
-                newStats.videoCodec = profile ? `${codecName} ${profile}` : codecName;
+                newStats.videoCodec = mimeType.split('/')[1]?.toUpperCase() ?? 'unknown';
               }
             }
           } else if (r.kind === 'audio') {

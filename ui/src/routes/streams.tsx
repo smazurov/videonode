@@ -1,12 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useStreamStore } from '../hooks/useStreamStore';
 import { useSSEManager } from '../hooks/useSSEManager';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { InfoBar } from '../components/InfoBar';
 import { StreamsGrid } from '../components/StreamsGrid';
-import { 
+import {
   SSEStreamLifecycleEvent,
   SSEStreamMetricsEvent
 } from '../lib/api';
@@ -14,7 +15,16 @@ import {
 export default function Streams() {
   const navigate = useNavigate();
   const { logout } = useAuthStore();
-  const { loading, error, fetchStreams, deleteStream, getStreamsArray, addStreamFromSSE, removeStreamFromSSE, updateStreamMetrics } = useStreamStore();
+
+  // Use shallow comparison to prevent re-renders when streams Map reference changes but content is same
+  const { loading, error, streams } = useStreamStore(
+    useShallow((state) => ({
+      loading: state.loading,
+      error: state.error,
+      streams: state.streams,
+    }))
+  );
+  const { fetchStreams, deleteStream, addStreamFromSSE, removeStreamFromSSE } = useStreamStore();
 
   // Setup SSE listener for stream lifecycle and metrics events
   useSSEManager({
@@ -29,8 +39,9 @@ export default function Streams() {
         removeStreamFromSSE(event.stream_id);
       }
     },
-    onStreamMetricsEvent: (event: SSEStreamMetricsEvent) => {
-      updateStreamMetrics(event);
+    onStreamMetricsEvent: (_event: SSEStreamMetricsEvent) => {
+      // Disabled: frequent updates cause re-renders that break button clicks
+      // updateStreamMetrics(event);
     }
   });
 
@@ -59,6 +70,9 @@ export default function Streams() {
 
 
 
+  // Memoize streams array to prevent re-renders on every SSE update
+  const streamsArray = useMemo(() => Array.from(streams.values()), [streams]);
+
   // Bottom bar content - using InfoBar component
   const bottomBar = <InfoBar />;
 
@@ -69,7 +83,7 @@ export default function Streams() {
     >
       <DashboardLayout.MainContent>
         <StreamsGrid
-          streams={getStreamsArray()}
+          streams={streamsArray}
           loading={loading}
           error={error}
           onRefresh={fetchStreams}
