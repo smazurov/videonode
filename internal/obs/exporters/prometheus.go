@@ -183,7 +183,6 @@ func (d *DynamicCollector) extractLabels(labels map[string]string) ([]string, []
 // PromExporter exports observability data in Prometheus format using dynamic collector.
 type PromExporter struct {
 	config    obs.ExporterConfig
-	registry  *prometheus.Registry
 	collector *DynamicCollector
 	handler   http.Handler
 	buffer    []obs.DataPoint
@@ -192,11 +191,10 @@ type PromExporter struct {
 
 // NewPromExporter creates a new Prometheus exporter with dynamic metrics support.
 func NewPromExporter() *PromExporter {
-	registry := prometheus.NewRegistry()
 	collector := NewDynamicCollector()
 
-	// Register our dynamic collector
-	registry.MustRegister(collector)
+	// Register our dynamic collector with the default registry
+	prometheus.MustRegister(collector)
 
 	config := obs.ExporterConfig{
 		Name:          "prometheus",
@@ -208,9 +206,8 @@ func NewPromExporter() *PromExporter {
 
 	return &PromExporter{
 		config:    config,
-		registry:  registry,
 		collector: collector,
-		handler:   promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
+		handler:   promhttp.Handler(), // Uses default gatherer (includes promauto metrics)
 		buffer:    make([]obs.DataPoint, 0, config.BufferSize),
 	}
 }

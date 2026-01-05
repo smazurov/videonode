@@ -55,16 +55,16 @@ type Options struct {
 	FeaturesLEDControl bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
 
 	// Logging settings
-	LoggingLevel    string `help:"Global logging level (debug, info, warn, error)" default:"info" toml:"logging.level" env:"LOGGING_LEVEL"`
-	LoggingFormat   string `help:"Logging format (text, json)" default:"text" toml:"logging.format" env:"LOGGING_FORMAT"`
+	LoggingLevel     string `help:"Global logging level (debug, info, warn, error)" default:"info" toml:"logging.level" env:"LOGGING_LEVEL"`
+	LoggingFormat    string `help:"Logging format (text, json)" default:"text" toml:"logging.format" env:"LOGGING_FORMAT"`
 	LoggingObs       string `help:"Observability logging level (debug, info, warn, error)" default:"info" toml:"logging.obs" env:"LOGGING_OBS"`
 	LoggingStreams   string `help:"Streams logging level" default:"info" toml:"logging.streams" env:"LOGGING_STREAMS"`
 	LoggingStreaming string `help:"Streaming server logging level" default:"info" toml:"logging.streaming" env:"LOGGING_STREAMING"`
-	LoggingDevices  string `help:"Devices logging level" default:"info" toml:"logging.devices" env:"LOGGING_DEVICES"`
-	LoggingEncoders string `help:"Encoders logging level" default:"info" toml:"logging.encoders" env:"LOGGING_ENCODERS"`
-	LoggingCapture  string `help:"Capture logging level" default:"info" toml:"logging.capture" env:"LOGGING_CAPTURE"`
-	LoggingAPI      string `help:"API logging level" default:"info" toml:"logging.api" env:"LOGGING_API"`
-	LoggingWebRTC   string `help:"WebRTC logging level" default:"info" toml:"logging.webrtc" env:"LOGGING_WEBRTC"`
+	LoggingDevices   string `help:"Devices logging level" default:"info" toml:"logging.devices" env:"LOGGING_DEVICES"`
+	LoggingEncoders  string `help:"Encoders logging level" default:"info" toml:"logging.encoders" env:"LOGGING_ENCODERS"`
+	LoggingCapture   string `help:"Capture logging level" default:"info" toml:"logging.capture" env:"LOGGING_CAPTURE"`
+	LoggingAPI       string `help:"API logging level" default:"info" toml:"logging.api" env:"LOGGING_API"`
+	LoggingWebRTC    string `help:"WebRTC logging level" default:"info" toml:"logging.webrtc" env:"LOGGING_WEBRTC"`
 }
 
 func main() {
@@ -160,6 +160,12 @@ func main() {
 		streamingHub := streaming.NewHub(streamingLogger)
 		streamingServer := streaming.NewServer(streamingHub, streamingLogger)
 		webrtcManager := streaming.NewWebRTCManager(streamingHub, streaming.WebRTCConfig{}, logging.GetLogger("webrtc"))
+
+		// Close WebRTC consumers when stream producer is replaced (enables client reconnection)
+		streamingHub.SetOnProducerReplaced(func(streamID string) {
+			streamingLogger.Info("Producer replaced, closing WebRTC consumers", "stream_id", streamID)
+			webrtcManager.CloseStreamConsumers(streamID)
+		})
 
 		// Default command starts the server using existing API server
 		// Create stream store

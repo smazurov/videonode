@@ -118,7 +118,7 @@ type Options struct {
 		Available() []string
 		Patterns() []string
 	}
-	WebRTCManager         *streaming.WebRTCManager // WebRTC signaling manager
+	WebRTCManager *streaming.WebRTCManager // WebRTC signaling manager
 }
 
 // NewServer creates a new API server with Huma v2 using Go 1.22+ native routing.
