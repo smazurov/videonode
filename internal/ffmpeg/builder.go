@@ -79,6 +79,11 @@ func BuildCommand(p *Params) string {
 		}
 	}
 
+	// Apply fps_mode passthrough if enabled (passes frames as-is without dropping/duplicating)
+	if slices.Contains(p.Options, OptionVsyncPassthrough) {
+		cmd.WriteString(" -fps_mode passthrough")
+	}
+
 	// Audio filters
 	if p.AudioFilters != "" {
 		cmd.WriteString(" -af " + p.AudioFilters)
@@ -106,9 +111,10 @@ func BuildCommand(p *Params) string {
 	// Encoder
 	cmd.WriteString(" -c:v " + p.Encoder)
 
-	// Force constrained baseline profile for WebRTC compatibility
+	// H264 profile and level for WebRTC - High profile for better compression
+	// Level 5.2 supports 4K@60fps up to ~25Mbps
 	if strings.Contains(p.Encoder, "h264") {
-		cmd.WriteString(" -profile:v constrained_baseline")
+		cmd.WriteString(" -profile:v high -level:v 5.2")
 	}
 
 	// Rate control - only add what's set
@@ -139,8 +145,12 @@ func BuildCommand(p *Params) string {
 	if p.Preset != "" {
 		cmd.WriteString(" -preset " + p.Preset)
 	}
+	// GOP settings - default to 60 frames (~2s at 30fps) for WebRTC compatibility
 	if p.GOP > 0 {
 		cmd.WriteString(fmt.Sprintf(" -g %d", p.GOP))
+	} else {
+		// Default GOP for all encoders if not specified
+		cmd.WriteString(" -g 60")
 	}
 	if p.BFrames >= 0 {
 		cmd.WriteString(fmt.Sprintf(" -bf %d", p.BFrames))
@@ -149,10 +159,6 @@ func BuildCommand(p *Params) string {
 	// Low latency settings for software encoders
 	if !isHardwareEncoder(p.Encoder) {
 		cmd.WriteString(" -tune zerolatency")
-		if p.GOP == 0 {
-			// Set default GOP if not specified
-			cmd.WriteString(" -g 20")
-		}
 		cmd.WriteString(" -keyint_min 15")
 		cmd.WriteString(" -sc_threshold 0")
 	}

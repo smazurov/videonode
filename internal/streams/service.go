@@ -325,6 +325,31 @@ func (s *service) DeleteStream(_ context.Context, streamID string) error {
 	return nil
 }
 
+// RestartStream restarts a stream's FFmpeg process and updates StartTime.
+func (s *service) RestartStream(_ context.Context, streamID string) error {
+	stream, exists := s.getStreamSafe(streamID)
+	if !exists {
+		return NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("stream %s not found", streamID), nil)
+	}
+
+	// Update StartTime in memory
+	s.streamsMutex.Lock()
+	stream.StartTime = time.Now()
+	s.streamsMutex.Unlock()
+
+	// Restart FFmpeg process
+	if s.processManager != nil {
+		if err := s.processManager.Restart(streamID); err != nil {
+			return NewStreamError(ErrCodeProcessError,
+				"failed to restart stream process", err)
+		}
+	}
+
+	s.logger.Info("Stream restarted successfully", "stream_id", streamID)
+	return nil
+}
+
 // GetStream retrieves a specific stream.
 func (s *service) GetStream(_ context.Context, streamID string) (*Stream, error) {
 	stream, exists := s.getStreamSafe(streamID)

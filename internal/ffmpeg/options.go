@@ -17,6 +17,7 @@ const (
 	OptionLowLatency          OptionType = "low_latency"
 	OptionCopytsWithGenpts    OptionType = "copyts_with_genpts"
 	OptionVsyncPassthrough    OptionType = "vsync_passthrough"
+	OptionVerboseLogging      OptionType = "verbose_logging"
 )
 
 // Base returns the ffmpeg command with standard flags.
@@ -131,6 +132,13 @@ var AllOptions = []Option{
 		Name:        "Vsync Passthrough",
 		Description: "Pass frames exactly as they arrive from input without dropping or duplicating (fps_mode passthrough)",
 		Category:    CategoryTiming,
+		AppDefault:  false,
+	},
+	{
+		Key:         OptionVerboseLogging,
+		Name:        "Verbose Logging",
+		Description: "Show detailed FFmpeg warnings (DTS/PTS issues, encoder errors, input failures)",
+		Category:    CategoryErrorHandle,
 		AppDefault:  false,
 	},
 }
@@ -292,6 +300,9 @@ func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionT
 			// Note: fps_mode needs to be applied AFTER input
 			// It will be handled separately in BuildStreamCommand
 			appliedOptions = append(appliedOptions, OptionVsyncPassthrough)
+		case OptionVerboseLogging:
+			cmd.WriteString(" -loglevel warning")
+			appliedOptions = append(appliedOptions, OptionVerboseLogging)
 		}
 	}
 

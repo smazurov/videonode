@@ -56,7 +56,7 @@ const btnVariants = cva({
     // Size classes
     "justify-center items-center shrink-0",
     // Transition classes
-    "outline-none transition-all duration-200",
+    "outline-none transition-colors duration-200",
     // Text classes
     "font-medium text-center leading-tight",
     // States
@@ -153,6 +153,7 @@ type ButtonPropsType = Pick<
   | "onMouseLeave"
   | "onMouseDown"
   | "onMouseUp"
+  | "title"
 > &
   React.ComponentProps<typeof ButtonContent>;
 
@@ -164,7 +165,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonPropsType>(
       loading ? "pointer-events-none" : "",
     );
     const navigation = useNavigation();
-    
+
     return (
       <button
         ref={ref}
@@ -172,12 +173,21 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonPropsType>(
         className={classes}
         type={type}
         disabled={disabled}
-        onClick={onClick}
-        onMouseDown={props?.onMouseDown}
-        onMouseUp={props?.onMouseUp}
+        onClick={(e) => {
+          console.log('[Button] click fired', { title: props.title, disabled, loading });
+          onClick?.(e);
+        }}
+        onMouseDown={(e) => {
+          console.log('[Button] mousedown', { title: props.title });
+          props?.onMouseDown?.(e);
+        }}
+        onMouseUp={() => {
+          console.log('[Button] mouseup', { title: props.title });
+        }}
         onMouseLeave={props?.onMouseLeave}
         name={props.name}
         value={props.value}
+        title={props.title}
       >
         <ButtonContent
           {...props}
