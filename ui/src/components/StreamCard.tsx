@@ -5,24 +5,31 @@ import { Card } from './Card';
 import { Button } from './Button';
 import { WebRTCPlayer } from './webrtc';
 import { FFmpegCommandSheet } from './FFmpegCommandSheet';
-import { StreamData, buildStreamURL, toggleTestMode, restartStream } from '../lib/api';
+import { buildStreamURL, toggleTestMode, restartStream } from '../lib/api';
 import { truncateDeviceId } from '../utils';
+import { useStreamStore } from '../hooks/useStreamStore';
 
 interface StreamCardProps {
-  stream: StreamData;
+  streamId: string;
   onDelete?: (streamId: string) => void;
   onRefresh?: (streamId: string) => void;
   showVideo?: boolean;
   className?: string;
 }
 
-export function StreamCard({ stream, onDelete, onRefresh, showVideo = true, className = '' }: Readonly<StreamCardProps>) {
+export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, className = '' }: Readonly<StreamCardProps>) {
+  // Subscribe directly to this stream - only re-renders when THIS stream changes
+  const stream = useStreamStore((state) => state.streams.get(streamId));
+
   const navigate = useNavigate();
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTogglingTestMode, setIsTogglingTestMode] = useState(false);
   const [showFFmpegSheet, setShowFFmpegSheet] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Guard against missing stream (e.g., after deletion)
+  if (!stream) return null;
 
   const handleDelete = async () => {
     if (!onDelete || isDeleting) return;

@@ -61,18 +61,24 @@ export const createDeduplicationSlice: StateCreator<
   },
   
   addStreamFromSSE: (stream) => {
-    const { recentOperations, addStream } = get();
-    
+    const { recentOperations, addStream, streams } = get();
+
     // Check for recent POST operation
     const recentOp = recentOperations.get(stream.stream_id);
-    if (recentOp && 
-        recentOp.type === 'create' && 
+    if (recentOp &&
+        recentOp.type === 'create' &&
         (Date.now() - recentOp.timestamp) < DEDUP_WINDOW_MS) {
       // Skip duplicate - this is an SSE echo of our POST
       return;
     }
-    
-    // Not a duplicate, add the stream
+
+    // Check if stream data actually changed (avoid unnecessary re-renders)
+    const existingStream = streams.get(stream.stream_id);
+    if (existingStream && JSON.stringify(existingStream) === JSON.stringify(stream)) {
+      return; // No change, skip update
+    }
+
+    // Not a duplicate and data changed, add the stream
     addStream(stream);
   },
   
