@@ -34,6 +34,16 @@ Configure via `config.toml` or environment variables. See `config.toml` for all 
 ./videonode validate-encoders
 ```
 
+## Testing
+
+```bash
+# Run unit tests
+go test ./...
+
+# Run with integration tests (requires hardware, longer timeouts)
+go test -tags=integration ./...
+```
+
 ## API
 
 Full API documentation: http://localhost:8090/docs
