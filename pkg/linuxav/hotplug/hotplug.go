@@ -3,7 +3,7 @@
 // Package hotplug provides pure Go device hotplug monitoring using netlink.
 //
 // This package monitors kernel device events without cgo by directly listening
-// to NETLINK_KOBJECT_UEVENT messages from the kernel.
+// to netlinkKobjectUEvent messages from the kernel.
 package hotplug
 
 import (
@@ -54,13 +54,13 @@ type Monitor struct {
 	filtersMu sync.RWMutex
 }
 
-// NETLINK_KOBJECT_UEVENT is the netlink protocol for kernel object events.
-const NETLINK_KOBJECT_UEVENT = 15
+// netlinkKobjectUEvent is the netlink protocol for kernel object events.
+const netlinkKobjectUEvent = 15
 
 // NewMonitor creates a new device event monitor.
 func NewMonitor() (*Monitor, error) {
 	// Create netlink socket
-	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, NETLINK_KOBJECT_UEVENT)
+	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, netlinkKobjectUEvent)
 	if err != nil {
 		return nil, err
 	}
