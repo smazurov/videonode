@@ -54,3 +54,6 @@ changelog:
       - "^chore:"
       - "^style:"
       - "^Merge"
+
+release:
+  prerelease: "{{ .Env.GORELEASER_PRERELEASE }}"
