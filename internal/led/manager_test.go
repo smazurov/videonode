@@ -3,6 +3,7 @@ package led
 import (
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 // Mock controller for testing.
 type mockController struct {
+	mu       sync.Mutex
 	setCalls []setCall
 }
 
@@ -21,8 +23,16 @@ type setCall struct {
 }
 
 func (m *mockController) Set(ledType string, enabled bool, pattern string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.setCalls = append(m.setCalls, setCall{ledType, enabled, pattern})
 	return nil
+}
+
+func (m *mockController) getSetCalls() []setCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]setCall(nil), m.setCalls...)
 }
 
 func (m *mockController) Available() []string {
@@ -58,11 +68,12 @@ func TestManager_AllStreamsEnabled(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// System LED should be set to solid
-	if len(ctrl.setCalls) == 0 {
+	calls := ctrl.getSetCalls()
+	if len(calls) == 0 {
 		t.Fatal("No LED control calls made")
 	}
 
-	lastCall := ctrl.setCalls[len(ctrl.setCalls)-1]
+	lastCall := calls[len(calls)-1]
 	if lastCall.pattern != "solid" {
 		t.Errorf("Expected solid pattern when all enabled, got %q", lastCall.pattern)
 	}
@@ -98,11 +109,12 @@ func TestManager_SomeStreamsDisabled(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// System LED should be set to blink
-	if len(ctrl.setCalls) == 0 {
+	calls := ctrl.getSetCalls()
+	if len(calls) == 0 {
 		t.Fatal("No LED control calls made")
 	}
 
-	lastCall := ctrl.setCalls[len(ctrl.setCalls)-1]
+	lastCall := calls[len(calls)-1]
 	if lastCall.pattern != "blink" {
 		t.Errorf("Expected blink pattern when some disabled, got %q", lastCall.pattern)
 	}
