@@ -26,7 +26,7 @@ func MapAPICodec(apiCodec string, provider types.ValidationProvider) (*EncoderCo
 	availableValidators := registry.GetAvailableValidators()
 
 	// Collect all working encoders from validation results
-	var allWorkingEncoders []string
+	allWorkingEncoders := make([]string, 0, len(results.H264.Working)+len(results.H265.Working))
 	allWorkingEncoders = append(allWorkingEncoders, results.H264.Working...)
 	allWorkingEncoders = append(allWorkingEncoders, results.H265.Working...)
 

@@ -111,12 +111,10 @@ func (h *h264StreamHandler) sendNAL(template *rtp.Packet, nal []byte) {
 func parseSpsPps(fmtpLine string) (sps, pps []byte) {
 	const prefix = "sprop-parameter-sets="
 
-	idx := strings.Index(fmtpLine, prefix)
-	if idx < 0 {
+	_, value, found := strings.Cut(fmtpLine, prefix)
+	if !found {
 		return nil, nil
 	}
-
-	value := fmtpLine[idx+len(prefix):]
 	if semi := strings.Index(value, ";"); semi >= 0 {
 		value = value[:semi]
 	}
