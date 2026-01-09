@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import toast from 'react-hot-toast';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useStreamStore } from '../hooks/useStreamStore';
 import { useSSEManager } from '../hooks/useSSEManager';
@@ -41,7 +42,16 @@ export default function Streams() {
     if (event.type === 'stream-created') {
       addStreamFromSSE(event.stream);
     } else if (event.type === 'stream-updated') {
+      // Get current state before update to detect changes
+      const currentStream = useStreamStore.getState().streamsById[event.stream.stream_id];
+
       addStreamFromSSE(event.stream);
+
+      if (event.action === 'restarted') {
+        toast.success(`Stream '${event.stream.stream_id}' has restarted`);
+      } else if (currentStream && currentStream.test_mode !== event.stream.test_mode) {
+        toast.success(`Test mode ${event.stream.test_mode ? 'enabled' : 'disabled'}`);
+      }
     } else if (event.type === 'stream-deleted') {
       removeStreamFromSSE(event.stream_id);
     }
