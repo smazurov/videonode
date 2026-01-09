@@ -4,14 +4,15 @@ package devices
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/jochenvg/go-udev"
 	"github.com/smazurov/videonode/internal/logging"
-	v4l2detector "github.com/smazurov/videonode/v4l2_detector"
+	"github.com/smazurov/videonode/pkg/linuxav/hotplug"
+	"github.com/smazurov/videonode/pkg/linuxav/v4l2"
 )
 
 type linuxDetector struct {
@@ -32,7 +33,7 @@ func newDetector() DeviceDetector {
 
 // FindDevices returns all currently available V4L2 devices.
 func (d *linuxDetector) FindDevices() ([]DeviceInfo, error) {
-	v4l2Devices, err := v4l2detector.FindDevices()
+	v4l2Devices, err := v4l2.FindDevices()
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +41,7 @@ func (d *linuxDetector) FindDevices() ([]DeviceInfo, error) {
 	devices := make([]DeviceInfo, len(v4l2Devices))
 	for i, v4l2Device := range v4l2Devices {
 		// Get device type and ready status in single device open
-		status := v4l2detector.GetDeviceStatus(v4l2Device.DevicePath)
+		status := v4l2.GetDeviceStatus(v4l2Device.DevicePath)
 
 		devices[i] = DeviceInfo{
 			DevicePath: v4l2Device.DevicePath,
@@ -57,7 +58,7 @@ func (d *linuxDetector) FindDevices() ([]DeviceInfo, error) {
 
 // GetDeviceFormats returns supported formats for a device.
 func (d *linuxDetector) GetDeviceFormats(devicePath string) ([]FormatInfo, error) {
-	v4l2Formats, err := v4l2detector.GetDeviceFormats(devicePath)
+	v4l2Formats, err := v4l2.GetFormats(devicePath)
 	if err != nil {
 		return nil, err
 	}
@@ -76,12 +77,12 @@ func (d *linuxDetector) GetDeviceFormats(devicePath string) ([]FormatInfo, error
 
 // GetDevicePathByID returns the device path for a given device ID.
 func (d *linuxDetector) GetDevicePathByID(deviceID string) (string, error) {
-	return v4l2detector.GetDevicePathByID(deviceID)
+	return v4l2.GetDevicePathByID(deviceID)
 }
 
 // GetDeviceResolutions returns supported resolutions for a format.
 func (d *linuxDetector) GetDeviceResolutions(devicePath string, pixelFormat uint32) ([]Resolution, error) {
-	v4l2Resolutions, err := v4l2detector.GetDeviceResolutions(devicePath, pixelFormat)
+	v4l2Resolutions, err := v4l2.GetResolutions(devicePath, pixelFormat)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +100,7 @@ func (d *linuxDetector) GetDeviceResolutions(devicePath string, pixelFormat uint
 
 // GetDeviceFramerates returns supported framerates for a resolution.
 func (d *linuxDetector) GetDeviceFramerates(devicePath string, pixelFormat uint32, width, height uint32) ([]Framerate, error) {
-	v4l2Framerates, err := v4l2detector.GetDeviceFramerates(devicePath, pixelFormat, width, height)
+	v4l2Framerates, err := v4l2.GetFramerates(devicePath, pixelFormat, width, height)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +116,7 @@ func (d *linuxDetector) GetDeviceFramerates(devicePath string, pixelFormat uint3
 	return framerates, nil
 }
 
-// StartMonitoring starts monitoring for device changes using udev and signal monitoring.
+// StartMonitoring starts monitoring for device changes using periodic polling and signal monitoring.
 func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBroadcaster) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -135,7 +136,7 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 			// Log initial device status
 			switch device.Type {
 			case DeviceTypeHDMI:
-				status := v4l2detector.GetDVTimings(device.DevicePath)
+				status := v4l2.GetDVTimings(device.DevicePath)
 				if device.Ready {
 					d.logger.Info("HDMI device initialized with signal",
 						"device_id", device.DeviceID,
@@ -160,62 +161,86 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 		d.logger.Info("Initialized with V4L2 devices", "count", len(devices))
 	}
 
-	// Start udev monitoring
-	u := udev.Udev{}
-	mon := u.NewMonitorFromNetlink("udev")
-	if mon == nil {
-		return fmt.Errorf("failed to create udev monitor")
-	}
-
-	// Monitor USB devices
-	mon.FilterAddMatchSubsystemDevtype("usb", "usb_device")
-
-	deviceCh, errCh, err := mon.DeviceChan(d.ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get udev device channel: %w", err)
-	}
-
-	// Error monitoring goroutine
-	go func() {
-		for err := range errCh {
-			d.logger.Error("Udev monitor error", "error", err)
-		}
-	}()
-
-	// Device monitoring goroutine
-	go func() {
-		d.logger.Info("Udev monitoring started for USB devices")
-		for {
-			select {
-			case <-d.ctx.Done():
-				d.logger.Info("Udev monitor stopped")
-				return
-			case dev, ok := <-deviceCh:
-				if !ok {
-					d.logger.Info("Udev device channel closed")
-					return
-				}
-
-				action := dev.Action()
-				if action == "add" || action == "remove" {
-					d.logger.Debug("Udev event",
-						"action", action, "device", dev.Syspath(), "subsystem", dev.Subsystem(), "devtype", dev.Devtype())
-
-					// For add events, give kernel more time to enumerate V4L2 devices
-					if action == "add" {
-						time.Sleep(1 * time.Second)
-					}
-
-					d.checkAndBroadcastDeviceChanges()
-				}
-			}
-		}
-	}()
+	// Start hotplug monitoring via netlink
+	go d.monitorHotplug()
 
 	// Start signal monitoring for HDMI devices
 	go d.monitorDeviceSignals()
 
 	return nil
+}
+
+// monitorHotplug monitors for device additions/removals via netlink.
+func (d *linuxDetector) monitorHotplug() {
+	monitor, err := hotplug.NewMonitor()
+	if err != nil {
+		d.logger.Warn("Failed to create hotplug monitor, falling back to polling", "error", err)
+		d.pollDeviceChanges()
+		return
+	}
+	defer func() { _ = monitor.Close() }()
+
+	// Filter for USB devices (which includes USB webcams and capture cards)
+	monitor.AddSubsystemFilter(hotplug.SubsystemUSB)
+
+	events := make(chan hotplug.Event, 32)
+	go func() {
+		if runErr := monitor.Run(d.ctx, events); runErr != nil && !errors.Is(runErr, context.Canceled) {
+			d.logger.Error("Hotplug monitor error", "error", runErr)
+		}
+	}()
+
+	d.logger.Info("Hotplug monitoring started via netlink")
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			d.logger.Info("Hotplug monitor stopped")
+			return
+		case event, ok := <-events:
+			if !ok {
+				d.logger.Info("Hotplug event channel closed")
+				return
+			}
+
+			// Only process USB device add/remove events
+			if event.DevType != "usb_device" {
+				continue
+			}
+
+			if event.Action == hotplug.ActionAdd || event.Action == hotplug.ActionRemove {
+				d.logger.Debug("USB hotplug event",
+					"action", event.Action,
+					"devpath", event.DevPath,
+					"devtype", event.DevType)
+
+				// Give kernel time to enumerate V4L2 devices for add events
+				if event.Action == hotplug.ActionAdd {
+					time.Sleep(1 * time.Second)
+				}
+
+				d.checkAndBroadcastDeviceChanges()
+			}
+		}
+	}
+}
+
+// pollDeviceChanges is a fallback that periodically checks for device additions/removals.
+func (d *linuxDetector) pollDeviceChanges() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	d.logger.Info("Device polling started (fallback mode, checking every 2 seconds)")
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			d.logger.Info("Device polling stopped")
+			return
+		case <-ticker.C:
+			d.checkAndBroadcastDeviceChanges()
+		}
+	}
 }
 
 // StopMonitoring stops the device monitoring.
@@ -273,8 +298,8 @@ func (d *linuxDetector) checkHDMISignals() {
 		}
 
 		// Get current signal status using non-querying method (only for devices with signal)
-		status := v4l2detector.GetDVTimings(device.DevicePath)
-		newReady := (status.State == v4l2detector.SignalStateLocked)
+		status := v4l2.GetDVTimings(device.DevicePath)
+		newReady := (status.State == v4l2.SignalStateLocked)
 
 		// Log periodic check at debug level
 		if d.logger.Enabled(d.ctx, slog.LevelDebug) {
@@ -350,7 +375,7 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 			return
 		default:
 			// Wait for source change event (blocking with 60 second timeout)
-			result, err := v4l2detector.WaitForSourceChange(devicePath, 60000)
+			result, err := v4l2.WaitForSourceChange(devicePath, 60000)
 			if err != nil {
 				d.logger.Debug("Event monitoring not supported, falling back to polling only",
 					"device_id", deviceID,
@@ -362,8 +387,8 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 				d.logger.Debug("Source change event received", "device_id", deviceID, "changes", result)
 
 				// Event occurred, check signal status
-				status := v4l2detector.GetDVTimings(devicePath)
-				ready := (status.State == v4l2detector.SignalStateLocked)
+				status := v4l2.GetDVTimings(devicePath)
+				ready := (status.State == v4l2.SignalStateLocked)
 
 				d.mu.Lock()
 				if device, exists := d.lastDevices[deviceID]; exists {
@@ -395,19 +420,19 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 }
 
 // signalStateString converts signal state to human-readable string.
-func signalStateString(state v4l2detector.SignalState) string {
+func signalStateString(state v4l2.SignalState) string {
 	switch state {
-	case v4l2detector.SignalStateNoLink:
+	case v4l2.SignalStateNoLink:
 		return "no_link"
-	case v4l2detector.SignalStateNoSignal:
+	case v4l2.SignalStateNoSignal:
 		return "no_signal"
-	case v4l2detector.SignalStateUnstable:
+	case v4l2.SignalStateUnstable:
 		return "unstable"
-	case v4l2detector.SignalStateLocked:
+	case v4l2.SignalStateLocked:
 		return "locked"
-	case v4l2detector.SignalStateOutOfRange:
+	case v4l2.SignalStateOutOfRange:
 		return "out_of_range"
-	case v4l2detector.SignalStateNotSupported:
+	case v4l2.SignalStateNotSupported:
 		return "not_supported"
 	default:
 		return "no_device"
