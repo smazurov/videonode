@@ -28,13 +28,19 @@ type StreamService interface {
 	BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string)
 }
 
+// StreamCollector is the interface for stream metrics collectors.
+type StreamCollector interface {
+	Stop() error
+}
+
 // Stream represents a video stream's runtime state
 // Configuration is stored separately in StreamSpec.
 type Stream struct {
-	ID             string    `json:"stream_id"`
-	Enabled        bool      `json:"enabled"`    // Device online/offline state, set by monitoring
-	StartTime      time.Time `json:"start_time"` // When stream was started
-	ProgressSocket string    `json:"-"`          // Runtime socket path, not serialized
+	ID             string          `json:"stream_id"`
+	Enabled        bool            `json:"enabled"`    // Device online/offline state, set by monitoring
+	StartTime      time.Time       `json:"start_time"` // When stream was started
+	ProgressSocket string          `json:"-"`          // Runtime socket path, not serialized
+	Collector      StreamCollector `json:"-"`          // Metrics collector for this stream
 }
 
 // StreamCreateParams contains parameters for creating a new stream.
