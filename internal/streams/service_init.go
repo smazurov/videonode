@@ -1,10 +1,11 @@
 package streams
 
 import (
+	"context"
 	"fmt"
 	"time"
 
-	"github.com/smazurov/videonode/internal/obs/collectors"
+	"github.com/smazurov/videonode/internal/metrics/collectors"
 )
 
 // LoadStreamsFromConfig loads existing streams from TOML config into memory.
@@ -45,28 +46,27 @@ func (s *service) LoadStreamsFromConfig() error {
 
 // InitializeStream initializes a single stream with all integrations.
 func (s *service) InitializeStream(streamConfig StreamSpec) error {
-	// Create stream runtime state
-	// Enabled defaults to false and will be set by device monitoring
-	stream := &Stream{
-		ID:             streamConfig.ID,
-		Enabled:        false,      // Runtime state, set by device monitoring
-		StartTime:      time.Now(), // Track when loaded into memory
-		ProgressSocket: getSocketPath(streamConfig.ID),
+	socketPath := getSocketPath(streamConfig.ID)
+
+	// Create and start metrics collector for this stream
+	ffmpegCollector := collectors.NewFFmpegCollector(socketPath, streamConfig.ID)
+	if err := ffmpegCollector.Start(context.Background()); err != nil {
+		s.logger.Warn("Failed to start metrics collector for stream", "stream_id", streamConfig.ID, "error", err)
 	}
 
-	// Store the stream in memory - only lock for the write
+	// Create stream runtime state
+	stream := &Stream{
+		ID:             streamConfig.ID,
+		Enabled:        false, // Runtime state, set by device monitoring
+		StartTime:      time.Now(),
+		ProgressSocket: socketPath,
+		Collector:      ffmpegCollector,
+	}
+
+	// Store the stream in memory
 	s.streamsMutex.Lock()
 	s.streams[streamConfig.ID] = stream
 	s.streamsMutex.Unlock()
-
-	// Initialize OBS monitoring
-	if s.obsManager != nil {
-		socketPath := getSocketPath(streamConfig.ID)
-		ffmpegCollector := collectors.NewFFmpegCollector(socketPath, "", streamConfig.ID)
-		if addErr := s.obsManager.AddCollector(ffmpegCollector); addErr != nil {
-			s.logger.Warn("Failed to register OBS collector for stream", "stream_id", streamConfig.ID, "error", addErr)
-		}
-	}
 
 	s.logger.Info("Initialized stream", "stream_id", streamConfig.ID, "device", streamConfig.Device, "codec", streamConfig.FFmpeg.Codec)
 	return nil
