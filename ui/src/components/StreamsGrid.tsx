@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react';
 import { StreamCard } from './StreamCard';
-import { StreamData } from '../lib/api';
 import { Button } from './Button';
 import { Card } from './Card';
 
 const SHOW_VIDEOS_KEY = 'streamGrid.showVideos';
 
 export interface StreamsGridProps {
-  streams: StreamData[];
+  streamIds: string[];
   loading?: boolean;
   error?: string | null;
   onRefresh?: () => void;
@@ -17,7 +16,7 @@ export interface StreamsGridProps {
 }
 
 export function StreamsGrid({
-  streams,
+  streamIds,
   loading = false,
   error = null,
   onRefresh,
@@ -36,13 +35,13 @@ export function StreamsGrid({
 
   const renderGridView = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-      {streams.map((stream) => (
+      {streamIds.map((streamId) => (
         <StreamCard
-          key={stream.stream_id}
-          streamId={stream.stream_id}
+          key={streamId}
+          streamId={streamId}
           showVideo={showVideos}
           {...(onDeleteStream && { onDelete: onDeleteStream })}
-          {...(onRefresh && { onRefresh: () => onRefresh() })}
+          {...(onRefresh && { onRefresh })}
         />
       ))}
     </div>
@@ -75,7 +74,7 @@ export function StreamsGrid({
           Create your first video stream to get started
         </p>
         {onCreateStream && (
-          <Button 
+          <Button
             onClick={onCreateStream}
             theme="primary"
             size="LG"
@@ -146,8 +145,8 @@ export function StreamsGrid({
           {error || 'An error occurred while fetching streams'}
         </p>
         {onRefresh && (
-          <Button 
-            onClick={onRefresh} 
+          <Button
+            onClick={onRefresh}
             theme="light"
             size="MD"
             text="Try Again"
@@ -166,13 +165,13 @@ export function StreamsGrid({
             Video Streams
           </h2>
           <p className="text-gray-600 dark:text-gray-300 mt-1">
-            {streams.length} active {streams.length === 1 ? 'stream' : 'streams'}
+            {streamIds.length} active {streamIds.length === 1 ? 'stream' : 'streams'}
           </p>
         </div>
-        
+
         <div className="flex items-center space-x-3">
           {/* Show Videos Checkbox */}
-          {streams.length > 0 && (
+          {streamIds.length > 0 && (
             <label className="flex items-center space-x-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -183,7 +182,7 @@ export function StreamsGrid({
               <span className="text-sm text-gray-700 dark:text-gray-300">Show Videos</span>
             </label>
           )}
-          
+
           {/* Action Buttons */}
           <div className="flex space-x-2">
             {onRefresh && (
@@ -195,9 +194,9 @@ export function StreamsGrid({
                 text={loading ? 'Refreshing...' : 'Refresh'}
               />
             )}
-            
+
             {onCreateStream && (
-              <Button 
+              <Button
                 onClick={onCreateStream}
                 theme="primary"
                 size="MD"
@@ -217,7 +216,7 @@ export function StreamsGrid({
       {(() => {
         if (loading) return renderLoadingState();
         if (error) return renderErrorState();
-        if (streams.length === 0) return renderEmptyState();
+        if (streamIds.length === 0) return renderEmptyState();
         return renderGridView();
       })()}
     </div>
