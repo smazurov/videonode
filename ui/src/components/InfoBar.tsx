@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { 
+import {
   SignalIcon,
   ComputerDesktopIcon,
   VideoCameraIcon,
@@ -7,8 +7,8 @@ import {
   ClockIcon
 } from "@heroicons/react/24/outline";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { 
-  getHealth, 
+import {
+  getHealth,
   getEncoders,
   type HealthData,
   type EncoderData
@@ -121,8 +121,8 @@ function formatLastUpdated(date: Date): string {
 
 export function InfoBar({ className }: Readonly<InfoBarProps>) {
   const devices = useDeviceStore((state) => state.devices);
-  const streamsMap = useStreamStore((state) => state.streams);
-  const streams = useMemo(() => Array.from(streamsMap.values()), [streamsMap]);
+  const streamsById = useStreamStore((state) => state.streamsById);
+  const streams = useMemo(() => Object.values(streamsById), [streamsById]);
   const { version: versionInfo } = useVersion();
   
   // Debug: Log when devices change
