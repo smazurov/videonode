@@ -1,0 +1,56 @@
+version: 2
+
+project_name: videonode
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: videonode
+    main: ./main.go
+    binary: videonode
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    tags:
+      - ui_embed
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?:'
+    - title: Bug Fixes
+      regexp: '^fix(\(.+\))?:'
+    - title: Performance
+      regexp: '^perf(\(.+\))?:'
+    - title: Refactoring
+      regexp: '^refactor(\(.+\))?:'
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "^style:"
+      - "^Merge"
