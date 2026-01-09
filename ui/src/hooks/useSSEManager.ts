@@ -51,11 +51,16 @@ function setupGlobalSSE(): void {
       }
     };
 
-    // Handle stream lifecycle events (create/delete)
+    // Handle stream lifecycle events
     eventSource.addEventListener('stream-created', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string) as SSEStreamCreatedEvent;
-        const streamEvent: SSEStreamLifecycleEvent = data;
+        const data = JSON.parse(event.data as string);
+        const streamEvent: SSEStreamCreatedEvent = {
+          type: 'stream-created',
+          stream: data.stream,
+          action: data.action,
+          timestamp: data.timestamp,
+        };
         for (const handler of globalStreamLifecycleHandlers) {
           handler(streamEvent);
         }
@@ -66,8 +71,13 @@ function setupGlobalSSE(): void {
 
     eventSource.addEventListener('stream-deleted', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string) as SSEStreamDeletedEvent;
-        const streamEvent: SSEStreamLifecycleEvent = data;
+        const data = JSON.parse(event.data as string);
+        const streamEvent: SSEStreamDeletedEvent = {
+          type: 'stream-deleted',
+          stream_id: data.stream_id,
+          action: data.action,
+          timestamp: data.timestamp,
+        };
         for (const handler of globalStreamLifecycleHandlers) {
           handler(streamEvent);
         }
@@ -78,8 +88,13 @@ function setupGlobalSSE(): void {
 
     eventSource.addEventListener('stream-updated', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string) as SSEStreamUpdatedEvent;
-        const streamEvent: SSEStreamLifecycleEvent = data;
+        const data = JSON.parse(event.data as string);
+        const streamEvent: SSEStreamUpdatedEvent = {
+          type: 'stream-updated',
+          stream: data.stream,
+          action: data.action,
+          timestamp: data.timestamp,
+        };
         for (const handler of globalStreamLifecycleHandlers) {
           handler(streamEvent);
         }
@@ -91,10 +106,13 @@ function setupGlobalSSE(): void {
     // Handle stream metrics events
     eventSource.addEventListener('stream-metrics', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string) as Omit<SSEStreamMetricsEvent, 'type'>;
-        const metricsEvent: SSEStreamMetricsEvent = { 
+        const data = JSON.parse(event.data as string);
+        const metricsEvent: SSEStreamMetricsEvent = {
           type: 'stream-metrics',
-          ...data 
+          stream_id: data.stream_id,
+          fps: data.fps,
+          dropped_frames: data.dropped_frames,
+          duplicate_frames: data.duplicate_frames,
         };
         for (const handler of globalStreamMetricsHandlers) {
           handler(metricsEvent);

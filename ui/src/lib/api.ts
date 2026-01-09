@@ -351,7 +351,7 @@ export interface SSEStreamDeletedEvent {
 export interface SSEStreamUpdatedEvent {
   type: 'stream-updated';
   stream: StreamData;
-  action: 'updated';
+  action: 'updated' | 'restarted';
   timestamp: string;
 }
 
