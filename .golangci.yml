@@ -72,6 +72,8 @@ linters:
         - (github.com/smazurov/videonode/internal/obs.Collector).Stop
         - (github.com/smazurov/videonode/internal/obs.Exporter).Stop
         - (*github.com/smazurov/videonode/internal/obs.Manager).Stop
+        - (*github.com/smazurov/videonode/internal/metrics/collectors.FFmpegCollector).Stop
+        - (*github.com/smazurov/videonode/internal/metrics/collectors.MPPCollector).Stop
         - (*github.com/smazurov/videonode/internal/config.Watcher).Stop
     govet:
       enable-all: true
