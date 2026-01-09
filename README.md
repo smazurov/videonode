@@ -1,37 +1,47 @@
 # VideoNode
 
-Video capture and streaming service for V4L2 devices with hardware encoder support.
+A self-hosted video streaming server for Linux that turns V4L2 capture devices (webcams, HDMI capture cards, etc.) into RTSP and WebRTC streams. Designed for headless operation on single-board computers like Orange Pi and Raspberry Pi.
+
+VideoNode automatically detects connected capture devices, validates available hardware encoders, and generates optimized FFmpeg pipelines for low-latency streaming.
 
 ## Quick Start
 
 ```bash
-# Build the V4L2 detector
-cd v4l2_detector && ./build.sh && cd ..
-
-# Build and run
 go build -o videonode .
 ./videonode
 ```
 
-The server runs on port 8090. API documentation is available at http://localhost:8090/docs
+## Servers
+
+- **HTTP API**: http://localhost:8090 (configurable)
+- **RTSP**: rtsp://localhost:8554 (configurable)
+- **API Docs**: http://localhost:8090/docs
 
 ## Configuration
 
-Configure via `config.toml` or environment variables. See `config.toml` for all options.
+- `config.toml` - Main configuration (server, logging, auth, features)
+- `streams.toml` - Stream definitions and encoder results
+- Environment variables with `VIDEONODE_` prefix override config.toml
 
 ## Features
 
-- V4L2 device detection and capture
+- V4L2 device detection and real-time monitoring (hotplug)
 - Hardware encoder validation (NVENC, VAAPI, QSV, AMF)
-- RTSP/WebRTC streaming via go2rtc
-- Real-time device monitoring
-- Prometheus metrics export
+- RTSP and WebRTC streaming
+- Prometheus metrics at `/metrics`
+- SSE events for device discovery
 
 ## Commands
 
 ```bash
-# Validate hardware encoders
+# Start server (default)
+./videonode
+
+# Validate hardware encoders and save to streams.toml
 ./videonode validate-encoders
+
+# Run a specific stream process with hot-reload
+./videonode stream <stream-id>
 ```
 
 ## Testing
@@ -46,6 +56,6 @@ go test -tags=integration ./...
 
 ## API
 
-Full API documentation: http://localhost:8090/docs
+Full documentation at http://localhost:8090/docs
 
-Basic auth required for all endpoints except `/api/health`.
+Basic auth required for all endpoints except `/api/health`, `/api/version`, and `/metrics`.
