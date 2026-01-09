@@ -47,7 +47,6 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
           <StreamCardActions
             streamId={streamId}
             onDelete={onDelete}
-            onRefresh={onRefresh}
             onShowFFmpegSheet={handleShowFFmpegSheet}
             onRequestPlayerRefresh={handleRequestPlayerRefresh}
           />
