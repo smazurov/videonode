@@ -17,6 +17,8 @@ builds:
     goarch:
       - amd64
       - arm64
+    tags:
+      - ui_embed
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
