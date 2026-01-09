@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -16,33 +16,46 @@ export default function Streams() {
   const navigate = useNavigate();
   const { logout } = useAuthStore();
 
-  // Use shallow comparison to prevent re-renders when streams Map reference changes but content is same
-  const { loading, error, streams } = useStreamStore(
+  // Subscribe to stream IDs only - won't re-render on data updates
+  const streamIds = useStreamStore((state) => state.streamIds);
+
+  // Separate selector for loading/error state
+  const { loading, error } = useStreamStore(
     useShallow((state) => ({
       loading: state.loading,
       error: state.error,
-      streams: state.streams,
     }))
   );
-  const { fetchStreams, deleteStream, addStreamFromSSE, removeStreamFromSSE } = useStreamStore();
+
+  const {
+    fetchStreams,
+    deleteStream,
+    addStreamFromSSE,
+    removeStreamFromSSE,
+    updateStreamMetrics
+  } = useStreamStore();
+
+  // Stable SSE event handlers
+  const handleStreamLifecycle = useCallback((event: SSEStreamLifecycleEvent) => {
+    console.log('Received SSE stream lifecycle event:', event);
+
+    if (event.type === 'stream-created') {
+      addStreamFromSSE(event.stream);
+    } else if (event.type === 'stream-updated') {
+      addStreamFromSSE(event.stream);
+    } else if (event.type === 'stream-deleted') {
+      removeStreamFromSSE(event.stream_id);
+    }
+  }, [addStreamFromSSE, removeStreamFromSSE]);
+
+  const handleStreamMetrics = useCallback((event: SSEStreamMetricsEvent) => {
+    updateStreamMetrics(event);
+  }, [updateStreamMetrics]);
 
   // Setup SSE listener for stream lifecycle and metrics events
   useSSEManager({
-    onStreamLifecycleEvent: (event: SSEStreamLifecycleEvent) => {
-      console.log('Received SSE stream lifecycle event:', event);
-      
-      if (event.type === 'stream-created') {
-        addStreamFromSSE(event.stream);
-      } else if (event.type === 'stream-updated') {
-        addStreamFromSSE(event.stream); // This will update existing stream due to deduplication
-      } else if (event.type === 'stream-deleted') {
-        removeStreamFromSSE(event.stream_id);
-      }
-    },
-    onStreamMetricsEvent: (_event: SSEStreamMetricsEvent) => {
-      // Disabled: frequent updates cause re-renders that break button clicks
-      // updateStreamMetrics(event);
-    }
+    onStreamLifecycleEvent: handleStreamLifecycle,
+    onStreamMetricsEvent: handleStreamMetrics,
   });
 
   // Load streams on mount
@@ -50,28 +63,22 @@ export default function Streams() {
     fetchStreams();
   }, [fetchStreams]);
 
-  const handleDeleteStream = async (streamId: string) => {
+  const handleDeleteStream = useCallback(async (streamId: string) => {
     try {
       await deleteStream(streamId);
-      // SSE event will update the UI
     } catch (error) {
       console.error('Failed to delete stream:', error);
       throw error;
     }
-  };
+  }, [deleteStream]);
 
-  const handleCreateStream = () => {
+  const handleCreateStream = useCallback(() => {
     navigate('/streams/new');
-  };
+  }, [navigate]);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     logout();
-  };
-
-
-
-  // Memoize streams array to prevent re-renders on every SSE update
-  const streamsArray = useMemo(() => Array.from(streams.values()), [streams]);
+  }, [logout]);
 
   // Bottom bar content - using InfoBar component
   const bottomBar = <InfoBar />;
@@ -83,7 +90,7 @@ export default function Streams() {
     >
       <DashboardLayout.MainContent>
         <StreamsGrid
-          streams={streamsArray}
+          streamIds={streamIds}
           loading={loading}
           error={error}
           onRefresh={fetchStreams}
