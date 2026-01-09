@@ -5,7 +5,6 @@ import { FFmpegCommandSheet } from './FFmpegCommandSheet';
 import { StreamCardActions } from './StreamCardActions';
 import { StreamMetrics } from './StreamMetrics';
 import { buildStreamURL } from '../lib/api';
-import { truncateDeviceId } from '../utils';
 import { useStreamStore } from '../hooks/useStreamStore';
 
 interface StreamCardProps {
@@ -27,29 +26,16 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
     setRefreshKey(prev => prev + 1);
   }, []);
 
+  const handleShowFFmpegSheet = useCallback(() => {
+    setShowFFmpegSheet(true);
+  }, []);
+
+  const handleCloseFFmpegSheet = useCallback(() => {
+    setShowFFmpegSheet(false);
+  }, []);
+
   // Guard against missing stream (e.g., after deletion)
   if (!stream) return null;
-
-  const calculateUptime = (startTime?: string) => {
-    if (!startTime) return 'N/A';
-    
-    try {
-      const start = new Date(startTime);
-      const now = new Date();
-      const uptimeMs = now.getTime() - start.getTime();
-      
-      if (uptimeMs < 0) return 'N/A';
-      
-      const seconds = Math.floor(uptimeMs / 1000);
-      const hours = Math.floor(seconds / 3600);
-      const minutes = Math.floor((seconds % 3600) / 60);
-      const remainingSeconds = seconds % 60;
-      
-      return `${hours}h, ${minutes}m, ${remainingSeconds}s`;
-    } catch {
-      return 'N/A';
-    }
-  };
 
   return (
     <Card className={`h-full ${className}`}>
@@ -62,7 +48,7 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
             streamId={streamId}
             onDelete={onDelete}
             onRefresh={onRefresh}
-            onShowFFmpegSheet={() => setShowFFmpegSheet(true)}
+            onShowFFmpegSheet={handleShowFFmpegSheet}
             onRequestPlayerRefresh={handleRequestPlayerRefresh}
           />
         </div>
@@ -83,35 +69,28 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
 
         {/* Stream Metadata */}
         <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-600 dark:text-gray-300">Device:</span>
-            <span className="text-gray-900 dark:text-white font-medium truncate ml-2" title={stream.device_id}>
-              {truncateDeviceId(stream.device_id)}
+          <div className="flex justify-between gap-2">
+            <span className="text-gray-600 dark:text-gray-300 shrink-0">Device:</span>
+            <span className="text-gray-900 dark:text-white font-medium font-mono truncate" title={stream.device_id}>
+              {stream.device_id}
             </span>
           </div>
-          
+
           <div className="flex justify-between">
             <span className="text-gray-600 dark:text-gray-300">Codec (in/out):</span>
-            <span className="text-gray-900 dark:text-white font-medium uppercase">
+            <span className="text-gray-900 dark:text-white font-medium font-mono uppercase">
               {stream.input_format ? `${stream.input_format}/${stream.codec}` : stream.codec}
             </span>
           </div>
-          
+
           {stream.bitrate && (
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-300">Bitrate:</span>
-              <span className="text-gray-900 dark:text-white font-medium">
+              <span className="text-gray-900 dark:text-white font-medium font-mono">
                 {stream.bitrate}
               </span>
             </div>
           )}
-          
-          <div className="flex justify-between">
-            <span className="text-gray-600 dark:text-gray-300">Uptime:</span>
-            <span className="text-gray-900 dark:text-white font-medium">
-              {calculateUptime(stream.start_time)}
-            </span>
-          </div>
 
           <StreamMetrics streamId={streamId} />
         </div>
@@ -143,9 +122,9 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
       </Card.Content>
       
       {/* FFmpeg Command Sheet */}
-      <FFmpegCommandSheet 
+      <FFmpegCommandSheet
         isOpen={showFFmpegSheet}
-        onClose={() => setShowFFmpegSheet(false)}
+        onClose={handleCloseFFmpegSheet}
         streamId={stream.stream_id}
         {...(onRefresh && { onRefresh })}
       />
