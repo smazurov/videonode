@@ -222,6 +222,7 @@ type rtcpMonitorInterceptorFactory struct {
 	streamID string
 }
 
+// NewInterceptor creates a new RTCP monitoring interceptor.
 func (f *rtcpMonitorInterceptorFactory) NewInterceptor(_ string) (interceptor.Interceptor, error) {
 	return &rtcpMonitorInterceptor{streamID: f.streamID}, nil
 }
@@ -232,6 +233,7 @@ type rtcpMonitorInterceptor struct {
 	streamID string
 }
 
+// BindRTCPReader wraps the RTCP reader to monitor incoming packets.
 func (r *rtcpMonitorInterceptor) BindRTCPReader(reader interceptor.RTCPReader) interceptor.RTCPReader {
 	return &rtcpMonitorReader{reader: reader, streamID: r.streamID}
 }
