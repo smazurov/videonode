@@ -12,14 +12,12 @@ import (
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
-	"github.com/smazurov/videonode/internal/obs"
 	"github.com/smazurov/videonode/internal/types"
 )
 
 // ServiceOptions contains optional configuration for StreamServiceImpl.
 type ServiceOptions struct {
 	Store           Store                // Stream store for persistence (required)
-	OBSManager      *obs.Manager         // OBS manager for monitoring
 	EncoderSelector encoders.Selector    // Custom encoder selector
 	EventBus        *events.Bus          // Event bus for broadcasting state changes
 	ProcessManager  StreamProcessManager // Process manager for FFmpeg subprocesses (optional, created if nil)
@@ -32,7 +30,6 @@ type service struct {
 	streams         map[string]*Stream // In-memory stream cache
 	streamsMutex    sync.RWMutex
 	processManager  StreamProcessManager // Process manager for FFmpeg subprocesses
-	obsManager      *obs.Manager         // OBS manager for monitoring
 	encoderSelector encoders.Selector    // Encoder selection strategy
 	eventBus        *events.Bus          // Event bus for broadcasting state changes
 	logger          *slog.Logger         // Module logger
@@ -75,7 +72,6 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 	processor.setStreamStateGetter(svc.getStreamSafe)
 
 	// Apply options
-	svc.obsManager = opts.OBSManager
 	svc.eventBus = opts.EventBus
 
 	// Initialize process manager
@@ -308,16 +304,18 @@ func (s *service) DeleteStream(_ context.Context, streamID string) error {
 			"failed to delete stream from configuration", err)
 	}
 
+	// Get stream reference before removing from memory
+	stream, _ := s.getStreamSafe(streamID)
+
 	// Remove from memory
 	s.streamsMutex.Lock()
 	delete(s.streams, streamID)
 	s.streamsMutex.Unlock()
 
-	// Remove OBS monitoring if configured
-	if s.obsManager != nil {
-		collectorName := "ffmpeg_" + streamID
-		if err := s.obsManager.RemoveCollector(collectorName); err != nil {
-			s.logger.Warn("Failed to remove OBS monitoring for stream", "stream_id", streamID, "error", err)
+	// Stop collector (will also clean up metrics)
+	if stream != nil && stream.Collector != nil {
+		if err := stream.Collector.Stop(); err != nil {
+			s.logger.Warn("Failed to stop stream collector", "stream_id", streamID, "error", err)
 		}
 	}
 

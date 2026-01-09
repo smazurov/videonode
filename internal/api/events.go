@@ -9,7 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/sse"
 	"github.com/smazurov/videonode/internal/events"
-	"github.com/smazurov/videonode/internal/obs/exporters"
+	"github.com/smazurov/videonode/internal/metrics/exporters"
 )
 
 // registerSSERoutes registers the native Huma SSE endpoint.
