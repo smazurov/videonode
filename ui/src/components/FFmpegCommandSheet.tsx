@@ -53,9 +53,9 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
   const [editedCommand, setEditedCommand] = useState('');
   const [selectedEncoder, setSelectedEncoder] = useState('');
   const [showEncoderOverride, setShowEncoderOverride] = useState(false);
-  const { getStreamById } = useStreamStore();
-  
-  const streamData = getStreamById(streamId);
+
+  // Use selector to only re-render when THIS stream's custom_ffmpeg_command changes
+  const customCommand = useStreamStore((state) => state.streamsById[streamId]?.custom_ffmpeg_command);
 
   // Get the currently displayed command based on mode and selections
   const getCurrentCommand = (): FFmpegCommandData | null => {
@@ -127,7 +127,7 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
   const startEditing = () => {
     if (currentCommand) {
       // If stream has custom command, start with that; otherwise use current displayed command
-      const initialCommand = streamData?.custom_ffmpeg_command || currentCommand.command;
+      const initialCommand = customCommand || currentCommand.command;
       setEditedCommand(initialCommand);
       setMode('edit');
     }
