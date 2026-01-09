@@ -28,14 +28,14 @@ func GetDeviceStatus(devicePath string) DeviceStatus {
 	defer syscall.Close(fd)
 
 	// Get capabilities to check driver
-	cap := v4l2_capability{}
-	if err := ioctl(fd, VIDIOC_QUERYCAP, unsafe.Pointer(&cap)); err != nil {
+	capability := v4l2Capability{}
+	if ioctlErr := ioctl(fd, vidiocQuerycap, unsafe.Pointer(&capability)); ioctlErr != nil {
 		return status
 	}
 
 	// Try to get DV timings - if it works or returns specific errors, it's HDMI
-	timings := v4l2_dv_timings{}
-	err = ioctl(fd, VIDIOC_G_DV_TIMINGS, unsafe.Pointer(&timings))
+	timings := v4l2DVTimings{}
+	err = ioctl(fd, vidiocGDVTimings, unsafe.Pointer(&timings))
 
 	if err == nil || errors.Is(err, syscall.ENOLINK) || errors.Is(err, syscall.ENOLCK) {
 		// Device supports DV timings - it's an HDMI capture device
@@ -49,7 +49,7 @@ func GetDeviceStatus(devicePath string) DeviceStatus {
 	}
 
 	// Check if it's a UVC webcam
-	driver := cstr(cap.driver[:])
+	driver := cstr(capability.driver[:])
 	if driver == "uvcvideo" {
 		status.DeviceType = DeviceTypeWebcam
 		status.Ready = true
@@ -74,8 +74,8 @@ func GetDVTimings(devicePath string) SignalStatus {
 	}
 	defer syscall.Close(fd)
 
-	timings := v4l2_dv_timings{}
-	err = ioctl(fd, VIDIOC_G_DV_TIMINGS, unsafe.Pointer(&timings))
+	timings := v4l2DVTimings{}
+	err = ioctl(fd, vidiocGDVTimings, unsafe.Pointer(&timings))
 
 	if err == nil {
 		// Check if timings are valid
@@ -118,11 +118,11 @@ func WaitForSourceChange(devicePath string, timeoutMs int) (int, error) {
 	defer syscall.Close(fd)
 
 	// Subscribe to source change events
-	sub := v4l2_event_subscription{
-		typ: V4L2_EVENT_SOURCE_CHANGE,
+	sub := v4l2EventSubscription{
+		typ: v4l2EventSourceChange,
 	}
 
-	if subErr := ioctl(fd, VIDIOC_SUBSCRIBE_EVENT, unsafe.Pointer(&sub)); subErr != nil {
+	if subErr := ioctl(fd, vidiocSubscribeEvent, unsafe.Pointer(&sub)); subErr != nil {
 		if errors.Is(subErr, syscall.ENOTTY) || errors.Is(subErr, syscall.EINVAL) {
 			return 0, ErrEventsNotSupported
 		}
@@ -130,7 +130,7 @@ func WaitForSourceChange(devicePath string, timeoutMs int) (int, error) {
 	}
 
 	// Ensure we unsubscribe when done
-	defer func() { _ = ioctl(fd, VIDIOC_UNSUBSCRIBE_EVENT, unsafe.Pointer(&sub)) }()
+	defer func() { _ = ioctl(fd, vidiocUnsubscribeEvent, unsafe.Pointer(&sub)) }()
 
 	// Wait for event using select with exception fd set (for V4L2 events)
 	var exceptFds syscall.FdSet
@@ -151,9 +151,9 @@ func WaitForSourceChange(devicePath string, timeoutMs int) (int, error) {
 	}
 
 	// Dequeue the event
-	event := v4l2_event{}
-	if err := ioctl(fd, VIDIOC_DQEVENT, unsafe.Pointer(&event)); err != nil {
-		return 0, err
+	event := v4l2Event{}
+	if dqErr := ioctl(fd, vidiocDqevent, unsafe.Pointer(&event)); dqErr != nil {
+		return 0, dqErr
 	}
 
 	// Return the change flags
@@ -167,7 +167,7 @@ func IsDeviceReady(devicePath string) bool {
 }
 
 // calculateFPS calculates the frame rate from DV timings.
-func calculateFPS(bt *v4l2_bt_timings) float64 {
+func calculateFPS(bt *v4l2BTTimings) float64 {
 	if bt.pixelclock == 0 {
 		return 0
 	}

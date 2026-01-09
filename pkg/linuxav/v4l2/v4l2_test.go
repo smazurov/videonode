@@ -87,27 +87,27 @@ func TestFormatFourCC(t *testing.T) {
 	}{
 		{
 			name:     "YUYV format",
-			format:   V4L2_PIX_FMT_YUYV,
+			format:   v4l2PixFmtYUYV,
 			expected: "YUYV",
 		},
 		{
 			name:     "MJPEG format",
-			format:   V4L2_PIX_FMT_MJPEG,
+			format:   v4l2PixFmtMJPEG,
 			expected: "MJPG",
 		},
 		{
 			name:     "H264 format",
-			format:   V4L2_PIX_FMT_H264,
+			format:   v4l2PixFmtH264,
 			expected: "H264",
 		},
 		{
 			name:     "HEVC format",
-			format:   V4L2_PIX_FMT_HEVC,
+			format:   v4l2PixFmtHEVC,
 			expected: "HEVC",
 		},
 		{
 			name:     "NV12 format",
-			format:   V4L2_PIX_FMT_NV12,
+			format:   v4l2PixFmtNV12,
 			expected: "NV12",
 		},
 		{
@@ -201,13 +201,13 @@ func TestFramerateFPS(t *testing.T) {
 func TestCalculateFPS(t *testing.T) {
 	tests := []struct {
 		name        string
-		bt          v4l2_bt_timings
+		bt          v4l2BTTimings
 		expectedFPS float64
 		tolerance   float64
 	}{
 		{
 			name: "1920x1080p60",
-			bt: v4l2_bt_timings{
+			bt: v4l2BTTimings{
 				width:       1920,
 				height:      1080,
 				pixelclock:  148500000, // 148.5 MHz
@@ -224,7 +224,7 @@ func TestCalculateFPS(t *testing.T) {
 		},
 		{
 			name: "1280x720p60",
-			bt: v4l2_bt_timings{
+			bt: v4l2BTTimings{
 				width:       1280,
 				height:      720,
 				pixelclock:  74250000, // 74.25 MHz
@@ -241,7 +241,7 @@ func TestCalculateFPS(t *testing.T) {
 		},
 		{
 			name: "1920x1080i60 (interlaced)",
-			bt: v4l2_bt_timings{
+			bt: v4l2BTTimings{
 				// 1080i60 uses same timings as 1080p30 progressive
 				// Total: 2200 x 562.5 @ 74.25MHz = 60 fields/sec
 				width:       1920,
@@ -262,7 +262,7 @@ func TestCalculateFPS(t *testing.T) {
 		},
 		{
 			name: "zero pixelclock",
-			bt: v4l2_bt_timings{
+			bt: v4l2BTTimings{
 				width:      1920,
 				height:     1080,
 				pixelclock: 0,
@@ -272,7 +272,7 @@ func TestCalculateFPS(t *testing.T) {
 		},
 		{
 			name: "zero width",
-			bt: v4l2_bt_timings{
+			bt: v4l2BTTimings{
 				width:      0,
 				height:     1080,
 				pixelclock: 148500000,
@@ -282,7 +282,7 @@ func TestCalculateFPS(t *testing.T) {
 		},
 		{
 			name: "zero height",
-			bt: v4l2_bt_timings{
+			bt: v4l2BTTimings{
 				width:      1920,
 				height:     0,
 				pixelclock: 148500000,
@@ -292,7 +292,7 @@ func TestCalculateFPS(t *testing.T) {
 		},
 		{
 			name:        "empty timings",
-			bt:          v4l2_bt_timings{},
+			bt:          v4l2BTTimings{},
 			expectedFPS: 0.0,
 			tolerance:   0.0,
 		},

@@ -232,13 +232,13 @@ func TestConstants(t *testing.T) {
 	if SubsystemVideo4Linux != "video4linux" {
 		t.Errorf("SubsystemVideo4Linux: expected 'video4linux', got %q", SubsystemVideo4Linux)
 	}
-	if NETLINK_KOBJECT_UEVENT != 15 {
-		t.Errorf("NETLINK_KOBJECT_UEVENT: expected 15, got %d", NETLINK_KOBJECT_UEVENT)
+	if netlinkKobjectUEvent != 15 {
+		t.Errorf("netlinkKobjectUEvent: expected 15, got %d", netlinkKobjectUEvent)
 	}
 }
 
 // TestMonitorConcurrentFilterAdd tests for race conditions when adding filters
-// concurrently. Run with: go test -race -run TestMonitorConcurrentFilterAdd
+// concurrently. Run with: go test -race -run TestMonitorConcurrentFilterAdd.
 func TestMonitorConcurrentFilterAdd(t *testing.T) {
 	m, err := NewMonitor()
 	if err != nil {
@@ -248,11 +248,11 @@ func TestMonitorConcurrentFilterAdd(t *testing.T) {
 
 	// Test concurrent writes to filters map
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				m.AddSubsystemFilter(SubsystemVideo4Linux)
 				m.AddSubsystemFilter(SubsystemUSB)
 				m.AddSubsystemFilter(SubsystemSound)
