@@ -373,4 +373,3 @@ func TestMonitorFiltersAfterRun(t *testing.T) {
 		t.Error("expected video4linux filter to be set")
 	}
 }
-
