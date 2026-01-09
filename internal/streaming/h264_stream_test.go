@@ -278,7 +278,8 @@ func TestH264StreamHandler_STAPAPassthrough(t *testing.T) {
 	sps := []byte{0x67, 0x42, 0x00, 0x1f} // NAL type 7 (SPS)
 	pps := []byte{0x68, 0xce, 0x3c, 0x80} // NAL type 8 (PPS)
 
-	stapa := []byte{0x18} // STAP-A indicator (type 24)
+	stapa := make([]byte, 0, 1+2+len(sps)+2+len(pps))
+	stapa = append(stapa, 0x18) // STAP-A indicator (type 24)
 	// Add SPS
 	stapa = append(stapa, byte(len(sps)>>8), byte(len(sps)))
 	stapa = append(stapa, sps...)
@@ -354,7 +355,8 @@ func TestH264StreamHandler_StapAContainsPS(t *testing.T) {
 	// STAP-A with SPS + PPS
 	sps := []byte{0x67, 0x42, 0x00, 0x1f}
 	pps := []byte{0x68, 0xce, 0x3c, 0x80}
-	stapa := []byte{0x18}
+	stapa := make([]byte, 0, 1+2+len(sps)+2+len(pps))
+	stapa = append(stapa, 0x18)
 	stapa = append(stapa, byte(len(sps)>>8), byte(len(sps)))
 	stapa = append(stapa, sps...)
 	stapa = append(stapa, byte(len(pps)>>8), byte(len(pps)))
@@ -366,7 +368,8 @@ func TestH264StreamHandler_StapAContainsPS(t *testing.T) {
 
 	// STAP-A without parameter sets (just P-frame slices)
 	slice := []byte{0x01, 0x00, 0x00} // NAL type 1
-	stapaNoPS := []byte{0x18}
+	stapaNoPS := make([]byte, 0, 1+2+len(slice))
+	stapaNoPS = append(stapaNoPS, 0x18)
 	stapaNoPS = append(stapaNoPS, byte(len(slice)>>8), byte(len(slice)))
 	stapaNoPS = append(stapaNoPS, slice...)
 

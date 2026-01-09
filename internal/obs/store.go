@@ -329,7 +329,7 @@ func (s *Store) seriesKey(name string, labels Labels) string {
 	// Create a deterministic key from name and labels
 	key := name
 	if len(labels) > 0 {
-		var labelPairs []string
+		labelPairs := make([]string, 0, len(labels))
 		for k, v := range labels {
 			labelPairs = append(labelPairs, fmt.Sprintf("%s=%s", k, v))
 		}

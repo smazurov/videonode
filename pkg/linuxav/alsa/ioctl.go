@@ -17,8 +17,6 @@ func ioctl(fd uintptr, req uintptr, arg unsafe.Pointer) error {
 }
 
 func cstr(b []byte) string {
-	if i := bytes.IndexByte(b, 0); i >= 0 {
-		return string(b[:i])
-	}
-	return string(b)
+	before, _, _ := bytes.Cut(b, []byte{0})
+	return string(before)
 }
