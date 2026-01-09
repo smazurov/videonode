@@ -19,7 +19,7 @@ interface StreamCardProps {
 
 export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, className = '' }: Readonly<StreamCardProps>) {
   // Subscribe directly to this stream - only re-renders when THIS stream changes
-  const stream = useStreamStore((state) => state.streams.get(streamId));
+  const stream = useStreamStore((state) => state.streamsById[streamId]);
 
   const navigate = useNavigate();
   const [isDeleting, setIsDeleting] = useState(false);
