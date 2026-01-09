@@ -128,12 +128,6 @@ linters:
         - name: unused-parameter
           severity: warning
 
-issues:
-  include:
-    - EXC0012
-    - EXC0013
-    - EXC0014
-    - EXC0015
 formatters:
   enable:
     - gofmt
