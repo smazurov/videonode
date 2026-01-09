@@ -1,22 +1,22 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2/humacli"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/smazurov/videonode/cmd"
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/config"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/led"
 	"github.com/smazurov/videonode/internal/logging"
-	"github.com/smazurov/videonode/internal/obs"
-	"github.com/smazurov/videonode/internal/obs/collectors"
-	"github.com/smazurov/videonode/internal/obs/exporters"
+	"github.com/smazurov/videonode/internal/metrics/collectors"
+	"github.com/smazurov/videonode/internal/metrics/exporters"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/store"
@@ -35,14 +35,8 @@ type Options struct {
 	// Streaming server settings
 	StreamingRTSPPort string `help:"RTSP server port" default:":8554" toml:"streaming.rtsp_port" env:"STREAMING_RTSP_PORT"`
 
-	// Observability settings
-	ObsRetentionDuration  string `help:"Metrics retention" default:"12h" toml:"obs.retention_duration" env:"OBS_RETENTION_DURATION"`
-	ObsMaxPointsPerSeries int    `help:"Max points per series" default:"43200" toml:"obs.max_points_per_series" env:"OBS_MAX_POINTS_PER_SERIES"`
-	ObsMaxSeries          int    `help:"Max series count" default:"5000" toml:"obs.max_series" env:"OBS_MAX_SERIES"`
-	ObsWorkerCount        int    `help:"Worker threads" default:"2" toml:"obs.worker_count" env:"OBS_WORKER_COUNT"`
-
-	ObsPrometheusEnabled bool `help:"Enable Prometheus" default:"true" toml:"obs.prometheus_enabled" env:"OBS_PROMETHEUS_ENABLED"`
-	ObsSSEEnabled        bool `help:"Enable SSE" default:"true" toml:"obs.sse_enabled" env:"OBS_SSE_ENABLED"`
+	// Metrics settings
+	SSEEnabled bool `help:"Enable SSE metrics" default:"true" toml:"metrics.sse_enabled" env:"METRICS_SSE_ENABLED"`
 
 	// Capture settings
 	CaptureDefaultDelayMs int `help:"Default capture delay in milliseconds" default:"3000" toml:"capture.default_delay_ms" env:"CAPTURE_DEFAULT_DELAY_MS"`
@@ -57,7 +51,6 @@ type Options struct {
 	// Logging settings
 	LoggingLevel     string `help:"Global logging level (debug, info, warn, error)" default:"info" toml:"logging.level" env:"LOGGING_LEVEL"`
 	LoggingFormat    string `help:"Logging format (text, json)" default:"text" toml:"logging.format" env:"LOGGING_FORMAT"`
-	LoggingObs       string `help:"Observability logging level (debug, info, warn, error)" default:"info" toml:"logging.obs" env:"LOGGING_OBS"`
 	LoggingStreams   string `help:"Streams logging level" default:"info" toml:"logging.streams" env:"LOGGING_STREAMS"`
 	LoggingStreaming string `help:"Streaming server logging level" default:"info" toml:"logging.streaming" env:"LOGGING_STREAMING"`
 	LoggingDevices   string `help:"Devices logging level" default:"info" toml:"logging.devices" env:"LOGGING_DEVICES"`
@@ -82,7 +75,6 @@ func main() {
 			Modules: map[string]string{
 				"streams":   opts.LoggingStreams,
 				"streaming": opts.LoggingStreaming,
-				"obs":       opts.LoggingObs,
 				"devices":   opts.LoggingDevices,
 				"encoders":  opts.LoggingEncoders,
 				"capture":   opts.LoggingCapture,
@@ -94,52 +86,17 @@ func main() {
 
 		logger := logging.GetLogger("main")
 
-		// Initialize observability system if enabled
-		var obsManager *obs.Manager
-		var promExporter *exporters.PromExporter
-		if opts.ObsPrometheusEnabled || opts.ObsSSEEnabled {
-			// Parse retention duration
-			retentionDuration, err := time.ParseDuration(opts.ObsRetentionDuration)
-			if err != nil {
-				retentionDuration = 12 * time.Hour
-			}
-
-			// Create config with user settings
-			obsConfig := obs.ManagerConfig{
-				StoreConfig: obs.StoreConfig{
-					MaxRetentionDuration: retentionDuration,
-					MaxPointsPerSeries:   opts.ObsMaxPointsPerSeries,
-					MaxSeries:            opts.ObsMaxSeries,
-					FlushInterval:        30 * time.Second,
-				},
-				DataChanSize: 10000,
-				WorkerCount:  opts.ObsWorkerCount,
-				LogLevel:     opts.LoggingObs,
-			}
-
-			obsManager = obs.NewManager(obsConfig)
-
-			// Add collectors
-
-			// Add MPP metrics collector (Rockchip only)
-			if _, statErr := os.Stat("/proc/mpp_service/load"); statErr == nil {
-				mppCollector := collectors.NewMPPCollector(obs.Labels{
-					"service":  "videonode",
-					"instance": "default",
-				})
-				if addErr := obsManager.AddCollector(mppCollector); addErr != nil {
-					logger.Warn("Failed to add MPP collector", "error", addErr)
-				}
-			}
-
-			// Add exporters based on config
-			if opts.ObsPrometheusEnabled {
-				promExporter = exporters.NewPromExporter()
-				if addErr := obsManager.AddExporter(promExporter); addErr != nil {
-					logger.Warn("Failed to add Prometheus exporter", "error", addErr)
-				}
+		// Start MPP collector if available (Rockchip hardware encoder metrics)
+		var mppCollector *collectors.MPPCollector
+		if _, statErr := os.Stat("/proc/mpp_service/load"); statErr == nil {
+			mppCollector = collectors.NewMPPCollector()
+			if err := mppCollector.Start(context.Background()); err != nil {
+				logger.Warn("Failed to start MPP collector", "error", err)
 			}
 		}
+
+		// Create SSE exporter if enabled
+		var sseExporter *exporters.SSEExporter
 
 		// Create event bus for in-process event handling
 		eventBus := events.New()
@@ -171,11 +128,10 @@ func main() {
 		// Create stream store
 		streamStore := store.NewTOML(opts.StreamsConfigFile)
 
-		// Create stream service with OBS integration
+		// Create stream service
 		serviceOpts := &streams.ServiceOptions{
-			Store:      streamStore,
-			OBSManager: obsManager,
-			EventBus:   eventBus,
+			Store:    streamStore,
+			EventBus: eventBus,
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)
@@ -194,11 +150,7 @@ func main() {
 			StreamService:         streamService,
 			EventBus:              eventBus,
 			WebRTCManager:         webrtcManager,
-		}
-
-		// Add Prometheus handler if available
-		if promExporter != nil {
-			apiOpts.PrometheusHandler = promExporter.GetHandler()
+			PrometheusHandler:     promhttp.Handler(), // Prometheus metrics via promauto
 		}
 
 		// Add LED controller if available
@@ -208,13 +160,9 @@ func main() {
 
 		server := api.NewServer(apiOpts)
 
-		// Wire up SSE exporter if OBS is enabled and SSE is configured
-		if obsManager != nil && opts.ObsSSEEnabled {
-			sseExporter := exporters.NewSSEExporter(eventBus)
-			sseExporter.SetLogLevel(opts.LoggingObs)
-			if addErr := obsManager.AddExporter(sseExporter); addErr != nil {
-				logger.Warn("Failed to add SSE exporter", "error", addErr)
-			}
+		// Create SSE exporter if enabled
+		if opts.SSEEnabled {
+			sseExporter = exporters.NewSSEExporter(eventBus)
 		}
 
 		hooks.OnStart(func() {
@@ -224,11 +172,9 @@ func main() {
 				os.Exit(1)
 			}
 
-			// NOW start the OBS manager after all exporters are added (only when running server)
-			if obsManager != nil {
-				if startErr := obsManager.Start(); startErr != nil {
-					logger.Warn("Failed to start observability manager", "error", startErr)
-				}
+			// Start SSE exporter if enabled
+			if sseExporter != nil {
+				sseExporter.Start(context.Background())
 			}
 
 			// Start LED manager if enabled
@@ -266,8 +212,11 @@ func main() {
 			if ledManager != nil {
 				ledManager.Stop()
 			}
-			if obsManager != nil {
-				obsManager.Stop()
+			if sseExporter != nil {
+				sseExporter.Stop()
+			}
+			if mppCollector != nil {
+				_ = mppCollector.Stop()
 			}
 		})
 	})
