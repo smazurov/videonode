@@ -349,7 +349,7 @@ func TestH264StreamHandler_StapAContainsPS(t *testing.T) {
 		FmtpLine:    "sprop-parameter-sets=Z0IAKeKQFAe2AtwEBAaQeJEV,aM48gA==",
 	}
 
-	handler := newH264StreamHandler(codec, func(pkt *rtp.Packet) {})
+	handler := newH264StreamHandler(codec, func(_ *rtp.Packet) {})
 
 	// STAP-A with SPS + PPS
 	sps := []byte{0x67, 0x42, 0x00, 0x1f}

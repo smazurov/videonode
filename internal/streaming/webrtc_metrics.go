@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	// Per-stream packet counters
+	// Per-stream packet counters.
 	webrtcStreamPackets = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "videonode",
 		Subsystem: "webrtc",
@@ -21,7 +21,7 @@ var (
 		Help:      "Bytes sent per stream",
 	}, []string{"stream_id"})
 
-	// RTCP counters
+	// RTCP counters.
 	webrtcRTCPPackets = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "videonode",
 		Subsystem: "webrtc",
@@ -50,7 +50,7 @@ var (
 		Help:      "Total FIR (Full Intra Request) requests received from WebRTC peers",
 	})
 
-	// Connection gauges
+	// Connection gauges.
 	webrtcActivePeers = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "videonode",
 		Subsystem: "webrtc",
@@ -58,7 +58,7 @@ var (
 		Help:      "Number of currently active WebRTC peer connections",
 	})
 
-	// Per-stream counters (with stream_id label)
+	// Per-stream counters (with stream_id label).
 	webrtcStreamNACKs = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "videonode",
 		Subsystem: "webrtc",
@@ -74,35 +74,35 @@ var (
 	}, []string{"stream_id"})
 )
 
-// IncrementRTCPPackets records RTCP packets received
+// IncrementRTCPPackets records RTCP packets received.
 func IncrementRTCPPackets(streamID string) {
 	webrtcRTCPPackets.WithLabelValues(streamID).Inc()
 }
 
-// IncrementNACKs records NACK requests received
+// IncrementNACKs records NACK requests received.
 func IncrementNACKs(streamID string, count int) {
 	webrtcNACKsReceived.Add(float64(count))
 	webrtcStreamNACKs.WithLabelValues(streamID).Add(float64(count))
 }
 
-// IncrementPLIs records PLI requests received
+// IncrementPLIs records PLI requests received.
 func IncrementPLIs(streamID string) {
 	webrtcPLIsReceived.Inc()
 	webrtcStreamPLIs.WithLabelValues(streamID).Inc()
 }
 
-// IncrementFIRs records FIR requests received
+// IncrementFIRs records FIR requests received.
 func IncrementFIRs() {
 	webrtcFIRsReceived.Inc()
 }
 
-// IncrementPacketsSent records packets and bytes sent for a stream
+// IncrementPacketsSent records packets and bytes sent for a stream.
 func IncrementPacketsSent(streamID string, bytes int) {
 	webrtcStreamPackets.WithLabelValues(streamID).Inc()
 	webrtcStreamBytes.WithLabelValues(streamID).Add(float64(bytes))
 }
 
-// SetActivePeers sets the current number of active peers
+// SetActivePeers sets the current number of active peers.
 func SetActivePeers(count int) {
 	webrtcActivePeers.Set(float64(count))
 }
