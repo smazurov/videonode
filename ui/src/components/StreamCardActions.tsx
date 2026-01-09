@@ -9,7 +9,6 @@ import { useStreamStore } from '../hooks/useStreamStore';
 interface StreamCardActionsProps {
   streamId: string;
   onDelete?: ((streamId: string) => void) | undefined;
-  onRefresh?: ((streamId: string) => void) | undefined;
   onShowFFmpegSheet: () => void;
   onRequestPlayerRefresh: () => void;
 }
@@ -54,11 +53,9 @@ function EditButton({ streamId }: { streamId: string }) {
 
 function RestartButton({
   streamId,
-  onRefresh,
   onRequestPlayerRefresh,
 }: {
   streamId: string;
-  onRefresh?: ((streamId: string) => void) | undefined;
   onRequestPlayerRefresh: () => void;
 }) {
   const [isRestarting, setIsRestarting] = useState(false);
@@ -68,15 +65,10 @@ function RestartButton({
 
     try {
       await restartStream(streamId);
-      toast.success('Stream restarting...');
 
       await new Promise(resolve => setTimeout(resolve, 1500));
 
       onRequestPlayerRefresh();
-
-      if (onRefresh) {
-        await onRefresh(streamId);
-      }
     } catch (error) {
       console.error('Failed to restart stream:', error);
       toast.error('Failed to restart stream');
@@ -103,11 +95,9 @@ function RestartButton({
 
 function TestModeButton({
   streamId,
-  onRefresh,
   onRequestPlayerRefresh,
 }: {
   streamId: string;
-  onRefresh?: ((streamId: string) => void) | undefined;
   onRequestPlayerRefresh: () => void;
 }) {
   const [isTogglingTestMode, setIsTogglingTestMode] = useState(false);
@@ -120,22 +110,11 @@ function TestModeButton({
 
   const handleToggleTestMode = async () => {
     setIsTogglingTestMode(true);
-    const newTestMode = !testMode;
 
     try {
-      await toggleTestMode(streamId, newTestMode);
-
-      if (newTestMode) {
-        toast.success('Test mode enabled');
-      } else {
-        toast.success('Test mode disabled');
-      }
+      await toggleTestMode(streamId, !testMode);
 
       onRequestPlayerRefresh();
-
-      if (onRefresh) {
-        await onRefresh(streamId);
-      }
     } catch (error) {
       console.error('Failed to toggle test mode:', error);
       toast.error('Failed to toggle test mode');
@@ -207,7 +186,6 @@ function DeleteButton({
 export function StreamCardActions({
   streamId,
   onDelete,
-  onRefresh,
   onShowFFmpegSheet,
   onRequestPlayerRefresh,
 }: Readonly<StreamCardActionsProps>) {
@@ -217,12 +195,10 @@ export function StreamCardActions({
       <EditButton streamId={streamId} />
       <RestartButton
         streamId={streamId}
-        onRefresh={onRefresh}
         onRequestPlayerRefresh={onRequestPlayerRefresh}
       />
       <TestModeButton
         streamId={streamId}
-        onRefresh={onRefresh}
         onRequestPlayerRefresh={onRequestPlayerRefresh}
       />
       {onDelete && (
