@@ -1,3 +1,5 @@
+//go:build ui_embed
+
 // Package ui embeds the frontend assets for the web interface.
 package ui
 
@@ -10,9 +12,8 @@ import (
 )
 
 // Embed the frontend build output directly from dist folder
-// Build process (manual):
-// 1. cd ui && pnpm build
-// 2. go build -o videonode .
+// Build with: go build -tags ui_embed .
+// Requires: cd ui && pnpm build
 
 //go:embed all:dist
 var distFS embed.FS
