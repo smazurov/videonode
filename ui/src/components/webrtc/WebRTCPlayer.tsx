@@ -29,11 +29,14 @@ function waitForIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<
   });
 }
 
+type ConnectionState = 'connecting' | 'connected' | 'offline';
+
 export function WebRTCPlayer({ streamId, className = '', muted = true, showStats = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [pc, setPC] = useState<RTCPeerConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const reconnectTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -53,6 +56,8 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
     }
 
     async function connect() {
+      setConnectionState('connecting');
+
       if (pcRef.current) {
         pcRef.current.close();
         pcRef.current = null;
@@ -72,7 +77,10 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       peerConnection.onconnectionstatechange = () => {
         if (cancelled) return;
         const state = peerConnection.connectionState;
-        if (state === 'failed' || state === 'disconnected') {
+        if (state === 'connected') {
+          setConnectionState('connected');
+        } else if (state === 'failed' || state === 'disconnected') {
+          setConnectionState('offline');
           scheduleReconnect();
         }
       };
@@ -93,7 +101,10 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         await peerConnection.setRemoteDescription({ type: 'answer', sdp: answer });
       } catch (err) {
         console.error(`WebRTC [${streamId}]: connection failed`, err);
-        if (!cancelled) scheduleReconnect();
+        if (!cancelled) {
+          setConnectionState('offline');
+          scheduleReconnect();
+        }
       }
     }
 
@@ -121,6 +132,9 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
     );
   }
 
+  const isOffline = connectionState === 'offline';
+  const isConnecting = connectionState === 'connecting';
+
   return (
     <div className={`relative ${className}`} style={{ background: '#000' }}>
       <video
@@ -130,7 +144,19 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         muted={muted}
         className="w-full h-full object-contain"
       />
-      {showStats && <StatsOverlay pc={pc} videoRef={videoRef} streamId={streamId} />}
+      {isOffline && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-gray-400 text-sm">Stream offline</span>
+        </div>
+      )}
+      {isConnecting && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-gray-400 text-sm">Connecting...</span>
+        </div>
+      )}
+      {showStats && connectionState === 'connected' && (
+        <StatsOverlay pc={pc} videoRef={videoRef} streamId={streamId} />
+      )}
     </div>
   );
 }
