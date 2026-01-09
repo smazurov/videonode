@@ -113,6 +113,16 @@ This file provides guidance for agentic coding agents working with this Go-based
   - Avoid brittle tests that break on refactoring
   - Each test should verify one behavior
 
+### Integration Tests
+
+Integration tests require real hardware or long timeouts and are excluded from normal test runs via build tags.
+
+- **Run unit tests only**: `go test ./...`
+- **Run with integration tests**: `go test -tags=integration ./...`
+
+Available integration tests:
+- `pkg/linuxav/hotplug` - Tests real udev hotplug events (30s timeout, plug/unplug USB device)
+
 ## Architecture
 
 ### Application Structure
