@@ -143,8 +143,6 @@ func readSysfsInt(path string) int {
 
 // cstr converts a null-terminated byte slice to a Go string.
 func cstr(b []byte) string {
-	if i := bytes.IndexByte(b, 0); i >= 0 {
-		return string(b[:i])
-	}
-	return string(b)
+	before, _, _ := bytes.Cut(b, []byte{0})
+	return string(before)
 }
