@@ -61,7 +61,7 @@ export const createDeduplicationSlice: StateCreator<
   },
   
   addStreamFromSSE: (stream) => {
-    const { recentOperations, addStream, streams } = get();
+    const { recentOperations, addStream, streamsById } = get();
 
     // Check for recent POST operation
     const recentOp = recentOperations.get(stream.stream_id);
@@ -73,7 +73,7 @@ export const createDeduplicationSlice: StateCreator<
     }
 
     // Check if stream data actually changed (avoid unnecessary re-renders)
-    const existingStream = streams.get(stream.stream_id);
+    const existingStream = streamsById[stream.stream_id];
     if (existingStream && JSON.stringify(existingStream) === JSON.stringify(stream)) {
       return; // No change, skip update
     }
