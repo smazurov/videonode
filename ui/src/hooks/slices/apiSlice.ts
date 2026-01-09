@@ -23,10 +23,10 @@ export const createAPISlice: StateCreator<
   APISlice
 > = (_set, get) => ({
   fetchStreams: async () => {
-    const { setLoading, setError, setStreams, streams } = get();
-    
+    const { setLoading, setError, setStreams, streamIds } = get();
+
     // Only show loading if we don't have any streams yet (initial load)
-    const hasExistingStreams = streams.size > 0;
+    const hasExistingStreams = streamIds.length > 0;
     if (!hasExistingStreams) {
       setLoading(true);
     }
