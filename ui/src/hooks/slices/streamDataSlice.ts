@@ -88,20 +88,17 @@ export const createStreamDataSlice: StateCreator<
   },
 
   updateStreamMetrics: (metrics) => {
-    console.log('[updateStreamMetrics] called', metrics.stream_id, metrics);
     set((state) => {
       const existing = state.metricsById[metrics.stream_id];
-      const newMetrics = {
-        ...existing,
-        ...(metrics.fps !== undefined && { fps: metrics.fps }),
-        ...(metrics.dropped_frames !== undefined && { dropped_frames: metrics.dropped_frames }),
-        ...(metrics.duplicate_frames !== undefined && { duplicate_frames: metrics.duplicate_frames }),
-      };
-      console.log('[updateStreamMetrics] setting', metrics.stream_id, newMetrics);
       return {
         metricsById: {
           ...state.metricsById,
-          [metrics.stream_id]: newMetrics,
+          [metrics.stream_id]: {
+            ...existing,
+            ...(metrics.fps !== undefined && { fps: metrics.fps }),
+            ...(metrics.dropped_frames !== undefined && { dropped_frames: metrics.dropped_frames }),
+            ...(metrics.duplicate_frames !== undefined && { duplicate_frames: metrics.duplicate_frames }),
+          },
         },
       };
     });
