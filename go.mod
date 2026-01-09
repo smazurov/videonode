@@ -7,7 +7,6 @@ require (
 	github.com/coreos/go-systemd/v22 v22.6.0
 	github.com/danielgtaylor/huma/v2 v2.34.1
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/jochenvg/go-udev v0.0.0-20240801134859-b65ed646224b
 	github.com/kelindar/event v1.5.2
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pion/interceptor v0.1.42
@@ -23,7 +22,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/jkeiser/iter v0.0.0-20200628201005-c8aa0ae784d1 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pion/datachannel v1.5.10 // indirect
