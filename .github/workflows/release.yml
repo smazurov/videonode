@@ -59,6 +59,7 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean ${{ github.event_name == 'workflow_dispatch' && '--prerelease' || '' }}
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'auto' }}
