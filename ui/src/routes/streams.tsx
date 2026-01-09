@@ -27,13 +27,12 @@ export default function Streams() {
     }))
   );
 
-  const {
-    fetchStreams,
-    deleteStream,
-    addStreamFromSSE,
-    removeStreamFromSSE,
-    updateStreamMetrics
-  } = useStreamStore();
+  // Get actions without subscribing to state changes
+  const fetchStreams = useStreamStore((state) => state.fetchStreams);
+  const deleteStream = useStreamStore((state) => state.deleteStream);
+  const addStreamFromSSE = useStreamStore((state) => state.addStreamFromSSE);
+  const removeStreamFromSSE = useStreamStore((state) => state.removeStreamFromSSE);
+  const updateStreamMetrics = useStreamStore((state) => state.updateStreamMetrics);
 
   // Stable SSE event handlers
   const handleStreamLifecycle = useCallback((event: SSEStreamLifecycleEvent) => {

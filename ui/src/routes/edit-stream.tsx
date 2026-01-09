@@ -10,14 +10,14 @@ export default function EditStream() {
   const navigate = useNavigate();
   const { streamId } = useParams<{ streamId: string }>();
   const { logout } = useAuthStore();
-  const { getStreamById } = useStreamStore();
+
+  // Use selector to only re-render when THIS stream changes
+  const streamData = useStreamStore((state) => streamId ? state.streamsById[streamId] : undefined);
 
   if (!streamId) {
     navigate('/streams');
     return null;
   }
-
-  const streamData = getStreamById(streamId);
   if (!streamData) {
     navigate('/streams');
     return null;
