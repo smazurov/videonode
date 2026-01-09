@@ -26,8 +26,8 @@ func ListDevices() ([]Device, error) {
 		}
 
 		// Get card info
-		cardInfo := snd_ctl_card_info{}
-		if err := ioctl(uintptr(ctlFd), SNDRV_CTL_IOCTL_CARD_INFO, unsafe.Pointer(&cardInfo)); err != nil {
+		cardInfo := sndCtlCardInfo{}
+		if ioctlErr := ioctl(uintptr(ctlFd), sndrvCtlIoctlCardInfo, unsafe.Pointer(&cardInfo)); ioctlErr != nil {
 			syscall.Close(ctlFd)
 			continue
 		}
@@ -35,7 +35,7 @@ func ListDevices() ([]Device, error) {
 		// Enumerate PCM devices on this card
 		deviceNum := int32(-1)
 		for {
-			if err := ioctl(uintptr(ctlFd), SNDRV_CTL_IOCTL_PCM_NEXT_DEVICE, unsafe.Pointer(&deviceNum)); err != nil {
+			if ioctlErr := ioctl(uintptr(ctlFd), sndrvCtlIoctlPCMNextDevice, unsafe.Pointer(&deviceNum)); ioctlErr != nil {
 				break
 			}
 			if deviceNum < 0 {
@@ -43,13 +43,13 @@ func ListDevices() ([]Device, error) {
 			}
 
 			// Get PCM info for capture stream
-			pcmInfo := snd_pcm_info{
+			pcmInfo := sndPCMInfo{
 				device:    uint32(deviceNum),
 				subdevice: 0,
 				stream:    StreamCapture,
 			}
 
-			if err := ioctl(uintptr(ctlFd), SNDRV_CTL_IOCTL_PCM_INFO, unsafe.Pointer(&pcmInfo)); err != nil {
+			if ioctlErr := ioctl(uintptr(ctlFd), sndrvCtlIoctlPCMInfo, unsafe.Pointer(&pcmInfo)); ioctlErr != nil {
 				continue // Device doesn't support capture
 			}
 
@@ -66,7 +66,7 @@ func ListDevices() ([]Device, error) {
 			}
 
 			// Query capabilities
-			if caps, err := queryCapabilities(alsaDevice); err == nil {
+			if caps, capsErr := queryCapabilities(alsaDevice); capsErr == nil {
 				device.SupportedRates = caps.rates
 				device.MinChannels = caps.minChannels
 				device.MaxChannels = caps.maxChannels
@@ -98,19 +98,13 @@ type capabilities struct {
 }
 
 func queryCapabilities(alsaDevice string) (*capabilities, error) {
-	// Open the PCM device
-	pcmPath := fmt.Sprintf("/dev/snd/pcmC%sD%sc",
-		string(alsaDevice[3]), // card number
-		string(alsaDevice[5]), // device number
-	)
-
 	// Parse card and device from alsaDevice "hw:X,Y"
 	var cardNum, devNum int
 	_, err := fmt.Sscanf(alsaDevice, "hw:%d,%d", &cardNum, &devNum)
 	if err != nil {
 		return nil, err
 	}
-	pcmPath = fmt.Sprintf("/dev/snd/pcmC%dD%dc", cardNum, devNum)
+	pcmPath := fmt.Sprintf("/dev/snd/pcmC%dD%dc", cardNum, devNum)
 
 	fd, err := syscall.Open(pcmPath, syscall.O_RDWR|syscall.O_NONBLOCK, 0)
 	if err != nil {
@@ -122,25 +116,25 @@ func queryCapabilities(alsaDevice string) (*capabilities, error) {
 	syscall.SetNonblock(fd, false)
 
 	// Initialize and refine hw_params
-	hwparams := snd_pcm_hw_params{}
+	hwparams := sndPCMHwParams{}
 	hwparams.init()
 
 	// Set access mode
-	hwparams.setMask(SNDRV_PCM_HW_PARAM_ACCESS, SNDRV_PCM_ACCESS_RW_INTERLEAVED)
+	hwparams.setMask(sndrvPCMHwParamAccess, sndrvPCMAccessRwInterleaved)
 
-	if err := ioctl(uintptr(fd), SNDRV_PCM_IOCTL_HW_REFINE, unsafe.Pointer(&hwparams)); err != nil {
-		return nil, err
+	if ioctlErr := ioctl(uintptr(fd), sndrvPCMIoctlHwRefine, unsafe.Pointer(&hwparams)); ioctlErr != nil {
+		return nil, ioctlErr
 	}
 
 	caps := &capabilities{}
 
 	// Get channels range
-	minCh, maxCh := hwparams.getInterval(SNDRV_PCM_HW_PARAM_CHANNELS)
+	minCh, maxCh := hwparams.getInterval(sndrvPCMHwParamChannels)
 	caps.minChannels = int(minCh)
 	caps.maxChannels = int(maxCh)
 
 	// Get rate range and test common rates
-	minRate, maxRate := hwparams.getInterval(SNDRV_PCM_HW_PARAM_RATE)
+	minRate, maxRate := hwparams.getInterval(sndrvPCMHwParamRate)
 	for _, rate := range CommonSampleRates {
 		if uint32(rate) >= minRate && uint32(rate) <= maxRate {
 			caps.rates = append(caps.rates, rate)
@@ -149,18 +143,18 @@ func queryCapabilities(alsaDevice string) (*capabilities, error) {
 
 	// Test supported formats
 	for _, format := range CommonFormats {
-		if hwparams.checkMask(SNDRV_PCM_HW_PARAM_FORMAT, uint32(format)) {
+		if hwparams.checkMask(sndrvPCMHwParamFormat, uint32(format)) {
 			caps.formats = append(caps.formats, FormatName(format))
 		}
 	}
 
 	// Get buffer size range
-	minBuf, maxBuf := hwparams.getInterval(SNDRV_PCM_HW_PARAM_BUFFER_SIZE)
+	minBuf, maxBuf := hwparams.getInterval(sndrvPCMHwParamBufferSize)
 	caps.minBufferSize = int(minBuf)
 	caps.maxBufferSize = int(maxBuf)
 
 	// Get period size range
-	minPer, maxPer := hwparams.getInterval(SNDRV_PCM_HW_PARAM_PERIOD_SIZE)
+	minPer, maxPer := hwparams.getInterval(sndrvPCMHwParamPeriodSize)
 	caps.minPeriodSize = int(minPer)
 	caps.maxPeriodSize = int(maxPer)
 

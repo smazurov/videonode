@@ -40,6 +40,7 @@ func (f Framerate) FPS() float64 {
 // DeviceType represents the type of V4L2 device.
 type DeviceType int
 
+// Device types.
 const (
 	DeviceTypeWebcam  DeviceType = 0
 	DeviceTypeHDMI    DeviceType = 1
@@ -49,6 +50,7 @@ const (
 // SignalState represents the state of a video signal.
 type SignalState int
 
+// Signal states.
 const (
 	SignalStateNoDevice     SignalState = -1
 	SignalStateNoLink       SignalState = 0 // No cable connected
@@ -74,46 +76,46 @@ type DeviceStatus struct {
 	Ready      bool
 }
 
-// Capability flags
+// Capability flags.
 const (
-	V4L2_CAP_VIDEO_CAPTURE = 0x00000001
-	V4L2_CAP_DEVICE_CAPS   = 0x80000000
+	v4l2CapVideoCapture = 0x00000001
+	v4l2CapDeviceCaps   = 0x80000000
 )
 
-// Format flags
+// Format flags.
 const (
-	V4L2_FMT_FLAG_EMULATED = 0x0002
+	v4l2FmtFlagEmulated = 0x0002
 )
 
-// Common pixel formats
+// Common pixel formats.
 const (
-	V4L2_PIX_FMT_YUYV  = 0x56595559 // 'YUYV'
-	V4L2_PIX_FMT_MJPEG = 0x47504A4D // 'MJPG'
-	V4L2_PIX_FMT_H264  = 0x34363248 // 'H264'
-	V4L2_PIX_FMT_HEVC  = 0x43564548 // 'HEVC'
-	V4L2_PIX_FMT_NV12  = 0x3231564E // 'NV12'
+	v4l2PixFmtYUYV  = 0x56595559 // 'YUYV'
+	v4l2PixFmtMJPEG = 0x47504A4D // 'MJPG'
+	v4l2PixFmtH264  = 0x34363248 // 'H264'
+	v4l2PixFmtHEVC  = 0x43564548 // 'HEVC'
+	v4l2PixFmtNV12  = 0x3231564E // 'NV12'
 )
 
-// Frame size types
+// Frame size types.
 const (
-	V4L2_FRMSIZE_TYPE_DISCRETE   = 1
-	V4L2_FRMSIZE_TYPE_CONTINUOUS = 2
-	V4L2_FRMSIZE_TYPE_STEPWISE   = 3
+	v4l2FrmsizeTypeDiscrete   = 1
+	v4l2FrmsizeTypeContinuous = 2
+	v4l2FrmsizeTypeStepwise   = 3
 )
 
-// Frame interval types
+// Frame interval types.
 const (
-	V4L2_FRMIVAL_TYPE_DISCRETE   = 1
-	V4L2_FRMIVAL_TYPE_CONTINUOUS = 2
-	V4L2_FRMIVAL_TYPE_STEPWISE   = 3
+	v4l2FrmivalTypeDiscrete   = 1
+	v4l2FrmivalTypeContinuous = 2
+	v4l2FrmivalTypeStepwise   = 3
 )
 
-// Buffer type
+// Buffer type.
 const (
-	V4L2_BUF_TYPE_VIDEO_CAPTURE = 1
+	v4l2BufTypeVideoCapture = 1
 )
 
-// Event types
+// Event types.
 const (
-	V4L2_EVENT_SOURCE_CHANGE = 5
+	v4l2EventSourceChange = 5
 )

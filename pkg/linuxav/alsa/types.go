@@ -49,13 +49,13 @@ func itoa(i int) string {
 	return string(b[pos:])
 }
 
-// Stream types
+// Stream types.
 const (
 	StreamPlayback = 0
 	StreamCapture  = 1
 )
 
-// PCM format constants
+// PCM format constants.
 const (
 	FormatS8        = 0
 	FormatU8        = 1
@@ -127,12 +127,12 @@ func FormatName(format int) string {
 	}
 }
 
-// Common sample rates to test
+// CommonSampleRates is the list of sample rates to test.
 var CommonSampleRates = []int{
 	8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000,
 }
 
-// Common formats to test
+// CommonFormats is the list of formats to test.
 var CommonFormats = []int{
 	FormatU8, FormatS16LE, FormatS16BE, FormatS24LE, FormatS24BE,
 	FormatS32LE, FormatS32BE, FormatFloatLE, FormatFloatBE,
