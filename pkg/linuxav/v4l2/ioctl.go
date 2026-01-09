@@ -19,6 +19,6 @@ func open(path string) (int, error) {
 	return syscall.Open(path, syscall.O_RDWR|syscall.O_NONBLOCK, 0)
 }
 
-func close(fd int) error {
+func closefd(fd int) error {
 	return syscall.Close(fd)
 }

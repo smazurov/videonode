@@ -20,12 +20,12 @@ func GetFormats(devicePath string) ([]FormatInfo, error) {
 	var formats []FormatInfo
 
 	for i := uint32(0); ; i++ {
-		fmtdesc := v4l2_fmtdesc{
+		fmtdesc := v4l2Fmtdesc{
 			index: i,
-			typ:   V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			typ:   v4l2BufTypeVideoCapture,
 		}
 
-		if ioctlErr := ioctl(fd, VIDIOC_ENUM_FMT, unsafe.Pointer(&fmtdesc)); ioctlErr != nil {
+		if ioctlErr := ioctl(fd, vidiocEnumFmt, unsafe.Pointer(&fmtdesc)); ioctlErr != nil {
 			if errors.Is(ioctlErr, syscall.EINVAL) {
 				break // End of enumeration
 			}
@@ -35,7 +35,7 @@ func GetFormats(devicePath string) ([]FormatInfo, error) {
 		formats = append(formats, FormatInfo{
 			PixelFormat: fmtdesc.pixelformat,
 			FormatName:  cstr(fmtdesc.description[:]),
-			Emulated:    fmtdesc.flags&V4L2_FMT_FLAG_EMULATED != 0,
+			Emulated:    fmtdesc.flags&v4l2FmtFlagEmulated != 0,
 		})
 	}
 
@@ -53,12 +53,12 @@ func GetResolutions(devicePath string, pixelFormat uint32) ([]Resolution, error)
 	var resolutions []Resolution
 
 	for i := uint32(0); ; i++ {
-		frmsize := v4l2_frmsizeenum{
-			index:        i,
-			pixel_format: pixelFormat,
+		frmsize := v4l2Frmsizeenum{
+			index:       i,
+			pixelFormat: pixelFormat,
 		}
 
-		if ioctlErr := ioctl(fd, VIDIOC_ENUM_FRAMESIZES, unsafe.Pointer(&frmsize)); ioctlErr != nil {
+		if ioctlErr := ioctl(fd, vidiocEnumFramesizes, unsafe.Pointer(&frmsize)); ioctlErr != nil {
 			if errors.Is(ioctlErr, syscall.EINVAL) {
 				break // End of enumeration
 			}
@@ -70,12 +70,12 @@ func GetResolutions(devicePath string, pixelFormat uint32) ([]Resolution, error)
 		}
 
 		switch frmsize.typ {
-		case V4L2_FRMSIZE_TYPE_DISCRETE:
+		case v4l2FrmsizeTypeDiscrete:
 			resolutions = append(resolutions, Resolution{
 				Width:  frmsize.discrete.width,
 				Height: frmsize.discrete.height,
 			})
-		case V4L2_FRMSIZE_TYPE_CONTINUOUS, V4L2_FRMSIZE_TYPE_STEPWISE:
+		case v4l2FrmsizeTypeContinuous, v4l2FrmsizeTypeStepwise:
 			// For stepwise/continuous, return common resolutions within the range
 			resolutions = append(resolutions, getStepwiseResolutions(&frmsize)...)
 			return resolutions, nil // Only one stepwise entry
@@ -96,14 +96,14 @@ func GetFramerates(devicePath string, pixelFormat uint32, width, height uint32) 
 	var framerates []Framerate
 
 	for i := uint32(0); ; i++ {
-		frmival := v4l2_frmivalenum{
-			index:        i,
-			pixel_format: pixelFormat,
-			width:        width,
-			height:       height,
+		frmival := v4l2Frmivalenum{
+			index:       i,
+			pixelFormat: pixelFormat,
+			width:       width,
+			height:      height,
 		}
 
-		if ioctlErr := ioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, unsafe.Pointer(&frmival)); ioctlErr != nil {
+		if ioctlErr := ioctl(fd, vidiocEnumFrameintervals, unsafe.Pointer(&frmival)); ioctlErr != nil {
 			if errors.Is(ioctlErr, syscall.EINVAL) {
 				break // End of enumeration
 			}
@@ -111,12 +111,12 @@ func GetFramerates(devicePath string, pixelFormat uint32, width, height uint32) 
 		}
 
 		switch frmival.typ {
-		case V4L2_FRMIVAL_TYPE_DISCRETE:
+		case v4l2FrmivalTypeDiscrete:
 			framerates = append(framerates, Framerate{
 				Numerator:   frmival.discrete.numerator,
 				Denominator: frmival.discrete.denominator,
 			})
-		case V4L2_FRMIVAL_TYPE_CONTINUOUS, V4L2_FRMIVAL_TYPE_STEPWISE:
+		case v4l2FrmivalTypeContinuous, v4l2FrmivalTypeStepwise:
 			// For stepwise/continuous, return common framerates
 			framerates = append(framerates, getCommonFramerates()...)
 			return framerates, nil
@@ -127,7 +127,7 @@ func GetFramerates(devicePath string, pixelFormat uint32, width, height uint32) 
 }
 
 // getStepwiseResolutions returns common resolutions within a stepwise range.
-func getStepwiseResolutions(frmsize *v4l2_frmsizeenum) []Resolution {
+func getStepwiseResolutions(frmsize *v4l2Frmsizeenum) []Resolution {
 	// Common resolutions to check
 	commonResolutions := [][2]uint32{
 		{320, 240},  // QVGA
@@ -145,13 +145,13 @@ func getStepwiseResolutions(frmsize *v4l2_frmsizeenum) []Resolution {
 	}
 
 	// Extract stepwise params from union (stepwise overlays discrete in memory)
-	stepwise := (*v4l2_frmsize_stepwise)(unsafe.Pointer(&frmsize.discrete))
+	stepwise := (*v4l2FrmsizeStepwise)(unsafe.Pointer(&frmsize.discrete))
 
 	var resolutions []Resolution
 	for _, res := range commonResolutions {
 		w, h := res[0], res[1]
-		if w >= stepwise.min_width && w <= stepwise.max_width &&
-			h >= stepwise.min_height && h <= stepwise.max_height {
+		if w >= stepwise.minWidth && w <= stepwise.maxWidth &&
+			h >= stepwise.minHeight && h <= stepwise.maxHeight {
 			resolutions = append(resolutions, Resolution{Width: w, Height: h})
 		}
 	}

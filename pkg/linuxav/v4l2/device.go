@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"unsafe"
 )
 
@@ -24,7 +23,7 @@ func FindDevices() ([]DeviceInfo, error) {
 		return nil, fmt.Errorf("failed to read video4linux directory: %w", err)
 	}
 
-	var devices []DeviceInfo
+	devices := make([]DeviceInfo, 0, len(entries))
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -33,28 +32,28 @@ func FindDevices() ([]DeviceInfo, error) {
 
 		devicePath := "/dev/" + entry.Name()
 
-		fd, err := open(devicePath)
-		if err != nil {
-			slog.With("component", "linuxav").Debug("failed to open video device", "path", devicePath, "error", err)
+		fd, openErr := open(devicePath)
+		if openErr != nil {
+			slog.With("component", "linuxav").Debug("failed to open video device", "path", devicePath, "error", openErr)
 			continue
 		}
 
-		cap := v4l2_capability{}
-		if err := ioctl(fd, VIDIOC_QUERYCAP, unsafe.Pointer(&cap)); err != nil {
-			slog.With("component", "linuxav").Debug("failed to query device capabilities", "path", devicePath, "error", err)
-			close(fd)
+		capability := v4l2Capability{}
+		if ioctlErr := ioctl(fd, vidiocQuerycap, unsafe.Pointer(&capability)); ioctlErr != nil {
+			slog.With("component", "linuxav").Debug("failed to query device capabilities", "path", devicePath, "error", ioctlErr)
+			_ = closefd(fd)
 			continue
 		}
-		close(fd)
+		_ = closefd(fd)
 
 		// Get the effective capabilities
-		caps := cap.capabilities
-		if caps&V4L2_CAP_DEVICE_CAPS != 0 {
-			caps = cap.device_caps
+		caps := capability.capabilities
+		if caps&v4l2CapDeviceCaps != 0 {
+			caps = capability.deviceCaps
 		}
 
 		// Only include video capture devices
-		if caps&V4L2_CAP_VIDEO_CAPTURE == 0 {
+		if caps&v4l2CapVideoCapture == 0 {
 			continue
 		}
 
@@ -66,7 +65,7 @@ func FindDevices() ([]DeviceInfo, error) {
 		stableID := findStableID(entry.Name(), indexValue)
 		if stableID == "" {
 			// Fallback: synthetic ID from bus_info + index
-			busInfo := cstr(cap.bus_info[:])
+			busInfo := cstr(capability.busInfo[:])
 			if strings.HasPrefix(busInfo, "usb-") {
 				stableID = fmt.Sprintf("%s-video-index%d", busInfo, indexValue)
 			} else {
@@ -76,7 +75,7 @@ func FindDevices() ([]DeviceInfo, error) {
 
 		devices = append(devices, DeviceInfo{
 			DevicePath: devicePath,
-			DeviceName: cstr(cap.card[:]),
+			DeviceName: cstr(capability.card[:]),
 			DeviceID:   stableID,
 			Caps:       caps,
 		})
@@ -101,7 +100,7 @@ func GetDevicePathByID(deviceID string) (string, error) {
 	return "", fmt.Errorf("device with ID %s not found", deviceID)
 }
 
-// findStableID looks for a stable ID symlink in /dev/v4l/by-id/
+// findStableID looks for a stable ID symlink in /dev/v4l/by-id/.
 func findStableID(deviceName string, indexValue int) string {
 	byIDDir := "/dev/v4l/by-id"
 	entries, err := os.ReadDir(byIDDir)
@@ -117,8 +116,8 @@ func findStableID(deviceName string, indexValue int) string {
 		}
 
 		linkPath := filepath.Join(byIDDir, entry.Name())
-		target, err := os.Readlink(linkPath)
-		if err != nil {
+		target, readlinkErr := os.Readlink(linkPath)
+		if readlinkErr != nil {
 			continue
 		}
 
@@ -148,20 +147,4 @@ func cstr(b []byte) string {
 		return string(b[:i])
 	}
 	return string(b)
-}
-
-// getDeviceCapability queries the device capabilities.
-func getDeviceCapability(devicePath string) (*v4l2_capability, error) {
-	fd, err := syscall.Open(devicePath, syscall.O_RDWR|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, err
-	}
-	defer syscall.Close(fd)
-
-	cap := &v4l2_capability{}
-	if err := ioctl(fd, VIDIOC_QUERYCAP, unsafe.Pointer(cap)); err != nil {
-		return nil, err
-	}
-
-	return cap, nil
 }

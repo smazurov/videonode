@@ -29,6 +29,9 @@ linters:
       line-length: 140
     errcheck:
       exclude-functions:
+        - syscall.Close
+        - syscall.SetNonblock
+        - github.com/smazurov/videonode/pkg/linuxav/v4l2.closefd
         - io.Copy
         - (io.Closer).Close
         - (io.Writer).Write
@@ -131,7 +134,6 @@ issues:
     - EXC0013
     - EXC0014
     - EXC0015
-
 formatters:
   enable:
     - gofmt
