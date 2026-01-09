@@ -2,9 +2,16 @@ import { StateCreator } from 'zustand';
 import { StreamData, StreamListData, SSEStreamMetricsEvent } from '../../lib/api';
 import { StreamStore } from '../useStreamStore';
 
+export interface StreamMetrics {
+  fps?: string | undefined;
+  dropped_frames?: string | undefined;
+  duplicate_frames?: string | undefined;
+}
+
 export interface StreamDataSlice {
   streamIds: string[];
   streamsById: Record<string, StreamData>;
+  metricsById: Record<string, StreamMetrics>;
 
   setStreams: (streamData: StreamListData) => void;
   addStream: (stream: StreamData) => void;
@@ -21,17 +28,25 @@ export const createStreamDataSlice: StateCreator<
 > = (set, get) => ({
   streamIds: [],
   streamsById: {},
+  metricsById: {},
 
   setStreams: (streamData) => {
     const ids: string[] = [];
     const byId: Record<string, StreamData> = {};
+    const metricsById: Record<string, StreamMetrics> = {};
     for (const stream of streamData.streams) {
       ids.push(stream.stream_id);
       byId[stream.stream_id] = stream;
+      metricsById[stream.stream_id] = {
+        fps: stream.fps,
+        dropped_frames: stream.dropped_frames,
+        duplicate_frames: stream.duplicate_frames,
+      };
     }
     set({
       streamIds: ids,
       streamsById: byId,
+      metricsById,
       lastUpdated: new Date(),
     });
   },
@@ -44,6 +59,14 @@ export const createStreamDataSlice: StateCreator<
           ? [...state.streamIds, stream.stream_id]
           : state.streamIds,
         streamsById: { ...state.streamsById, [stream.stream_id]: stream },
+        metricsById: {
+          ...state.metricsById,
+          [stream.stream_id]: {
+            fps: stream.fps,
+            dropped_frames: stream.dropped_frames,
+            duplicate_frames: stream.duplicate_frames,
+          },
+        },
         lastUpdated: new Date(),
       };
     });
@@ -52,28 +75,33 @@ export const createStreamDataSlice: StateCreator<
   removeStream: (streamId) => {
     set((state) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars, sonarjs/no-unused-vars
-      const { [streamId]: _, ...rest } = state.streamsById;
+      const { [streamId]: _, ...restStreams } = state.streamsById;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars, sonarjs/no-unused-vars
+      const { [streamId]: __, ...restMetrics } = state.metricsById;
       return {
         streamIds: state.streamIds.filter(id => id !== streamId),
-        streamsById: rest,
+        streamsById: restStreams,
+        metricsById: restMetrics,
         lastUpdated: new Date(),
       };
     });
   },
 
   updateStreamMetrics: (metrics) => {
+    console.log('[updateStreamMetrics] called', metrics.stream_id, metrics);
     set((state) => {
-      const stream = state.streamsById[metrics.stream_id];
-      if (!stream) return state;
+      const existing = state.metricsById[metrics.stream_id];
+      const newMetrics = {
+        ...existing,
+        ...(metrics.fps !== undefined && { fps: metrics.fps }),
+        ...(metrics.dropped_frames !== undefined && { dropped_frames: metrics.dropped_frames }),
+        ...(metrics.duplicate_frames !== undefined && { duplicate_frames: metrics.duplicate_frames }),
+      };
+      console.log('[updateStreamMetrics] setting', metrics.stream_id, newMetrics);
       return {
-        streamsById: {
-          ...state.streamsById,
-          [metrics.stream_id]: {
-            ...stream,
-            ...(metrics.fps !== undefined && { fps: metrics.fps }),
-            ...(metrics.dropped_frames !== undefined && { dropped_frames: metrics.dropped_frames }),
-            ...(metrics.duplicate_frames !== undefined && { duplicate_frames: metrics.duplicate_frames }),
-          },
+        metricsById: {
+          ...state.metricsById,
+          [metrics.stream_id]: newMetrics,
         },
       };
     });
