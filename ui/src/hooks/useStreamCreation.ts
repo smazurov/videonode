@@ -359,7 +359,9 @@ function streamFormReducer(state: StreamFormState, action: StreamFormAction): St
 // Main hook
 export function useStreamCreation(initialData?: StreamData) {
   const [state, dispatch] = useReducer(streamFormReducer, initialState);
-  const { createStream, updateStream } = useStreamStore();
+  // Get actions without subscribing to state changes
+  const createStream = useStreamStore((state) => state.createStream);
+  const updateStream = useStreamStore((state) => state.updateStream);
   
   // Load initial data if provided
   useEffect(() => {
