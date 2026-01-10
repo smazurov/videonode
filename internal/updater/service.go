@@ -151,12 +151,8 @@ func (s *service) CheckForUpdate(ctx context.Context) (*UpdateInfo, error) {
 	s.mu.Unlock()
 
 	if !found {
-		s.transitionTo(StateIdle)
-		return &UpdateInfo{
-			CurrentVersion:  currentVersion,
-			LatestVersion:   currentVersion,
-			UpdateAvailable: false,
-		}, nil
+		s.setError(fmt.Errorf("repository not found or has no releases"))
+		return nil, newError(ErrCodeNotFound, "repository not found or has no releases", nil)
 	}
 
 	// Compare versions - dev is always considered outdated
