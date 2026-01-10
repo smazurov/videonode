@@ -24,7 +24,22 @@ export function Header({ onLogout, className }: Readonly<HeaderProps>) {
                 VideoNode
               </span>
             </Link>
-            
+
+            {/* Navigation */}
+            <nav className="flex items-center space-x-4">
+              <Link
+                to="/streams"
+                className="text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+              >
+                Streams
+              </Link>
+              <Link
+                to="/logs"
+                className="text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+              >
+                Logs
+              </Link>
+            </nav>
           </div>
 
           {/* Actions */}

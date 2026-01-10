@@ -9,6 +9,7 @@ import VideoRoute from "./routes/video";
 import Streams from "./routes/streams";
 import CreateStream from "./routes/create-stream";
 import EditStream from "./routes/edit-stream";
+import Logs from "./routes/logs";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 
@@ -54,6 +55,14 @@ const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <EditStream />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "logs",
+        element: (
+          <ProtectedRoute>
+            <Logs />
           </ProtectedRoute>
         ),
       }
