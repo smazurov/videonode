@@ -185,6 +185,8 @@ func mapUpdateError(err error) error {
 			return huma.Error409Conflict(updateErr.Message)
 		case updater.ErrCodeNoUpdate:
 			return huma.Error400BadRequest(updateErr.Message)
+		case updater.ErrCodeNotFound:
+			return huma.Error404NotFound(updateErr.Message)
 		case updater.ErrCodeNoBackup:
 			return huma.Error404NotFound(updateErr.Message)
 		case updater.ErrCodeDisabled:
