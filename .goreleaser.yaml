@@ -35,8 +35,8 @@ checksum:
   name_template: "checksums.txt"
 
 changelog:
-  use: github
   sort: asc
+  format: "{{ .Message }} ({{ .AbbrevHash }}) (@{{ .AuthorUsername }})"
   groups:
     - title: Features
       regexp: '^feat(\(.+\))?:'
@@ -58,4 +58,4 @@ changelog:
       - "^Merge"
 
 release:
-  prerelease: "{{ .Env.GORELEASER_PRERELEASE }}"
+  prerelease: auto
