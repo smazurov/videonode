@@ -15,6 +15,7 @@ import (
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
+	"github.com/smazurov/videonode/internal/updater"
 	"github.com/smazurov/videonode/internal/version"
 	"github.com/smazurov/videonode/ui"
 )
@@ -111,9 +112,10 @@ type Options struct {
 	AuthPassword          string
 	CaptureDefaultDelayMs int
 	StreamService         streams.StreamService
-	EventBus              *events.Bus  // Event bus for in-process events
-	PrometheusHandler     http.Handler // Optional Prometheus metrics handler
-	LEDController         interface {  // Optional LED controller
+	EventBus              *events.Bus     // Event bus for in-process events
+	PrometheusHandler     http.Handler    // Optional Prometheus metrics handler
+	UpdateService         updater.Service // Optional self-update service
+	LEDController         interface {     // Optional LED controller
 		Set(ledType string, enabled bool, pattern string) error
 		Available() []string
 		Patterns() []string
@@ -340,6 +342,9 @@ func (s *Server) registerRoutes() {
 
 	// LED endpoints (if LED controller is available)
 	s.registerLEDRoutes()
+
+	// Update endpoints (if update service is available)
+	s.registerUpdateRoutes()
 
 	// WebRTC signaling endpoints (if WebRTC manager is available)
 	if s.options.WebRTCManager != nil {
