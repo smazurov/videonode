@@ -6,6 +6,7 @@ import "fmt"
 const (
 	ErrCodeInvalidState   = "INVALID_STATE"
 	ErrCodeCheckFailed    = "CHECK_FAILED"
+	ErrCodeNotFound       = "NOT_FOUND"
 	ErrCodeNoUpdate       = "NO_UPDATE"
 	ErrCodeDownloadFailed = "DOWNLOAD_FAILED"
 	ErrCodeApplyFailed    = "APPLY_FAILED"
