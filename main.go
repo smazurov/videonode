@@ -20,6 +20,7 @@ import (
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/store"
+	"github.com/smazurov/videonode/internal/updater"
 )
 
 // Options for the CLI - flat structure with toml mapping.
@@ -58,14 +59,18 @@ type Options struct {
 	LoggingCapture   string `help:"Capture logging level" default:"info" toml:"logging.capture" env:"LOGGING_CAPTURE"`
 	LoggingAPI       string `help:"API logging level" default:"info" toml:"logging.api" env:"LOGGING_API"`
 	LoggingWebRTC    string `help:"WebRTC logging level" default:"info" toml:"logging.webrtc" env:"LOGGING_WEBRTC"`
+
+	// Update settings
+	UpdateEnabled    bool `help:"Enable self-update functionality" default:"true" toml:"update.enabled" env:"UPDATE_ENABLED"`
+	UpdatePrerelease bool `help:"Include prereleases in updates" default:"false" toml:"update.prerelease" env:"UPDATE_PRERELEASE"`
 }
 
 func main() {
 	// Create Huma CLI
 	cli := humacli.New(func(hooks humacli.Hooks, opts *Options) {
 		// Load configuration automatically
-		if loadErr := config.LoadConfig(opts); loadErr != nil {
-			slog.Warn("Failed to load config", "error", loadErr)
+		if err := config.LoadConfig(opts); err != nil {
+			slog.Warn("Failed to load config", "error", err)
 		}
 
 		// Initialize logging system
@@ -139,8 +144,25 @@ func main() {
 		// Load existing streams from TOML config into memory at startup
 		// This must happen after stream service is created so OBS callbacks are registered
 		// Runtime stream management should use CRUD APIs (not reload)
-		if loadErr := streamService.LoadStreamsFromConfig(); loadErr != nil {
-			logger.Warn("Failed to load existing streams from config", "error", loadErr)
+		if err := streamService.LoadStreamsFromConfig(); err != nil {
+			logger.Warn("Failed to load existing streams from config", "error", err)
+		}
+
+		// Initialize update service if enabled
+		var updateService updater.Service
+		if opts.UpdateEnabled {
+			svc, err := updater.NewService(&updater.Options{
+				Repository: "smazurov/videonode",
+				Prerelease: opts.UpdatePrerelease,
+			})
+			if err != nil {
+				logger.Warn("Failed to initialize update service", "error", err)
+			} else {
+				updateService = svc
+				if !svc.IsEnabled() {
+					logger.Warn("Update service disabled", "reason", svc.DisabledReason())
+				}
+			}
 		}
 
 		apiOpts := &api.Options{
@@ -151,6 +173,7 @@ func main() {
 			EventBus:              eventBus,
 			WebRTCManager:         webrtcManager,
 			PrometheusHandler:     promhttp.Handler(), // Prometheus metrics via promauto
+			UpdateService:         updateService,
 		}
 
 		// Add LED controller if available
@@ -167,8 +190,8 @@ func main() {
 
 		hooks.OnStart(func() {
 			// Start RTSP streaming server first (must be ready for FFmpeg)
-			if startErr := streamingServer.Start(opts.StreamingRTSPPort); startErr != nil {
-				logger.Error("Failed to start RTSP server", "error", startErr)
+			if err := streamingServer.Start(opts.StreamingRTSPPort); err != nil {
+				logger.Error("Failed to start RTSP server", "error", err)
 				os.Exit(1)
 			}
 
@@ -183,16 +206,16 @@ func main() {
 			}
 
 			logger.Info("Starting HTTP server", "port", opts.Port)
-			if startErr := server.Start(opts.Port); startErr != nil && !errors.Is(startErr, http.ErrServerClosed) {
-				logger.Error("Failed to start HTTP server", "error", startErr)
+			if err := server.Start(opts.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("Failed to start HTTP server", "error", err)
 				os.Exit(1)
 			}
 		})
 
 		hooks.OnStop(func() {
 			logger.Info("Shutting down server")
-			if stopErr := server.Stop(); stopErr != nil {
-				logger.Error("Error stopping HTTP server", "error", stopErr)
+			if err := server.Stop(); err != nil {
+				logger.Error("Error stopping HTTP server", "error", err)
 			}
 
 			// Stop all FFmpeg processes (after HTTP server stops accepting new requests)
@@ -202,8 +225,8 @@ func main() {
 			}
 
 			// Stop streaming server after FFmpeg processes
-			if stopErr := streamingServer.Stop(); stopErr != nil {
-				logger.Error("Error stopping RTSP server", "error", stopErr)
+			if err := streamingServer.Stop(); err != nil {
+				logger.Error("Error stopping RTSP server", "error", err)
 			}
 
 			// Stop WebRTC peers
