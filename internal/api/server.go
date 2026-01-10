@@ -353,6 +353,9 @@ func (s *Server) registerRoutes() {
 
 	// SSE endpoints
 	s.registerSSERoutes()
+
+	// Log streaming endpoint
+	s.registerLogRoutes()
 }
 
 // withAuth returns security requirement for basic auth.

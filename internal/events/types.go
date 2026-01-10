@@ -12,6 +12,7 @@ const (
 	TypeStreamDeleted
 	TypeStreamStateChanged
 	TypeStreamMetrics
+	TypeLogEntry
 )
 
 // Event interface required by kelindar/event.
@@ -113,3 +114,15 @@ type StreamMetricsEvent struct {
 
 // Type returns the event type identifier for StreamMetricsEvent.
 func (e StreamMetricsEvent) Type() uint32 { return TypeStreamMetrics }
+
+// LogEntryEvent represents a log entry for SSE streaming.
+type LogEntryEvent struct {
+	Timestamp  string         `json:"timestamp" example:"2025-01-09T10:30:00.123Z" doc:"Log timestamp"`
+	Level      string         `json:"level" example:"info" doc:"Log level"`
+	Module     string         `json:"module" example:"api" doc:"Source module"`
+	Message    string         `json:"message" doc:"Log message"`
+	Attributes map[string]any `json:"attributes,omitempty" doc:"Structured log attributes"`
+}
+
+// Type returns the event type identifier for LogEntryEvent.
+func (e LogEntryEvent) Type() uint32 { return TypeLogEntry }
