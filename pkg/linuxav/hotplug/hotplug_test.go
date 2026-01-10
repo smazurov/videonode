@@ -170,12 +170,12 @@ func TestMonitorClose(t *testing.T) {
 		t.Fatalf("NewMonitor() error: %v", err)
 	}
 
-	if closeErr := m.Close(); closeErr != nil {
-		t.Errorf("Close() error: %v", closeErr)
+	if err := m.Close(); err != nil {
+		t.Errorf("Close() error: %v", err)
 	}
 
 	// Second close should fail (bad file descriptor)
-	if closeErr := m.Close(); closeErr == nil {
+	if err := m.Close(); err == nil {
 		t.Error("expected error on second Close()")
 	}
 }

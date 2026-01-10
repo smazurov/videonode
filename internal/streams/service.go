@@ -159,8 +159,8 @@ func (s *service) CreateStream(_ context.Context, params StreamCreateParams) (*S
 
 			// Start FFmpeg process via process manager
 			if s.processManager != nil {
-				if startErr := s.processManager.Start(streamID); startErr != nil {
-					s.logger.Warn("Failed to start stream process", "stream_id", streamID, "error", startErr)
+				if err := s.processManager.Start(streamID); err != nil {
+					s.logger.Warn("Failed to start stream process", "stream_id", streamID, "error", err)
 				}
 			}
 		}
@@ -263,8 +263,8 @@ func (s *service) UpdateStream(_ context.Context, streamID string, params Stream
 
 	// Restart FFmpeg process with new config via process manager
 	if s.processManager != nil {
-		if restartErr := s.processManager.Restart(streamID); restartErr != nil {
-			s.logger.Warn("Failed to restart stream process", "stream_id", streamID, "error", restartErr)
+		if err := s.processManager.Restart(streamID); err != nil {
+			s.logger.Warn("Failed to restart stream process", "stream_id", streamID, "error", err)
 		}
 	}
 
@@ -293,8 +293,8 @@ func (s *service) DeleteStream(_ context.Context, streamID string) error {
 
 	// Stop FFmpeg process first via process manager
 	if s.processManager != nil {
-		if stopErr := s.processManager.Stop(streamID); stopErr != nil {
-			s.logger.Warn("Failed to stop stream process", "stream_id", streamID, "error", stopErr)
+		if err := s.processManager.Stop(streamID); err != nil {
+			s.logger.Warn("Failed to stop stream process", "stream_id", streamID, "error", err)
 		}
 	}
 
