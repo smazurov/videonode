@@ -39,8 +39,8 @@ func FindDevices() ([]DeviceInfo, error) {
 		}
 
 		capability := v4l2Capability{}
-		if ioctlErr := ioctl(fd, vidiocQuerycap, unsafe.Pointer(&capability)); ioctlErr != nil {
-			slog.With("component", "linuxav").Debug("failed to query device capabilities", "path", devicePath, "error", ioctlErr)
+		if err := ioctl(fd, vidiocQuerycap, unsafe.Pointer(&capability)); err != nil {
+			slog.With("component", "linuxav").Debug("failed to query device capabilities", "path", devicePath, "error", err)
 			_ = closefd(fd)
 			continue
 		}

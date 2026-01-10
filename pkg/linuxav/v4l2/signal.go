@@ -29,7 +29,7 @@ func GetDeviceStatus(devicePath string) DeviceStatus {
 
 	// Get capabilities to check driver
 	capability := v4l2Capability{}
-	if ioctlErr := ioctl(fd, vidiocQuerycap, unsafe.Pointer(&capability)); ioctlErr != nil {
+	if err := ioctl(fd, vidiocQuerycap, unsafe.Pointer(&capability)); err != nil {
 		return status
 	}
 
@@ -122,11 +122,11 @@ func WaitForSourceChange(devicePath string, timeoutMs int) (int, error) {
 		typ: v4l2EventSourceChange,
 	}
 
-	if subErr := ioctl(fd, vidiocSubscribeEvent, unsafe.Pointer(&sub)); subErr != nil {
-		if errors.Is(subErr, syscall.ENOTTY) || errors.Is(subErr, syscall.EINVAL) {
+	if err := ioctl(fd, vidiocSubscribeEvent, unsafe.Pointer(&sub)); err != nil {
+		if errors.Is(err, syscall.ENOTTY) || errors.Is(err, syscall.EINVAL) {
 			return 0, ErrEventsNotSupported
 		}
-		return 0, subErr
+		return 0, err
 	}
 
 	// Ensure we unsubscribe when done
@@ -152,8 +152,8 @@ func WaitForSourceChange(devicePath string, timeoutMs int) (int, error) {
 
 	// Dequeue the event
 	event := v4l2Event{}
-	if dqErr := ioctl(fd, vidiocDqevent, unsafe.Pointer(&event)); dqErr != nil {
-		return 0, dqErr
+	if err := ioctl(fd, vidiocDqevent, unsafe.Pointer(&event)); err != nil {
+		return 0, err
 	}
 
 	// Return the change flags

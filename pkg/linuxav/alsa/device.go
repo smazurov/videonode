@@ -27,7 +27,7 @@ func ListDevices() ([]Device, error) {
 
 		// Get card info
 		cardInfo := sndCtlCardInfo{}
-		if ioctlErr := ioctl(uintptr(ctlFd), sndrvCtlIoctlCardInfo, unsafe.Pointer(&cardInfo)); ioctlErr != nil {
+		if err := ioctl(uintptr(ctlFd), sndrvCtlIoctlCardInfo, unsafe.Pointer(&cardInfo)); err != nil {
 			syscall.Close(ctlFd)
 			continue
 		}
@@ -35,7 +35,7 @@ func ListDevices() ([]Device, error) {
 		// Enumerate PCM devices on this card
 		deviceNum := int32(-1)
 		for {
-			if ioctlErr := ioctl(uintptr(ctlFd), sndrvCtlIoctlPCMNextDevice, unsafe.Pointer(&deviceNum)); ioctlErr != nil {
+			if err := ioctl(uintptr(ctlFd), sndrvCtlIoctlPCMNextDevice, unsafe.Pointer(&deviceNum)); err != nil {
 				break
 			}
 			if deviceNum < 0 {
@@ -49,7 +49,7 @@ func ListDevices() ([]Device, error) {
 				stream:    StreamCapture,
 			}
 
-			if ioctlErr := ioctl(uintptr(ctlFd), sndrvCtlIoctlPCMInfo, unsafe.Pointer(&pcmInfo)); ioctlErr != nil {
+			if err := ioctl(uintptr(ctlFd), sndrvCtlIoctlPCMInfo, unsafe.Pointer(&pcmInfo)); err != nil {
 				continue // Device doesn't support capture
 			}
 
@@ -122,8 +122,8 @@ func queryCapabilities(alsaDevice string) (*capabilities, error) {
 	// Set access mode
 	hwparams.setMask(sndrvPCMHwParamAccess, sndrvPCMAccessRwInterleaved)
 
-	if ioctlErr := ioctl(uintptr(fd), sndrvPCMIoctlHwRefine, unsafe.Pointer(&hwparams)); ioctlErr != nil {
-		return nil, ioctlErr
+	if err := ioctl(uintptr(fd), sndrvPCMIoctlHwRefine, unsafe.Pointer(&hwparams)); err != nil {
+		return nil, err
 	}
 
 	caps := &capabilities{}

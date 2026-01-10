@@ -53,12 +53,12 @@ func TestConfigWatcher_BasicReload(t *testing.T) {
 		received <- cfg
 	})
 
-	if startErr := watcher.Start(); startErr != nil {
-		t.Fatal(startErr)
+	if err := watcher.Start(); err != nil {
+		t.Fatal(err)
 	}
 	defer func() {
-		if stopErr := watcher.Stop(); stopErr != nil {
-			t.Errorf("watcher.Stop failed: %v", stopErr)
+		if err := watcher.Stop(); err != nil {
+			t.Errorf("watcher.Stop failed: %v", err)
 		}
 	}()
 
@@ -66,8 +66,8 @@ func TestConfigWatcher_BasicReload(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Modify config
-	if writeErr := os.WriteFile(tmpFile.Name(), []byte("name = \"updated\"\nvalue = 42\n"), 0o644); writeErr != nil {
-		t.Fatal(writeErr)
+	if err := os.WriteFile(tmpFile.Name(), []byte("name = \"updated\"\nvalue = 42\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	select {
@@ -108,27 +108,27 @@ func TestConfigWatcher_FreshConfig(t *testing.T) {
 		received <- cfg
 	})
 
-	if startErr := watcher.Start(); startErr != nil {
-		t.Fatal(startErr)
+	if err := watcher.Start(); err != nil {
+		t.Fatal(err)
 	}
 	defer func() {
-		if stopErr := watcher.Stop(); stopErr != nil {
-			t.Errorf("watcher.Stop failed: %v", stopErr)
+		if err := watcher.Stop(); err != nil {
+			t.Errorf("watcher.Stop failed: %v", err)
 		}
 	}()
 
 	time.Sleep(100 * time.Millisecond)
 
 	// First change
-	if writeErr := os.WriteFile(tmpFile.Name(), []byte("value = 10\n"), 0o644); writeErr != nil {
-		t.Fatal(writeErr)
+	if err := os.WriteFile(tmpFile.Name(), []byte("value = 10\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	<-received
 
 	// Second change
 	time.Sleep(100 * time.Millisecond)
-	if writeErr := os.WriteFile(tmpFile.Name(), []byte("value = 20\n"), 0o644); writeErr != nil {
-		t.Fatal(writeErr)
+	if err := os.WriteFile(tmpFile.Name(), []byte("value = 20\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	cfg := <-received
 
@@ -174,18 +174,18 @@ func TestConfigWatcher_MultipleHandlers(t *testing.T) {
 		})
 	}
 
-	if startErr := watcher.Start(); startErr != nil {
-		t.Fatal(startErr)
+	if err := watcher.Start(); err != nil {
+		t.Fatal(err)
 	}
 	defer func() {
-		if stopErr := watcher.Stop(); stopErr != nil {
-			t.Errorf("watcher.Stop failed: %v", stopErr)
+		if err := watcher.Stop(); err != nil {
+			t.Errorf("watcher.Stop failed: %v", err)
 		}
 	}()
 
 	time.Sleep(100 * time.Millisecond)
-	if writeErr := os.WriteFile(tmpFile.Name(), []byte("name = \"new\"\nvalue = 2\n"), 0o644); writeErr != nil {
-		t.Fatal(writeErr)
+	if err := os.WriteFile(tmpFile.Name(), []byte("name = \"new\"\nvalue = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	time.Sleep(200 * time.Millisecond)
@@ -232,19 +232,19 @@ func TestConfigWatcher_Unsubscribe(t *testing.T) {
 		count2.Add(1)
 	})
 
-	if startErr := watcher.Start(); startErr != nil {
-		t.Fatal(startErr)
+	if err := watcher.Start(); err != nil {
+		t.Fatal(err)
 	}
 	defer func() {
-		if stopErr := watcher.Stop(); stopErr != nil {
-			t.Errorf("watcher.Stop failed: %v", stopErr)
+		if err := watcher.Stop(); err != nil {
+			t.Errorf("watcher.Stop failed: %v", err)
 		}
 	}()
 
 	// First change - both handlers called
 	time.Sleep(100 * time.Millisecond)
-	if writeErr := os.WriteFile(tmpFile.Name(), []byte("value = 10\n"), 0o644); writeErr != nil {
-		t.Fatal(writeErr)
+	if err := os.WriteFile(tmpFile.Name(), []byte("value = 10\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	time.Sleep(200 * time.Millisecond)
 
@@ -252,8 +252,8 @@ func TestConfigWatcher_Unsubscribe(t *testing.T) {
 	unsub2()
 
 	// Second change - only first handler called
-	if writeErr := os.WriteFile(tmpFile.Name(), []byte("value = 20\n"), 0o644); writeErr != nil {
-		t.Fatal(writeErr)
+	if err := os.WriteFile(tmpFile.Name(), []byte("value = 20\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	time.Sleep(200 * time.Millisecond)
 
@@ -299,19 +299,19 @@ func TestConfigWatcher_ErrorHandler(t *testing.T) {
 		configReceived <- cfg
 	})
 
-	if startErr := watcher.Start(); startErr != nil {
-		t.Fatal(startErr)
+	if err := watcher.Start(); err != nil {
+		t.Fatal(err)
 	}
 	defer func() {
-		if stopErr := watcher.Stop(); stopErr != nil {
-			t.Errorf("watcher.Stop failed: %v", stopErr)
+		if err := watcher.Stop(); err != nil {
+			t.Errorf("watcher.Stop failed: %v", err)
 		}
 	}()
 
 	// Write invalid TOML
 	time.Sleep(100 * time.Millisecond)
-	if writeErr := os.WriteFile(tmpFile.Name(), []byte("invalid toml [[["), 0o644); writeErr != nil {
-		t.Fatal(writeErr)
+	if err := os.WriteFile(tmpFile.Name(), []byte("invalid toml [[["), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	select {
@@ -349,20 +349,20 @@ func TestConfigWatcher_Debounce(t *testing.T) {
 		lastValue.Store(int32(cfg.Value))
 	})
 
-	if startErr := watcher.Start(); startErr != nil {
-		t.Fatal(startErr)
+	if err := watcher.Start(); err != nil {
+		t.Fatal(err)
 	}
 	defer func() {
-		if stopErr := watcher.Stop(); stopErr != nil {
-			t.Errorf("watcher.Stop failed: %v", stopErr)
+		if err := watcher.Stop(); err != nil {
+			t.Errorf("watcher.Stop failed: %v", err)
 		}
 	}()
 
 	// Rapid changes within debounce window
 	time.Sleep(100 * time.Millisecond)
 	for i := 1; i <= 5; i++ {
-		if writeErr := os.WriteFile(tmpFile.Name(), fmt.Appendf(nil, "value = %d\n", i), 0o644); writeErr != nil {
-			t.Fatal(writeErr)
+		if err := os.WriteFile(tmpFile.Name(), fmt.Appendf(nil, "value = %d\n", i), 0o644); err != nil {
+			t.Fatal(err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -394,12 +394,12 @@ func TestConfigWatcher_ThreadSafety(t *testing.T) {
 		WithDebounce[testConfig](10*time.Millisecond),
 	)
 
-	if startErr := watcher.Start(); startErr != nil {
-		t.Fatal(startErr)
+	if err := watcher.Start(); err != nil {
+		t.Fatal(err)
 	}
 	defer func() {
-		if stopErr := watcher.Stop(); stopErr != nil {
-			t.Errorf("watcher.Stop failed: %v", stopErr)
+		if err := watcher.Stop(); err != nil {
+			t.Errorf("watcher.Stop failed: %v", err)
 		}
 	}()
 
@@ -416,8 +416,8 @@ func TestConfigWatcher_ThreadSafety(t *testing.T) {
 
 	// Trigger some changes while handlers are being added/removed
 	for i := range 10 {
-		if writeErr := os.WriteFile(tmpFile.Name(), fmt.Appendf(nil, "value = %d\n", i), 0o644); writeErr != nil {
-			t.Fatal(writeErr)
+		if err := os.WriteFile(tmpFile.Name(), fmt.Appendf(nil, "value = %d\n", i), 0o644); err != nil {
+			t.Fatal(err)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -447,20 +447,20 @@ func TestConfigWatcher_Stop(t *testing.T) {
 		count.Add(1)
 	})
 
-	if startErr := watcher.Start(); startErr != nil {
-		t.Fatal(startErr)
+	if err := watcher.Start(); err != nil {
+		t.Fatal(err)
 	}
 
 	time.Sleep(100 * time.Millisecond)
 
 	// Stop watcher
-	if stopErr := watcher.Stop(); stopErr != nil {
-		t.Fatal(stopErr)
+	if err := watcher.Stop(); err != nil {
+		t.Fatal(err)
 	}
 
 	// Changes after stop should not trigger handler
-	if writeErr := os.WriteFile(tmpFile.Name(), []byte("value = 99\n"), 0o644); writeErr != nil {
-		t.Fatal(writeErr)
+	if err := os.WriteFile(tmpFile.Name(), []byte("value = 99\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	time.Sleep(200 * time.Millisecond)
 

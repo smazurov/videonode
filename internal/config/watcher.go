@@ -94,9 +94,9 @@ func (w *Watcher[T]) Start() error {
 	}
 	w.watcher = watcher
 
-	if addErr := watcher.Add(w.path); addErr != nil {
+	if err := watcher.Add(w.path); err != nil {
 		watcher.Close()
-		return addErr
+		return err
 	}
 
 	w.logger.Info("Config watcher started", "path", w.path, "debounce", w.debounce)

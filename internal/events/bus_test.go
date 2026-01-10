@@ -241,8 +241,8 @@ func TestEventJSONSerialization(t *testing.T) {
 			}
 
 			var result map[string]any
-			if unmarshalErr := json.Unmarshal(data, &result); unmarshalErr != nil {
-				t.Fatalf("Failed to unmarshal: %v", unmarshalErr)
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatalf("Failed to unmarshal: %v", err)
 			}
 
 			if len(result) == 0 {

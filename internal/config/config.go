@@ -29,8 +29,8 @@ func LoadConfig(opts any) error {
 	if configPath != "" {
 		if data, err := os.ReadFile(configPath); err == nil {
 			var config map[string]any
-			if parseErr := toml.Unmarshal(data, &config); parseErr != nil {
-				return fmt.Errorf("failed to parse TOML config: %w", parseErr)
+			if err := toml.Unmarshal(data, &config); err != nil {
+				return fmt.Errorf("failed to parse TOML config: %w", err)
 			}
 
 			// Apply TOML values using reflection

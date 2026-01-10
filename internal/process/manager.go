@@ -115,8 +115,8 @@ func (m *Manager) Run() int {
 	}
 
 	// Start the process
-	if startErr := m.cmd.Start(); startErr != nil {
-		m.logger.Error("Failed to start process", "error", startErr, "command", m.command)
+	if err := m.cmd.Start(); err != nil {
+		m.logger.Error("Failed to start process", "error", err, "command", m.command)
 		return 1
 	}
 
@@ -245,8 +245,8 @@ func (m *Manager) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 	}
 
 	// Start the process
-	if startErr := m.cmd.Start(); startErr != nil {
-		m.logger.Error("Failed to start process", "error", startErr, "command", command)
+	if err := m.cmd.Start(); err != nil {
+		m.logger.Error("Failed to start process", "error", err, "command", command)
 		return 1, exitReasonProcessExit
 	}
 
@@ -340,8 +340,8 @@ func (m *Manager) waitForExit(processDone <-chan error, timeout time.Duration) i
 	case <-time.After(timeout):
 		m.logger.Warn("Graceful shutdown timeout, forcing kill", "timeout", timeout)
 		if m.cmd.Process != nil {
-			if killErr := m.cmd.Process.Kill(); killErr != nil {
-				m.logger.Error("Failed to kill process", "error", killErr)
+			if err := m.cmd.Process.Kill(); err != nil {
+				m.logger.Error("Failed to kill process", "error", err)
 			}
 		}
 		// Wait for the kill to complete
@@ -358,11 +358,11 @@ func (m *Manager) Stop(timeout time.Duration) int {
 
 	// Send SIGINT for graceful shutdown
 	m.logger.Info("Sending SIGINT to process", "pid", m.cmd.Process.Pid)
-	if sigErr := m.cmd.Process.Signal(syscall.SIGINT); sigErr != nil {
-		m.logger.Warn("Failed to send SIGINT", "error", sigErr)
+	if err := m.cmd.Process.Signal(syscall.SIGINT); err != nil {
+		m.logger.Warn("Failed to send SIGINT", "error", err)
 		// Try SIGKILL immediately if SIGINT fails
-		if killErr := m.cmd.Process.Kill(); killErr != nil {
-			m.logger.Error("Failed to kill process", "error", killErr)
+		if err := m.cmd.Process.Kill(); err != nil {
+			m.logger.Error("Failed to kill process", "error", err)
 		}
 		return 1
 	}
@@ -374,11 +374,11 @@ func (m *Manager) Stop(timeout time.Duration) int {
 	}()
 
 	select {
-	case waitErr := <-done:
+	case err := <-done:
 		// Process exited gracefully
-		if waitErr != nil {
+		if err != nil {
 			exitErr := &exec.ExitError{}
-			if errors.As(waitErr, &exitErr) {
+			if errors.As(err, &exitErr) {
 				return exitErr.ExitCode()
 			}
 			return 1
@@ -387,13 +387,13 @@ func (m *Manager) Stop(timeout time.Duration) int {
 	case <-time.After(timeout):
 		// Timeout - force kill
 		m.logger.Warn("Graceful shutdown timeout, forcing kill", "timeout", timeout)
-		if killErr := m.cmd.Process.Kill(); killErr != nil {
-			m.logger.Error("Failed to kill process", "error", killErr)
+		if err := m.cmd.Process.Kill(); err != nil {
+			m.logger.Error("Failed to kill process", "error", err)
 		}
 		// Wait for kill to complete
-		if doneErr := <-done; doneErr != nil {
+		if err := <-done; err != nil {
 			exitErr := &exec.ExitError{}
-			if errors.As(doneErr, &exitErr) {
+			if errors.As(err, &exitErr) {
 				return exitErr.ExitCode()
 			}
 		}
