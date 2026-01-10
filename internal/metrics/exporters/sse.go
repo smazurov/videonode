@@ -3,6 +3,7 @@ package exporters
 import (
 	"context"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/events"
@@ -20,6 +21,7 @@ type SSEExporter struct {
 	interval time.Duration
 	ctx      context.Context
 	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 }
 
 // NewSSEExporter creates a new SSE exporter.
@@ -33,17 +35,20 @@ func NewSSEExporter(eventBus EventPublisher) *SSEExporter {
 // Start begins the SSE export loop.
 func (s *SSEExporter) Start(ctx context.Context) {
 	s.ctx, s.cancel = context.WithCancel(ctx)
+	s.wg.Add(1)
 	go s.run()
 }
 
-// Stop stops the SSE exporter.
+// Stop stops the SSE exporter and waits for the goroutine to finish.
 func (s *SSEExporter) Stop() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.wg.Wait()
 }
 
 func (s *SSEExporter) run() {
+	defer s.wg.Done()
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
