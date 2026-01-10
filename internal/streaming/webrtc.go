@@ -55,14 +55,14 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 	conn := webrtc.NewConn(pc)
 	conn.Mode = core.ModePassiveConsumer
 
-	if setOfferErr := conn.SetOffer(offer); setOfferErr != nil {
+	if err := conn.SetOffer(offer); err != nil {
 		_ = pc.Close()
-		return "", setOfferErr
+		return "", err
 	}
 
-	if wireErr := m.hub.WireConsumer(streamID, conn); wireErr != nil {
+	if err := m.hub.WireConsumer(streamID, conn); err != nil {
 		_ = pc.Close()
-		return "", wireErr
+		return "", err
 	}
 
 	answer, err := conn.GetCompleteAnswer(nil, nil)

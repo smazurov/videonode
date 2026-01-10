@@ -207,10 +207,10 @@ func (v *Validator) RunValidateCommand(quiet bool) error {
 // RunValidateCommandWithOptions runs validation with ValidationProvider - for backward compatibility.
 func RunValidateCommandWithOptions(provider types.ValidationProvider, quiet bool) {
 	v := NewValidator(provider)
-	if cmdErr := v.RunValidateCommand(quiet); cmdErr != nil {
+	if err := v.RunValidateCommand(quiet); err != nil {
 		logger := slog.With("component", "encoder_validation")
-		logger.Error("Validation command failed", "error", cmdErr)
-		panic(cmdErr) // Maintain the same behavior as log.Fatal
+		logger.Error("Validation command failed", "error", err)
+		panic(err) // Maintain the same behavior as log.Fatal
 	}
 }
 
