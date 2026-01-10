@@ -3,7 +3,6 @@ videonode
 vendor/
 tmp/
 .env
-jetkvmui/
 build/
 
 streams.toml
