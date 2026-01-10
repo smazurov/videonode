@@ -6,10 +6,10 @@ const RECONNECT_DELAY_MS = 2000;
 const ICE_GATHER_TIMEOUT_MS = 2000;
 
 interface Props {
-  streamId: string;
-  className?: string;
-  muted?: boolean;
-  showStats?: boolean;
+  readonly streamId: string;
+  readonly className?: string;
+  readonly muted?: boolean;
+  readonly showStats?: boolean;
 }
 
 function waitForIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<void> {
@@ -41,7 +41,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
 
   useEffect(() => {
     if (typeof RTCPeerConnection === 'undefined') {
-      setError('WebRTC not supported in this browser');
+      queueMicrotask(() => setError('WebRTC not supported in this browser'));
       return;
     }
 
@@ -70,7 +70,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       peerConnection.ontrack = (e) => {
         if (videoRef.current && e.streams[0]) {
           videoRef.current.srcObject = e.streams[0];
-          videoRef.current.play().catch(() => {});
+          void videoRef.current.play();
         }
       };
 
@@ -99,8 +99,8 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         if (cancelled) return;
 
         await peerConnection.setRemoteDescription({ type: 'answer', sdp: answer });
-      } catch (err) {
-        console.error(`WebRTC [${streamId}]: connection failed`, err);
+      } catch (error_) {
+        console.error(`WebRTC [${streamId}]: connection failed`, error_);
         if (!cancelled) {
           setConnectionState('offline');
           scheduleReconnect();
@@ -110,6 +110,8 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
 
     connect();
 
+    const videoElement = videoRef.current;
+
     return () => {
       cancelled = true;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
@@ -118,8 +120,8 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         pcRef.current = null;
         setPC(null);
       }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
+      if (videoElement) {
+        videoElement.srcObject = null;
       }
     };
   }, [streamId]);

@@ -5,7 +5,8 @@ import {
   SSEStreamMetricsEvent,
   SSEStreamCreatedEvent,
   SSEStreamUpdatedEvent,
-  SSEStreamDeletedEvent
+  SSEStreamDeletedEvent,
+  StreamData,
 } from '../lib/api';
 
 type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
@@ -19,6 +20,32 @@ interface SSEManagerOptions {
 // Constants to avoid duplication
 const INITIAL_RECONNECT_DELAY = 5000;
 const MAX_RECONNECT_DELAY = 60000;
+
+// Types for SSE event data parsing
+interface StreamCreatedData {
+  stream: StreamData;
+  action: 'created';
+  timestamp: string;
+}
+
+interface StreamDeletedData {
+  stream_id: string;
+  action: 'deleted';
+  timestamp: string;
+}
+
+interface StreamUpdatedData {
+  stream: StreamData;
+  action: 'updated' | 'restarted';
+  timestamp: string;
+}
+
+interface StreamMetricsData {
+  stream_id: string;
+  fps?: string;
+  dropped_frames?: string;
+  duplicate_frames?: string;
+}
 
 // Global SSE manager state
 let globalEventSource: EventSource | null = null;
@@ -54,7 +81,7 @@ function setupGlobalSSE(): void {
     // Handle stream lifecycle events
     eventSource.addEventListener('stream-created', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string);
+        const data = JSON.parse(String(event.data)) as StreamCreatedData;
         const streamEvent: SSEStreamCreatedEvent = {
           type: 'stream-created',
           stream: data.stream,
@@ -71,7 +98,7 @@ function setupGlobalSSE(): void {
 
     eventSource.addEventListener('stream-deleted', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string);
+        const data = JSON.parse(String(event.data)) as StreamDeletedData;
         const streamEvent: SSEStreamDeletedEvent = {
           type: 'stream-deleted',
           stream_id: data.stream_id,
@@ -88,7 +115,7 @@ function setupGlobalSSE(): void {
 
     eventSource.addEventListener('stream-updated', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string);
+        const data = JSON.parse(String(event.data)) as StreamUpdatedData;
         const streamEvent: SSEStreamUpdatedEvent = {
           type: 'stream-updated',
           stream: data.stream,
@@ -106,13 +133,13 @@ function setupGlobalSSE(): void {
     // Handle stream metrics events
     eventSource.addEventListener('stream-metrics', (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string);
+        const data = JSON.parse(String(event.data)) as StreamMetricsData;
         const metricsEvent: SSEStreamMetricsEvent = {
           type: 'stream-metrics',
           stream_id: data.stream_id,
-          fps: data.fps,
-          dropped_frames: data.dropped_frames,
-          duplicate_frames: data.duplicate_frames,
+          ...(data.fps !== undefined && { fps: data.fps }),
+          ...(data.dropped_frames !== undefined && { dropped_frames: data.dropped_frames }),
+          ...(data.duplicate_frames !== undefined && { duplicate_frames: data.duplicate_frames }),
         };
         for (const handler of globalStreamMetricsHandlers) {
           handler(metricsEvent);
