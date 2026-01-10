@@ -71,9 +71,9 @@ func NewMonitor() (*Monitor, error) {
 		Groups: 1, // Kernel broadcast group
 	}
 
-	if bindErr := syscall.Bind(fd, addr); bindErr != nil {
+	if err := syscall.Bind(fd, addr); err != nil {
 		syscall.Close(fd)
-		return nil, bindErr
+		return nil, err
 	}
 
 	return &Monitor{

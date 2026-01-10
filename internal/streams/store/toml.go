@@ -51,8 +51,8 @@ func (s *tomlStore) Load() error {
 		return fmt.Errorf("failed to read streams config: %w", err)
 	}
 
-	if unmarshalErr := toml.Unmarshal(data, s.config); unmarshalErr != nil {
-		return fmt.Errorf("failed to parse streams config: %w", unmarshalErr)
+	if err := toml.Unmarshal(data, s.config); err != nil {
+		return fmt.Errorf("failed to parse streams config: %w", err)
 	}
 
 	// Initialize streams map if nil
@@ -81,8 +81,8 @@ func (s *tomlStore) Save() error {
 		return fmt.Errorf("failed to marshal streams config: %w", err)
 	}
 
-	if writeErr := os.WriteFile(s.configPath, data, 0o644); writeErr != nil {
-		return fmt.Errorf("failed to write streams config: %w", writeErr)
+	if err := os.WriteFile(s.configPath, data, 0o644); err != nil {
+		return fmt.Errorf("failed to write streams config: %w", err)
 	}
 
 	return nil

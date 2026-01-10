@@ -28,8 +28,8 @@ func TestMonitorIntegration(t *testing.T) {
 
 	events := make(chan Event, 10)
 	go func() {
-		if runErr := m.Run(ctx, events); runErr != nil && !errors.Is(runErr, context.DeadlineExceeded) && !errors.Is(runErr, context.Canceled) {
-			t.Logf("Run() error: %v", runErr)
+		if err := m.Run(ctx, events); err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			t.Logf("Run() error: %v", err)
 		}
 	}()
 

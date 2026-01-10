@@ -25,11 +25,11 @@ func GetFormats(devicePath string) ([]FormatInfo, error) {
 			typ:   v4l2BufTypeVideoCapture,
 		}
 
-		if ioctlErr := ioctl(fd, vidiocEnumFmt, unsafe.Pointer(&fmtdesc)); ioctlErr != nil {
-			if errors.Is(ioctlErr, syscall.EINVAL) {
+		if err := ioctl(fd, vidiocEnumFmt, unsafe.Pointer(&fmtdesc)); err != nil {
+			if errors.Is(err, syscall.EINVAL) {
 				break // End of enumeration
 			}
-			return nil, fmt.Errorf("failed to enumerate format %d: %w", i, ioctlErr)
+			return nil, fmt.Errorf("failed to enumerate format %d: %w", i, err)
 		}
 
 		formats = append(formats, FormatInfo{
@@ -58,15 +58,15 @@ func GetResolutions(devicePath string, pixelFormat uint32) ([]Resolution, error)
 			pixelFormat: pixelFormat,
 		}
 
-		if ioctlErr := ioctl(fd, vidiocEnumFramesizes, unsafe.Pointer(&frmsize)); ioctlErr != nil {
-			if errors.Is(ioctlErr, syscall.EINVAL) {
+		if err := ioctl(fd, vidiocEnumFramesizes, unsafe.Pointer(&frmsize)); err != nil {
+			if errors.Is(err, syscall.EINVAL) {
 				break // End of enumeration
 			}
 			// ENOTTY means device doesn't support frame size enumeration
-			if errors.Is(ioctlErr, syscall.ENOTTY) {
+			if errors.Is(err, syscall.ENOTTY) {
 				return []Resolution{}, nil
 			}
-			return nil, fmt.Errorf("failed to enumerate frame size %d: %w", i, ioctlErr)
+			return nil, fmt.Errorf("failed to enumerate frame size %d: %w", i, err)
 		}
 
 		switch frmsize.typ {
@@ -103,11 +103,11 @@ func GetFramerates(devicePath string, pixelFormat uint32, width, height uint32) 
 			height:      height,
 		}
 
-		if ioctlErr := ioctl(fd, vidiocEnumFrameintervals, unsafe.Pointer(&frmival)); ioctlErr != nil {
-			if errors.Is(ioctlErr, syscall.EINVAL) {
+		if err := ioctl(fd, vidiocEnumFrameintervals, unsafe.Pointer(&frmival)); err != nil {
+			if errors.Is(err, syscall.EINVAL) {
 				break // End of enumeration
 			}
-			return nil, fmt.Errorf("failed to enumerate frame interval %d: %w", i, ioctlErr)
+			return nil, fmt.Errorf("failed to enumerate frame interval %d: %w", i, err)
 		}
 
 		switch frmival.typ {

@@ -16,8 +16,8 @@ func (s *service) LoadStreamsFromConfig() error {
 	}
 
 	// Load the configuration from file
-	if loadErr := s.store.Load(); loadErr != nil {
-		return fmt.Errorf("failed to load streams configuration: %w", loadErr)
+	if err := s.store.Load(); err != nil {
+		return fmt.Errorf("failed to load streams configuration: %w", err)
 	}
 
 	streams := s.store.GetAllStreams()
@@ -26,8 +26,8 @@ func (s *service) LoadStreamsFromConfig() error {
 	for _, streamConfig := range streams {
 		// Initialize ALL streams regardless of enabled state
 		// Enabled state is runtime-only and controlled by device monitoring
-		if initErr := s.InitializeStream(streamConfig); initErr != nil {
-			s.logger.Warn("Failed to initialize stream", "stream_id", streamConfig.ID, "error", initErr)
+		if err := s.InitializeStream(streamConfig); err != nil {
+			s.logger.Warn("Failed to initialize stream", "stream_id", streamConfig.ID, "error", err)
 			continue
 		}
 	}
@@ -36,8 +36,8 @@ func (s *service) LoadStreamsFromConfig() error {
 
 	// Start all stream processes via process manager
 	if s.processManager != nil {
-		if startErr := s.processManager.StartAll(); startErr != nil {
-			s.logger.Warn("Some streams failed to start", "error", startErr)
+		if err := s.processManager.StartAll(); err != nil {
+			s.logger.Warn("Some streams failed to start", "error", err)
 		}
 	}
 

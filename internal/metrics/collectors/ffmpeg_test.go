@@ -192,8 +192,8 @@ func TestFFmpegCollectorCleanupOldSocket(t *testing.T) {
 	collector := NewFFmpegCollector(socketPath, streamID)
 	ctx := t.Context()
 
-	if startErr := collector.Start(ctx); startErr != nil {
-		t.Fatalf("failed to start collector: %v", startErr)
+	if err := collector.Start(ctx); err != nil {
+		t.Fatalf("failed to start collector: %v", err)
 	}
 	defer collector.Stop()
 

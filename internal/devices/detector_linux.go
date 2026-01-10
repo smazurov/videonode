@@ -185,8 +185,8 @@ func (d *linuxDetector) monitorHotplug() {
 
 	events := make(chan hotplug.Event, 32)
 	go func() {
-		if runErr := monitor.Run(d.ctx, events); runErr != nil && !errors.Is(runErr, context.Canceled) {
-			d.logger.Error("Hotplug monitor error", "error", runErr)
+		if err := monitor.Run(d.ctx, events); err != nil && !errors.Is(err, context.Canceled) {
+			d.logger.Error("Hotplug monitor error", "error", err)
 		}
 	}()
 

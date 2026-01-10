@@ -515,8 +515,8 @@ func TestLoadUnreadableFile(t *testing.T) {
 		t.Fatalf("failed to chmod file: %v", err)
 	}
 	defer func() {
-		if chmodErr := os.Chmod(testFile, 0o644); chmodErr != nil {
-			t.Errorf("cleanup chmod failed: %v", chmodErr)
+		if err := os.Chmod(testFile, 0o644); err != nil {
+			t.Errorf("cleanup chmod failed: %v", err)
 		}
 	}()
 
@@ -541,8 +541,8 @@ func TestSaveToUnwritableDirectory(t *testing.T) {
 		t.Fatalf("failed to chmod dir: %v", err)
 	}
 	defer func() {
-		if chmodErr := os.Chmod(unwritableDir, 0o755); chmodErr != nil {
-			t.Errorf("cleanup chmod failed: %v", chmodErr)
+		if err := os.Chmod(unwritableDir, 0o755); err != nil {
+			t.Errorf("cleanup chmod failed: %v", err)
 		}
 	}()
 

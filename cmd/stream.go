@@ -50,8 +50,8 @@ func CreateStreamCmd() *cobra.Command {
 
 			// Load stream store
 			streamStore := store.NewTOML(configFile)
-			if loadErr := streamStore.Load(); loadErr != nil {
-				logger.Error("Failed to load streams configuration", "error", loadErr, "config", configFile)
+			if err := streamStore.Load(); err != nil {
+				logger.Error("Failed to load streams configuration", "error", err, "config", configFile)
 				os.Exit(1)
 			}
 
@@ -65,8 +65,8 @@ func CreateStreamCmd() *cobra.Command {
 			// Create encoder selector
 			validationService := streams.NewValidationService(streamStore)
 			vm := valManager.NewManager(validationService)
-			if validationErr := vm.LoadValidation(); validationErr != nil {
-				logger.Warn("Failed to load validation data, using software encoders", "error", validationErr)
+			if err := vm.LoadValidation(); err != nil {
+				logger.Warn("Failed to load validation data, using software encoders", "error", err)
 			}
 			encoderSelector := encoders.NewDefaultSelector(vm)
 
@@ -95,8 +95,8 @@ func CreateStreamCmd() *cobra.Command {
 			// Create typed config watcher with fresh config loading
 			streamsLoader := func(path string) (map[string]streams.StreamSpec, error) {
 				s := store.NewTOML(path)
-				if loadErr := s.Load(); loadErr != nil {
-					return nil, loadErr
+				if err := s.Load(); err != nil {
+					return nil, err
 				}
 				return s.GetAllStreams(), nil
 			}
@@ -136,8 +136,8 @@ func CreateStreamCmd() *cobra.Command {
 			})
 
 			// Start config watcher (non-fatal if it fails)
-			if watcherErr := watcher.Start(); watcherErr != nil {
-				logger.Warn("Failed to start config watcher, hot-reload disabled", "error", watcherErr)
+			if err := watcher.Start(); err != nil {
+				logger.Warn("Failed to start config watcher, hot-reload disabled", "error", err)
 			} else {
 				defer func() { _ = watcher.Stop() }()
 			}
