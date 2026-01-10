@@ -1,0 +1,55 @@
+name: CI - UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ui/**'
+      - '.github/workflows/ci-ui.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ui/**'
+      - '.github/workflows/ci-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui:
+    name: Lint, Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: ui/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ui/package.json
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Restore ESLint cache
+        uses: actions/cache@v4
+        with:
+          path: ui/.eslintcache
+          key: eslint-${{ runner.os }}-${{ hashFiles('ui/eslint.config.js', 'ui/pnpm-lock.yaml') }}
+          restore-keys: |
+            eslint-${{ runner.os }}-
+
+      - name: Lint
+        run: pnpm lint --cache --cache-strategy content --cache-location .eslintcache
