@@ -7,7 +7,6 @@ export interface WebRTCStats {
   // Video element playback quality (getVideoPlaybackQuality)
   totalVideoFrames: number;
   droppedVideoFrames: number;
-  corruptedVideoFrames: number;
   videoCodec: string | null;
   bitrate: number;
   bytesReceived: number;
