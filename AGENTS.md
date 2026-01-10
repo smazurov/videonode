@@ -13,8 +13,6 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Lint**: `golangci-lint run ./...`
 - **Lint & fix**: `golangci-lint run --fix ./...`
 - **Clear lint cache**: `golangci-lint cache clean` (run if you see intermittent false positives - golangci-lint has cache bugs)
-- **Build V4L2 detector**: `cd v4l2_detector && ./build.sh`
-- **Run V4L2 detector**: `cd v4l2_detector/build && ./v4l2_detector`
 - **Install deps**: `go mod tidy`
 - **Validate encoders**: `./videonode validate-encoders`
 
@@ -26,12 +24,6 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Lint & fix**: `cd ui && pnpm lint:fix`
 - **Type check**: `cd ui && pnpm typecheck`
 
-
-### SBC Scripts (pyinfra)
-
-- **Install deps**: `cd sbc_scripts && uv sync`
-- **Run deployment**: `cd sbc_scripts && uv run pyinfra inventory.py deploys/<script>.py`
-- **List hosts**: `cd sbc_scripts && uv run pyinfra inventory.py --list-hosts`
 
 ## Code Style Guidelines
 
@@ -53,13 +45,6 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Styling**: Tailwind CSS with cva for component variants
 - **State**: Zustand for global state management
 - **Unused vars**: Prefix with underscore for ignored parameters
-
-### SBC Scripts
-
-- **Python 3.12**: Use modern typed Python with type hints
-- **Pyinfra**: Infrastructure automation tool, simpler than Ansible
-- **Inventory**: Defined in `inventory.py` with host credentials
-- **Deploys**: Individual deployment scripts in `deploys/` directory
 
 ## Testing Guidelines
 
@@ -129,60 +114,26 @@ Available integration tests:
 - **CLI Framework**: Uses Huma v2 with humacli for command-line interface and API server
 - **API Server**: Huma v2 API with native Go 1.22+ routing, serves RESTful endpoints with OpenAPI documentation at `/docs`
 - **Video Capture**: FFmpeg integration for screenshot capture from V4L2 devices with configurable delay
-- **Device Detection**: Custom v4l2_detector Go package wrapping C library for V4L2 device enumeration
+- **Device Detection**: Pure Go V4L2 device detection via `pkg/linuxav/v4l2`
 - **Stream Management**: go2rtc integration for RTSP/WebRTC streaming with TOML-based configuration
 - **Observability**: Built-in metrics collection with Prometheus export and SSE real-time updates
 
-### Key Components
+### Key Packages
 
-#### API Server (`internal/api/`)
-- **server.go**: Huma v2 API server with Basic Auth middleware and udev monitoring integration
-- **devices.go**: Device listing and capture endpoints with SSE support
-- **encoders.go**: Hardware encoder detection and validation endpoints
-- **streams.go**: Stream management endpoints (create, update, delete, status)
-- **events.go**: SSE endpoints for real-time updates (device hotplug, capture events)
-- **models/**: API request/response models with snake_case field naming
+Use `go doc` or the `mcp__godoc__get_doc` tool to read package documentation:
 
-#### Legacy Server (`internal/server/`) - DEPRECATED
-- **DO NOT MODIFY**: This package is deprecated, reference only for understanding old implementation
-
-#### Core Components
-
-##### Capture (`internal/capture/`)
-- **capture.go**: Screenshot capture using FFmpeg with delay support for devices like Elgato
-- Supports both immediate capture and delayed capture (for "no signal" detection)
-- Returns bytes or saves to file
-
-##### Encoders (`internal/encoders/`)
-- **encoders.go**: Core encoder detection and management
-- **validation.go**: Hardware encoder validation logic
-- **registry.go**: Encoder registry and priority system
-- **validation/**: Platform-specific validation implementations (nvenc, vaapi, qsv, amf, etc.)
-
-##### Streams (`internal/streams/`)
-- **service.go**: Stream lifecycle management
-- **domain.go**: Stream domain models and business logic
-- **errors.go**: Stream-specific error types
-- Integration with go2rtc for RTSP/WebRTC streaming
-
-##### Observability (`internal/obs/`)
-- **manager.go**: Central observability coordination
-- **store.go**: Time-series metrics storage
-- **collectors/**: System, FFmpeg, and custom metric collectors
-- **exporters/**: Prometheus and SSE exporters for metrics
-
-##### Monitoring (`internal/monitoring/`)
-- **udev.go**: USB device hotplug detection via udev
-- **socket_listener.go**: Unix socket monitoring for IPC
-
-##### Config (`internal/config/`)
-- **config.go**: TOML configuration loading with environment variable support
-- **streams.go**: Stream definitions management
-
-#### V4L2 Detector (`v4l2_detector/`)
-- **C library**: CMake-based build system for V4L2 device detection
-- **Go bindings**: Integration layer between Go and C components
-- **Build script**: `build.sh` for compiling the C component
+```bash
+go doc ./internal/api          # API server and endpoints
+go doc ./internal/streams      # Stream lifecycle management
+go doc ./internal/encoders     # Hardware encoder detection
+go doc ./internal/capture      # Screenshot capture
+go doc ./internal/config       # Configuration loading
+go doc ./internal/metrics      # Metrics collection
+go doc ./internal/ffmpeg       # FFmpeg command building
+go doc ./internal/logging      # Structured logging
+go doc ./pkg/linuxav/v4l2      # V4L2 device detection
+go doc ./pkg/linuxav/hotplug   # USB hotplug monitoring
+```
 
 ### API Design
 - **OpenAPI Documentation**: Automatically generated at `/docs` endpoint
@@ -192,10 +143,9 @@ Available integration tests:
 - **SSE Support**: Real-time updates via Server-Sent Events at `/api/events/*`
 
 ### Configuration
-- **Main Config**: `config.toml` with sections for server, streams, obs, encoders, capture, and auth
+- **Main Config**: `config.toml` with sections for server, streams, obs, capture, auth, features, and logging
 - **Stream Definitions**: `streams.toml` for individual stream configurations
-- **go2rtc Config**: `go2rtc.yaml` for RTSP/WebRTC server settings
-- **Environment Variables**: All config values can be overridden via env vars (e.g., `SERVER_PORT`, `AUTH_USERNAME`)
+- **Environment Variables**: All config values can be overridden via env vars (e.g., `VIDEONODE_SERVER_PORT`)
 
 ### go2rtc Integration
 - **Control API**: go2rtc provides a RESTful API on port 1984 for dynamic stream management
@@ -217,9 +167,9 @@ Available integration tests:
 - Per systemd docs: "after unloading the unit it cannot be inspected using systemctl status, but its logs are still in journal"
 
 ### Device Monitoring
-- **Hotplug Support**: udev-based monitoring for USB device insertion/removal
+- **Hotplug Support**: udev-based monitoring for USB device insertion/removal via `pkg/linuxav/hotplug`
 - **SSE Updates**: Real-time notifications when devices are added/removed
-- **V4L2 Integration**: Direct V4L2 API access via C library for device capabilities
+- **V4L2 Integration**: Pure Go V4L2 device detection via `pkg/linuxav/v4l2`
 
 ### API Documentation
 
@@ -233,35 +183,8 @@ The API includes endpoints for:
 - Stream lifecycle management
 - Real-time Server-Sent Events
 
-### SBC Scripts (`sbc_scripts/`)
-- **Purpose**: Pyinfra deployments for Orange Pi 5 Ultra management
-- **Commands**: `cd sbc_scripts && uv run pyinfra inventory.py deploys/<script>.py`
-- **Dependencies**: Managed via `uv` with pyproject.toml
-
-## Package Documentation
-
-Use the `mcp__godoc__get_doc` tool to read Go package documentation:
-
-```
-# Get package overview
-mcp__godoc__get_doc path="./internal/logging" working_dir="/home/stepan/dev/videonode"
-
-# Get specific symbol docs
-mcp__godoc__get_doc path="./internal/logging" target="GetLogger" working_dir="/home/stepan/dev/videonode"
-
-# Get all docs including unexported
-mcp__godoc__get_doc path="./internal/logging" cmd_flags=["-all"] working_dir="/home/stepan/dev/videonode"
-```
-
-Key packages with documentation:
-- `./internal/logging` - Structured logging with journal/stdout routing
-- `./internal/streams` - Stream lifecycle management
-- `./internal/ffmpeg` - FFmpeg command building
-- `./internal/encoders` - Hardware encoder detection
-
 ## Development Notes
 
-- **Never modify internal/server** - it's deprecated, reference only
 - **Server is always running via air** on port 8090 with Basic Auth credentials: `pinball:ilovepinball`
 - **Health check**: `curl http://localhost:8090/api/health`
 - **When writing API models, make sure every field is in snake_case**
