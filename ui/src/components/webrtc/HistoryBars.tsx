@@ -20,12 +20,12 @@ function getFrameColor(frames: number): string {
 }
 
 interface HistoryBarProps {
-  samples: StatsSample[];
-  getValue: (s: StatsSample) => number;
-  maxValue: number;
-  getColor?: (s: StatsSample) => string;
-  label?: string;
-  inline?: boolean;
+  readonly samples: StatsSample[];
+  readonly getValue: (s: StatsSample) => number;
+  readonly maxValue: number;
+  readonly getColor?: (s: StatsSample) => string;
+  readonly label?: string;
+  readonly inline?: boolean;
 }
 
 export function HistoryBar({
@@ -65,7 +65,7 @@ export function HistoryBar({
   );
 }
 
-export function FramesHistoryBar({ samples }: { samples: StatsSample[] }) {
+export function FramesHistoryBar({ samples }: { readonly samples: StatsSample[] }) {
   return (
     <HistoryBar
       samples={samples}

@@ -13,7 +13,7 @@ interface StreamCardActionsProps {
   onRequestPlayerRefresh: () => void;
 }
 
-function FFmpegCommandButton({ streamId, onShowSheet }: { streamId: string; onShowSheet: () => void }) {
+function FFmpegCommandButton({ streamId, onShowSheet }: { readonly streamId: string; readonly onShowSheet: () => void }) {
   const hasCustomCommand = useStreamStore(
     (state) => !!state.streamsById[streamId]?.custom_ffmpeg_command
   );
@@ -33,7 +33,7 @@ function FFmpegCommandButton({ streamId, onShowSheet }: { streamId: string; onSh
   );
 }
 
-function EditButton({ streamId }: { streamId: string }) {
+function EditButton({ streamId }: { readonly streamId: string }) {
   const navigate = useNavigate();
 
   return (
@@ -55,8 +55,8 @@ function RestartButton({
   streamId,
   onRequestPlayerRefresh,
 }: {
-  streamId: string;
-  onRequestPlayerRefresh: () => void;
+  readonly streamId: string;
+  readonly onRequestPlayerRefresh: () => void;
 }) {
   const [isRestarting, setIsRestarting] = useState(false);
 
@@ -97,8 +97,8 @@ function TestModeButton({
   streamId,
   onRequestPlayerRefresh,
 }: {
-  streamId: string;
-  onRequestPlayerRefresh: () => void;
+  readonly streamId: string;
+  readonly onRequestPlayerRefresh: () => void;
 }) {
   const [isTogglingTestMode, setIsTogglingTestMode] = useState(false);
   const { testMode, hasCustomCommand } = useStreamStore(
@@ -149,8 +149,8 @@ function DeleteButton({
   streamId,
   onDelete,
 }: {
-  streamId: string;
-  onDelete: (streamId: string) => void;
+  readonly streamId: string;
+  readonly onDelete: (streamId: string) => void;
 }) {
   const [isDeleting, setIsDeleting] = useState(false);
 
