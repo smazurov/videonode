@@ -7,22 +7,26 @@ const POLL_INTERVAL_MS = 1000;
 const POOR_QUALITY_THRESHOLD = 2;
 
 interface StatsOverlayProps {
-  pc: RTCPeerConnection | null;
-  videoRef: React.RefObject<HTMLVideoElement | null>;
-  streamId: string;
-  onClose?: () => void;
+  readonly pc: RTCPeerConnection | null;
+  readonly videoRef: React.RefObject<HTMLVideoElement | null>;
+  readonly streamId: string;
+  readonly onClose?: () => void;
+}
+
+interface InboundRtpReport extends RTCInboundRtpStreamStats {
+  jitterBufferDelay?: number;
+  jitterBufferEmittedCount?: number;
+  frameWidth?: number;
+  frameHeight?: number;
+  framesDropped?: number;
 }
 
 function calculateQuality(stats: WebRTCStats, packetsStalled: boolean): QualityScore {
   const { packetsLost, packetsReceived } = stats;
-
-  // If connected but no packets flowing, it's poor
   if (packetsStalled) return 'poor';
-
   if (packetsReceived === 0) return 'unknown';
 
   const lossRate = (packetsLost / packetsReceived) * 100;
-
   if (lossRate < 0.1) return 'excellent';
   if (lossRate < 1) return 'good';
   if (lossRate < 3) return 'fair';
@@ -41,7 +45,110 @@ function formatBytesPerSec(bps: number): string {
   return `${bps} B/s`;
 }
 
-export function StatsOverlay({ pc, videoRef, streamId, onClose }: Readonly<StatsOverlayProps>) {
+function createEmptyStats(): WebRTCStats {
+  return {
+    resolution: null,
+    fps: null,
+    framesDecoded: 0,
+    framesDropped: 0,
+    totalVideoFrames: 0,
+    droppedVideoFrames: 0,
+    videoCodec: null,
+    bitrate: 0,
+    bytesReceived: 0,
+    packetsReceived: 0,
+    packetsLost: 0,
+    jitter: 0,
+    jitterBufferDelay: 0,
+    jitterBufferEmittedCount: 0,
+    rtt: null,
+    audioCodec: null,
+    audioPacketsLost: 0,
+  };
+}
+
+function buildCodecMap(rtcStats: RTCStatsReport): Map<string, string> {
+  const codecMap = new Map<string, string>();
+  for (const report of rtcStats.values()) {
+    const statsReport = report as RTCStats;
+    if (statsReport.type === 'codec') {
+      const codec = report as unknown as { id: string; mimeType: string };
+      codecMap.set(codec.id, codec.mimeType);
+    }
+  }
+  return codecMap;
+}
+
+function processVideoRtp(r: InboundRtpReport, stats: WebRTCStats, codecMap: Map<string, string>): void {
+  stats.framesDecoded = r.framesDecoded ?? 0;
+  stats.fps = r.framesPerSecond ?? null;
+  stats.packetsReceived = r.packetsReceived ?? 0;
+  stats.packetsLost = r.packetsLost ?? 0;
+  stats.jitter = r.jitter ?? 0;
+  stats.bytesReceived = r.bytesReceived ?? 0;
+  stats.jitterBufferDelay = r.jitterBufferDelay ?? 0;
+  stats.jitterBufferEmittedCount = r.jitterBufferEmittedCount ?? 0;
+  stats.framesDropped = r.framesDropped ?? 0;
+
+  if (r.frameWidth && r.frameHeight) {
+    stats.resolution = { width: r.frameWidth, height: r.frameHeight };
+  }
+
+  if (r.codecId) {
+    const mimeType = codecMap.get(r.codecId);
+    if (mimeType) {
+      stats.videoCodec = mimeType.split('/')[1]?.toUpperCase() ?? 'unknown';
+    }
+  }
+}
+
+function processAudioRtp(r: InboundRtpReport, stats: WebRTCStats, codecMap: Map<string, string>): void {
+  stats.audioPacketsLost = r.packetsLost ?? 0;
+  if (r.codecId) {
+    const mimeType = codecMap.get(r.codecId);
+    if (mimeType) {
+      stats.audioCodec = mimeType.split('/')[1] ?? 'unknown';
+    }
+  }
+}
+
+function processCandidatePair(pair: RTCIceCandidatePairStats, stats: WebRTCStats): void {
+  if (pair.nominated || pair.state === 'succeeded' || pair.state === 'in-progress') {
+    if (pair.currentRoundTripTime && pair.currentRoundTripTime > 0) {
+      stats.rtt = pair.currentRoundTripTime * 1000;
+    }
+    if (pair.availableIncomingBitrate) {
+      stats.bitrate = pair.availableIncomingBitrate;
+    }
+  }
+}
+
+function processRtcReports(rtcStats: RTCStatsReport, stats: WebRTCStats, codecMap: Map<string, string>): void {
+  for (const report of rtcStats.values()) {
+    const statsReport = report as RTCStats;
+
+    if (statsReport.type === 'inbound-rtp') {
+      const r = report as InboundRtpReport;
+      if (r.kind === 'video') {
+        processVideoRtp(r, stats, codecMap);
+      } else if (r.kind === 'audio') {
+        processAudioRtp(r, stats, codecMap);
+      }
+    } else if (statsReport.type === 'candidate-pair') {
+      processCandidatePair(report as RTCIceCandidatePairStats, stats);
+    }
+  }
+}
+
+function getVideoPlaybackQuality(video: HTMLVideoElement | null, stats: WebRTCStats): void {
+  if (video && 'getVideoPlaybackQuality' in video) {
+    const quality = video.getVideoPlaybackQuality();
+    stats.totalVideoFrames = quality.totalVideoFrames;
+    stats.droppedVideoFrames = quality.droppedVideoFrames;
+  }
+}
+
+export function StatsOverlay({ pc, videoRef, streamId, onClose }: StatsOverlayProps) {
   const [stats, setStats] = useState<WebRTCStats | null>(null);
   const [history, setHistory] = useState<StatsSample[]>([]);
   const [showWarning, setShowWarning] = useState(false);
@@ -56,88 +163,10 @@ export function StatsOverlay({ pc, videoRef, streamId, onClose }: Readonly<Stats
 
     try {
       const rtcStats = await pc.getStats();
-      const newStats: WebRTCStats = {
-        resolution: null,
-        fps: null,
-        framesDecoded: 0,
-        framesDropped: 0,
-        totalVideoFrames: 0,
-        droppedVideoFrames: 0,
-        corruptedVideoFrames: 0,
-        videoCodec: null,
-        bitrate: 0,
-        bytesReceived: 0,
-        packetsReceived: 0,
-        packetsLost: 0,
-        jitter: 0,
-        jitterBufferDelay: 0,
-        jitterBufferEmittedCount: 0,
-        rtt: null,
-        audioCodec: null,
-        audioPacketsLost: 0,
-      };
+      const newStats = createEmptyStats();
+      const codecMap = buildCodecMap(rtcStats);
 
-      // Build codec lookup map
-      const codecMap = new Map<string, string>();
-      for (const report of rtcStats.values()) {
-        if (report.type === 'codec') {
-          const codec = report as { id: string; mimeType: string };
-          codecMap.set(codec.id, codec.mimeType);
-        }
-      }
-
-      for (const report of rtcStats.values()) {
-        if (report.type === 'inbound-rtp') {
-          const r = report as RTCInboundRtpStreamStats & {
-            jitterBufferDelay?: number;
-            jitterBufferEmittedCount?: number;
-            frameWidth?: number;
-            frameHeight?: number;
-            framesDropped?: number;
-          };
-
-          if (r.kind === 'video') {
-            newStats.framesDecoded = r.framesDecoded ?? 0;
-            newStats.fps = r.framesPerSecond ?? null;
-            newStats.packetsReceived = r.packetsReceived ?? 0;
-            newStats.packetsLost = r.packetsLost ?? 0;
-            newStats.jitter = r.jitter ?? 0;
-            newStats.bytesReceived = r.bytesReceived ?? 0;
-            newStats.jitterBufferDelay = r.jitterBufferDelay ?? 0;
-            newStats.jitterBufferEmittedCount = r.jitterBufferEmittedCount ?? 0;
-            newStats.framesDropped = r.framesDropped ?? 0;
-
-            if (r.frameWidth && r.frameHeight) {
-              newStats.resolution = { width: r.frameWidth, height: r.frameHeight };
-            }
-
-            if (r.codecId) {
-              const mimeType = codecMap.get(r.codecId);
-              if (mimeType) {
-                newStats.videoCodec = mimeType.split('/')[1]?.toUpperCase() ?? 'unknown';
-              }
-            }
-          } else if (r.kind === 'audio') {
-            newStats.audioPacketsLost = r.packetsLost ?? 0;
-            if (r.codecId) {
-              const mimeType = codecMap.get(r.codecId);
-              if (mimeType) {
-                newStats.audioCodec = mimeType.split('/')[1] ?? 'unknown';
-              }
-            }
-          }
-        } else if (report.type === 'candidate-pair') {
-          const pair = report as RTCIceCandidatePairStats;
-          if (pair.nominated || pair.state === 'succeeded' || pair.state === 'in-progress') {
-            if (pair.currentRoundTripTime && pair.currentRoundTripTime > 0) {
-              newStats.rtt = pair.currentRoundTripTime * 1000;
-            }
-            if (pair.availableIncomingBitrate) {
-              newStats.bitrate = pair.availableIncomingBitrate;
-            }
-          }
-        }
-      }
+      processRtcReports(rtcStats, newStats, codecMap);
 
       // Calculate bytes per second
       const now = Date.now();
@@ -154,19 +183,12 @@ export function StatsOverlay({ pc, videoRef, streamId, onClose }: Readonly<Stats
       const framesDecodedDelta = newStats.framesDecoded - lastFramesDecodedRef.current;
       lastFramesDecodedRef.current = newStats.framesDecoded;
 
-      // Estimate bitrate from bytes if not available from candidate-pair
+      // Estimate bitrate from bytes if not available
       if (newStats.bitrate === 0 && bytesPerSec > 0) {
         newStats.bitrate = bytesPerSec * 8;
       }
 
-      // Get frame stats from video element (more reliable than WebRTC stats)
-      const video = videoRef.current;
-      if (video && 'getVideoPlaybackQuality' in video) {
-        const quality = video.getVideoPlaybackQuality();
-        newStats.totalVideoFrames = quality.totalVideoFrames;
-        newStats.droppedVideoFrames = quality.droppedVideoFrames;
-        newStats.corruptedVideoFrames = quality.corruptedVideoFrames;
-      }
+      getVideoPlaybackQuality(videoRef.current, newStats);
 
       const packetsStalled = newStats.packetsReceived > 0 && newStats.packetsReceived === lastPacketsRef.current;
       lastPacketsRef.current = newStats.packetsReceived;
@@ -204,8 +226,8 @@ export function StatsOverlay({ pc, videoRef, streamId, onClose }: Readonly<Stats
   useEffect(() => {
     if (!pc) return;
 
-    pollStats();
-    const interval = setInterval(pollStats, POLL_INTERVAL_MS);
+    queueMicrotask(() => void pollStats());
+    const interval = setInterval(() => void pollStats(), POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [pc, pollStats]);
 
@@ -264,7 +286,7 @@ export function StatsOverlay({ pc, videoRef, streamId, onClose }: Readonly<Stats
             <tr>
               <td>Frames (video)</td>
               <td>
-                {stats.totalVideoFrames.toLocaleString()} total / {stats.droppedVideoFrames} dropped / {stats.corruptedVideoFrames} corrupted
+                {stats.totalVideoFrames.toLocaleString()} total / {stats.droppedVideoFrames} dropped
               </td>
             </tr>
             <tr>

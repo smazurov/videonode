@@ -159,10 +159,6 @@ type ButtonPropsType = Pick<
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonPropsType>(
   ({ type, disabled, onClick, formNoValidate, loading, ...props }, ref) => {
-    const renderCount = React.useRef(0);
-    renderCount.current++;
-    console.log('[Button] render #' + renderCount.current, { title: props.title });
-
     const classes = cn(
       "group outline-none",
       props.fullWidth ? "w-full" : "",
