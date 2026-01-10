@@ -1,6 +1,11 @@
 version: "2"
 
 linters:
+  exclusions:
+    rules:
+      - linters:
+          - govet
+        text: 'shadow: declaration of "(err|ctx)" shadows declaration'
   enable:
     - asciicheck
     - bidichk
