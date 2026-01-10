@@ -7,11 +7,15 @@ import (
 	"sync"
 )
 
+const defaultBufferSize = 1000
+
 var (
 	moduleLoggers = make(map[string]*slog.Logger)
 	globalConfig  Config
 	isInitialized bool
 	mutex         sync.RWMutex
+	logBuffer     *RingBuffer
+	logCallback   LogCallback
 )
 
 // Config represents logging configuration.
@@ -29,6 +33,9 @@ func Initialize(config Config) {
 	globalConfig = config
 	isInitialized = true
 
+	// Create ring buffer for log history
+	logBuffer = NewRingBuffer(defaultBufferSize)
+
 	// Parse global level
 	globalLevel := parseLevel(config.Level)
 	if globalLevel == nil {
@@ -44,6 +51,21 @@ func Initialize(config Config) {
 
 	// Clear existing module loggers since we're reinitializing
 	moduleLoggers = make(map[string]*slog.Logger)
+}
+
+// GetBuffer returns the log ring buffer for reading historical logs.
+func GetBuffer() *RingBuffer {
+	mutex.RLock()
+	defer mutex.RUnlock()
+	return logBuffer
+}
+
+// SetLogCallback sets a callback to be called for each new log entry.
+// Used for publishing log events to SSE clients.
+func SetLogCallback(callback LogCallback) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	logCallback = callback
 }
 
 // GetLogger returns a logger for the specified module, creating it if needed.
@@ -98,7 +120,7 @@ func GetLogger(module string) *slog.Logger {
 }
 
 // createHandler creates a slog handler with the specified format and level.
-// Logs to both stdout and journal when both are available.
+// Logs to stdout, journal (when available), and ring buffer for SSE streaming.
 func createHandler(format string, level slog.Level) slog.Handler {
 	opts := &slog.HandlerOptions{Level: level}
 
@@ -112,13 +134,40 @@ func createHandler(format string, level slog.Level) slog.Handler {
 	journalAvailable := IsJournalAvailable()
 	stdoutAvailable := isStdoutAvailable()
 
-	switch {
-	case journalAvailable && stdoutAvailable:
-		return NewMultiHandler(stdoutHandler, NewJournalHandler(level))
-	case journalAvailable:
-		return NewJournalHandler(level)
+	// Create buffer handler if buffer is initialized
+	var bufferHandler slog.Handler
+	if logBuffer != nil {
+		bufferHandler = NewBufferHandler(logBuffer, level, func(entry LogEntry) {
+			// Call the callback if set (for SSE publishing)
+			if logCallback != nil {
+				logCallback(entry)
+			}
+		})
+	}
+
+	// Build handler chain
+	var handlers []slog.Handler
+
+	if stdoutAvailable {
+		handlers = append(handlers, stdoutHandler)
+	}
+
+	if journalAvailable {
+		handlers = append(handlers, NewJournalHandler(level))
+	}
+
+	if bufferHandler != nil {
+		handlers = append(handlers, bufferHandler)
+	}
+
+	// Return appropriate handler based on available outputs
+	switch len(handlers) {
+	case 0:
+		return stdoutHandler // Fallback
+	case 1:
+		return handlers[0]
 	default:
-		return stdoutHandler
+		return NewMultiHandler(handlers...)
 	}
 }
 

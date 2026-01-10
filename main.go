@@ -106,6 +106,17 @@ func main() {
 		// Create event bus for in-process event handling
 		eventBus := events.New()
 
+		// Set up log callback to publish log entries to event bus for SSE streaming
+		logging.SetLogCallback(func(entry logging.LogEntry) {
+			eventBus.Publish(events.LogEntryEvent{
+				Timestamp:  entry.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
+				Level:      entry.Level,
+				Module:     entry.Module,
+				Message:    entry.Message,
+				Attributes: entry.Attributes,
+			})
+		})
+
 		// Initialize LED control if enabled
 		var ledManager *led.Manager
 		var ledController led.Controller
