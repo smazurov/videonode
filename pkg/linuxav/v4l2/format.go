@@ -17,12 +17,15 @@ func GetFormats(devicePath string) ([]FormatInfo, error) {
 	}
 	defer syscall.Close(fd)
 
+	// Query device capabilities to determine buffer type
+	bufType := getCaptureBufType(fd)
+
 	var formats []FormatInfo
 
 	for i := uint32(0); ; i++ {
 		fmtdesc := v4l2Fmtdesc{
 			index: i,
-			typ:   v4l2BufTypeVideoCapture,
+			typ:   bufType,
 		}
 
 		if err := ioctl(fd, vidiocEnumFmt, unsafe.Pointer(&fmtdesc)); err != nil {
@@ -40,6 +43,24 @@ func GetFormats(devicePath string) ([]FormatInfo, error) {
 	}
 
 	return formats, nil
+}
+
+// getCaptureBufType queries device capabilities and returns the appropriate buffer type.
+func getCaptureBufType(fd int) uint32 {
+	capability := v4l2Capability{}
+	if err := ioctl(fd, vidiocQuerycap, unsafe.Pointer(&capability)); err != nil {
+		return v4l2BufTypeVideoCapture // fallback
+	}
+
+	caps := capability.capabilities
+	if caps&v4l2CapDeviceCaps != 0 {
+		caps = capability.deviceCaps
+	}
+
+	if caps&v4l2CapVideoCaptureMplane != 0 {
+		return v4l2BufTypeVideoCaptureMplane
+	}
+	return v4l2BufTypeVideoCapture
 }
 
 // GetResolutions returns all supported resolutions for a device and pixel format.

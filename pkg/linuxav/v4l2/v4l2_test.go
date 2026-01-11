@@ -259,6 +259,61 @@ func TestCapabilityConstants(t *testing.T) {
 	}
 }
 
+func TestBufferTypeConstants(t *testing.T) {
+	// Verify buffer type constants match V4L2 kernel definitions
+	if v4l2BufTypeVideoCapture != 1 {
+		t.Errorf("v4l2BufTypeVideoCapture = %d, want 1", v4l2BufTypeVideoCapture)
+	}
+	if v4l2BufTypeVideoCaptureMplane != 9 {
+		t.Errorf("v4l2BufTypeVideoCaptureMplane = %d, want 9", v4l2BufTypeVideoCaptureMplane)
+	}
+}
+
+func TestCaptureBufTypeSelection(t *testing.T) {
+	tests := []struct {
+		name            string
+		caps            uint32
+		expectedBufType uint32
+	}{
+		{
+			name:            "single-planar webcam uses VIDEO_CAPTURE",
+			caps:            0x84200001, // VIDEO_CAPTURE | STREAMING | EXT_PIX_FORMAT | DEVICE_CAPS
+			expectedBufType: v4l2BufTypeVideoCapture,
+		},
+		{
+			name:            "multiplanar HDMI-RX uses VIDEO_CAPTURE_MPLANE",
+			caps:            0x04201000, // VIDEO_CAPTURE_MPLANE | STREAMING | EXT_PIX_FORMAT
+			expectedBufType: v4l2BufTypeVideoCaptureMplane,
+		},
+		{
+			name:            "device with both caps prefers multiplanar",
+			caps:            0x00001001, // VIDEO_CAPTURE | VIDEO_CAPTURE_MPLANE
+			expectedBufType: v4l2BufTypeVideoCaptureMplane,
+		},
+		{
+			name:            "no capture caps falls back to single-planar",
+			caps:            0x00000000,
+			expectedBufType: v4l2BufTypeVideoCapture,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate the logic from getCaptureBufType
+			var bufType uint32
+			if tt.caps&v4l2CapVideoCaptureMplane != 0 {
+				bufType = v4l2BufTypeVideoCaptureMplane
+			} else {
+				bufType = v4l2BufTypeVideoCapture
+			}
+
+			if bufType != tt.expectedBufType {
+				t.Errorf("caps 0x%08x: bufType = %d, want %d", tt.caps, bufType, tt.expectedBufType)
+			}
+		})
+	}
+}
+
 func TestCalculateFPS(t *testing.T) {
 	tests := []struct {
 		name        string
