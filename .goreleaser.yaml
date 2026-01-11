@@ -21,9 +21,9 @@ builds:
       - ui_embed
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.ShortCommit}}
-      - -X main.date={{.Date}}
+      - -X github.com/smazurov/videonode/internal/version.Version={{.Version}}
+      - -X github.com/smazurov/videonode/internal/version.GitCommit={{.ShortCommit}}
+      - -X github.com/smazurov/videonode/internal/version.BuildDate={{.Date}}
 
 archives:
   - id: default
