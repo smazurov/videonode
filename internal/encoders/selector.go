@@ -9,6 +9,7 @@ import (
 
 	"github.com/smazurov/videonode/internal/encoders/validation"
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/types"
 	valmanager "github.com/smazurov/videonode/internal/validation"
 )
@@ -33,7 +34,7 @@ type DefaultSelector struct {
 // NewDefaultSelector creates a new DefaultSelector.
 func NewDefaultSelector(validationManager *valmanager.Manager) *DefaultSelector {
 	return &DefaultSelector{
-		logger:            slog.With("component", "encoder_selector"),
+		logger:            logging.GetLogger("streams"),
 		validationManager: validationManager,
 		registry:          CreateValidatorRegistry(),
 	}

@@ -11,7 +11,7 @@ import (
 // HTTPLoggingMiddleware logs HTTP requests with appropriate log levels based on status codes.
 func HTTPLoggingMiddleware(ctx huma.Context, next func(huma.Context)) {
 	start := time.Now()
-	logger := logging.GetLogger("http")
+	logger := logging.GetLogger("api")
 
 	// Extract request information
 	method := ctx.Method()

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/metrics"
 )
 
@@ -30,7 +31,7 @@ type FFmpegCollector struct {
 // NewFFmpegCollector creates a new FFmpeg collector.
 func NewFFmpegCollector(socketPath, streamID string) *FFmpegCollector {
 	return &FFmpegCollector{
-		logger:     slog.With("component", "ffmpeg_collector", "stream_id", streamID),
+		logger:     logging.GetLogger("streams").With("stream_id", streamID),
 		socketPath: socketPath,
 		streamID:   streamID,
 	}

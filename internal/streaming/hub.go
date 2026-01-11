@@ -53,7 +53,7 @@ func (h *Hub) AddProducer(streamID string, conn *rtsp.Conn) {
 	}
 
 	h.producers[streamID] = conn
-	h.logger.Info("Producer added", "stream_id", streamID)
+	h.logger.Debug("Producer added", "stream_id", streamID)
 	h.mu.Unlock()
 
 	// Notify about producer replacement (after unlock to avoid deadlock)

@@ -140,7 +140,7 @@ func (m *streamProcessManager) startProcess(streamID string, command string) err
 	}
 
 	// Create process manager
-	proc.manager = process.NewManager(streamID, command, m.logger.With("stream_id", streamID))
+	proc.manager = process.NewManager(streamID, command, m.logger)
 
 	m.processes[streamID] = proc
 
@@ -153,7 +153,6 @@ func (m *streamProcessManager) startProcess(streamID string, command string) err
 		m.runProcess(ctx, proc)
 	}()
 
-	m.logger.Info("Starting stream process", "stream_id", streamID)
 	return nil
 }
 
