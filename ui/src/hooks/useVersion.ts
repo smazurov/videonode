@@ -7,8 +7,8 @@ export function useVersion() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Direct fetch without auth since /api/version doesn't require it
-    fetch(`${API_BASE_URL}/api/version`)
+    // Direct fetch without auth since /api/update/version doesn't require it
+    fetch(`${API_BASE_URL}/api/update/version`)
       .then(res => {
         if (!res.ok) throw new Error(`Failed to fetch version: ${res.statusText}`);
         return res.json();
