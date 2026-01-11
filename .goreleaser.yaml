@@ -35,9 +35,9 @@ checksum:
   name_template: "checksums.txt"
 
 changelog:
+  use: github
   sort: asc
-  abbrev: 7
-  format: "{{ .Message }} ({{ .SHA }}) (@{{ .AuthorUsername }})"
+  format: "{{ .SHA }}: {{ .Message }}{{ with .AuthorUsername }} (@{{ . }}){{ end }}"
   groups:
     - title: Features
       regexp: '^feat(\(.+\))?:'
