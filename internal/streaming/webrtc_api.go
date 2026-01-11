@@ -260,7 +260,7 @@ func (r *rtcpMonitorReader) Read(b []byte, a interceptor.Attributes) (int, inter
 		case *rtcp.TransportLayerNack:
 			count := 0
 			for _, nack := range p.Nacks {
-				count += 1 + len(nack.PacketList())
+				count += len(nack.PacketList())
 			}
 			IncrementNACKs(r.streamID, count)
 		case *rtcp.PictureLossIndication:
