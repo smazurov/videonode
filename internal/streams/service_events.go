@@ -9,8 +9,14 @@ import (
 
 // BroadcastDeviceDiscovery implements devices.EventBroadcaster interface
 // Updates stream enabled state based on device readiness.
-func (s *service) BroadcastDeviceDiscovery(_ string, device devices.DeviceInfo, _ string) {
+func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, _ string) {
 	s.streamsMutex.Lock()
+
+	// When device is removed, always treat as not ready
+	deviceReady := device.Ready
+	if action == "removed" {
+		deviceReady = false
+	}
 
 	allStreamConfigs := s.store.GetAllStreams()
 
@@ -27,17 +33,17 @@ func (s *service) BroadcastDeviceDiscovery(_ string, device devices.DeviceInfo, 
 			}
 
 			// Only update if the enabled state actually changed
-			if stream.Enabled != device.Ready {
+			if stream.Enabled != deviceReady {
 				// Capture that this stream needs restart BEFORE updating state
 				if s.processManager != nil {
 					streamsToRestart = append(streamsToRestart, streamID)
 				}
 
 				// Update runtime enabled state in-memory only
-				stream.Enabled = device.Ready
+				stream.Enabled = deviceReady
 
 				// Log the state change
-				if device.Ready {
+				if deviceReady {
 					s.logger.Info("Device ready, stream enabled",
 						"stream_id", streamID,
 						"device_id", device.DeviceID,
@@ -53,7 +59,7 @@ func (s *service) BroadcastDeviceDiscovery(_ string, device devices.DeviceInfo, 
 				if s.eventBus != nil {
 					s.eventBus.Publish(events.StreamStateChangedEvent{
 						StreamID:  streamID,
-						Enabled:   device.Ready,
+						Enabled:   deviceReady,
 						Timestamp: time.Now().Format(time.RFC3339),
 					})
 				}

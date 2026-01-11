@@ -151,7 +151,9 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	if !useTestSource {
 		devicePath = p.deviceResolver(streamConfig.Device)
 		if devicePath == "" {
-			return nil, fmt.Errorf("device %s not found", streamConfig.Device)
+			// Device not found - treat as offline
+			enabled = false
+			useTestSource = streamConfig.TestMode || !enabled
 		}
 	}
 
