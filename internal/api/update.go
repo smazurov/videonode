@@ -8,10 +8,35 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/updater"
+	"github.com/smazurov/videonode/internal/version"
 )
 
 // registerUpdateRoutes registers all update-related endpoints.
 func (s *Server) registerUpdateRoutes() {
+	// Version endpoint - no auth required, always available
+	huma.Register(s.api, huma.Operation{
+		OperationID: "get-version",
+		Method:      http.MethodGet,
+		Path:        "/api/update/version",
+		Summary:     "Version",
+		Description: "Get application version information",
+		Tags:        []string{"update"},
+		Security:    []map[string][]string{}, // Empty security = no auth required
+	}, func(_ context.Context, _ *struct{}) (*models.VersionResponse, error) {
+		versionInfo := version.Get()
+		return &models.VersionResponse{
+			Body: models.VersionData{
+				Version:   versionInfo.Version,
+				GitCommit: versionInfo.GitCommit,
+				BuildDate: versionInfo.BuildDate,
+				BuildID:   versionInfo.BuildID,
+				GoVersion: versionInfo.GoVersion,
+				Compiler:  versionInfo.Compiler,
+				Platform:  versionInfo.Platform,
+			},
+		}, nil
+	})
+
 	if s.options.UpdateService == nil {
 		return
 	}
