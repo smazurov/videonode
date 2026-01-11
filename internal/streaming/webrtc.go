@@ -6,6 +6,7 @@ import (
 
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/webrtc"
+	petname "github.com/dustinkirkland/golang-petname"
 	pion "github.com/pion/webrtc/v4"
 )
 
@@ -36,11 +37,30 @@ func NewWebRTCManager(hub *Hub, config WebRTCConfig, logger *slog.Logger) *WebRT
 	}
 }
 
+// generatePeerID generates a unique memorable peer ID.
+// The ID is used as the ICE username fragment and is visible to the client.
+func (m *WebRTCManager) generatePeerID() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i := 0; i < 100; i++ {
+		name := petname.Generate(2, "-")
+		if _, exists := m.peers[name]; !exists {
+			return name
+		}
+	}
+	// Fallback: append random suffix if all names are taken
+	return petname.Generate(2, "-") + "-" + core.RandString(4, 4)
+}
+
 // CreateConsumer creates a WebRTC consumer for a stream.
 // Takes an SDP offer from the browser and returns an SDP answer.
 func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
+	// Generate peer ID first - it's used as ICE ufrag and for metrics
+	peerID := m.generatePeerID()
+
 	// Create WebRTC API with optimized NACK buffer for high-bitrate streams
-	api, err := NewWebRTCAPI(streamID)
+	api, err := NewWebRTCAPI(streamID, peerID)
 	if err != nil {
 		return "", err
 	}
@@ -71,7 +91,6 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 		return "", err
 	}
 
-	peerID := core.RandString(8, 10)
 	m.mu.Lock()
 	m.peers[peerID] = conn
 	// Track stream -> peer mapping for bulk close on stream restart
@@ -79,11 +98,11 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 		m.streamPeers[streamID] = make(map[string]bool)
 	}
 	m.streamPeers[streamID][peerID] = true
-	peerCount := len(m.peers)
+	streamPeerCount := len(m.streamPeers[streamID])
 	m.mu.Unlock()
 
-	SetActivePeers(peerCount)
-	m.logger.Debug("WebRTC consumer created", "stream_id", streamID, "peer_id", peerID, "total_peers", peerCount)
+	SetActivePeers(streamID, streamPeerCount)
+	m.logger.Info("WebRTC client connected", "stream_id", streamID, "peer_id", peerID, "stream_peers", streamPeerCount)
 
 	// Handle connection state changes and cleanup
 	conn.Listen(func(msg any) {
@@ -110,16 +129,18 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 				_ = conn.Stop()
 				m.mu.Lock()
 				delete(m.peers, peerID)
+				var streamPeerCount int
 				if m.streamPeers[streamID] != nil {
 					delete(m.streamPeers[streamID], peerID)
-					if len(m.streamPeers[streamID]) == 0 {
+					streamPeerCount = len(m.streamPeers[streamID])
+					if streamPeerCount == 0 {
 						delete(m.streamPeers, streamID)
 					}
 				}
-				remainingPeers := len(m.peers)
 				m.mu.Unlock()
-				SetActivePeers(remainingPeers)
-				m.logger.Debug("WebRTC consumer disconnected", "peer_id", peerID, "stream_id", streamID, "state", state.String(), "remaining_peers", remainingPeers)
+				SetActivePeers(streamID, streamPeerCount)
+				DeletePeerMetrics(streamID, peerID)
+				m.logger.Info("WebRTC client disconnected", "stream_id", streamID, "peer_id", peerID, "state", state.String(), "stream_peers", streamPeerCount)
 			}
 		}
 	})
