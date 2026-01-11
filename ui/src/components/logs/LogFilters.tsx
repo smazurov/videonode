@@ -1,3 +1,5 @@
+import { MultiSelect, type MultiSelectOption } from '../MultiSelect';
+
 interface AttributeFilter {
   key: string;
   operator: 'equals' | 'contains' | 'exists';
@@ -6,33 +8,34 @@ interface AttributeFilter {
 
 const ALL_LEVELS = ['error', 'warn', 'info', 'debug'];
 
+const LEVEL_COLORS: Record<string, string> = {
+  error: 'text-red-400',
+  warn: 'text-yellow-400',
+  info: 'text-blue-400',
+  debug: 'text-gray-400',
+};
+
+const LEVEL_OPTIONS: MultiSelectOption[] = ALL_LEVELS.map(level => ({
+  value: level,
+  label: level.toUpperCase(),
+  color: LEVEL_COLORS[level] ?? 'text-gray-300',
+}));
+
 const CONNECTION_STATUS_CLASSES: Record<string, string> = {
   connected: 'bg-green-500',
   connecting: 'bg-yellow-500 animate-pulse',
   disconnected: 'bg-red-500',
 };
 
-const LEVEL_ACTIVE_CLASSES: Record<string, string> = {
-  error: 'bg-red-600 text-white',
-  warn: 'bg-yellow-600 text-white',
-  info: 'bg-blue-600 text-white',
-  debug: 'bg-gray-600 text-white',
-};
-
-function getLevelButtonClass(level: string, isSelected: boolean): string {
-  if (isSelected) {
-    return LEVEL_ACTIVE_CLASSES[level] ?? 'bg-gray-600 text-white';
-  }
-  return 'bg-gray-700 text-gray-400 hover:bg-gray-600';
-}
-
 interface LogFiltersProps {
   readonly connectionStatus: 'connecting' | 'connected' | 'disconnected';
   readonly selectedLevels: string[];
-  readonly onToggleLevel: (level: string) => void;
+  readonly onSelectedLevelsChange: (levels: string[]) => void;
   readonly selectedModules: string[];
-  readonly onToggleModule: (module: string) => void;
+  readonly onSelectedModulesChange: (modules: string[]) => void;
   readonly availableModules: string[];
+  readonly inlineAttributes: string[];
+  readonly onInlineAttributesChange: (attrs: string[]) => void;
   readonly globalFilter: string;
   readonly onGlobalFilterChange: (value: string) => void;
   readonly attributeFilters: AttributeFilter[];
@@ -49,10 +52,12 @@ interface LogFiltersProps {
 export function LogFilters({
   connectionStatus,
   selectedLevels,
-  onToggleLevel,
+  onSelectedLevelsChange,
   selectedModules,
-  onToggleModule,
+  onSelectedModulesChange,
   availableModules,
+  inlineAttributes,
+  onInlineAttributesChange,
   globalFilter,
   onGlobalFilterChange,
   attributeFilters,
@@ -67,6 +72,16 @@ export function LogFilters({
 }: LogFiltersProps) {
   const statusClass = CONNECTION_STATUS_CLASSES[connectionStatus] ?? 'bg-red-500';
 
+  const moduleOptions: MultiSelectOption[] = availableModules.map(m => ({
+    value: m,
+    label: m,
+  }));
+
+  const inlineAttrOptions: MultiSelectOption[] = availableAttributeKeys.map(k => ({
+    value: k,
+    label: k,
+  }));
+
   return (
     <>
       {/* Main Filter Bar */}
@@ -77,43 +92,33 @@ export function LogFilters({
           <span className="text-xs text-gray-400">{connectionStatus}</span>
         </div>
 
-        {/* Level Toggles */}
-        <div className="flex gap-1">
-          {ALL_LEVELS.map(level => (
-            <button
-              key={level}
-              onClick={() => onToggleLevel(level)}
-              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${getLevelButtonClass(level, selectedLevels.includes(level))}`}
-            >
-              {level.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        {/* Level Filter */}
+        <MultiSelect
+          options={LEVEL_OPTIONS}
+          selected={selectedLevels}
+          onChange={onSelectedLevelsChange}
+          placeholder="Levels"
+        />
 
         {/* Module Filter */}
-        {availableModules.length > 0 && (
-          <select
-            value=""
-            onChange={e => e.target.value && onToggleModule(e.target.value)}
-            className="px-2 py-0.5 text-xs bg-gray-700 border border-gray-600 rounded text-gray-300"
-          >
-            <option value="">+ Module</option>
-            {availableModules.filter(m => !selectedModules.includes(m)).map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+        {moduleOptions.length > 0 && (
+          <MultiSelect
+            options={moduleOptions}
+            selected={selectedModules}
+            onChange={onSelectedModulesChange}
+            placeholder="Modules"
+          />
         )}
 
-        {/* Selected Modules */}
-        {selectedModules.map(module => (
-          <span
-            key={module}
-            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-cyan-600 text-white rounded"
-          >
-            {module}
-            <button onClick={() => onToggleModule(module)} className="hover:text-cyan-200">×</button>
-          </span>
-        ))}
+        {/* Inline Attributes */}
+        {inlineAttrOptions.length > 0 && (
+          <MultiSelect
+            options={inlineAttrOptions}
+            selected={inlineAttributes}
+            onChange={onInlineAttributesChange}
+            placeholder="Inline"
+          />
+        )}
 
         {/* Search */}
         <input
