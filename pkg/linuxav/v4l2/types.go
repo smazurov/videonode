@@ -78,8 +78,9 @@ type DeviceStatus struct {
 
 // Capability flags.
 const (
-	v4l2CapVideoCapture = 0x00000001
-	v4l2CapDeviceCaps   = 0x80000000
+	v4l2CapVideoCapture       = 0x00000001
+	v4l2CapVideoCaptureMplane = 0x00001000
+	v4l2CapDeviceCaps         = 0x80000000
 )
 
 // Format flags.
