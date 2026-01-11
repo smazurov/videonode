@@ -11,32 +11,19 @@ port = ":8090"
 # Configuration file for stream definitions
 config_file = "streams.toml"
 
-[obs]
-# Observability settings
-# Maximum retention duration for metrics and logs
-retention_duration = "12h"
+[streaming]
+# RTSP server port
+rtsp_port = ":8554"
 
-# Maximum points per time series
-max_points_per_series = 43200
-
-# Maximum number of time series
-max_series = 5000
-
-# Worker count for data processing
-worker_count = 1
-
-# Collection interval for system metrics
-system_metrics_interval = "30s"
-
-# Network interfaces to monitor (comma-separated string for humacli compatibility)
-# Only these interfaces will have network metrics collected
-network_interfaces = "lo,wlp12s0,enp14s0"
-
-# Enable Prometheus exporter
-prometheus_enabled = true
-
+[metrics]
 # Enable SSE (Server-Sent Events) exporter
 sse_enabled = true
+
+[update]
+# Enable self-update functionality
+enabled = true
+# Include prereleases in updates
+prerelease = false
 
 [capture]
 # Default capture delay in milliseconds
@@ -53,6 +40,15 @@ led_control_enabled = false
 
 
 [logging]
+# Global logging level (debug, info, warn, error)
 level = "info"
+# Logging format (text, json)
+format = "text"
+# Module-specific logging levels
+streams = "info"
+streaming = "info"
+devices = "info"
+encoders = "info"
+capture = "info"
+api = "info"
 webrtc = "debug"
-streaming = "debug"
