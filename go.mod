@@ -5,6 +5,7 @@ go 1.24.11
 require (
 	github.com/AlexxIT/go2rtc v1.9.13
 	github.com/coreos/go-systemd/v22 v22.6.0
+	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/danielgtaylor/huma/v2 v2.34.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/kelindar/event v1.5.2
@@ -23,7 +24,6 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/creativeprojects/go-selfupdate v1.5.2 // indirect
 	github.com/davidmz/go-pageant v1.0.2 // indirect
 	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
