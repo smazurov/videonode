@@ -12,6 +12,13 @@ interface Props {
   readonly showStats?: boolean;
 }
 
+type ConnectionState = 'connecting' | 'connected' | 'offline';
+
+function extractPeerId(sdp: string): string | null {
+  const result = /a=ice-ufrag:(\S+)/.exec(sdp);
+  return result?.[1] ?? null;
+}
+
 function waitForIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<void> {
   return new Promise((resolve) => {
     if (pc.iceGatheringState === 'complete') {
@@ -29,22 +36,70 @@ function waitForIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<
   });
 }
 
-type ConnectionState = 'connecting' | 'connected' | 'offline';
+interface ConnectionHandlers {
+  onConnected: () => void;
+  onOffline: () => void;
+  onTrack: (stream: MediaStream) => void;
+}
 
-function extractPeerId(sdp: string): string | null {
-  const match = sdp.match(/a=ice-ufrag:(\S+)/);
-  return match?.[1] ?? null;
+function attachTrackHandler(
+  pc: RTCPeerConnection,
+  handlers: ConnectionHandlers
+): void {
+  pc.ontrack = (e) => {
+    const stream = e.streams[0];
+    if (stream) handlers.onTrack(stream);
+  };
+}
+
+function attachStateHandler(
+  pc: RTCPeerConnection,
+  cancelledRef: React.RefObject<boolean>,
+  handlers: ConnectionHandlers,
+  scheduleReconnect: () => void
+): void {
+  pc.onconnectionstatechange = () => {
+    if (cancelledRef.current) return;
+    const state = pc.connectionState;
+    if (state === 'connected') {
+      handlers.onConnected();
+    } else if (state === 'failed' || state === 'disconnected') {
+      handlers.onOffline();
+      scheduleReconnect();
+    }
+  };
+}
+
+async function performSignaling(
+  pc: RTCPeerConnection,
+  streamId: string,
+  cancelledRef: React.RefObject<boolean>
+): Promise<string | null> {
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await waitForIceGathering(pc, ICE_GATHER_TIMEOUT_MS);
+
+  if (cancelledRef.current) return null;
+
+  const answer = await webrtcSignaling(streamId, pc.localDescription!.sdp);
+  if (cancelledRef.current) return null;
+
+  await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+  return extractPeerId(answer);
 }
 
 export function WebRTCPlayer({ streamId, className = '', muted = true, showStats = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const cancelledRef = useRef(false);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const connectRef = useRef<() => Promise<void>>(undefined);
+
   const [pc, setPC] = useState<RTCPeerConnection | null>(null);
   const [peerId, setPeerId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [playBlocked, setPlayBlocked] = useState(false);
-  const reconnectTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if (typeof RTCPeerConnection === 'undefined') {
@@ -52,19 +107,32 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       return;
     }
 
-    let cancelled = false;
+    cancelledRef.current = false;
 
-    const onPlayBlocked = () => setPlayBlocked(true);
-
-    function scheduleReconnect() {
-      if (reconnectTimer.current) return;
-      reconnectTimer.current = window.setTimeout(() => {
-        reconnectTimer.current = null;
-        if (!cancelled) connect();
+    const scheduleReconnect = () => {
+      if (reconnectTimerRef.current) return;
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        if (!cancelledRef.current) connectRef.current?.();
       }, RECONNECT_DELAY_MS);
-    }
+    };
 
-    async function connect() {
+    const handlers: ConnectionHandlers = {
+      onConnected: () => setConnectionState('connected'),
+      onOffline: () => setConnectionState('offline'),
+      onTrack: (stream) => {
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        // Only set playBlocked if play actually fails and stays failed
+        video.play().catch(() => {
+          // Double-check video is still paused before showing overlay
+          if (video.paused) setPlayBlocked(true);
+        });
+      },
+    };
+
+    const connect = async () => {
       setConnectionState('connecting');
 
       if (pcRef.current) {
@@ -76,56 +144,32 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       pcRef.current = peerConnection;
       setPC(peerConnection);
 
-      peerConnection.ontrack = (e) => {
-        if (!videoRef.current || !e.streams[0]) return;
-        videoRef.current.srcObject = e.streams[0];
-        videoRef.current.play()
-          .then(() => setPlayBlocked(false))
-          .catch(onPlayBlocked);
-      };
-
-      peerConnection.onconnectionstatechange = () => {
-        if (cancelled) return;
-        const state = peerConnection.connectionState;
-        if (state === 'connected') {
-          setConnectionState('connected');
-        } else if (state === 'failed' || state === 'disconnected') {
-          setConnectionState('offline');
-          scheduleReconnect();
-        }
-      };
+      attachTrackHandler(peerConnection, handlers);
+      attachStateHandler(peerConnection, cancelledRef, handlers, scheduleReconnect);
 
       peerConnection.addTransceiver('video', { direction: 'recvonly' });
       peerConnection.addTransceiver('audio', { direction: 'recvonly' });
 
       try {
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        await waitForIceGathering(peerConnection, ICE_GATHER_TIMEOUT_MS);
-
-        if (cancelled) return;
-
-        const answer = await webrtcSignaling(streamId, peerConnection.localDescription!.sdp);
-        if (cancelled) return;
-
-        setPeerId(extractPeerId(answer));
-        await peerConnection.setRemoteDescription({ type: 'answer', sdp: answer });
+        const extractedPeerId = await performSignaling(peerConnection, streamId, cancelledRef);
+        setPeerId(extractedPeerId);
       } catch (error_) {
         console.error(`WebRTC [${streamId}]: connection failed`, error_);
-        if (!cancelled) {
+        if (!cancelledRef.current) {
           setConnectionState('offline');
           scheduleReconnect();
         }
       }
-    }
+    };
 
+    connectRef.current = connect;
     connect();
 
     const videoElement = videoRef.current;
 
     return () => {
-      cancelled = true;
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      cancelledRef.current = true;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (pcRef.current) {
         pcRef.current.close();
         pcRef.current = null;
@@ -137,6 +181,13 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
     };
   }, [streamId]);
 
+  const handleClickToPlay = () => {
+    const video = videoRef.current;
+    if (video) {
+      video.play().then(() => setPlayBlocked(false)).catch(console.error);
+    }
+  };
+
   if (error) {
     return (
       <div className={`relative flex items-center justify-center ${className}`} style={{ background: '#000' }}>
@@ -147,14 +198,6 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
 
   const isOffline = connectionState === 'offline';
   const isConnecting = connectionState === 'connecting';
-
-  const handleClickToPlay = () => {
-    if (videoRef.current) {
-      videoRef.current.play()
-        .then(() => setPlayBlocked(false))
-        .catch(console.error);
-    }
-  };
 
   return (
     <div className={`relative ${className}`} style={{ background: '#000' }}>
