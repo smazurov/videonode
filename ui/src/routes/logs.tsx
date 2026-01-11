@@ -207,7 +207,7 @@ export default function Logs() {
         reconnectDelay = 5000;
         // Inject synthetic log entry to mark connection/reconnection
         buffer.push({
-          id: crypto.randomUUID(),
+          id: `connect-${Date.now()}`,
           seq: 0,
           timestamp: new Date().toISOString(),
           level: 'INFO',
@@ -229,7 +229,7 @@ export default function Logs() {
           }
           const seq = data.seq ?? 0;
           buffer.push({
-            id: seq > 0 ? String(seq) : crypto.randomUUID(),
+            id: String(seq),
             seq,
             timestamp: data.timestamp,
             level: data.level,
