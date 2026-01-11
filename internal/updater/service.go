@@ -32,6 +32,9 @@ type service struct {
 	enabled        bool
 	disabledReason string
 
+	// Restart state
+	restartPending bool
+
 	logger *slog.Logger
 }
 
@@ -348,6 +351,10 @@ func (s *service) attemptRollback() {
 }
 
 func (s *service) triggerRestart() {
+	s.mu.Lock()
+	s.restartPending = true
+	s.mu.Unlock()
+
 	proc, err := os.FindProcess(os.Getpid())
 	if err != nil {
 		s.logger.Error("Failed to find own process", "error", err)
@@ -358,4 +365,21 @@ func (s *service) triggerRestart() {
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
 		s.logger.Error("Failed to send SIGTERM", "error", err)
 	}
+}
+
+// IsRestartPending returns whether a restart was triggered by this service.
+func (s *service) IsRestartPending() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.restartPending
+}
+
+// Restart triggers a service restart.
+func (s *service) Restart(_ context.Context) error {
+	s.logger.Info("Restart requested")
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		s.triggerRestart()
+	}()
+	return nil
 }
