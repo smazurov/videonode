@@ -1,6 +1,7 @@
 package streaming
 
 import (
+	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/nack"
 	"github.com/pion/interceptor/pkg/report"
@@ -24,7 +25,9 @@ const SRTPReplayProtectionWindow = 10000
 // streaming. This uses a larger NACK buffer than the default (64 packets) to
 // support retransmission requests from browsers like Firefox that are more
 // sensitive to packet loss.
-func NewWebRTCAPI(streamID string) (*pion.API, error) {
+// The peerID is used as the ICE username fragment (ice-ufrag), which is visible
+// to the client in the SDP answer for identification.
+func NewWebRTCAPI(streamID, peerID string) (*pion.API, error) {
 	m := &pion.MediaEngine{}
 	if err := registerCodecs(m); err != nil {
 		return nil, err
@@ -36,18 +39,26 @@ func NewWebRTCAPI(streamID string) (*pion.API, error) {
 	}
 
 	// Add RTCP monitoring interceptor for Prometheus metrics
-	i.Add(&rtcpMonitorInterceptorFactory{streamID: streamID})
+	i.Add(&rtcpMonitorInterceptorFactory{streamID: streamID, peerID: peerID})
 
 	s := pion.SettingEngine{}
 	s.SetDTLSInsecureSkipHelloVerify(true)
 	// Set SRTP replay protection window to match NACK buffer
 	s.SetSRTPReplayProtectionWindow(SRTPReplayProtectionWindow)
+	// Set peer ID as ice-ufrag (visible to client in SDP answer)
+	s.SetICECredentials(peerID, generateICEPassword())
 
 	return pion.NewAPI(
 		pion.WithMediaEngine(m),
 		pion.WithInterceptorRegistry(i),
 		pion.WithSettingEngine(s),
 	), nil
+}
+
+// generateICEPassword generates a secure password for ICE authentication.
+// ICE requires at least 128 bits of randomness for the password.
+func generateICEPassword() string {
+	return core.RandString(22, 22)
 }
 
 // registerCodecs registers audio and video codecs with RTCP feedback support.
@@ -220,27 +231,30 @@ func configureInterceptors(m *pion.MediaEngine, i *interceptor.Registry) error {
 // rtcpMonitorInterceptorFactory creates RTCP monitoring interceptors for metrics.
 type rtcpMonitorInterceptorFactory struct {
 	streamID string
+	peerID   string
 }
 
 // NewInterceptor creates a new RTCP monitoring interceptor.
 func (f *rtcpMonitorInterceptorFactory) NewInterceptor(_ string) (interceptor.Interceptor, error) {
-	return &rtcpMonitorInterceptor{streamID: f.streamID}, nil
+	return &rtcpMonitorInterceptor{streamID: f.streamID, peerID: f.peerID}, nil
 }
 
 // rtcpMonitorInterceptor monitors RTCP packets and updates Prometheus metrics.
 type rtcpMonitorInterceptor struct {
 	interceptor.NoOp
 	streamID string
+	peerID   string
 }
 
 // BindRTCPReader wraps the RTCP reader to monitor incoming packets.
 func (r *rtcpMonitorInterceptor) BindRTCPReader(reader interceptor.RTCPReader) interceptor.RTCPReader {
-	return &rtcpMonitorReader{reader: reader, streamID: r.streamID}
+	return &rtcpMonitorReader{reader: reader, streamID: r.streamID, peerID: r.peerID}
 }
 
 type rtcpMonitorReader struct {
 	reader   interceptor.RTCPReader
 	streamID string
+	peerID   string
 }
 
 func (r *rtcpMonitorReader) Read(b []byte, a interceptor.Attributes) (int, interceptor.Attributes, error) {
@@ -255,18 +269,22 @@ func (r *rtcpMonitorReader) Read(b []byte, a interceptor.Attributes) (int, inter
 	}
 
 	for _, pkt := range packets {
-		IncrementRTCPPackets(r.streamID)
+		IncrementRTCPPackets(r.streamID, r.peerID)
 		switch p := pkt.(type) {
 		case *rtcp.TransportLayerNack:
 			count := 0
 			for _, nack := range p.Nacks {
 				count += len(nack.PacketList())
 			}
-			IncrementNACKs(r.streamID, count)
+			IncrementNACKs(r.streamID, r.peerID, count)
 		case *rtcp.PictureLossIndication:
-			IncrementPLIs(r.streamID)
+			IncrementPLIs(r.streamID, r.peerID)
 		case *rtcp.FullIntraRequest:
-			IncrementFIRs()
+			IncrementFIRs(r.streamID, r.peerID)
+		case *rtcp.ReceiverReport:
+			for _, report := range p.Reports {
+				RecordJitter(r.streamID, r.peerID, report.Jitter)
+			}
 		}
 	}
 
