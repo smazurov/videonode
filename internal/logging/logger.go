@@ -171,15 +171,15 @@ func createHandler(format string, level slog.Level) slog.Handler {
 	}
 }
 
-// isStdoutAvailable checks if stdout is connected to a terminal or pipe.
+// isStdoutAvailable checks if stdout is connected to a terminal, pipe, socket, or file.
 func isStdoutAvailable() bool {
 	fi, err := os.Stdout.Stat()
 	if err != nil {
 		return false
 	}
 	mode := fi.Mode()
-	// Available if terminal, pipe, or regular file (not /dev/null which is ModeDevice)
-	return (mode&os.ModeCharDevice) != 0 || (mode&os.ModeNamedPipe) != 0 || mode.IsRegular()
+	// Available if terminal, pipe, socket, or regular file (not /dev/null which is ModeDevice)
+	return (mode&os.ModeCharDevice) != 0 || (mode&os.ModeNamedPipe) != 0 || (mode&os.ModeSocket) != 0 || mode.IsRegular()
 }
 
 // parseLevel converts string level to slog.Level.
