@@ -6,14 +6,28 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
-// LoadConfig automatically loads configuration from TOML file and environment variables.
-func LoadConfig(opts any) error {
+// LoadConfig loads configuration with proper precedence: CLI args > env vars > config file.
+// If cmd is provided, flags explicitly set via CLI will not be overwritten.
+func LoadConfig(opts any, cmd *cobra.Command) error {
 	v := reflect.ValueOf(opts).Elem()
 	t := v.Type()
+
+	// Build set of flags explicitly changed via CLI
+	changedFlags := make(map[string]bool)
+	if cmd != nil {
+		cmd.Flags().VisitAll(func(f *pflag.Flag) {
+			if f.Changed {
+				changedFlags[f.Name] = true
+			}
+		})
+	}
 
 	// Get config file path
 	var configPath string
@@ -38,6 +52,12 @@ func LoadConfig(opts any) error {
 				field := v.Field(i)
 				fieldType := t.Field(i)
 
+				// Skip if this flag was explicitly set via CLI
+				flagName := fieldNameToFlag(fieldType.Name)
+				if changedFlags[flagName] {
+					continue
+				}
+
 				if tomlPath := fieldType.Tag.Get("toml"); tomlPath != "" {
 					if value := getNestedValue(config, tomlPath); value != nil {
 						setFieldValue(field, value)
@@ -47,10 +67,16 @@ func LoadConfig(opts any) error {
 		}
 	}
 
-	// Apply environment variable overrides
+	// Apply environment variable overrides (skip CLI-set flags)
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		fieldType := t.Field(i)
+
+		// Skip if this flag was explicitly set via CLI
+		flagName := fieldNameToFlag(fieldType.Name)
+		if changedFlags[flagName] {
+			continue
+		}
 
 		if envKey := fieldType.Tag.Get("env"); envKey != "" {
 			if envValue := os.Getenv("VIDEONODE_" + envKey); envValue != "" {
@@ -60,6 +86,19 @@ func LoadConfig(opts any) error {
 	}
 
 	return nil
+}
+
+// fieldNameToFlag converts a struct field name to a CLI flag name.
+// Example: "LoggingLevel" -> "logging-level", "Port" -> "port".
+func fieldNameToFlag(fieldName string) string {
+	var result []rune
+	for i, r := range fieldName {
+		if i > 0 && unicode.IsUpper(r) {
+			result = append(result, '-')
+		}
+		result = append(result, unicode.ToLower(r))
+	}
+	return string(result)
 }
 
 // getNestedValue retrieves a value from nested map using dot notation.
