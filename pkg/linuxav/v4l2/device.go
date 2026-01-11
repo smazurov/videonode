@@ -25,6 +25,8 @@ func FindDevices() ([]DeviceInfo, error) {
 
 	devices := make([]DeviceInfo, 0, len(entries))
 
+	logger := slog.With("component", "linuxav")
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -34,13 +36,13 @@ func FindDevices() ([]DeviceInfo, error) {
 
 		fd, openErr := open(devicePath)
 		if openErr != nil {
-			slog.With("component", "linuxav").Debug("failed to open video device", "path", devicePath, "error", openErr)
+			logger.Warn("failed to open video device", "path", devicePath, "error", openErr)
 			continue
 		}
 
 		capability := v4l2Capability{}
 		if err := ioctl(fd, vidiocQuerycap, unsafe.Pointer(&capability)); err != nil {
-			slog.With("component", "linuxav").Debug("failed to query device capabilities", "path", devicePath, "error", err)
+			logger.Warn("failed to query device capabilities", "path", devicePath, "error", err)
 			_ = closefd(fd)
 			continue
 		}
@@ -52,8 +54,9 @@ func FindDevices() ([]DeviceInfo, error) {
 			caps = capability.deviceCaps
 		}
 
-		// Only include video capture devices
-		if caps&v4l2CapVideoCapture == 0 {
+		// Only include video capture devices (single-planar or multiplanar)
+		hasCapture := caps&v4l2CapVideoCapture != 0 || caps&v4l2CapVideoCaptureMplane != 0
+		if !hasCapture {
 			continue
 		}
 
