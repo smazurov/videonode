@@ -67,9 +67,10 @@ type Options struct {
 
 func main() {
 	// Create Huma CLI
-	cli := humacli.New(func(hooks humacli.Hooks, opts *Options) {
-		// Load configuration automatically
-		if err := config.LoadConfig(opts); err != nil {
+	var cli humacli.CLI
+	cli = humacli.New(func(hooks humacli.Hooks, opts *Options) {
+		// Load configuration with proper precedence: CLI > env > config file
+		if err := config.LoadConfig(opts, cli.Root()); err != nil {
 			slog.Warn("Failed to load config", "error", err)
 		}
 
@@ -252,6 +253,11 @@ func main() {
 			}
 			if mppCollector != nil {
 				_ = mppCollector.Stop()
+			}
+
+			// Exit with non-zero code if restart was requested (systemd will restart)
+			if updateService != nil && updateService.IsRestartPending() {
+				os.Exit(3)
 			}
 		})
 	})

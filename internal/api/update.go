@@ -148,6 +148,29 @@ func (s *Server) registerUpdateRoutes() {
 			},
 		}, nil
 	})
+
+	// Restart service
+	huma.Register(s.api, huma.Operation{
+		OperationID: "restart-service",
+		Method:      http.MethodPost,
+		Path:        "/api/update/restart",
+		Summary:     "Restart Service",
+		Description: "Trigger a service restart.",
+		Tags:        []string{"update"},
+		Errors:      []int{401, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, _ *struct{}) (*models.RestartResponse, error) {
+		if err := svc.Restart(ctx); err != nil {
+			return nil, huma.Error500InternalServerError(err.Error())
+		}
+		return &models.RestartResponse{
+			Body: struct {
+				Message string `json:"message" example:"Restarting..." doc:"Status message"`
+			}{
+				Message: "Restarting...",
+			},
+		}, nil
+	})
 }
 
 // registerDisabledUpdateRoutes registers endpoints that return 503 when update is disabled.
