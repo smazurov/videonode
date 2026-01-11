@@ -198,6 +198,67 @@ func TestFramerateFPS(t *testing.T) {
 	}
 }
 
+func TestVideoCaptureCapabilities(t *testing.T) {
+	tests := []struct {
+		name       string
+		caps       uint32
+		hasCapture bool
+	}{
+		{
+			name:       "single-planar capture (webcam)",
+			caps:       0x84200001, // VIDEO_CAPTURE | STREAMING | EXT_PIX_FORMAT | DEVICE_CAPS
+			hasCapture: true,
+		},
+		{
+			name:       "multiplanar capture (HDMI-RX)",
+			caps:       0x04201000, // VIDEO_CAPTURE_MPLANE | STREAMING | EXT_PIX_FORMAT
+			hasCapture: true,
+		},
+		{
+			name:       "both single and multiplanar",
+			caps:       0x00001001, // VIDEO_CAPTURE | VIDEO_CAPTURE_MPLANE
+			hasCapture: true,
+		},
+		{
+			name:       "M2M device (codec)",
+			caps:       0x84204000, // VIDEO_M2M_MPLANE | STREAMING | EXT_PIX_FORMAT | DEVICE_CAPS
+			hasCapture: false,
+		},
+		{
+			name:       "output only device",
+			caps:       0x00000002, // VIDEO_OUTPUT
+			hasCapture: false,
+		},
+		{
+			name:       "no capabilities",
+			caps:       0x00000000,
+			hasCapture: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hasCapture := tt.caps&v4l2CapVideoCapture != 0 || tt.caps&v4l2CapVideoCaptureMplane != 0
+			if hasCapture != tt.hasCapture {
+				t.Errorf("caps 0x%08x: hasCapture = %v, want %v", tt.caps, hasCapture, tt.hasCapture)
+			}
+		})
+	}
+}
+
+func TestCapabilityConstants(t *testing.T) {
+	// Verify constants match V4L2 kernel definitions
+	if v4l2CapVideoCapture != 0x00000001 {
+		t.Errorf("v4l2CapVideoCapture = 0x%08x, want 0x00000001", v4l2CapVideoCapture)
+	}
+	if v4l2CapVideoCaptureMplane != 0x00001000 {
+		t.Errorf("v4l2CapVideoCaptureMplane = 0x%08x, want 0x00001000", v4l2CapVideoCaptureMplane)
+	}
+	if v4l2CapDeviceCaps != 0x80000000 {
+		t.Errorf("v4l2CapDeviceCaps = 0x%08x, want 0x80000000", v4l2CapDeviceCaps)
+	}
+}
+
 func TestCalculateFPS(t *testing.T) {
 	tests := []struct {
 		name        string
