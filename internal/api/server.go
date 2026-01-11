@@ -16,7 +16,6 @@ import (
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/updater"
-	"github.com/smazurov/videonode/internal/version"
 	"github.com/smazurov/videonode/ui"
 )
 
@@ -297,30 +296,6 @@ func (s *Server) registerRoutes() {
 			Body: models.HealthData{
 				Status:  "ok",
 				Message: "API is healthy",
-			},
-		}, nil
-	})
-
-	// Version endpoint - no auth required
-	huma.Register(s.api, huma.Operation{
-		OperationID: "get-version",
-		Method:      http.MethodGet,
-		Path:        "/api/version",
-		Summary:     "Version",
-		Description: "Get application version information",
-		Tags:        []string{"system"},
-		Security:    []map[string][]string{}, // Empty security = no auth required
-	}, func(_ context.Context, _ *struct{}) (*models.VersionResponse, error) {
-		versionInfo := version.Get()
-		return &models.VersionResponse{
-			Body: models.VersionData{
-				Version:   versionInfo.Version,
-				GitCommit: versionInfo.GitCommit,
-				BuildDate: versionInfo.BuildDate,
-				BuildID:   versionInfo.BuildID,
-				GoVersion: versionInfo.GoVersion,
-				Compiler:  versionInfo.Compiler,
-				Platform:  versionInfo.Platform,
 			},
 		}, nil
 	})
