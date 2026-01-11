@@ -43,7 +43,7 @@ func (m *WebRTCManager) generatePeerID() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		name := petname.Generate(2, "-")
 		if _, exists := m.peers[name]; !exists {
 			return name
@@ -129,18 +129,18 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 				_ = conn.Stop()
 				m.mu.Lock()
 				delete(m.peers, peerID)
-				var streamPeerCount int
+				var remainingPeers int
 				if m.streamPeers[streamID] != nil {
 					delete(m.streamPeers[streamID], peerID)
-					streamPeerCount = len(m.streamPeers[streamID])
-					if streamPeerCount == 0 {
+					remainingPeers = len(m.streamPeers[streamID])
+					if remainingPeers == 0 {
 						delete(m.streamPeers, streamID)
 					}
 				}
 				m.mu.Unlock()
-				SetActivePeers(streamID, streamPeerCount)
+				SetActivePeers(streamID, remainingPeers)
 				DeletePeerMetrics(streamID, peerID)
-				m.logger.Info("WebRTC client disconnected", "stream_id", streamID, "peer_id", peerID, "state", state.String(), "stream_peers", streamPeerCount)
+				m.logger.Info("WebRTC client disconnected", "stream_id", streamID, "peer_id", peerID, "state", state.String(), "stream_peers", remainingPeers)
 			}
 		}
 	})
