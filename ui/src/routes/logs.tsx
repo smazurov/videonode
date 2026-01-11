@@ -22,6 +22,7 @@ import {
 const MAX_LOGS = 10_000;
 
 interface LogEventData {
+  seq?: number;
   timestamp: string;
   level: string;
   module: string;
@@ -60,6 +61,7 @@ const columnHelper = createColumnHelper<LogEntry>();
 export default function Logs() {
   const { logout } = useAuthStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastSeenSeqRef = useRef<number>(0);
 
   // Core state
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -72,6 +74,7 @@ export default function Logs() {
   const [selectedLevels, setSelectedLevels] = useState<string[]>(ALL_LEVELS);
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
   const [attributeFilters, setAttributeFilters] = useState<AttributeFilter[]>([]);
+  const [inlineAttributes, setInlineAttributes] = useState<string[]>([]);
 
   // Derived data
   const availableModules = useMemo(() =>
@@ -176,10 +179,17 @@ export default function Logs() {
     let reconnectDelay = 5000;
 
     const flushBuffer = () => {
-      const toFlush = buffer;
+      // Filter out duplicates: keep logs with seq=0 (synthetic/legacy) or seq > lastSeen
+      const toFlush = buffer.filter(log => log.seq === 0 || log.seq > lastSeenSeqRef.current);
       buffer = [];
       flushTimeout = null;
-      setLogs(prev => [...prev, ...toFlush].slice(-MAX_LOGS));
+      if (toFlush.length > 0) {
+        const seqs = toFlush.map(log => log.seq).filter(s => s > 0);
+        if (seqs.length > 0) {
+          lastSeenSeqRef.current = Math.max(...seqs);
+        }
+        setLogs(prev => [...prev, ...toFlush].slice(-MAX_LOGS));
+      }
     };
 
     const scheduleReconnect = () => {
@@ -192,10 +202,22 @@ export default function Logs() {
     const connect = () => {
       setConnectionStatus('connecting');
       eventSource = new EventSource(sseUrl);
-
       eventSource.onopen = () => {
         setConnectionStatus('connected');
         reconnectDelay = 5000;
+        // Inject synthetic log entry to mark connection/reconnection
+        buffer.push({
+          id: crypto.randomUUID(),
+          seq: 0,
+          timestamp: new Date().toISOString(),
+          level: 'INFO',
+          module: 'system',
+          message: 'Log stream connected',
+          attributes: {},
+        });
+        if (!flushTimeout) {
+          flushTimeout = window.setTimeout(flushBuffer, 50);
+        }
       };
 
       eventSource.onmessage = (event: MessageEvent) => {
@@ -205,8 +227,10 @@ export default function Logs() {
             console.error('Invalid log data format:', event.data);
             return;
           }
+          const seq = data.seq ?? 0;
           buffer.push({
-            id: crypto.randomUUID(),
+            id: seq > 0 ? String(seq) : crypto.randomUUID(),
+            seq,
             timestamp: data.timestamp,
             level: data.level,
             module: data.module,
@@ -240,18 +264,6 @@ export default function Logs() {
   }, []);
 
   // Handlers
-  const toggleLevel = (level: string) => {
-    setSelectedLevels(prev =>
-      prev.includes(level) ? prev.filter(l => l !== level) : [...prev, level]
-    );
-  };
-
-  const toggleModule = (module: string) => {
-    setSelectedModules(prev =>
-      prev.includes(module) ? prev.filter(m => m !== module) : [...prev, module]
-    );
-  };
-
   const addAttributeFilter = () => {
     const firstKey = availableAttributeKeys[0];
     if (firstKey) {
@@ -272,6 +284,7 @@ export default function Logs() {
     setSelectedModules([]);
     setGlobalFilter('');
     setAttributeFilters([]);
+    setInlineAttributes([]);
   };
 
   const handleLogout = useCallback(() => logout(), [logout]);
@@ -284,10 +297,12 @@ export default function Logs() {
         <LogFilters
           connectionStatus={connectionStatus}
           selectedLevels={selectedLevels}
-          onToggleLevel={toggleLevel}
+          onSelectedLevelsChange={setSelectedLevels}
           selectedModules={selectedModules}
-          onToggleModule={toggleModule}
+          onSelectedModulesChange={setSelectedModules}
           availableModules={availableModules}
+          inlineAttributes={inlineAttributes}
+          onInlineAttributesChange={setInlineAttributes}
           globalFilter={globalFilter}
           onGlobalFilterChange={setGlobalFilter}
           attributeFilters={attributeFilters}
@@ -310,7 +325,7 @@ export default function Logs() {
       {/* Log viewer - CSS content-visibility for native virtualization */}
       <div ref={scrollRef} className="flex-1 overflow-auto bg-gray-900 font-mono text-sm min-h-0">
         {rows.map(row => (
-          <LogRow key={row.original.id} log={row.original} />
+          <LogRow key={row.original.id} log={row.original} inlineAttributes={inlineAttributes} />
         ))}
       </div>
     </div>
