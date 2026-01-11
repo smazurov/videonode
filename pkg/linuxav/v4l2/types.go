@@ -113,7 +113,8 @@ const (
 
 // Buffer type.
 const (
-	v4l2BufTypeVideoCapture = 1
+	v4l2BufTypeVideoCapture       = 1
+	v4l2BufTypeVideoCaptureMplane = 9
 )
 
 // Event types.
