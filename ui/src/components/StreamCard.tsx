@@ -61,7 +61,7 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
               key={refreshKey}
               streamId={stream.stream_id}
               className="w-full h-full"
-              showStats={true}
+              showStats={false}
             />
           </div>
         )}
