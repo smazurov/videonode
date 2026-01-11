@@ -40,6 +40,12 @@ type Service interface {
 
 	// DisabledReason returns why the service is disabled, empty if enabled.
 	DisabledReason() string
+
+	// IsRestartPending returns whether a restart was triggered by this service.
+	IsRestartPending() bool
+
+	// Restart triggers a service restart.
+	Restart(ctx context.Context) error
 }
 
 // UpdateInfo contains information about an available update.
