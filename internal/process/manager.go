@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // OutputHandler receives output lines from the subprocess.
@@ -120,7 +122,7 @@ func (m *Manager) Run() int {
 		return 1
 	}
 
-	m.logger.Info("Process started", "pid", m.cmd.Process.Pid)
+	m.logger.Info("Process started", "stream_id", m.streamID, "pid", m.cmd.Process.Pid, "command", m.command)
 
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
@@ -250,7 +252,7 @@ func (m *Manager) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 		return 1, exitReasonProcessExit
 	}
 
-	m.logger.Info("Process started", "pid", m.cmd.Process.Pid)
+	m.logger.Info("Process started", "stream_id", m.streamID, "pid", m.cmd.Process.Pid, "command", m.command)
 
 	// Stream output in separate goroutines
 	outputDone := make(chan struct{})
@@ -403,13 +405,12 @@ func (m *Manager) Stop(timeout time.Duration) int {
 
 // streamOutput streams output from the subprocess.
 // Routes all output through slog for consistent logging.
+// Parses ffmpeg log level prefixes (e.g., [info], [warning]) when present.
 func (m *Manager) streamOutput(reader io.Reader, source string) {
 	scanner := bufio.NewScanner(reader)
 
-	subprocessLogger := m.logger.With(
+	ffmpegLogger := logging.GetLogger("ffmpeg").With(
 		"stream_id", m.streamID,
-		"output_source", source,
-		"process_type", "subprocess",
 	)
 
 	for scanner.Scan() {
@@ -419,12 +420,66 @@ func (m *Manager) streamOutput(reader io.Reader, source string) {
 			m.outputHandler.HandleLine(source, line)
 		}
 
-		subprocessLogger.Info(line)
+		level, msg := parseFFmpegLogLevel(line)
+		switch level {
+		case "fatal", "error":
+			ffmpegLogger.Error(msg)
+		case "warning":
+			ffmpegLogger.Warn(msg)
+		case "debug", "trace":
+			ffmpegLogger.Debug(msg)
+		default:
+			ffmpegLogger.Info(msg)
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		m.logger.Warn("Error reading output", "source", source, "error", err)
 	}
+}
+
+// parseFFmpegLogLevel extracts the log level from ffmpeg output.
+// FFmpeg with -loglevel level+info outputs lines like "[info] message"
+// or "[component @ 0x...] [level] message" for component-specific logs.
+// Returns the level and the message with level stripped but component preserved.
+func parseFFmpegLogLevel(line string) (level, msg string) {
+	if len(line) < 3 || line[0] != '[' {
+		return "info", line
+	}
+
+	end := strings.Index(line, "] ")
+	if end == -1 {
+		return "info", line
+	}
+
+	bracket := line[1:end]
+
+	if isFFmpegLogLevel(bracket) {
+		return bracket, line[end+2:]
+	}
+
+	// Check for component prefix: [component @ 0x...] [level] message
+	// Keep the component, strip only the [level]
+	component := line[:end+2]
+	rest := line[end+2:]
+	if len(rest) > 2 && rest[0] == '[' {
+		if nextEnd := strings.Index(rest, "] "); nextEnd != -1 {
+			nextBracket := rest[1:nextEnd]
+			if isFFmpegLogLevel(nextBracket) {
+				return nextBracket, component + rest[nextEnd+2:]
+			}
+		}
+	}
+
+	return "info", line
+}
+
+func isFFmpegLogLevel(s string) bool {
+	switch s {
+	case "quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug", "trace":
+		return true
+	}
+	return false
 }
 
 // parseCommand parses a command string into arguments

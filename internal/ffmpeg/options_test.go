@@ -22,7 +22,7 @@ func TestBuildEncodersListCommand(t *testing.T) {
 		t.Fatalf("BuildEncodersListCommand() failed: %v", err)
 	}
 
-	expected := "ffmpeg -hide_banner -nostats -nostdin -encoders"
+	expected := "ffmpeg -hide_banner -nostats -nostdin -loglevel level+info -encoders"
 	if cmd != expected {
 		t.Errorf("BuildEncodersListCommand() = %q, want %q", cmd, expected)
 	}
