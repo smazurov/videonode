@@ -89,7 +89,7 @@ func main() {
 		}
 		logging.Initialize(loggingConfig)
 
-		logger := logging.GetLogger("main")
+		logger := logging.GetLogger("api")
 
 		// Start MPP collector if available (Rockchip hardware encoder metrics)
 		var mppCollector *collectors.MPPCollector

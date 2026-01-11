@@ -21,6 +21,7 @@ func (s *service) LoadStreamsFromConfig() error {
 	}
 
 	streams := s.store.GetAllStreams()
+	s.logger.Info("Loaded streams from configuration", "count", len(streams))
 	// No lock needed here - InitializeStream handles its own locking
 
 	for _, streamConfig := range streams {
@@ -31,8 +32,6 @@ func (s *service) LoadStreamsFromConfig() error {
 			continue
 		}
 	}
-
-	s.logger.Info("Loaded streams from configuration")
 
 	// Start all stream processes via process manager
 	if s.processManager != nil {
