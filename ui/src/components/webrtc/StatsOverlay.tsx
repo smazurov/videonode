@@ -10,6 +10,7 @@ interface StatsOverlayProps {
   readonly pc: RTCPeerConnection | null;
   readonly videoRef: React.RefObject<HTMLVideoElement | null>;
   readonly streamId: string;
+  readonly peerId?: string | null;
   readonly onClose?: () => void;
 }
 
@@ -148,7 +149,7 @@ function getVideoPlaybackQuality(video: HTMLVideoElement | null, stats: WebRTCSt
   }
 }
 
-export function StatsOverlay({ pc, videoRef, streamId, onClose }: StatsOverlayProps) {
+export function StatsOverlay({ pc, videoRef, streamId, peerId, onClose }: StatsOverlayProps) {
   const [stats, setStats] = useState<WebRTCStats | null>(null);
   const [history, setHistory] = useState<StatsSample[]>([]);
   const [showWarning, setShowWarning] = useState(false);
@@ -265,9 +266,15 @@ export function StatsOverlay({ pc, videoRef, streamId, onClose }: StatsOverlayPr
         <table className="w-full">
           <tbody className="[&_td]:py-0.5 [&_td:first-child]:text-gray-400 [&_td:first-child]:pr-4">
             <tr>
-              <td>Stream ID</td>
+              <td>Stream</td>
               <td className="text-gray-100">{streamId}</td>
             </tr>
+            {peerId && (
+              <tr>
+                <td>Peer ID</td>
+                <td className="text-cyan-400">{peerId}</td>
+              </tr>
+            )}
             <tr>
               <td>Resolution</td>
               <td>

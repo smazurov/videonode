@@ -31,10 +31,16 @@ function waitForIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<
 
 type ConnectionState = 'connecting' | 'connected' | 'offline';
 
+function extractPeerId(sdp: string): string | null {
+  const match = sdp.match(/a=ice-ufrag:(\S+)/);
+  return match?.[1] ?? null;
+}
+
 export function WebRTCPlayer({ streamId, className = '', muted = true, showStats = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [pc, setPC] = useState<RTCPeerConnection | null>(null);
+  const [peerId, setPeerId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [playBlocked, setPlayBlocked] = useState(false);
@@ -73,7 +79,9 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       peerConnection.ontrack = (e) => {
         if (!videoRef.current || !e.streams[0]) return;
         videoRef.current.srcObject = e.streams[0];
-        videoRef.current.play().catch(onPlayBlocked);
+        videoRef.current.play()
+          .then(() => setPlayBlocked(false))
+          .catch(onPlayBlocked);
       };
 
       peerConnection.onconnectionstatechange = () => {
@@ -100,6 +108,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         const answer = await webrtcSignaling(streamId, peerConnection.localDescription!.sdp);
         if (cancelled) return;
 
+        setPeerId(extractPeerId(answer));
         await peerConnection.setRemoteDescription({ type: 'answer', sdp: answer });
       } catch (error_) {
         console.error(`WebRTC [${streamId}]: connection failed`, error_);
@@ -167,7 +176,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         </div>
       )}
       {showStats && connectionState === 'connected' && (
-        <StatsOverlay pc={pc} videoRef={videoRef} streamId={streamId} />
+        <StatsOverlay pc={pc} videoRef={videoRef} streamId={streamId} peerId={peerId} />
       )}
       {playBlocked && (
         <div
