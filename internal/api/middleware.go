@@ -61,7 +61,7 @@ func HTTPLoggingMiddleware(ctx huma.Context, next func(huma.Context)) {
 		// Client errors - WARN level
 		logger.LogAttrs(ctx.Context(), slog.LevelWarn, message, logAttrs...)
 	default:
-		// Success and redirects - INFO level
-		logger.LogAttrs(ctx.Context(), slog.LevelInfo, message, logAttrs...)
+		// Success and redirects - DEBUG level
+		logger.LogAttrs(ctx.Context(), slog.LevelDebug, message, logAttrs...)
 	}
 }
