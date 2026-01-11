@@ -4,7 +4,15 @@ A self-hosted video streaming server for Linux that turns V4L2 capture devices (
 
 VideoNode automatically detects connected capture devices, validates available hardware encoders, and generates optimized FFmpeg pipelines for low-latency streaming.
 
-## Quick Start
+## Installation
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/smazurov/videonode/main/install.sh | bash
+```
+
+This downloads the latest release, installs to `~/.local/bin`, sets up config in `~/.config/videonode`, and configures a systemd user service.
+
+## Quick Start (from source)
 
 ```bash
 go build -o videonode .
