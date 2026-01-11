@@ -36,7 +36,8 @@ checksum:
 
 changelog:
   sort: asc
-  format: "{{ .Message }} ({{ .AbbrevHash }}) (@{{ .AuthorUsername }})"
+  abbrev: 7
+  format: "{{ .Message }} ({{ .SHA }}) (@{{ .AuthorUsername }})"
   groups:
     - title: Features
       regexp: '^feat(\(.+\))?:'
