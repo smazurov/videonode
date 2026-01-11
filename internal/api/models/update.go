@@ -48,3 +48,10 @@ type UpdateRollbackResponse struct {
 		Message string `json:"message" example:"Rollback complete, restarting..." doc:"Status message"`
 	}
 }
+
+// RestartResponse represents a successful restart response.
+type RestartResponse struct {
+	Body struct {
+		Message string `json:"message" example:"Restarting..." doc:"Status message"`
+	}
+}
