@@ -37,6 +37,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
   const [pc, setPC] = useState<RTCPeerConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
+  const [playBlocked, setPlayBlocked] = useState(false);
   const reconnectTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -46,6 +47,8 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
     }
 
     let cancelled = false;
+
+    const onPlayBlocked = () => setPlayBlocked(true);
 
     function scheduleReconnect() {
       if (reconnectTimer.current) return;
@@ -68,10 +71,9 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       setPC(peerConnection);
 
       peerConnection.ontrack = (e) => {
-        if (videoRef.current && e.streams[0]) {
-          videoRef.current.srcObject = e.streams[0];
-          void videoRef.current.play();
-        }
+        if (!videoRef.current || !e.streams[0]) return;
+        videoRef.current.srcObject = e.streams[0];
+        videoRef.current.play().catch(onPlayBlocked);
       };
 
       peerConnection.onconnectionstatechange = () => {
@@ -137,6 +139,14 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
   const isOffline = connectionState === 'offline';
   const isConnecting = connectionState === 'connecting';
 
+  const handleClickToPlay = () => {
+    if (videoRef.current) {
+      videoRef.current.play()
+        .then(() => setPlayBlocked(false))
+        .catch(console.error);
+    }
+  };
+
   return (
     <div className={`relative ${className}`} style={{ background: '#000' }}>
       <video
@@ -158,6 +168,19 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       )}
       {showStats && connectionState === 'connected' && (
         <StatsOverlay pc={pc} videoRef={videoRef} streamId={streamId} />
+      )}
+      {playBlocked && (
+        <div
+          className="absolute inset-0 flex items-center justify-center cursor-pointer bg-black/50"
+          onClick={handleClickToPlay}
+        >
+          <div className="text-white text-center">
+            <svg className="w-16 h-16 mx-auto" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            <span className="text-sm mt-2 block">Click to play</span>
+          </div>
+        </div>
       )}
     </div>
   );
