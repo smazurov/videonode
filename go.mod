@@ -16,6 +16,7 @@ require (
 	github.com/pion/webrtc/v4 v4.1.8
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
 )
 
 require (
@@ -53,7 +54,6 @@ require (
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/sigurn/crc16 v0.0.0-20240131213347-83fcde1e29d1 // indirect
 	github.com/sigurn/crc8 v0.0.0-20220107193325-2243fe600f9f // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	gitlab.com/gitlab-org/api/client-go v1.9.1 // indirect

@@ -49,7 +49,7 @@ value = "nested value"
 		Config: tmpFile.Name(),
 	}
 
-	err = LoadConfig(config)
+	err = LoadConfig(config, nil)
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestLoadConfigFromEnvVars(t *testing.T) {
 
 	config := &TestConfig{}
 
-	err := LoadConfig(config)
+	err := LoadConfig(config, nil)
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -157,7 +157,7 @@ slice_field = ["toml1", "toml2"]
 		Config: tmpFile.Name(),
 	}
 
-	err = LoadConfig(config)
+	err = LoadConfig(config, nil)
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestLoadConfigMissingFile(t *testing.T) {
 	}
 
 	// Should not fail when file doesn't exist
-	err := LoadConfig(config)
+	err := LoadConfig(config, nil)
 	if err != nil {
 		t.Fatalf("LoadConfig should not fail for missing file: %v", err)
 	}
@@ -349,7 +349,7 @@ api = "error"
 		LoggingAPI:       "info",
 	}
 
-	err = LoadConfig(config)
+	err = LoadConfig(config, nil)
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -397,7 +397,7 @@ invalid toml syntax
 	}
 
 	// Should fail with invalid TOML
-	err = LoadConfig(config)
+	err = LoadConfig(config, nil)
 	if err == nil {
 		t.Fatalf("LoadConfig should fail for invalid TOML")
 	}
