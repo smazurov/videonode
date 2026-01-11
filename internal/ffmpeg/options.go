@@ -22,7 +22,7 @@ const (
 
 // Base returns the ffmpeg command with standard flags.
 func Base() string {
-	return "ffmpeg -hide_banner -nostats -nostdin"
+	return "ffmpeg -hide_banner -nostats -nostdin -loglevel level+info"
 }
 
 // FFmpegBase returns the ffmpeg command with standard flags.
