@@ -5,6 +5,7 @@ package devices
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/smazurov/videonode/internal/logging"
 )
@@ -14,13 +15,13 @@ var mockDevices = []DeviceInfo{
 	{
 		DevicePath: "/dev/video0",
 		DeviceName: "Mock USB Webcam HD",
-		DeviceId:   "usb-mock-webcam-001",
+		DeviceID:   "usb-mock-webcam-001",
 		Caps:       0x84000001, // VIDEO_CAPTURE | STREAMING | DEVICE_CAPS
 	},
 	{
 		DevicePath: "/dev/video1",
 		DeviceName: "Mock HDMI Capture Device",
-		DeviceId:   "usb-mock-hdmi-capture",
+		DeviceID:   "usb-mock-hdmi-capture",
 		Caps:       0x84000001, // VIDEO_CAPTURE | STREAMING | DEVICE_CAPS
 	},
 }
@@ -125,7 +126,7 @@ func (d *darwinDetector) GetDeviceFormats(devicePath string) ([]FormatInfo, erro
 // GetDevicePathByID returns the device path for a given mock device ID
 func (d *darwinDetector) GetDevicePathByID(deviceID string) (string, error) {
 	for _, device := range mockDevices {
-		if device.DeviceId == deviceID {
+		if device.DeviceID == deviceID {
 			return device.DevicePath, nil
 		}
 	}
