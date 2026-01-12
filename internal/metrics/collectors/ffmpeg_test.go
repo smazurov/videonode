@@ -5,13 +5,21 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/smazurov/videonode/internal/metrics"
 )
 
+func skipOnMacOS(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("Unix socket path too long on macOS")
+	}
+}
+
 func TestFFmpegCollectorProgressParsing(t *testing.T) {
+	skipOnMacOS(t)
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ffmpeg.sock")
 	streamID := "test-stream-ffmpeg"
@@ -76,6 +84,7 @@ progress=continue
 }
 
 func TestFFmpegCollectorMultipleProgressUpdates(t *testing.T) {
+	skipOnMacOS(t)
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ffmpeg2.sock")
 	streamID := "test-stream-ffmpeg-multi"
@@ -178,6 +187,7 @@ func TestFFmpegCollectorStop(t *testing.T) {
 }
 
 func TestFFmpegCollectorCleanupOldSocket(t *testing.T) {
+	skipOnMacOS(t)
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ffmpeg4.sock")
 	streamID := "test-stream-ffmpeg-cleanup"
@@ -213,6 +223,7 @@ func TestFFmpegCollectorCleanupOldSocket(t *testing.T) {
 }
 
 func TestFFmpegCollectorHandleConnection(t *testing.T) {
+	skipOnMacOS(t)
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ffmpeg5.sock")
 	streamID := "test-stream-handle-conn"
