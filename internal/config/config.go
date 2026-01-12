@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -183,4 +184,48 @@ func setFieldValueFromString(field reflect.Value, value string) {
 			field.Set(reflect.ValueOf(slice))
 		}
 	}
+}
+
+// LoadLoggingConfig loads logging configuration from a TOML config file.
+// Returns default config if file doesn't exist or can't be parsed.
+func LoadLoggingConfig(configPath string) logging.Config {
+	cfg := logging.Config{
+		Level:   "info",
+		Format:  "text",
+		Modules: make(map[string]string),
+	}
+
+	if configPath == "" {
+		return cfg
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return cfg
+	}
+
+	var rawConfig struct {
+		Logging map[string]string `toml:"logging"`
+	}
+	if err := toml.Unmarshal(data, &rawConfig); err != nil {
+		return cfg
+	}
+
+	if rawConfig.Logging == nil {
+		return cfg
+	}
+
+	// Extract level and format, rest are module-specific levels
+	for key, value := range rawConfig.Logging {
+		switch key {
+		case "level":
+			cfg.Level = value
+		case "format":
+			cfg.Format = value
+		default:
+			cfg.Modules[key] = value
+		}
+	}
+
+	return cfg
 }

@@ -27,6 +27,8 @@ const (
 	vidiocEnumFramesizes     = 0xc02c564a
 	vidiocEnumFrameintervals = 0xc034564b
 	vidiocGDVTimings         = 0xc0845658
+	vidiocSDVTimings         = 0x40845657 // VIDIOC_S_DV_TIMINGS - set DV timings
+	vidiocQueryDVTimings     = 0xc0845659 // VIDIOC_QUERY_DV_TIMINGS - query detected timings
 	vidiocSubscribeEvent     = 0x4020565a
 	vidiocUnsubscribeEvent   = 0x4020565b
 	vidiocDqevent            = 0x80885659
