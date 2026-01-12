@@ -386,9 +386,23 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 			if result > 0 {
 				d.logger.Debug("Source change event received", "device_id", deviceID, "changes", result)
 
-				// Event occurred, check signal status
-				status := v4l2.GetDVTimings(devicePath)
-				ready := (status.State == v4l2.SignalStateLocked)
+				// Event occurred, check signal status with retries (driver needs time to lock)
+				const maxRetries = 10
+				var status v4l2.DVTimingsStatus
+				var ready bool
+				var attempt int
+				for attempt = range maxRetries {
+					status = v4l2.GetDVTimings(devicePath)
+					ready = (status.State == v4l2.SignalStateLocked)
+					if ready {
+						break
+					}
+					d.logger.Debug("Signal not locked yet, retrying",
+						"device_id", deviceID,
+						"attempt", attempt+1,
+						"state", signalStateString(status.State))
+					time.Sleep(200 * time.Millisecond)
+				}
 
 				d.mu.Lock()
 				if device, exists := d.lastDevices[deviceID]; exists {
@@ -408,8 +422,9 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 						d.logger.Debug("Stopping event monitor, signal present", "device_id", deviceID)
 						return
 					} else if !ready {
-						d.logger.Warn("Source change event but signal not locked",
+						d.logger.Error("Signal not locked after retries",
 							"device_id", deviceID,
+							"retries", attempt+1,
 							"state", signalStateString(status.State))
 					}
 				}

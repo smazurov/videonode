@@ -10,7 +10,7 @@ import (
 	"github.com/smazurov/videonode/internal/logging"
 )
 
-// Mock device constants for testing on macOS
+// Mock device constants for testing on macOS.
 var mockDevices = []DeviceInfo{
 	{
 		DevicePath: "/dev/video0",
@@ -26,7 +26,7 @@ var mockDevices = []DeviceInfo{
 	},
 }
 
-// Mock formats for each device
+// Mock formats for each device.
 var mockFormats = map[string][]FormatInfo{
 	"/dev/video0": {
 		{PixelFormat: 1196444237, FormatName: "MJPEG", Emulated: false},
@@ -39,7 +39,7 @@ var mockFormats = map[string][]FormatInfo{
 	},
 }
 
-// Mock resolutions for each device/format combination
+// Mock resolutions for each device/format combination.
 var mockResolutions = map[string]map[uint32][]Resolution{
 	"/dev/video0": {
 		1196444237: { // MJPEG
@@ -68,7 +68,7 @@ var mockResolutions = map[string]map[uint32][]Resolution{
 	},
 }
 
-// Mock framerates for each device/format/resolution combination
+// Mock framerates for each device/format/resolution combination.
 var mockFramerates = map[string]map[uint32]map[string][]Framerate{
 	"/dev/video0": {
 		1196444237: { // MJPEG
@@ -109,12 +109,12 @@ func newDetector() DeviceDetector {
 	return d
 }
 
-// FindDevices returns mock devices for testing on macOS
+// FindDevices returns mock devices for testing on macOS.
 func (d *darwinDetector) FindDevices() ([]DeviceInfo, error) {
 	return mockDevices, nil
 }
 
-// GetDeviceFormats returns mock formats for the device
+// GetDeviceFormats returns mock formats for the device.
 func (d *darwinDetector) GetDeviceFormats(devicePath string) ([]FormatInfo, error) {
 	formats, exists := mockFormats[devicePath]
 	if !exists {
@@ -123,7 +123,7 @@ func (d *darwinDetector) GetDeviceFormats(devicePath string) ([]FormatInfo, erro
 	return formats, nil
 }
 
-// GetDevicePathByID returns the device path for a given mock device ID
+// GetDevicePathByID returns the device path for a given mock device ID.
 func (d *darwinDetector) GetDevicePathByID(deviceID string) (string, error) {
 	for _, device := range mockDevices {
 		if device.DeviceID == deviceID {
@@ -133,7 +133,7 @@ func (d *darwinDetector) GetDevicePathByID(deviceID string) (string, error) {
 	return "", fmt.Errorf("device ID not found: %s", deviceID)
 }
 
-// GetDeviceResolutions returns mock resolutions for the format
+// GetDeviceResolutions returns mock resolutions for the format.
 func (d *darwinDetector) GetDeviceResolutions(devicePath string, pixelFormat uint32) ([]Resolution, error) {
 	deviceResolutions, exists := mockResolutions[devicePath]
 	if !exists {
@@ -148,7 +148,7 @@ func (d *darwinDetector) GetDeviceResolutions(devicePath string, pixelFormat uin
 	return resolutions, nil
 }
 
-// GetDeviceFramerates returns mock framerates for the resolution
+// GetDeviceFramerates returns mock framerates for the resolution.
 func (d *darwinDetector) GetDeviceFramerates(devicePath string, pixelFormat uint32, width, height uint32) ([]Framerate, error) {
 	deviceFramerates, exists := mockFramerates[devicePath]
 	if !exists {
@@ -169,13 +169,13 @@ func (d *darwinDetector) GetDeviceFramerates(devicePath string, pixelFormat uint
 	return framerates, nil
 }
 
-// StartMonitoring is a no-op on macOS
-func (d *darwinDetector) StartMonitoring(ctx context.Context, broadcaster EventBroadcaster) error {
+// StartMonitoring is a no-op on macOS.
+func (d *darwinDetector) StartMonitoring(_ context.Context, _ EventBroadcaster) error {
 	d.logger.Info("Device monitoring not available on macOS - V4L2 is Linux-only")
 	return nil
 }
 
-// StopMonitoring is a no-op on macOS
+// StopMonitoring is a no-op on macOS.
 func (d *darwinDetector) StopMonitoring() {
 	// Nothing to stop
 }
