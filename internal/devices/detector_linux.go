@@ -388,7 +388,7 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 
 				// Event occurred, check signal status with retries (driver needs time to lock)
 				const maxRetries = 10
-				var status v4l2.DVTimingsStatus
+				var status v4l2.SignalStatus
 				var ready bool
 				var attempt int
 				for attempt = range maxRetries {
