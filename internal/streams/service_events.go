@@ -18,14 +18,31 @@ func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceI
 		deviceReady = false
 	}
 
+	// Log the broadcast for debugging device-to-stream matching
+	s.logger.Debug("Device broadcast received",
+		"action", action,
+		"device_id", device.DeviceID,
+		"device_ready", deviceReady)
+
 	allStreamConfigs := s.store.GetAllStreams()
 
 	// Track streams that need process restart (state changed)
 	var streamsToRestart []string
 	updated := false
+	matchFound := false
 
 	for streamID, streamConfig := range allStreamConfigs {
+		// Log each comparison for debugging
+		if streamConfig.Device != "" {
+			s.logger.Debug("Checking stream device match",
+				"stream_id", streamID,
+				"stream_device", streamConfig.Device,
+				"discovered_device", device.DeviceID,
+				"match", streamConfig.Device == device.DeviceID)
+		}
+
 		if streamConfig.Device == device.DeviceID {
+			matchFound = true
 			stream, exists := s.streams[streamID]
 			if !exists {
 				s.logger.Warn("Stream config exists but runtime state missing", "stream_id", streamID)
@@ -67,6 +84,13 @@ func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceI
 				updated = true
 			}
 		}
+	}
+
+	// Log if no streams matched this device
+	if !matchFound && len(allStreamConfigs) > 0 {
+		s.logger.Debug("No streams configured for device",
+			"device_id", device.DeviceID,
+			"stream_count", len(allStreamConfigs))
 	}
 
 	s.streamsMutex.Unlock()

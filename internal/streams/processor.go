@@ -2,8 +2,10 @@ package streams
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/types"
 )
 
@@ -30,12 +32,14 @@ type processor struct {
 	encoderSelector encoderSelector
 	deviceResolver  deviceResolver
 	getStreamState  func(streamID string) (*Stream, bool) // Get runtime state
+	logger          *slog.Logger
 }
 
 // newProcessor creates a new stream processor.
 func newProcessor(repo Store) *processor {
 	return &processor{
-		store: repo,
+		store:  repo,
+		logger: logging.GetLogger("processor"),
 		// Default implementations that do nothing
 		encoderSelector: func(codec string, _ string, _ *types.QualityParams, encoderOverride string) *ffmpeg.Params {
 			// Default to software encoder
@@ -148,12 +152,30 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 
 	// Resolve device path (skip if using test source)
 	var devicePath string
+	var noSignalReason string
 	if !useTestSource {
 		devicePath = p.deviceResolver(streamConfig.Device)
 		if devicePath == "" {
 			// Device not found - treat as offline
+			noSignalReason = "device_not_found"
 			enabled = false
-			useTestSource = streamConfig.TestMode || !enabled
+			useTestSource = true
+		}
+	} else if !enabled {
+		noSignalReason = "device_not_ready"
+	}
+
+	// Log the source mode decision
+	if useTestSource {
+		if streamConfig.TestMode && enabled {
+			p.logger.Info("Stream using test mode",
+				"stream_id", streamID,
+				"device_id", streamConfig.Device)
+		} else {
+			p.logger.Warn("Stream using no-signal pattern",
+				"stream_id", streamID,
+				"device_id", streamConfig.Device,
+				"reason", noSignalReason)
 		}
 	}
 
