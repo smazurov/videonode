@@ -173,6 +173,7 @@ func TestGetLoggerBeforeInitialize(t *testing.T) {
 	// Reset state completely
 	mutex.Lock()
 	moduleLoggers = make(map[string]*slog.Logger)
+	moduleLevelVars = make(map[string]*slog.LevelVar)
 	isInitialized = false
 	globalConfig = Config{}
 	mutex.Unlock()
@@ -195,17 +196,17 @@ func TestGetLoggerBeforeInitialize(t *testing.T) {
 		},
 	})
 
-	// Get logger AFTER Initialize - should be NEW logger with debug enabled
+	// Get logger AFTER Initialize - should be SAME logger (cached) with updated level
 	loggerAfter := GetLogger("webrtc")
 
-	// BUG: If loggers are cached, the pre-Initialize logger persists with wrong level
-	if loggerBefore == loggerAfter {
-		t.Error("Logger was cached before Initialize - module levels won't be applied!")
+	// With LevelVar fix, logger should be cached (same pointer) but level updated dynamically
+	if loggerBefore != loggerAfter {
+		t.Error("Logger should be cached - same pointer before and after Initialize")
 	}
 
-	handlerAfter := loggerAfter.Handler()
-	if !handlerAfter.Enabled(context.Background(), slog.LevelDebug) {
-		t.Error("Logger created after Initialize should have debug enabled")
+	// The cached logger should now have debug enabled (LevelVar was updated)
+	if !handlerBefore.Enabled(context.Background(), slog.LevelDebug) {
+		t.Error("Cached logger should have debug enabled after Initialize updates LevelVar")
 	}
 }
 

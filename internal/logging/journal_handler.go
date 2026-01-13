@@ -13,13 +13,13 @@ import (
 
 // JournalHandler is a slog.Handler that sends logs to systemd journal.
 type JournalHandler struct {
-	level  slog.Level
+	level  slog.Leveler
 	attrs  []slog.Attr
 	groups []string
 }
 
 // NewJournalHandler creates a new journal handler.
-func NewJournalHandler(level slog.Level) *JournalHandler {
+func NewJournalHandler(level slog.Leveler) *JournalHandler {
 	return &JournalHandler{
 		level:  level,
 		attrs:  make([]slog.Attr, 0),
@@ -29,7 +29,7 @@ func NewJournalHandler(level slog.Level) *JournalHandler {
 
 // Enabled reports whether the handler handles records at the given level.
 func (h *JournalHandler) Enabled(_ context.Context, level slog.Level) bool {
-	return level >= h.level
+	return level >= h.level.Level()
 }
 
 // Handle sends the log record to systemd journal.
