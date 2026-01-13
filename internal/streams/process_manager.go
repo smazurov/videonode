@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/events"
+	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
 )
@@ -139,8 +140,9 @@ func (m *streamProcessManager) startProcess(streamID string, command string) err
 		done:      make(chan struct{}),
 	}
 
-	// Create process manager
+	// Create process manager with ffmpeg log parsing
 	proc.manager = process.NewManager(streamID, command, m.logger)
+	proc.manager.SetLogParser(logging.GetLogger("ffmpeg"), ffmpeg.ParseLogLevel)
 
 	m.processes[streamID] = proc
 

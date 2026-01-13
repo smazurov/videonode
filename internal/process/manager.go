@@ -14,8 +14,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/smazurov/videonode/internal/logging"
 )
 
 // OutputHandler receives output lines from the subprocess.
@@ -24,17 +22,33 @@ type OutputHandler interface {
 	HandleLine(source, line string)
 }
 
-// Manager manages the lifecycle of a subprocess (FFmpeg, GStreamer, etc.)
+// LogParser parses a log line and returns the log level and message.
+// Used to extract structured log info from process output (ffmpeg, gstreamer, etc.)
+type LogParser func(line string) (level, msg string)
+
+type exitReason int
+
+const (
+	exitReasonProcessExit exitReason = iota
+	exitReasonShutdown
+	exitReasonRestart
+)
+
+// Manager manages the lifecycle of a subprocess.
 type Manager struct {
-	streamID      string
-	command       string
-	commandMu     sync.RWMutex
-	cmd           *exec.Cmd
-	logger        *slog.Logger
-	ctx           context.Context
-	cancel        context.CancelFunc
-	restartChan   chan string // receives new command for restart
-	outputHandler OutputHandler
+	streamID        string
+	command         string
+	commandMu       sync.RWMutex
+	cmd             *exec.Cmd
+	logger          *slog.Logger
+	processLogger   *slog.Logger // logger for process output (nil = use logger)
+	logParser       LogParser    // parses process output for log level (nil = no parsing)
+	ctx             context.Context
+	cancel          context.CancelFunc
+	restartChan     chan string // receives new command for restart
+	outputHandler   OutputHandler
+	gracefulTimeout time.Duration // timeout for graceful shutdown before force kill
+	killTimeout     time.Duration // timeout after Kill() before giving up
 }
 
 // NewManager creates a new process manager.
@@ -47,13 +61,15 @@ func NewManager(streamID, command string, logger *slog.Logger) *Manager {
 func NewManagerWithOutput(streamID, command string, logger *slog.Logger, handler OutputHandler) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		streamID:      streamID,
-		command:       command,
-		logger:        logger,
-		ctx:           ctx,
-		cancel:        cancel,
-		restartChan:   make(chan string, 1),
-		outputHandler: handler,
+		streamID:        streamID,
+		command:         command,
+		logger:          logger,
+		ctx:             ctx,
+		cancel:          cancel,
+		restartChan:     make(chan string, 1),
+		outputHandler:   handler,
+		gracefulTimeout: 5 * time.Second,
+		killTimeout:     5 * time.Second,
 	}
 }
 
@@ -62,6 +78,14 @@ func (m *Manager) GetCommand() string {
 	m.commandMu.RLock()
 	defer m.commandMu.RUnlock()
 	return m.command
+}
+
+// SetLogParser sets a custom logger and log parser for process output.
+// The logger is used for process output (e.g., module="ffmpeg").
+// The parser extracts log level from process-specific output formats.
+func (m *Manager) SetLogParser(logger *slog.Logger, parser LogParser) {
+	m.processLogger = logger
+	m.logParser = parser
 }
 
 // RequestRestart requests a restart with a new command.
@@ -80,56 +104,49 @@ func (m *Manager) Shutdown() {
 	m.cancel()
 }
 
-// Run starts the subprocess and blocks until it exits or receives a signal
-// Returns the exit code of the subprocess.
-func (m *Manager) Run() int {
-	// Parse command string to arguments
-	args, err := parseCommand(m.command)
+// runningProcess holds channels for monitoring a running subprocess.
+type runningProcess struct {
+	processDone <-chan error
+	outputDone  chan struct{} // receives twice, once per output stream
+}
+
+// startProcess parses the command, starts the subprocess, and returns channels for monitoring.
+func (m *Manager) startProcess(command string) (*runningProcess, error) {
+	args, err := parseCommand(command)
 	if err != nil {
 		m.logger.Error("Failed to parse command", "error", err)
-		return 1
+		return nil, err
 	}
 
 	if len(args) == 0 {
 		m.logger.Error("Empty command")
-		return 1
+		return nil, fmt.Errorf("empty command")
 	}
 
-	// Create command with context for cancellation
-	m.cmd = exec.CommandContext(m.ctx, args[0], args[1:]...)
+	m.cmd = exec.Command(args[0], args[1:]...)
+	m.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	// Set process group ID for proper signal handling
-	m.cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
-
-	// Setup stdout and stderr pipes
 	stdout, err := m.cmd.StdoutPipe()
 	if err != nil {
 		m.logger.Error("Failed to create stdout pipe", "error", err)
-		return 1
+		return nil, err
 	}
 
 	stderr, err := m.cmd.StderrPipe()
 	if err != nil {
 		m.logger.Error("Failed to create stderr pipe", "error", err)
-		return 1
+		return nil, err
 	}
 
-	// Start the process
 	if err := m.cmd.Start(); err != nil {
-		m.logger.Error("Failed to start process", "error", err, "command", m.command)
-		return 1
+		m.logger.Error("Failed to start process", "error", err, "command", command)
+		return nil, err
 	}
 
-	m.logger.Info("Process started", "stream_id", m.streamID, "pid", m.cmd.Process.Pid, "command", m.command)
-
-	// Setup signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	m.logger.Info("Process started", "stream_id", m.streamID, "pid", m.cmd.Process.Pid, "command", command)
 
 	// Stream output in separate goroutines
-	outputDone := make(chan struct{})
+	outputDone := make(chan struct{}, 2)
 	go func() {
 		m.streamOutput(stdout, "stdout")
 		outputDone <- struct{}{}
@@ -139,37 +156,70 @@ func (m *Manager) Run() int {
 		outputDone <- struct{}{}
 	}()
 
-	// Wait for either signal or process exit
+	// Wait for process in goroutine
 	processDone := make(chan error, 1)
 	go func() {
 		processDone <- m.cmd.Wait()
 	}()
 
-	exitCode := 0
+	return &runningProcess{processDone: processDone, outputDone: outputDone}, nil
+}
+
+// waitOutputDone waits for both output streams to complete.
+func (m *Manager) waitOutputDone(outputDone <-chan struct{}) {
+	<-outputDone
+	<-outputDone
+}
+
+// exitCodeFromError extracts exit code from process error.
+// Returns 0 for nil error, the exit code for ExitError, or 1 for other errors.
+func exitCodeFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return 1
+}
+
+// handleProcessExit extracts exit code from process error and logs non-ExitError errors.
+func (m *Manager) handleProcessExit(processErr error) int {
+	exitCode := exitCodeFromError(processErr)
+	if processErr != nil && exitCode == 1 {
+		m.logger.Error("Process exited with error", "error", processErr)
+	}
+	return exitCode
+}
+
+// Run starts the subprocess and blocks until it exits or receives a signal.
+// Returns the exit code of the subprocess.
+func (m *Manager) Run() int {
+	rp, err := m.startProcess(m.command)
+	if err != nil {
+		return 1
+	}
+	defer m.waitOutputDone(rp.outputDone)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
 	select {
+	case <-m.ctx.Done():
+		m.logger.Info("Context cancelled, shutting down process")
+		m.sendStopSignal()
+		return m.waitForExit(rp.processDone, m.gracefulTimeout)
 	case sig := <-sigChan:
 		m.logger.Info("Received shutdown signal", "signal", sig.String())
-		exitCode = m.Stop(5 * time.Second)
-	case processErr := <-processDone:
-		// Process exited on its own
-		if processErr != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(processErr, &exitErr) {
-				exitCode = exitErr.ExitCode()
-			} else {
-				m.logger.Error("Process exited with error", "error", processErr)
-				exitCode = 1
-			}
-		}
+		m.sendStopSignal()
+		return m.waitForExit(rp.processDone, m.gracefulTimeout)
+	case processErr := <-rp.processDone:
+		exitCode := m.handleProcessExit(processErr)
 		m.logger.Info("Process exited", "exit_code", exitCode)
+		return exitCode
 	}
-
-	// Wait for output streaming to complete
-	<-outputDone
-	<-outputDone
-
-	m.logger.Info("Process stopped", "exit_code", exitCode)
-	return exitCode
 }
 
 // RunWithRestart runs the subprocess and handles restart requests.
@@ -199,86 +249,28 @@ func (m *Manager) RunWithRestart() int {
 	}
 }
 
-type exitReason int
-
-const (
-	exitReasonProcessExit exitReason = iota
-	exitReasonShutdown
-	exitReasonRestart
-)
-
 // runOnce runs the process once and returns the exit code and reason for exit.
 func (m *Manager) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 	m.commandMu.RLock()
 	command := m.command
 	m.commandMu.RUnlock()
 
-	// Parse command string to arguments
-	args, err := parseCommand(command)
+	rp, err := m.startProcess(command)
 	if err != nil {
-		m.logger.Error("Failed to parse command", "error", err)
 		return 1, exitReasonProcessExit
 	}
-
-	if len(args) == 0 {
-		m.logger.Error("Empty command")
-		return 1, exitReasonProcessExit
-	}
-
-	// Create command with context for cancellation
-	m.cmd = exec.CommandContext(m.ctx, args[0], args[1:]...)
-
-	// Set process group ID for proper signal handling
-	m.cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
-
-	// Setup stdout and stderr pipes
-	stdout, err := m.cmd.StdoutPipe()
-	if err != nil {
-		m.logger.Error("Failed to create stdout pipe", "error", err)
-		return 1, exitReasonProcessExit
-	}
-
-	stderr, err := m.cmd.StderrPipe()
-	if err != nil {
-		m.logger.Error("Failed to create stderr pipe", "error", err)
-		return 1, exitReasonProcessExit
-	}
-
-	// Start the process
-	if err := m.cmd.Start(); err != nil {
-		m.logger.Error("Failed to start process", "error", err, "command", command)
-		return 1, exitReasonProcessExit
-	}
-
-	m.logger.Info("Process started", "stream_id", m.streamID, "pid", m.cmd.Process.Pid, "command", m.command)
-
-	// Stream output in separate goroutines
-	outputDone := make(chan struct{})
-	go func() {
-		m.streamOutput(stdout, "stdout")
-		outputDone <- struct{}{}
-	}()
-	go func() {
-		m.streamOutput(stderr, "stderr")
-		outputDone <- struct{}{}
-	}()
-
-	// Wait for process to exit
-	processDone := make(chan error, 1)
-	go func() {
-		processDone <- m.cmd.Wait()
-	}()
-
-	var exitCode int
-	var reason exitReason
+	defer m.waitOutputDone(rp.outputDone)
 
 	select {
+	case <-m.ctx.Done():
+		m.logger.Info("Context cancelled, shutting down process")
+		m.sendStopSignal()
+		return m.waitForExit(rp.processDone, m.gracefulTimeout), exitReasonShutdown
+
 	case sig := <-sigChan:
 		m.logger.Info("Received shutdown signal", "signal", sig.String())
 		m.sendStopSignal()
-		reason = exitReasonShutdown
+		return m.waitForExit(rp.processDone, m.gracefulTimeout), exitReasonShutdown
 
 	case newCmd := <-m.restartChan:
 		m.logger.Info("Received restart request")
@@ -286,34 +278,13 @@ func (m *Manager) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 		m.commandMu.Lock()
 		m.command = newCmd
 		m.commandMu.Unlock()
-		reason = exitReasonRestart
+		return m.waitForExit(rp.processDone, m.gracefulTimeout), exitReasonRestart
 
-	case processErr := <-processDone:
-		if processErr != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(processErr, &exitErr) {
-				exitCode = exitErr.ExitCode()
-			} else {
-				m.logger.Error("Process exited with error", "error", processErr)
-				exitCode = 1
-			}
-		}
+	case processErr := <-rp.processDone:
+		exitCode := m.handleProcessExit(processErr)
 		m.logger.Info("Process exited", "exit_code", exitCode)
-		reason = exitReasonProcessExit
-		// Skip waiting for processDone since we already got it
-		<-outputDone
-		<-outputDone
-		return exitCode, reason
+		return exitCode, exitReasonProcessExit
 	}
-
-	// Wait for process to actually exit after sending signal
-	exitCode = m.waitForExit(processDone, 5*time.Second)
-
-	// Wait for output streaming to complete
-	<-outputDone
-	<-outputDone
-
-	return exitCode, reason
 }
 
 // sendStopSignal sends SIGINT to the subprocess without waiting.
@@ -331,87 +302,39 @@ func (m *Manager) sendStopSignal() {
 func (m *Manager) waitForExit(processDone <-chan error, timeout time.Duration) int {
 	select {
 	case err := <-processDone:
-		if err != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(err, &exitErr) {
-				return exitErr.ExitCode()
-			}
-			return 1
-		}
-		return 0
+		return exitCodeFromError(err)
 	case <-time.After(timeout):
 		m.logger.Warn("Graceful shutdown timeout, forcing kill", "timeout", timeout)
 		if m.cmd.Process != nil {
 			if err := m.cmd.Process.Kill(); err != nil {
-				m.logger.Error("Failed to kill process", "error", err)
+				// "os: process already finished" is OK - process exited between timeout and kill
+				if !errors.Is(err, os.ErrProcessDone) {
+					m.logger.Error("Failed to kill process", "error", err)
+				}
 			}
 		}
-		// Wait for the kill to complete
-		<-processDone
+		// Wait for process to exit with a secondary timeout to prevent hanging
+		select {
+		case <-processDone:
+			// Process exited
+		case <-time.After(m.killTimeout):
+			m.logger.Error("Process did not exit after kill signal")
+		}
 		return 137
 	}
 }
 
-// Stop gracefully stops the subprocess with a timeout.
-func (m *Manager) Stop(timeout time.Duration) int {
-	if m.cmd == nil || m.cmd.Process == nil {
-		return 0
-	}
-
-	// Send SIGINT for graceful shutdown
-	m.logger.Info("Sending SIGINT to process", "pid", m.cmd.Process.Pid)
-	if err := m.cmd.Process.Signal(syscall.SIGINT); err != nil {
-		m.logger.Warn("Failed to send SIGINT", "error", err)
-		// Try SIGKILL immediately if SIGINT fails
-		if err := m.cmd.Process.Kill(); err != nil {
-			m.logger.Error("Failed to kill process", "error", err)
-		}
-		return 1
-	}
-
-	// Wait for graceful shutdown with timeout
-	done := make(chan error, 1)
-	go func() {
-		done <- m.cmd.Wait()
-	}()
-
-	select {
-	case err := <-done:
-		// Process exited gracefully
-		if err != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(err, &exitErr) {
-				return exitErr.ExitCode()
-			}
-			return 1
-		}
-		return 0
-	case <-time.After(timeout):
-		// Timeout - force kill
-		m.logger.Warn("Graceful shutdown timeout, forcing kill", "timeout", timeout)
-		if err := m.cmd.Process.Kill(); err != nil {
-			m.logger.Error("Failed to kill process", "error", err)
-		}
-		// Wait for kill to complete
-		if err := <-done; err != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(err, &exitErr) {
-				return exitErr.ExitCode()
-			}
-		}
-		return 137 // Standard exit code for SIGKILL
-	}
-}
-
 // streamOutput streams output from the subprocess.
-// Routes all output through slog for consistent logging.
-// Parses ffmpeg log level prefixes (e.g., [info], [warning]) when present.
+// Uses the configured processLogger (or falls back to manager logger).
+// Uses the configured LogParser to extract log levels from process output.
 func (m *Manager) streamOutput(reader io.Reader, source string) {
 	scanner := bufio.NewScanner(reader)
 
-	ffmpegLogger := logging.GetLogger("ffmpeg").With(
-		"stream_id", m.streamID,
-	)
+	// Use process logger if configured, otherwise fall back to manager logger
+	logger := m.processLogger
+	if logger == nil {
+		logger = m.logger
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -420,66 +343,27 @@ func (m *Manager) streamOutput(reader io.Reader, source string) {
 			m.outputHandler.HandleLine(source, line)
 		}
 
-		level, msg := parseFFmpegLogLevel(line)
+		// Use configured parser or default to info level
+		level, msg := "info", line
+		if m.logParser != nil {
+			level, msg = m.logParser(line)
+		}
+
 		switch level {
 		case "fatal", "error":
-			ffmpegLogger.Error(msg)
+			logger.Error(msg)
 		case "warning":
-			ffmpegLogger.Warn(msg)
+			logger.Warn(msg)
 		case "debug", "trace":
-			ffmpegLogger.Debug(msg)
+			logger.Debug(msg)
 		default:
-			ffmpegLogger.Info(msg)
+			logger.Info(msg)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		m.logger.Warn("Error reading output", "source", source, "error", err)
 	}
-}
-
-// parseFFmpegLogLevel extracts the log level from ffmpeg output.
-// FFmpeg with -loglevel level+info outputs lines like "[info] message"
-// or "[component @ 0x...] [level] message" for component-specific logs.
-// Returns the level and the message with level stripped but component preserved.
-func parseFFmpegLogLevel(line string) (level, msg string) {
-	if len(line) < 3 || line[0] != '[' {
-		return "info", line
-	}
-
-	end := strings.Index(line, "] ")
-	if end == -1 {
-		return "info", line
-	}
-
-	bracket := line[1:end]
-
-	if isFFmpegLogLevel(bracket) {
-		return bracket, line[end+2:]
-	}
-
-	// Check for component prefix: [component @ 0x...] [level] message
-	// Keep the component, strip only the [level]
-	component := line[:end+2]
-	rest := line[end+2:]
-	if len(rest) > 2 && rest[0] == '[' {
-		if nextEnd := strings.Index(rest, "] "); nextEnd != -1 {
-			nextBracket := rest[1:nextEnd]
-			if isFFmpegLogLevel(nextBracket) {
-				return nextBracket, component + rest[nextEnd+2:]
-			}
-		}
-	}
-
-	return "info", line
-}
-
-func isFFmpegLogLevel(s string) bool {
-	switch s {
-	case "quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug", "trace":
-		return true
-	}
-	return false
 }
 
 // parseCommand parses a command string into arguments
