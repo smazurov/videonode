@@ -335,17 +335,12 @@ func (p *StreamProcessor) ProcessStreamSpec(
 	ffmpegParams.Options = streamConfig.FFmpeg.Options
 	ffmpegParams.OutputURL = fmt.Sprintf("srt://localhost:8890?streamid=publish:%s", streamID)
 
-	// Determine test source mode and overlay text
+	// Determine overlay text (if set, test source is used instead of device)
 	switch {
 	case !enabled:
-		ffmpegParams.IsTestSource = true
-		ffmpegParams.TestOverlay = "NO SIGNAL"
+		ffmpegParams.OverlayText = "NO SIGNAL"
 	case streamConfig.TestMode:
-		ffmpegParams.IsTestSource = true
-		ffmpegParams.TestOverlay = "TEST MODE"
-	default:
-		ffmpegParams.IsTestSource = false
-		ffmpegParams.TestOverlay = ""
+		ffmpegParams.OverlayText = "TEST MODE"
 	}
 
 	// Build FFmpeg command

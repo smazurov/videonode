@@ -85,6 +85,9 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		})
 	}
 
+	// Wire up processor's access to crash state
+	processor.setIsCrashed(svc.processManager.IsCrashed)
+
 	return svc
 }
 
