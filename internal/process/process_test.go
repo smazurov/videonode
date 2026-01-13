@@ -12,15 +12,15 @@ func testLogger() *slog.Logger {
 }
 
 // newTestManager creates a Manager with short timeouts for testing.
-func newTestManager(command string) *Manager {
-	m := NewManager("test", command, testLogger())
+func newTestManager(command string) *Process {
+	m := NewProcess("test", command, testLogger())
 	m.gracefulTimeout = 100 * time.Millisecond
 	m.killTimeout = 100 * time.Millisecond
 	return m
 }
 
 // runAsync runs the manager's Run method in a goroutine and returns exit code channel.
-func runAsync(m *Manager) <-chan int {
+func runAsync(m *Process) <-chan int {
 	done := make(chan int, 1)
 	go func() {
 		done <- m.Run()
@@ -29,7 +29,7 @@ func runAsync(m *Manager) <-chan int {
 }
 
 // runWithRestartAsync runs RunWithRestart in a goroutine and returns exit code channel.
-func runWithRestartAsync(m *Manager) <-chan int {
+func runWithRestartAsync(m *Process) <-chan int {
 	done := make(chan int, 1)
 	go func() {
 		done <- m.RunWithRestart()
@@ -234,7 +234,7 @@ func TestOutputHandler(t *testing.T) {
 	var lines []string
 	handler := &testOutputHandler{lines: &lines}
 
-	m := NewManagerWithOutput("test", `sh -c "echo line1; echo line2"`, testLogger(), handler)
+	m := NewProcessWithOutput("test", `sh -c "echo line1; echo line2"`, testLogger(), handler)
 	m.gracefulTimeout = 100 * time.Millisecond
 	m.killTimeout = 100 * time.Millisecond
 
