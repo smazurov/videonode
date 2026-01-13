@@ -130,7 +130,6 @@ func QueryDVTimings(devicePath string) (*v4l2DVTimings, error) {
 
 	timings := v4l2DVTimings{}
 	err = ioctl(fd, vidiocQueryDVTimings, unsafe.Pointer(&timings))
-
 	if err != nil {
 		// Log the specific error
 		var errName string
