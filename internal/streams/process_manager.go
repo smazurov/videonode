@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/events"
@@ -56,15 +57,20 @@ type StreamProcessManager interface {
 
 	// IsRunning checks if a stream's process is currently running.
 	IsRunning(streamID string) bool
+
+	// IsCrashed returns true if stream is in crashed state showing CRASH pattern.
+	IsCrashed(streamID string) bool
 }
 
 // streamProcessManager wraps process.Pool with stream-specific behavior.
 type streamProcessManager struct {
-	pool      process.Pool
-	store     Store
-	processor *processor
-	eventBus  *events.Bus
-	logger    *slog.Logger
+	pool           process.Pool
+	store          Store
+	processor      *processor
+	eventBus       *events.Bus
+	logger         *slog.Logger
+	crashedStreams map[string]bool
+	mu             sync.Mutex
 }
 
 // ProcessManagerOptions contains options for creating a StreamProcessManager.
@@ -79,10 +85,11 @@ func NewStreamProcessManager(opts *ProcessManagerOptions) StreamProcessManager {
 	logger := logging.GetLogger("process_manager")
 
 	spm := &streamProcessManager{
-		store:     opts.Store,
-		processor: opts.Processor,
-		eventBus:  opts.EventBus,
-		logger:    logger,
+		store:          opts.Store,
+		processor:      opts.Processor,
+		eventBus:       opts.EventBus,
+		logger:         logger,
+		crashedStreams: make(map[string]bool),
 	}
 
 	spm.pool = process.NewPool(&process.PoolOptions{
@@ -104,18 +111,31 @@ func (m *streamProcessManager) generateCommand(streamID string) (string, error) 
 	return processed.FFmpegCommand, nil
 }
 
-// onStateChange handles state transitions for event emission.
+// onStateChange handles state transitions for event emission and crash recovery.
 func (m *streamProcessManager) onStateChange(id string, _, newState process.State, _ error) {
-	if m.eventBus == nil {
-		return
-	}
-
-	if newState == process.StateRunning {
+	// Emit event when process starts running
+	if m.eventBus != nil && newState == process.StateRunning {
 		m.eventBus.Publish(events.StreamStateChangedEvent{
 			StreamID:  id,
 			Enabled:   true,
 			Timestamp: time.Now().Format(time.RFC3339),
 		})
+	}
+
+	// Handle crash: mark as crashed and restart with crash pattern
+	if newState == process.StateError {
+		m.mu.Lock()
+		m.crashedStreams[id] = true
+		m.mu.Unlock()
+
+		m.logger.Warn("Stream crashed, restarting with crash pattern", "stream_id", id)
+
+		// Restart asynchronously (callback shouldn't block)
+		go func() {
+			if err := m.pool.Restart(id); err != nil {
+				m.logger.Error("Failed to restart crashed stream", "stream_id", id, "error", err)
+			}
+		}()
 	}
 }
 
@@ -135,8 +155,19 @@ func (m *streamProcessManager) Stop(streamID string) error {
 }
 
 // Restart stops and restarts the FFmpeg process with new config.
+// Clears the crashed flag so it tries real device again.
 func (m *streamProcessManager) Restart(streamID string) error {
+	m.mu.Lock()
+	delete(m.crashedStreams, streamID)
+	m.mu.Unlock()
 	return m.pool.Restart(streamID)
+}
+
+// IsCrashed returns true if the stream is in crashed state.
+func (m *streamProcessManager) IsCrashed(streamID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.crashedStreams[streamID]
 }
 
 // GetStatus returns the current state of a stream's process.

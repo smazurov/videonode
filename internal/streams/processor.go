@@ -32,6 +32,7 @@ type processor struct {
 	encoderSelector encoderSelector
 	deviceResolver  deviceResolver
 	getStreamState  func(streamID string) (*Stream, bool) // Get runtime state
+	isCrashed       func(streamID string) bool            // Check if stream crashed
 	logger          *slog.Logger
 }
 
@@ -78,8 +79,13 @@ func (p *processor) setStreamStateGetter(getter func(streamID string) (*Stream, 
 	p.getStreamState = getter
 }
 
+// setIsCrashed sets the function to check if a stream is in crashed state.
+func (p *processor) setIsCrashed(fn func(streamID string) bool) {
+	p.isCrashed = fn
+}
+
 // applyStreamSettingsToFFmpegParams applies common stream settings to FFmpeg params.
-func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Params, streamConfig *StreamSpec, streamID string, devicePath string, socketPath string, enabled bool) {
+func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Params, streamConfig *StreamSpec, streamID string, devicePath string, socketPath string, enabled bool, noSignalReason string) {
 	// Add stream-specific settings to FFmpeg params
 	ffmpegParams.DevicePath = devicePath
 	ffmpegParams.InputFormat = streamConfig.FFmpeg.InputFormat
@@ -96,20 +102,14 @@ func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Param
 	ffmpegParams.Options = streamConfig.FFmpeg.Options
 	ffmpegParams.OutputURL = fmt.Sprintf("rtsp://127.0.0.1:8554/%s", streamID)
 
-	// Determine test source mode and overlay text
+	// Determine overlay text (if set, test source is used instead of device)
 	switch {
+	case noSignalReason == "crashed":
+		ffmpegParams.OverlayText = "CRASH"
 	case !enabled:
-		// Device offline or no signal
-		ffmpegParams.IsTestSource = true
-		ffmpegParams.TestOverlay = "NO SIGNAL"
+		ffmpegParams.OverlayText = "NO SIGNAL"
 	case streamConfig.TestMode:
-		// Explicit test mode
-		ffmpegParams.IsTestSource = true
-		ffmpegParams.TestOverlay = "TEST MODE"
-	default:
-		// Normal device input
-		ffmpegParams.IsTestSource = false
-		ffmpegParams.TestOverlay = ""
+		ffmpegParams.OverlayText = "TEST MODE"
 	}
 }
 
@@ -132,6 +132,13 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 		enabled = streamState.Enabled
 	}
 
+	// Check if stream is in crashed state - force test pattern with CRASH overlay
+	var noSignalReason string
+	if p.isCrashed != nil && p.isCrashed(streamID) {
+		noSignalReason = "crashed"
+		enabled = false
+	}
+
 	// Priority order:
 	// 1. NO SIGNAL (device offline) - absolute precedence
 	// 2. Custom command (device online + custom command set)
@@ -152,7 +159,6 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 
 	// Resolve device path (skip if using test source)
 	var devicePath string
-	var noSignalReason string
 	if !useTestSource {
 		devicePath = p.deviceResolver(streamConfig.Device)
 		if devicePath == "" {
@@ -161,7 +167,7 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 			enabled = false
 			useTestSource = true
 		}
-	} else if !enabled {
+	} else if !enabled && noSignalReason == "" {
 		noSignalReason = "device_not_ready"
 	}
 
@@ -220,7 +226,7 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	}
 
 	// Apply common stream settings to FFmpeg params
-	p.applyStreamSettingsToFFmpegParams(ffmpegParams, &streamConfig, streamID, devicePath, socketPath, enabled)
+	p.applyStreamSettingsToFFmpegParams(ffmpegParams, &streamConfig, streamID, devicePath, socketPath, enabled, noSignalReason)
 
 	// Build FFmpeg command using the new Params struct
 	ffmpegCmd := ffmpeg.BuildCommand(ffmpegParams)
