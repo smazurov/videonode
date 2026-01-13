@@ -232,6 +232,7 @@ func TestPoolCommandProviderError(t *testing.T) {
 }
 
 func TestPoolProcessCrash(t *testing.T) {
+	var mu sync.Mutex
 	var lastErr error
 	var lastState State
 	var lastID string
@@ -241,11 +242,13 @@ func TestPoolProcessCrash(t *testing.T) {
 			return fmt.Sprintf("sh -c 'echo %s; exit 42'", id), nil
 		},
 		OnStateChange: func(id string, oldState, newState State, err error) {
+			mu.Lock()
 			lastID = id
 			lastState = newState
 			if err != nil {
 				lastErr = err
 			}
+			mu.Unlock()
 			t.Logf("State change: %s %s -> %s (old=%s)", id, oldState, newState, oldState)
 		},
 		Logger: poolTestLogger(),
@@ -261,6 +264,9 @@ func TestPoolProcessCrash(t *testing.T) {
 	if info.LastError == nil {
 		t.Error("expected LastError to be set")
 	}
+
+	mu.Lock()
+	defer mu.Unlock()
 	if lastState != StateError {
 		t.Errorf("expected callback to receive StateError, got %v", lastState)
 	}
