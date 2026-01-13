@@ -4,12 +4,11 @@ package ffmpeg
 // This replaces the map[string]string approach with strongly typed fields.
 type Params struct {
 	// Input Configuration
-	DevicePath   string
-	InputFormat  string // yuyv422, mjpeg, etc.
-	Resolution   string // 1920x1080
-	FPS          string // 30, 60, etc.
-	IsTestSource bool   // Use test pattern instead of device
-	TestOverlay  string // Text overlay for test mode (e.g. "TEST MODE", "NO SIGNAL")
+	DevicePath  string
+	InputFormat string // yuyv422, mjpeg, etc.
+	Resolution  string // 1920x1080
+	FPS         string // 30, 60, etc.
+	OverlayText string // If set, use test source with this overlay (e.g. "TEST MODE", "NO SIGNAL", "CRASH")
 
 	// Encoder Configuration
 	Encoder string // h264_vaapi, libx264, etc.

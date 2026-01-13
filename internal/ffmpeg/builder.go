@@ -18,7 +18,7 @@ func BuildCommand(p *Params) string {
 	}
 
 	// Input configuration
-	if p.IsTestSource {
+	if p.OverlayText != "" {
 		// Generate test pattern input
 		// Add -re flag to read at native frame rate (prevents running too fast)
 		cmd.WriteString(" -re")
@@ -58,7 +58,7 @@ func BuildCommand(p *Params) string {
 
 	// Audio input if specified
 	if p.AudioDevice != "" {
-		if p.IsTestSource {
+		if p.OverlayText != "" {
 			// Generate test audio tone for test mode
 			cmd.WriteString(" -f lavfi -i \"sine=frequency=1000:sample_rate=48000\"")
 			cmd.WriteString(" -map 0:v -map 1:a")
@@ -93,8 +93,8 @@ func BuildCommand(p *Params) string {
 	var videoFilterChain []string
 
 	// Add text overlay for test sources
-	if p.IsTestSource && p.TestOverlay != "" {
-		drawtext := fmt.Sprintf("drawtext=text='%s':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=120:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5", p.TestOverlay)
+	if p.OverlayText != "" {
+		drawtext := fmt.Sprintf("drawtext=text='%s':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=120:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5", p.OverlayText)
 		videoFilterChain = append(videoFilterChain, drawtext)
 	}
 
