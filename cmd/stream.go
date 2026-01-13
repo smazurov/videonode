@@ -89,8 +89,8 @@ func CreateStreamCmd() *cobra.Command {
 
 			logger.Info("Generated command")
 
-			// Create process manager with ffmpeg log parsing
-			mgr := process.NewManager(streamID, processed.Command, logger)
+			// Create process with ffmpeg log parsing
+			mgr := process.NewProcess(streamID, processed.Command, logger)
 			mgr.SetLogParser(logging.GetLogger("ffmpeg"), ffmpeg.ParseLogLevel)
 
 			// Create typed config watcher with fresh config loading
