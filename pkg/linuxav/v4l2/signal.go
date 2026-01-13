@@ -47,7 +47,8 @@ func GetDeviceStatus(devicePath string) DeviceStatus {
 		status.DeviceType = DeviceTypeHDMI
 
 		// Check if signal is locked
-		if err == nil && timings.bt.width > 0 && timings.bt.height > 0 && timings.bt.pixelclock > 0 {
+		bt := timings.bt()
+		if err == nil && bt.width > 0 && bt.height > 0 && bt.pixelclock > 0 {
 			status.Ready = true
 		}
 		return status
@@ -84,12 +85,13 @@ func GetDVTimings(devicePath string) SignalStatus {
 
 	if err == nil {
 		// Check if timings are valid
-		if timings.bt.width > 0 && timings.bt.height > 0 && timings.bt.pixelclock > 0 {
+		bt := timings.bt()
+		if bt.width > 0 && bt.height > 0 && bt.pixelclock > 0 {
 			status.State = SignalStateLocked
-			status.Width = timings.bt.width
-			status.Height = timings.bt.height
-			status.FPS = calculateFPS(&timings.bt)
-			status.Interlaced = timings.bt.interlaced != 0
+			status.Width = bt.width
+			status.Height = bt.height
+			status.FPS = calculateFPS(bt)
+			status.Interlaced = bt.interlaced != 0
 		} else {
 			status.State = SignalStateNoSignal
 		}
@@ -153,14 +155,15 @@ func QueryDVTimings(devicePath string) (*v4l2DVTimings, error) {
 	}
 
 	// Log successful detection
-	fps := calculateFPS(&timings.bt)
+	bt := timings.bt()
+	fps := calculateFPS(bt)
 	logger.Debug("QueryDVTimings: detected signal",
 		"device", devicePath,
-		"width", timings.bt.width,
-		"height", timings.bt.height,
-		"pixelclock", timings.bt.pixelclock,
+		"width", bt.width,
+		"height", bt.height,
+		"pixelclock", bt.pixelclock,
 		"fps", fmt.Sprintf("%.2f", fps),
-		"interlaced", timings.bt.interlaced != 0)
+		"interlaced", bt.interlaced != 0)
 
 	return &timings, nil
 }
@@ -182,11 +185,12 @@ func SetDVTimings(devicePath string, timings *v4l2DVTimings) error {
 	}
 	defer syscall.Close(fd)
 
+	bt := timings.bt()
 	logger.Debug("SetDVTimings: applying timings",
 		"device", devicePath,
-		"width", timings.bt.width,
-		"height", timings.bt.height,
-		"pixelclock", timings.bt.pixelclock)
+		"width", bt.width,
+		"height", bt.height,
+		"pixelclock", bt.pixelclock)
 
 	err = ioctl(fd, vidiocSDVTimings, unsafe.Pointer(timings))
 	if err != nil {
