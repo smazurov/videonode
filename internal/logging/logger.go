@@ -10,12 +10,14 @@ import (
 const defaultBufferSize = 1000
 
 var (
-	moduleLoggers = make(map[string]*slog.Logger)
-	globalConfig  Config
-	isInitialized bool
-	mutex         sync.RWMutex
-	logBuffer     *RingBuffer
-	logCallback   LogCallback
+	moduleLoggers   = make(map[string]*slog.Logger)
+	moduleLevelVars = make(map[string]*slog.LevelVar)
+	globalConfig    Config
+	globalLevelVar  = &slog.LevelVar{} // default level
+	isInitialized   bool
+	mutex           sync.RWMutex
+	logBuffer       *RingBuffer
+	logCallback     LogCallback
 )
 
 // Config represents logging configuration.
@@ -36,21 +38,30 @@ func Initialize(config Config) {
 	// Create ring buffer for log history
 	logBuffer = NewRingBuffer(defaultBufferSize)
 
-	// Parse global level
+	// Parse and set global level
 	globalLevel := parseLevel(config.Level)
 	if globalLevel == nil {
 		defaultLevel := slog.LevelInfo
 		globalLevel = &defaultLevel
 	}
+	globalLevelVar.Set(*globalLevel)
 
-	// Create base handler
-	handler := createHandler(config.Format, *globalLevel)
+	// Update all existing module loggers with new levels
+	for module, levelVar := range moduleLevelVars {
+		moduleLevel := *globalLevel
+		if levelStr, exists := config.Modules[module]; exists {
+			if parsed := parseLevel(levelStr); parsed != nil {
+				moduleLevel = *parsed
+			}
+		}
+		levelVar.Set(moduleLevel)
+	}
+
+	// Create base handler for default logger
+	handler := createHandler(config.Format, globalLevelVar)
 
 	// Set default logger
 	slog.SetDefault(slog.New(handler))
-
-	// Clear existing module loggers since we're reinitializing
-	moduleLoggers = make(map[string]*slog.Logger)
 }
 
 // GetBuffer returns the log ring buffer for reading historical logs.
@@ -86,7 +97,10 @@ func GetLogger(module string) *slog.Logger {
 		return logger
 	}
 
-	// Determine level for this module
+	// Create a LevelVar for this module so level can be changed at runtime
+	levelVar := &slog.LevelVar{}
+
+	// Determine initial level for this module
 	var moduleLevel slog.Level
 	if isInitialized {
 		globalLevel := parseLevel(globalConfig.Level)
@@ -105,23 +119,26 @@ func GetLogger(module string) *slog.Logger {
 	} else {
 		moduleLevel = slog.LevelInfo
 	}
+	levelVar.Set(moduleLevel)
 
-	// Create handler with module-specific level
+	// Create handler with module-specific LevelVar
 	var handler slog.Handler
 	if isInitialized {
-		handler = createHandler(globalConfig.Format, moduleLevel)
+		handler = createHandler(globalConfig.Format, levelVar)
 	} else {
-		handler = createHandler("text", moduleLevel)
+		handler = createHandler("text", levelVar)
 	}
 
 	logger := slog.New(handler).With("module", module)
 	moduleLoggers[module] = logger
+	moduleLevelVars[module] = levelVar
 	return logger
 }
 
 // createHandler creates a slog handler with the specified format and level.
 // Logs to stdout, journal (when available), and ring buffer for SSE streaming.
-func createHandler(format string, level slog.Level) slog.Handler {
+// Level can be slog.Level or *slog.LevelVar for dynamic level changes.
+func createHandler(format string, level slog.Leveler) slog.Handler {
 	opts := &slog.HandlerOptions{Level: level}
 
 	var stdoutHandler slog.Handler

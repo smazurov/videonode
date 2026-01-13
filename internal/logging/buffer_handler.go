@@ -17,14 +17,14 @@ type LogCallback func(entry LogEntry)
 // and optionally calls a callback for each log entry.
 type BufferHandler struct {
 	buffer   *RingBuffer
-	level    slog.Level
+	level    slog.Leveler
 	attrs    []slog.Attr
 	groups   []string
 	callback LogCallback
 }
 
 // NewBufferHandler creates a handler that writes to the given ring buffer.
-func NewBufferHandler(buffer *RingBuffer, level slog.Level, callback LogCallback) *BufferHandler {
+func NewBufferHandler(buffer *RingBuffer, level slog.Leveler, callback LogCallback) *BufferHandler {
 	return &BufferHandler{
 		buffer:   buffer,
 		level:    level,
@@ -34,7 +34,7 @@ func NewBufferHandler(buffer *RingBuffer, level slog.Level, callback LogCallback
 
 // Enabled implements slog.Handler.
 func (h *BufferHandler) Enabled(_ context.Context, level slog.Level) bool {
-	return level >= h.level
+	return level >= h.level.Level()
 }
 
 // Handle implements slog.Handler.
