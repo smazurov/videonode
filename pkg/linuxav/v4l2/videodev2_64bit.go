@@ -4,20 +4,25 @@ package v4l2
 
 import "unsafe"
 
-// Compile-time struct size assertions.
-// These will cause build failures if struct sizes don't match kernel expectations.
+// Compile-time struct size and offset assertions.
+// These fail at compile time if struct layout doesn't match kernel ABI.
+// Pattern: [0]struct{} = [actual - expected]struct{} fails if actual != expected.
 var (
-	_ [104]byte = [unsafe.Sizeof(v4l2Capability{})]byte{}
-	_ [64]byte  = [unsafe.Sizeof(v4l2Fmtdesc{})]byte{}
-	_ [8]byte   = [unsafe.Sizeof(v4l2FrmsizeDiscrete{})]byte{}
-	_ [24]byte  = [unsafe.Sizeof(v4l2FrmsizeStepwise{})]byte{}
-	_ [44]byte  = [unsafe.Sizeof(v4l2Frmsizeenum{})]byte{}
-	_ [8]byte   = [unsafe.Sizeof(v4l2Fract{})]byte{}
-	_ [52]byte  = [unsafe.Sizeof(v4l2Frmivalenum{})]byte{}
-	_ [128]byte = [unsafe.Sizeof(v4l2BTTimings{})]byte{}
-	_ [144]byte = [unsafe.Sizeof(v4l2DVTimings{})]byte{}
-	_ [32]byte  = [unsafe.Sizeof(v4l2EventSubscription{})]byte{}
-	_ [132]byte = [unsafe.Sizeof(v4l2Event{})]byte{}
+	// Size assertions - must match kernel struct sizes exactly.
+	_ [0]struct{} = [unsafe.Sizeof(v4l2Capability{}) - 104]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2Fmtdesc{}) - 64]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2FrmsizeDiscrete{}) - 8]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2FrmsizeStepwise{}) - 24]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2Frmsizeenum{}) - 44]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2Fract{}) - 8]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2Frmivalenum{}) - 52]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2BTTimings{}) - 128]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2DVTimings{}) - 132]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2EventSubscription{}) - 32]struct{}{}
+	_ [0]struct{} = [unsafe.Sizeof(v4l2Event{}) - 132]struct{}{}
+
+	// Offset assertions - must match kernel packed struct layout.
+	_ [0]struct{} = [unsafe.Offsetof(v4l2DVTimings{}.btRaw) - 4]struct{}{}
 )
 
 // IOCTL constants for 64-bit architectures.
@@ -124,11 +129,18 @@ type v4l2BTTimings struct {
 	reserved      [46]byte  // offset 78 to 124
 }
 
-// v4l2DVTimings has size 132 bytes.
+// v4l2DVTimings has size 132 bytes to match kernel's packed struct.
+// The btRaw field uses a raw byte array to prevent Go from inserting
+// alignment padding between typ and bt (Go would pad to 8-byte alignment
+// for the uint64 in v4l2BTTimings, but kernel expects bt at offset 4).
 type v4l2DVTimings struct {
-	typ uint32        // offset 0
-	bt  v4l2BTTimings // offset 4
-	_   [4]byte       // padding to 132
+	typ   uint32    // offset 0
+	btRaw [128]byte // offset 4 - raw bytes for v4l2BTTimings, no alignment padding
+}
+
+// bt returns the btRaw bytes interpreted as a v4l2BTTimings struct.
+func (t *v4l2DVTimings) bt() *v4l2BTTimings {
+	return (*v4l2BTTimings)(unsafe.Pointer(&t.btRaw[0]))
 }
 
 // v4l2EventSubscription has size 32 bytes.
