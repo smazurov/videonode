@@ -386,22 +386,71 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 			if result > 0 {
 				d.logger.Debug("Source change event received", "device_id", deviceID, "changes", result)
 
-				// Event occurred, check signal status with retries (driver needs time to lock)
-				const maxRetries = 10
+				// Use proper V4L2 workflow: QUERY_DV_TIMINGS + S_DV_TIMINGS + G_DV_TIMINGS
+				// This is required because the driver doesn't auto-switch to detected timings
+				const maxRetries = 5
+				const retryDelay = 1 * time.Second
 				var status v4l2.SignalStatus
 				var ready bool
 				var attempt int
-				for attempt = range maxRetries {
+
+				for attempt = 0; attempt < maxRetries; attempt++ {
+					d.logger.Debug("Attempting signal detection",
+						"device_id", deviceID,
+						"attempt", attempt+1,
+						"device_path", devicePath)
+
+					// Step 1: Query detected timings from hardware
+					timings, err := v4l2.QueryDVTimings(devicePath)
+					if err != nil {
+						d.logger.Debug("QueryDVTimings failed",
+							"device_id", deviceID,
+							"attempt", attempt+1,
+							"error", err)
+						time.Sleep(retryDelay)
+						continue
+					}
+					d.logger.Debug("QueryDVTimings succeeded",
+						"device_id", deviceID,
+						"attempt", attempt+1)
+
+					// Step 2: Apply detected timings to driver
+					if err := v4l2.SetDVTimings(devicePath, timings); err != nil {
+						d.logger.Debug("SetDVTimings failed",
+							"device_id", deviceID,
+							"attempt", attempt+1,
+							"error", err)
+						time.Sleep(retryDelay)
+						continue
+					}
+					d.logger.Debug("SetDVTimings succeeded",
+						"device_id", deviceID,
+						"attempt", attempt+1)
+
+					// Step 3: Verify signal is locked with GetDVTimings
 					status = v4l2.GetDVTimings(devicePath)
-					ready = (status.State == v4l2.SignalStateLocked)
-					if ready {
+					d.logger.Debug("GetDVTimings result",
+						"device_id", deviceID,
+						"state", signalStateString(status.State),
+						"width", status.Width,
+						"height", status.Height,
+						"fps", fmt.Sprintf("%.2f", status.FPS))
+
+					if status.State == v4l2.SignalStateLocked {
+						ready = true
+						d.logger.Info("Signal locked successfully",
+							"device_id", deviceID,
+							"resolution", fmt.Sprintf("%dx%d", status.Width, status.Height),
+							"fps", fmt.Sprintf("%.2f", status.FPS),
+							"attempts", attempt+1)
 						break
 					}
+
 					d.logger.Debug("Signal not locked yet, retrying",
 						"device_id", deviceID,
 						"attempt", attempt+1,
 						"state", signalStateString(status.State))
-					time.Sleep(200 * time.Millisecond)
+					time.Sleep(retryDelay)
 				}
 
 				d.mu.Lock()

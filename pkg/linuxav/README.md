@@ -41,7 +41,6 @@ The packages include architecture-specific struct definitions and IOCTL constant
 
 - **amd64** (64-bit x86)
 - **arm64** (64-bit ARM)
-- **arm** (32-bit ARM)
 
 Struct sizes are validated at compile time to ensure ABI compatibility with kernel headers.
 

@@ -4,9 +4,14 @@ package v4l2
 
 import (
 	"errors"
+	"fmt"
 	"syscall"
 	"unsafe"
+
+	"github.com/smazurov/videonode/internal/logging"
 )
+
+var logger = logging.GetLogger("v4l2")
 
 // GetDeviceType returns the type of a V4L2 device (webcam, HDMI, or unknown).
 func GetDeviceType(devicePath string) DeviceType {
@@ -106,6 +111,95 @@ func GetDVTimings(devicePath string) SignalStatus {
 	}
 
 	return status
+}
+
+// QueryDVTimings queries the detected DV timings from the hardware.
+// This uses VIDIOC_QUERY_DV_TIMINGS which returns what the hardware is actually detecting
+// from the incoming signal, as opposed to GetDVTimings which returns the configured timings.
+// Returns the raw timings struct and an error.
+// Error codes: ENOLINK = no cable, ENOLCK = signal unstable, ERANGE = out of range.
+func QueryDVTimings(devicePath string) (*v4l2DVTimings, error) {
+	fd, err := syscall.Open(devicePath, syscall.O_RDWR|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		logger.Debug("QueryDVTimings: failed to open device",
+			"device", devicePath,
+			"error", err)
+		return nil, err
+	}
+	defer syscall.Close(fd)
+
+	timings := v4l2DVTimings{}
+	err = ioctl(fd, vidiocQueryDVTimings, unsafe.Pointer(&timings))
+
+	if err != nil {
+		// Log the specific error
+		var errName string
+		switch {
+		case errors.Is(err, syscall.ENOLINK):
+			errName = "ENOLINK (no cable)"
+		case errors.Is(err, syscall.ENOLCK):
+			errName = "ENOLCK (signal unstable)"
+		case errors.Is(err, syscall.ERANGE):
+			errName = "ERANGE (out of range)"
+		case errors.Is(err, syscall.ENOTTY):
+			errName = "ENOTTY (not supported)"
+		default:
+			errName = err.Error()
+		}
+		logger.Debug("QueryDVTimings: ioctl failed",
+			"device", devicePath,
+			"error", errName,
+			"errno", err)
+		return nil, err
+	}
+
+	// Log successful detection
+	fps := calculateFPS(&timings.bt)
+	logger.Debug("QueryDVTimings: detected signal",
+		"device", devicePath,
+		"width", timings.bt.width,
+		"height", timings.bt.height,
+		"pixelclock", timings.bt.pixelclock,
+		"fps", fmt.Sprintf("%.2f", fps),
+		"interlaced", timings.bt.interlaced != 0)
+
+	return &timings, nil
+}
+
+// SetDVTimings configures the driver with the specified DV timings.
+// This uses VIDIOC_S_DV_TIMINGS to apply timings that were detected by QueryDVTimings.
+// After calling this, GetDVTimings will return the newly configured timings.
+func SetDVTimings(devicePath string, timings *v4l2DVTimings) error {
+	if timings == nil {
+		return errors.New("timings cannot be nil")
+	}
+
+	fd, err := syscall.Open(devicePath, syscall.O_RDWR|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		logger.Debug("SetDVTimings: failed to open device",
+			"device", devicePath,
+			"error", err)
+		return err
+	}
+	defer syscall.Close(fd)
+
+	logger.Debug("SetDVTimings: applying timings",
+		"device", devicePath,
+		"width", timings.bt.width,
+		"height", timings.bt.height,
+		"pixelclock", timings.bt.pixelclock)
+
+	err = ioctl(fd, vidiocSDVTimings, unsafe.Pointer(timings))
+	if err != nil {
+		logger.Debug("SetDVTimings: ioctl failed",
+			"device", devicePath,
+			"error", err)
+		return err
+	}
+
+	logger.Debug("SetDVTimings: timings applied successfully",
+		"device", devicePath)
+	return nil
 }
 
 // WaitForSourceChange waits for a source change event with timeout.

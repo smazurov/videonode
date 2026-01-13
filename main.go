@@ -49,17 +49,6 @@ type Options struct {
 	// Features settings
 	FeaturesLEDControl bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
 
-	// Logging settings
-	LoggingLevel     string `help:"Global logging level (debug, info, warn, error)" default:"info" toml:"logging.level" env:"LOGGING_LEVEL"`
-	LoggingFormat    string `help:"Logging format (text, json)" default:"text" toml:"logging.format" env:"LOGGING_FORMAT"`
-	LoggingStreams   string `help:"Streams logging level" default:"info" toml:"logging.streams" env:"LOGGING_STREAMS"`
-	LoggingStreaming string `help:"Streaming server logging level" default:"info" toml:"logging.streaming" env:"LOGGING_STREAMING"`
-	LoggingDevices   string `help:"Devices logging level" default:"info" toml:"logging.devices" env:"LOGGING_DEVICES"`
-	LoggingEncoders  string `help:"Encoders logging level" default:"info" toml:"logging.encoders" env:"LOGGING_ENCODERS"`
-	LoggingCapture   string `help:"Capture logging level" default:"info" toml:"logging.capture" env:"LOGGING_CAPTURE"`
-	LoggingAPI       string `help:"API logging level" default:"info" toml:"logging.api" env:"LOGGING_API"`
-	LoggingWebRTC    string `help:"WebRTC logging level" default:"info" toml:"logging.webrtc" env:"LOGGING_WEBRTC"`
-
 	// Update settings
 	UpdateEnabled    bool `help:"Enable self-update functionality" default:"true" toml:"update.enabled" env:"UPDATE_ENABLED"`
 	UpdatePrerelease bool `help:"Include prereleases in updates" default:"false" toml:"update.prerelease" env:"UPDATE_PRERELEASE"`
@@ -74,20 +63,8 @@ func main() {
 			slog.Warn("Failed to load config", "error", err)
 		}
 
-		// Initialize logging system
-		loggingConfig := logging.Config{
-			Level:  opts.LoggingLevel,
-			Format: opts.LoggingFormat,
-			Modules: map[string]string{
-				"streams":   opts.LoggingStreams,
-				"streaming": opts.LoggingStreaming,
-				"devices":   opts.LoggingDevices,
-				"encoders":  opts.LoggingEncoders,
-				"capture":   opts.LoggingCapture,
-				"api":       opts.LoggingAPI,
-				"webrtc":    opts.LoggingWebRTC,
-			},
-		}
+		// Initialize logging system from config file
+		loggingConfig := config.LoadLoggingConfig(opts.Config)
 		logging.Initialize(loggingConfig)
 
 		logger := logging.GetLogger("api")
