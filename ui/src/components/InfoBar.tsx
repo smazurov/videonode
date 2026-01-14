@@ -274,10 +274,10 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
                 {versionInfo && (
                   <div className="space-y-1 font-mono">
                     <div>
-                      <span className="text-gray-400">API:</span> {versionInfo.git_commit} • {versionInfo.build_date}
+                      <span className="text-gray-400">API:</span> {versionInfo.version} • {versionInfo.build_date}
                     </div>
                     <div>
-                      <span className="text-gray-400">UI:</span> {
+                      <span className="text-gray-400">UI:&nbsp;</span> {
                         typeof __VIDEONODE_UI_VERSION__ !== 'undefined' ? __VIDEONODE_UI_VERSION__ : 'dev'
                       }
                     </div>

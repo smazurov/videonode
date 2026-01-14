@@ -24,6 +24,7 @@ builds:
       - -X github.com/smazurov/videonode/internal/version.Version={{.Version}}
       - -X github.com/smazurov/videonode/internal/version.GitCommit={{.ShortCommit}}
       - -X github.com/smazurov/videonode/internal/version.BuildDate={{.Date}}
+      - -X github.com/smazurov/videonode/internal/version.BuildID={{ .Env.GITHUB_RUN_ID }}
 
 archives:
   - id: default
