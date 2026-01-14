@@ -55,3 +55,10 @@ type RestartResponse struct {
 		Message string `json:"message" example:"Restarting..." doc:"Status message"`
 	}
 }
+
+// ApplyDevBuildResponse represents a successful dev build apply response.
+type ApplyDevBuildResponse struct {
+	Body struct {
+		Message string `json:"message" example:"Dev build applied, restarting..." doc:"Status message"`
+	}
+}
