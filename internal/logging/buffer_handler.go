@@ -15,20 +15,20 @@ type LogCallback func(entry LogEntry)
 
 // BufferHandler is a slog.Handler that writes to a ring buffer
 // and optionally calls a callback for each log entry.
+// It dynamically accesses the global buffer so loggers created before
+// Initialize() still write to the buffer once it's available.
 type BufferHandler struct {
-	buffer   *RingBuffer
-	level    slog.Leveler
-	attrs    []slog.Attr
-	groups   []string
-	callback LogCallback
+	level  slog.Leveler
+	attrs  []slog.Attr
+	groups []string
 }
 
-// NewBufferHandler creates a handler that writes to the given ring buffer.
-func NewBufferHandler(buffer *RingBuffer, level slog.Leveler, callback LogCallback) *BufferHandler {
+// NewBufferHandler creates a handler that writes to the global ring buffer.
+// The buffer is resolved dynamically at write time, so handlers created before
+// Initialize() will still work once the buffer is available.
+func NewBufferHandler(level slog.Leveler) *BufferHandler {
 	return &BufferHandler{
-		buffer:   buffer,
-		level:    level,
-		callback: callback,
+		level: level,
 	}
 }
 
@@ -39,6 +39,17 @@ func (h *BufferHandler) Enabled(_ context.Context, level slog.Level) bool {
 
 // Handle implements slog.Handler.
 func (h *BufferHandler) Handle(_ context.Context, r slog.Record) error {
+	// Dynamically access global buffer and callback
+	mutex.RLock()
+	buf := logBuffer
+	cb := logCallback
+	mutex.RUnlock()
+
+	// Skip if buffer not yet initialized
+	if buf == nil {
+		return nil
+	}
+
 	attrs := make(map[string]any)
 	module := "app"
 
@@ -69,10 +80,10 @@ func (h *BufferHandler) Handle(_ context.Context, r slog.Record) error {
 		Attributes: attrs,
 	}
 
-	h.buffer.Write(entry)
+	buf.Write(entry)
 
-	if h.callback != nil {
-		h.callback(entry)
+	if cb != nil {
+		cb(entry)
 	}
 
 	return nil
@@ -114,11 +125,9 @@ func (h *BufferHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	copy(newAttrs[len(h.attrs):], attrs)
 
 	return &BufferHandler{
-		buffer:   h.buffer,
-		level:    h.level,
-		attrs:    newAttrs,
-		groups:   h.groups,
-		callback: h.callback,
+		level:  h.level,
+		attrs:  newAttrs,
+		groups: h.groups,
 	}
 }
 
@@ -129,11 +138,9 @@ func (h *BufferHandler) WithGroup(name string) slog.Handler {
 	newGroups[len(h.groups)] = name
 
 	return &BufferHandler{
-		buffer:   h.buffer,
-		level:    h.level,
-		attrs:    h.attrs,
-		groups:   newGroups,
-		callback: h.callback,
+		level:  h.level,
+		attrs:  h.attrs,
+		groups: newGroups,
 	}
 }
 
