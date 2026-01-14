@@ -386,8 +386,8 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 			if result > 0 {
 				d.logger.Debug("Source change event received", "device_id", deviceID, "changes", result)
 
-				// Use proper V4L2 workflow: QUERY_DV_TIMINGS + S_DV_TIMINGS + G_DV_TIMINGS
-				// This is required because the driver doesn't auto-switch to detected timings
+				// Query detected timings and verify signal lock
+				// Rockchip driver auto-configures timings, so we just need to verify lock
 				const maxRetries = 5
 				const retryDelay = 1 * time.Second
 				var status v4l2.SignalStatus
@@ -400,8 +400,8 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 						"attempt", attempt+1,
 						"device_path", devicePath)
 
-					// Step 1: Query detected timings from hardware
-					timings, err := v4l2.QueryDVTimings(devicePath)
+					// Query detected timings from hardware
+					_, err := v4l2.QueryDVTimings(devicePath)
 					if err != nil {
 						d.logger.Debug("QueryDVTimings failed",
 							"device_id", deviceID,
@@ -414,20 +414,7 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 						"device_id", deviceID,
 						"attempt", attempt+1)
 
-					// Step 2: Apply detected timings to driver
-					if err := v4l2.SetDVTimings(devicePath, timings); err != nil {
-						d.logger.Debug("SetDVTimings failed",
-							"device_id", deviceID,
-							"attempt", attempt+1,
-							"error", err)
-						time.Sleep(retryDelay)
-						continue
-					}
-					d.logger.Debug("SetDVTimings succeeded",
-						"device_id", deviceID,
-						"attempt", attempt+1)
-
-					// Step 3: Verify signal is locked with GetDVTimings
+					// Verify signal is locked
 					status = v4l2.GetDVTimings(devicePath)
 					d.logger.Debug("GetDVTimings result",
 						"device_id", deviceID,
