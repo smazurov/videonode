@@ -1,8 +1,9 @@
-name: Build Dev
+name: Build
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -10,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Dev
+    name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -41,29 +42,42 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
-      - name: Get version
-        id: version
+      - name: Get latest tag
+        id: latest_tag
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          echo "version=${LATEST_TAG}-dev.${SHORT_SHA}" >> $GITHUB_OUTPUT
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "value=${TAG#v}" >> $GITHUB_OUTPUT
 
-      - name: Build binaries
+      - name: Build dev binaries
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
           args: release --snapshot --skip=publish --clean
         env:
-          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.version }}
+          GORELEASER_CURRENT_TAG: ${{ steps.latest_tag.outputs.value }}
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Ensure dev release exists
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
           gh release view dev || gh release create dev --title "Development Builds" --notes "Rolling release for dev builds. Updated on each push to main." --prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload to dev release
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
           gh release upload dev dist/videonode_linux_*.tar.gz --clobber
         env:
