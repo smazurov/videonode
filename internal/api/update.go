@@ -171,6 +171,29 @@ func (s *Server) registerUpdateRoutes() {
 			},
 		}, nil
 	})
+
+	// Apply dev build
+	huma.Register(s.api, huma.Operation{
+		OperationID: "apply-dev-build",
+		Method:      http.MethodPost,
+		Path:        "/api/update/dev",
+		Summary:     "Apply Dev Build",
+		Description: "Download and apply the latest dev build from the rolling 'dev' release. Will trigger a restart.",
+		Tags:        []string{"update"},
+		Errors:      []int{400, 401, 409, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, _ *struct{}) (*models.ApplyDevBuildResponse, error) {
+		if err := svc.ApplyDevBuild(ctx); err != nil {
+			return nil, mapUpdateError(err)
+		}
+		return &models.ApplyDevBuildResponse{
+			Body: struct {
+				Message string `json:"message" example:"Dev build applied, restarting..." doc:"Status message"`
+			}{
+				Message: "Dev build applied, restarting...",
+			},
+		}, nil
+	})
 }
 
 // registerDisabledUpdateRoutes registers endpoints that return 503 when update is disabled.
@@ -218,6 +241,17 @@ func (s *Server) registerDisabledUpdateRoutes(reason string) {
 		Path:        "/api/update/rollback",
 		Summary:     "Rollback Update",
 		Description: "Rollback update (disabled)",
+		Tags:        []string{"update"},
+		Errors:      []int{503},
+		Security:    withAuth(),
+	}, disabledHandler)
+
+	huma.Register(s.api, huma.Operation{
+		OperationID: "apply-dev-build",
+		Method:      http.MethodPost,
+		Path:        "/api/update/dev",
+		Summary:     "Apply Dev Build",
+		Description: "Apply dev build (disabled)",
 		Tags:        []string{"update"},
 		Errors:      []int{503},
 		Security:    withAuth(),
