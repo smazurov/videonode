@@ -46,7 +46,8 @@ func Initialize(config Config) {
 	}
 	globalLevelVar.Set(*globalLevel)
 
-	// Update all existing module loggers with new levels
+	// Update all existing module loggers: set levels and recreate handlers
+	// Handlers created before Initialize() lack buffer handler, so we must recreate them
 	for module, levelVar := range moduleLevelVars {
 		moduleLevel := *globalLevel
 		if levelStr, exists := config.Modules[module]; exists {
@@ -55,6 +56,10 @@ func Initialize(config Config) {
 			}
 		}
 		levelVar.Set(moduleLevel)
+
+		// Recreate handler with full handler chain (including buffer)
+		handler := createHandler(config.Format, levelVar)
+		moduleLoggers[module] = slog.New(handler).With("module", module)
 	}
 
 	// Create base handler for default logger
@@ -151,17 +156,6 @@ func createHandler(format string, level slog.Leveler) slog.Handler {
 	journalAvailable := IsJournalAvailable()
 	stdoutAvailable := isStdoutAvailable()
 
-	// Create buffer handler if buffer is initialized
-	var bufferHandler slog.Handler
-	if logBuffer != nil {
-		bufferHandler = NewBufferHandler(logBuffer, level, func(entry LogEntry) {
-			// Call the callback if set (for SSE publishing)
-			if logCallback != nil {
-				logCallback(entry)
-			}
-		})
-	}
-
 	// Build handler chain
 	var handlers []slog.Handler
 
@@ -173,9 +167,8 @@ func createHandler(format string, level slog.Leveler) slog.Handler {
 		handlers = append(handlers, NewJournalHandler(level))
 	}
 
-	if bufferHandler != nil {
-		handlers = append(handlers, bufferHandler)
-	}
+	// Always add buffer handler - it dynamically checks if buffer is available
+	handlers = append(handlers, NewBufferHandler(level))
 
 	// Return appropriate handler based on available outputs
 	switch len(handlers) {

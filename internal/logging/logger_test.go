@@ -196,17 +196,59 @@ func TestGetLoggerBeforeInitialize(t *testing.T) {
 		},
 	})
 
-	// Get logger AFTER Initialize - should be SAME logger (cached) with updated level
+	// Get logger AFTER Initialize - logger is recreated with proper handler chain
 	loggerAfter := GetLogger("webrtc")
+	handlerAfter := loggerAfter.Handler()
 
-	// With LevelVar fix, logger should be cached (same pointer) but level updated dynamically
-	if loggerBefore != loggerAfter {
-		t.Error("Logger should be cached - same pointer before and after Initialize")
+	// The new logger should have debug enabled
+	if !handlerAfter.Enabled(context.Background(), slog.LevelDebug) {
+		t.Error("Logger after Initialize should have debug enabled")
+	}
+}
+
+func TestGetLoggerBeforeInitialize_BufferHandler(t *testing.T) {
+	// Reset state completely
+	mutex.Lock()
+	moduleLoggers = make(map[string]*slog.Logger)
+	moduleLevelVars = make(map[string]*slog.LevelVar)
+	isInitialized = false
+	globalConfig = Config{}
+	logBuffer = nil
+	mutex.Unlock()
+
+	// Get logger BEFORE Initialize - no buffer exists yet
+	logger := GetLogger("v4l2")
+
+	// Now Initialize with debug level for v4l2
+	Initialize(Config{
+		Level:  "info",
+		Format: "text",
+		Modules: map[string]string{
+			"v4l2": "debug",
+		},
+	})
+
+	// Buffer should now exist
+	buf := GetBuffer()
+	if buf == nil {
+		t.Fatal("Buffer should exist after Initialize")
 	}
 
-	// The cached logger should now have debug enabled (LevelVar was updated)
-	if !handlerBefore.Enabled(context.Background(), slog.LevelDebug) {
-		t.Error("Cached logger should have debug enabled after Initialize updates LevelVar")
+	// Log a debug message using the logger created BEFORE Initialize
+	logger.Debug("test debug from v4l2")
+
+	// The log should appear in the buffer
+	entries := buf.ReadAll()
+	found := false
+	for _, entry := range entries {
+		if strings.Contains(entry.Message, "test debug from v4l2") {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("Debug log from logger created before Initialize() should appear in buffer (got %d entries)", len(entries))
 	}
 }
 
