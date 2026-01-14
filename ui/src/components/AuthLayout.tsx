@@ -61,7 +61,7 @@ export default function AuthLayout({
           <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
             {versionInfo && (
               <>
-                <span>API: {versionInfo.git_commit} • {versionInfo.build_date}</span>
+                <span>API: {versionInfo.version} • {versionInfo.build_date}</span>
                 <span className="mx-2">|</span>
               </>
             )}
