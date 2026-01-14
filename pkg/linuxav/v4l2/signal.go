@@ -168,43 +168,6 @@ func QueryDVTimings(devicePath string) (*v4l2DVTimings, error) {
 	return &timings, nil
 }
 
-// SetDVTimings configures the driver with the specified DV timings.
-// This uses VIDIOC_S_DV_TIMINGS to apply timings that were detected by QueryDVTimings.
-// After calling this, GetDVTimings will return the newly configured timings.
-func SetDVTimings(devicePath string, timings *v4l2DVTimings) error {
-	if timings == nil {
-		return errors.New("timings cannot be nil")
-	}
-
-	fd, err := syscall.Open(devicePath, syscall.O_RDWR|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		logger.Debug("SetDVTimings: failed to open device",
-			"device", devicePath,
-			"error", err)
-		return err
-	}
-	defer syscall.Close(fd)
-
-	bt := timings.bt()
-	logger.Debug("SetDVTimings: applying timings",
-		"device", devicePath,
-		"width", bt.width,
-		"height", bt.height,
-		"pixelclock", bt.pixelclock)
-
-	err = ioctl(fd, vidiocSDVTimings, unsafe.Pointer(timings))
-	if err != nil {
-		logger.Debug("SetDVTimings: ioctl failed",
-			"device", devicePath,
-			"error", err)
-		return err
-	}
-
-	logger.Debug("SetDVTimings: timings applied successfully",
-		"device", devicePath)
-	return nil
-}
-
 // WaitForSourceChange waits for a source change event with timeout.
 // Returns the change flags on success, 0 on timeout, or an error.
 func WaitForSourceChange(devicePath string, timeoutMs int) (int, error) {
