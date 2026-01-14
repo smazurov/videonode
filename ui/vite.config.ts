@@ -18,7 +18,7 @@ export default defineConfig(({ mode, command }) => {
       command: {
         commands: [
           'git rev-parse --short HEAD',
-          'date -u +"%Y-%m-%d %H:%M"'
+          'date -u +"%Y-%m-%dT%H:%M:%SZ"'
         ],
         separator: ' • '
       },
