@@ -28,6 +28,9 @@ type Service interface {
 	// ApplyUpdate downloads and applies an update, then triggers restart.
 	ApplyUpdate(ctx context.Context) error
 
+	// ApplyDevBuild downloads and applies the latest dev build from the rolling "dev" release.
+	ApplyDevBuild(ctx context.Context) error
+
 	// Rollback reverts to the previous version.
 	Rollback(ctx context.Context) error
 

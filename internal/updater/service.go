@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"syscall"
@@ -17,9 +18,10 @@ import (
 )
 
 type service struct {
-	repository    selfupdate.Repository
-	updater       *selfupdate.Updater
-	backupManager *backupManager
+	repository     selfupdate.Repository
+	repositorySlug string // e.g., "smazurov/videonode"
+	updater        *selfupdate.Updater
+	backupManager  *backupManager
 
 	// State management
 	mu            sync.RWMutex
@@ -80,12 +82,13 @@ func NewService(opts *Options) (Service, error) {
 	}
 
 	svc := &service{
-		repository:    repo,
-		updater:       updater,
-		backupManager: backupMgr,
-		state:         StateIdle,
-		enabled:       true,
-		logger:        logger,
+		repository:     repo,
+		repositorySlug: opts.Repository,
+		updater:        updater,
+		backupManager:  backupMgr,
+		state:          StateIdle,
+		enabled:        true,
+		logger:         logger,
 	}
 
 	return svc, nil
@@ -381,5 +384,60 @@ func (s *service) Restart(_ context.Context) error {
 		time.Sleep(500 * time.Millisecond)
 		s.triggerRestart()
 	}()
+	return nil
+}
+
+// ApplyDevBuild downloads and applies the latest dev build from the rolling "dev" release.
+func (s *service) ApplyDevBuild(ctx context.Context) error {
+	if !s.enabled {
+		return newError(ErrCodeDisabled, s.disabledReason, nil)
+	}
+
+	if !s.transitionTo(StateDownloading, StateIdle, StateAvailable, StateError) {
+		return newError(ErrCodeInvalidState,
+			fmt.Sprintf("cannot apply dev build in state %s", s.getState()), nil)
+	}
+
+	// Create backup before applying
+	if s.backupManager != nil {
+		if err := s.backupManager.createBackup(); err != nil {
+			s.setError(err)
+			return newError(ErrCodeBackupFailed, "failed to create backup", err)
+		}
+	}
+
+	s.transitionTo(StateApplying)
+
+	// Get executable path
+	exe, err := selfupdate.ExecutablePath()
+	if err != nil {
+		s.setError(err)
+		s.attemptRollback()
+		return newError(ErrCodeApplyFailed, "failed to get executable path", err)
+	}
+
+	// Construct URL for current architecture
+	arch := runtime.GOARCH
+	assetName := fmt.Sprintf("videonode_linux_%s.tar.gz", arch)
+	url := fmt.Sprintf("https://github.com/%s/releases/download/dev/%s",
+		s.repositorySlug, assetName)
+
+	s.logger.Info("Downloading dev build", "url", url)
+
+	// Download and apply using go-selfupdate
+	if err := selfupdate.UpdateTo(ctx, url, assetName, exe); err != nil {
+		s.setError(err)
+		s.attemptRollback()
+		return newError(ErrCodeApplyFailed, "failed to apply dev build", err)
+	}
+
+	s.transitionTo(StateRestarting)
+	s.logger.Info("Dev build applied, triggering restart")
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		s.triggerRestart()
+	}()
+
 	return nil
 }
