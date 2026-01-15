@@ -2,6 +2,8 @@ package devices
 
 import (
 	"context"
+
+	"github.com/smazurov/videonode/internal/events"
 )
 
 // DeviceType represents the type of V4L2 device.
@@ -70,6 +72,10 @@ type DeviceDetector interface {
 
 	// StopMonitoring stops the device monitoring
 	StopMonitoring()
+
+	// SetEventBus sets the event bus for stream crash notifications.
+	// Must be called before StartMonitoring.
+	SetEventBus(bus *events.Bus)
 }
 
 // NewDetector creates a platform-specific device detector.
