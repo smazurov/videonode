@@ -1,5 +1,3 @@
-"use no memo";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useReactTable,
@@ -11,18 +9,48 @@ import {
 } from '@tanstack/react-table';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { Header } from '../components/Header';
-import { API_BASE_URL } from '../lib/api';
+import { useSSE } from '../hooks/useSSE';
 import { LogRow, type LogEntry } from '../components/logs/LogRow';
 import {
   LogFilters,
   type AttributeFilter,
   ALL_LEVELS,
 } from '../components/logs/LogFilters';
+import type { SSEStatus } from '../lib/api_sse';
 
 const MAX_LOGS = 10_000;
+const LOG_SETTINGS_KEY = 'logSettings';
+
+interface LogSettings {
+  selectedLevels: string[];
+  selectedModules: string[];
+  attributeFilters: AttributeFilter[];
+  inlineAttributes: string[];
+  globalFilter: string;
+  autoScroll: boolean;
+}
+
+const DEFAULT_LOG_SETTINGS: LogSettings = {
+  selectedLevels: ALL_LEVELS,
+  selectedModules: [],
+  attributeFilters: [],
+  inlineAttributes: [],
+  globalFilter: '',
+  autoScroll: true,
+};
+
+function loadLogSettings(): LogSettings {
+  try {
+    const stored = localStorage.getItem(LOG_SETTINGS_KEY);
+    if (!stored) return DEFAULT_LOG_SETTINGS;
+    const parsed = JSON.parse(stored) as Partial<LogSettings>;
+    return { ...DEFAULT_LOG_SETTINGS, ...parsed };
+  } catch {
+    return DEFAULT_LOG_SETTINGS;
+  }
+}
 
 interface LogEventData {
-  seq?: number;
   timestamp: string;
   level: string;
   module: string;
@@ -58,23 +86,127 @@ const moduleFilter: FilterFn<LogEntry> = (row, _columnId, filterValue: string[])
 
 const columnHelper = createColumnHelper<LogEntry>();
 
+// Map SSE status to simpler connection status for UI
+function mapConnectionStatus(status: SSEStatus): 'connecting' | 'connected' | 'disconnected' {
+  switch (status) {
+    case 'connected': return 'connected';
+    case 'connecting': return 'connecting';
+    default: return 'disconnected';
+  }
+}
+
 export default function Logs() {
   const { logout } = useAuthStore();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const lastSeenSeqRef = useRef<number>(0);
+  const newestTimestampRef = useRef<string>('');
 
   // Core state
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
-  const [autoScroll, setAutoScroll] = useState(true);
 
-  // Filter state
+  // Buffering refs for batching log updates
+  const bufferRef = useRef<LogEntry[]>([]);
+  const flushTimeoutRef = useRef<number | null>(null);
+  const idCounterRef = useRef(0);
+
+  // Filter state (initialized from localStorage)
+  const [settings] = useState(loadLogSettings);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [globalFilter, setGlobalFilter] = useState('');
-  const [selectedLevels, setSelectedLevels] = useState<string[]>(ALL_LEVELS);
-  const [selectedModules, setSelectedModules] = useState<string[]>([]);
-  const [attributeFilters, setAttributeFilters] = useState<AttributeFilter[]>([]);
-  const [inlineAttributes, setInlineAttributes] = useState<string[]>([]);
+  const [globalFilter, setGlobalFilter] = useState(settings.globalFilter);
+  const [selectedLevels, setSelectedLevels] = useState<string[]>(settings.selectedLevels);
+  const [selectedModules, setSelectedModules] = useState<string[]>(settings.selectedModules);
+  const [attributeFilters, setAttributeFilters] = useState<AttributeFilter[]>(settings.attributeFilters);
+  const [inlineAttributes, setInlineAttributes] = useState<string[]>(settings.inlineAttributes);
+  const [autoScroll, setAutoScroll] = useState(settings.autoScroll);
+
+  // Flush buffer to state
+  const flushBuffer = useCallback(() => {
+    const buffer = bufferRef.current;
+    // Filter out duplicates: keep logs newer than last seen
+    const toFlush = buffer.filter(log =>
+      !newestTimestampRef.current || log.timestamp > newestTimestampRef.current
+    );
+    bufferRef.current = [];
+    flushTimeoutRef.current = null;
+
+    if (toFlush.length > 0) {
+      const timestamps = toFlush.map(log => log.timestamp).filter(t => t);
+      if (timestamps.length > 0) {
+        newestTimestampRef.current = timestamps.reduce((a, b) => a > b ? a : b, '');
+      }
+      setLogs(prev => [...prev, ...toFlush].slice(-MAX_LOGS));
+    }
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (!flushTimeoutRef.current) {
+      flushTimeoutRef.current = window.setTimeout(flushBuffer, 50);
+    }
+  }, [flushBuffer]);
+
+  // SSE connection using the abstracted hook
+  const { status } = useSSE({
+    endpoint: '/api/logs/stream',
+    onConnect: () => {
+      // Inject synthetic log entry to mark connection
+      bufferRef.current.push({
+        id: String(++idCounterRef.current),
+        timestamp: new Date().toISOString(),
+        level: 'INFO',
+        module: 'system',
+        message: 'Log stream connected',
+        attributes: {},
+      });
+      scheduleFlush();
+    },
+    onMessage: (event) => {
+      try {
+        const data: unknown = JSON.parse(String(event.data));
+        if (!isLogEventData(data)) {
+          console.error('Invalid log data format:', event.data);
+          return;
+        }
+        bufferRef.current.push({
+          id: String(++idCounterRef.current),
+          timestamp: data.timestamp,
+          level: data.level,
+          module: data.module,
+          message: data.message,
+          attributes: data.attributes ?? {},
+        });
+        scheduleFlush();
+      } catch (error) {
+        console.error('Log parse error:', error, event.data);
+      }
+    },
+  });
+
+  const connectionStatus = mapConnectionStatus(status);
+
+  // Clean up flush timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (flushTimeoutRef.current) {
+        window.clearTimeout(flushTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Persist filter settings to localStorage
+  useEffect(() => {
+    const toSave: LogSettings = {
+      selectedLevels,
+      selectedModules,
+      attributeFilters,
+      inlineAttributes,
+      globalFilter,
+      autoScroll,
+    };
+    try {
+      localStorage.setItem(LOG_SETTINGS_KEY, JSON.stringify(toSave));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [selectedLevels, selectedModules, attributeFilters, inlineAttributes, globalFilter, autoScroll]);
 
   // Derived data
   const availableModules = useMemo(() =>
@@ -137,8 +269,7 @@ export default function Logs() {
     return false;
   }, []);
 
-  // Table instance - incompatible-library warning suppressed: "use no memo" directive handles this
-  // eslint-disable-next-line react-hooks/incompatible-library
+  // eslint-disable-next-line react-hooks/incompatible-library -- React Compiler auto-skips this component
   const table = useReactTable({
     data: filteredByAttributes,
     columns,
@@ -151,6 +282,12 @@ export default function Logs() {
   });
 
   const { rows } = table.getRowModel();
+
+  const hasActiveFilters = selectedLevels.length !== ALL_LEVELS.length
+    || selectedModules.length > 0
+    || attributeFilters.length > 0
+    || inlineAttributes.length > 0
+    || globalFilter !== '';
 
   // Sync level/module filters to table
   useEffect(() => {
@@ -166,102 +303,6 @@ export default function Logs() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [rows.length, autoScroll]);
-
-  // SSE connection
-  useEffect(() => {
-    const credentials = localStorage.getItem('auth_credentials') || '';
-    const sseUrl = `${API_BASE_URL}/api/logs/stream?auth=${encodeURIComponent(credentials)}`;
-
-    let eventSource: EventSource | null = null;
-    let buffer: LogEntry[] = [];
-    let flushTimeout: number | null = null;
-    let reconnectTimeout: number | null = null;
-    let reconnectDelay = 5000;
-
-    const flushBuffer = () => {
-      // Filter out duplicates: keep logs with seq=0 (synthetic/legacy) or seq > lastSeen
-      const toFlush = buffer.filter(log => log.seq === 0 || log.seq > lastSeenSeqRef.current);
-      buffer = [];
-      flushTimeout = null;
-      if (toFlush.length > 0) {
-        const seqs = toFlush.map(log => log.seq).filter(s => s > 0);
-        if (seqs.length > 0) {
-          lastSeenSeqRef.current = Math.max(...seqs);
-        }
-        setLogs(prev => [...prev, ...toFlush].slice(-MAX_LOGS));
-      }
-    };
-
-    const scheduleReconnect = () => {
-      reconnectTimeout = window.setTimeout(() => {
-        connect();
-        reconnectDelay = Math.min(reconnectDelay * 2, 60000);
-      }, reconnectDelay);
-    };
-
-    const connect = () => {
-      setConnectionStatus('connecting');
-      eventSource = new EventSource(sseUrl);
-      eventSource.onopen = () => {
-        setConnectionStatus('connected');
-        reconnectDelay = 5000;
-        // Inject synthetic log entry to mark connection/reconnection
-        buffer.push({
-          id: `connect-${Date.now()}`,
-          seq: 0,
-          timestamp: new Date().toISOString(),
-          level: 'INFO',
-          module: 'system',
-          message: 'Log stream connected',
-          attributes: {},
-        });
-        if (!flushTimeout) {
-          flushTimeout = window.setTimeout(flushBuffer, 50);
-        }
-      };
-
-      eventSource.onmessage = (event: MessageEvent) => {
-        try {
-          const data: unknown = JSON.parse(String(event.data));
-          if (!isLogEventData(data)) {
-            console.error('Invalid log data format:', event.data);
-            return;
-          }
-          const seq = data.seq ?? 0;
-          buffer.push({
-            id: String(seq),
-            seq,
-            timestamp: data.timestamp,
-            level: data.level,
-            module: data.module,
-            message: data.message,
-            attributes: data.attributes ?? {},
-          });
-
-          if (!flushTimeout) {
-            flushTimeout = window.setTimeout(flushBuffer, 50);
-          }
-        } catch (error) {
-          console.error('Log parse error:', error, event.data);
-        }
-      };
-
-      eventSource.onerror = () => {
-        setConnectionStatus('disconnected');
-        eventSource?.close();
-        eventSource = null;
-        scheduleReconnect();
-      };
-    };
-
-    connect();
-
-    return () => {
-      if (flushTimeout) window.clearTimeout(flushTimeout);
-      if (reconnectTimeout) window.clearTimeout(reconnectTimeout);
-      eventSource?.close();
-    };
-  }, []);
 
   // Handlers
   const addAttributeFilter = () => {
@@ -318,8 +359,17 @@ export default function Logs() {
       </div>
 
       {/* Log count */}
-      <div className="px-2 py-0.5 text-xs text-gray-500 bg-gray-900 border-b border-gray-800 shrink-0">
+      <div className="px-2 py-0.5 text-xs text-gray-500 bg-gray-900 border-b border-gray-800 shrink-0 flex items-center gap-1">
         {rows.length.toLocaleString()} / {logs.length.toLocaleString()} logs
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="text-gray-500 hover:text-gray-300 cursor-pointer"
+            title="Reset all filters"
+          >
+            [x]
+          </button>
+        )}
       </div>
 
       {/* Log viewer - CSS content-visibility for native virtualization */}
