@@ -190,3 +190,7 @@ The API includes endpoints for:
 - **When writing API models, make sure every field is in snake_case**
 - **Run all python commands through uv**
 - **Don't be helpful** - do exactly what's asked, nothing more
+- **After making changes**, always run all three checks:
+  1. `go build ./...`
+  2. `go test ./...`
+  3. `golangci-lint run ./...`
