@@ -139,13 +139,13 @@ func (p *pool) runProcess(ctx context.Context, mp *managedProcess) {
 	oldState = mp.state
 	switch {
 	case ctx.Err() != nil:
+		// Expected exit - we stopped it via Stop()
 		mp.state = StateIdle
-	case exitCode != 0:
+	default:
+		// Process exited on its own - always unexpected
 		mp.state = StateError
 		mp.lastError = fmt.Errorf("process exited with code %d", exitCode)
-		p.logger.Error("Process crashed", "id", mp.id, "exit_code", exitCode)
-	default:
-		mp.state = StateIdle
+		p.logger.Error("Process exited unexpectedly", "id", mp.id, "exit_code", exitCode)
 	}
 	newState := mp.state
 	lastErr := mp.lastError
