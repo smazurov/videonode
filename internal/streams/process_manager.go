@@ -122,15 +122,15 @@ func (m *streamProcessManager) onStateChange(id string, _, newState process.Stat
 		})
 	}
 
-	// Handle crash: mark as crashed and restart with crash pattern
+	// Handle unexpected exit (process exited without Stop() being called)
 	if newState == process.StateError {
 		m.mu.Lock()
 		m.crashedStreams[id] = true
 		m.mu.Unlock()
 
-		m.logger.Warn("Stream crashed, restarting with crash pattern", "stream_id", id)
+		m.logger.Warn("Stream exited unexpectedly, restarting", "stream_id", id)
 
-		// Publish crash event for device detector to check HDMI signal
+		// Publish event for device detector to check HDMI signal
 		if m.eventBus != nil {
 			if streamConfig, exists := m.store.GetStream(id); exists && streamConfig.Device != "" {
 				m.eventBus.Publish(events.StreamCrashedEvent{
@@ -144,7 +144,7 @@ func (m *streamProcessManager) onStateChange(id string, _, newState process.Stat
 		// Restart asynchronously (callback shouldn't block)
 		go func() {
 			if err := m.pool.Restart(id); err != nil {
-				m.logger.Error("Failed to restart crashed stream", "stream_id", id, "error", err)
+				m.logger.Error("Failed to restart stream", "stream_id", id, "error", err)
 			}
 		}()
 	}
