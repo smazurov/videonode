@@ -2,7 +2,6 @@ import { useState } from 'react';
 
 export interface LogEntry {
   id: string;
-  seq: number;
   timestamp: string;
   level: string;
   module: string;

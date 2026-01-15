@@ -118,7 +118,6 @@ func (e StreamMetricsEvent) Type() uint32 { return TypeStreamMetrics }
 
 // LogEntryEvent represents a log entry for SSE streaming.
 type LogEntryEvent struct {
-	Seq        uint64         `json:"seq" example:"42" doc:"Monotonic sequence number for deduplication"`
 	Timestamp  string         `json:"timestamp" example:"2025-01-09T10:30:00.123Z" doc:"Log timestamp"`
 	Level      string         `json:"level" example:"info" doc:"Log level"`
 	Module     string         `json:"module" example:"api" doc:"Source module"`
