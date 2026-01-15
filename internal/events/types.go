@@ -13,6 +13,7 @@ const (
 	TypeStreamStateChanged
 	TypeStreamMetrics
 	TypeLogEntry
+	TypeStreamCrashed
 )
 
 // Event interface required by kelindar/event.
@@ -127,3 +128,14 @@ type LogEntryEvent struct {
 
 // Type returns the event type identifier for LogEntryEvent.
 func (e LogEntryEvent) Type() uint32 { return TypeLogEntry }
+
+// StreamCrashedEvent is published when an FFmpeg stream crashes.
+// Used by device detector to check HDMI signal state.
+type StreamCrashedEvent struct {
+	StreamID  string `json:"stream_id"`
+	DeviceID  string `json:"device_id"`
+	Timestamp string `json:"timestamp"`
+}
+
+// Type returns the event type identifier for StreamCrashedEvent.
+func (e StreamCrashedEvent) Type() uint32 { return TypeStreamCrashed }

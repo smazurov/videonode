@@ -130,6 +130,17 @@ func (m *streamProcessManager) onStateChange(id string, _, newState process.Stat
 
 		m.logger.Warn("Stream crashed, restarting with crash pattern", "stream_id", id)
 
+		// Publish crash event for device detector to check HDMI signal
+		if m.eventBus != nil {
+			if streamConfig, exists := m.store.GetStream(id); exists && streamConfig.Device != "" {
+				m.eventBus.Publish(events.StreamCrashedEvent{
+					StreamID:  id,
+					DeviceID:  streamConfig.Device,
+					Timestamp: time.Now().Format(time.RFC3339),
+				})
+			}
+		}
+
 		// Restart asynchronously (callback shouldn't block)
 		go func() {
 			if err := m.pool.Restart(id); err != nil {

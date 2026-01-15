@@ -247,6 +247,7 @@ func (s *Server) Start(addr string) error {
 	// Start device monitoring with composite broadcaster
 	// This broadcasts device events to both SSE clients (via Server) and stream management (via StreamService)
 	s.deviceDetector = devices.NewDetector()
+	s.deviceDetector.SetEventBus(s.eventBus)
 	compositeBroadcaster := &CompositeBroadcaster{
 		broadcasters: []devices.EventBroadcaster{s, s.streamService},
 	}

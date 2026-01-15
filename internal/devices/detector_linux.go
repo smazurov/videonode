@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/pkg/linuxav/hotplug"
 	"github.com/smazurov/videonode/pkg/linuxav/v4l2"
@@ -22,6 +23,7 @@ type linuxDetector struct {
 	lastDevices map[string]DeviceInfo // key is DeviceID
 	mu          sync.Mutex
 	logger      *slog.Logger
+	eventBus    *events.Bus
 }
 
 func newDetector() DeviceDetector {
@@ -254,96 +256,58 @@ func (d *linuxDetector) StopMonitoring() {
 	}
 }
 
-// monitorDeviceSignals monitors HDMI devices using events and periodic checks.
+// SetEventBus sets the event bus for stream crash notifications.
+func (d *linuxDetector) SetEventBus(bus *events.Bus) {
+	d.eventBus = bus
+	if bus != nil {
+		bus.Subscribe(d.handleStreamCrashed)
+	}
+}
+
+// handleStreamCrashed handles stream crash events to detect HDMI signal loss.
+func (d *linuxDetector) handleStreamCrashed(e events.StreamCrashedEvent) {
+	d.mu.Lock()
+	device, exists := d.lastDevices[e.DeviceID]
+	d.mu.Unlock()
+
+	if !exists || device.Type != DeviceTypeHDMI {
+		return
+	}
+
+	d.logger.Debug("Stream crash, checking HDMI signal", "device_id", e.DeviceID)
+
+	status := v4l2.GetDVTimings(device.DevicePath)
+	newReady := (status.State == v4l2.SignalStateLocked)
+
+	d.mu.Lock()
+	device, exists = d.lastDevices[e.DeviceID]
+	if !exists {
+		d.mu.Unlock()
+		return
+	}
+
+	if device.Ready && !newReady {
+		reason := signalStateString(status.State)
+		d.logger.Warn("HDMI signal lost (detected via crash)",
+			"device_id", e.DeviceID,
+			"device_name", device.DeviceName,
+			"reason", reason)
+		device.Ready = false
+		d.lastDevices[e.DeviceID] = device
+		d.broadcaster.BroadcastDeviceDiscovery("status_changed", device, time.Now().Format(time.RFC3339))
+		d.mu.Unlock()
+		go d.monitorDeviceEvents(e.DeviceID, device.DevicePath)
+	} else {
+		d.mu.Unlock()
+	}
+}
+
+// monitorDeviceSignals monitors HDMI devices using event-based monitoring.
 func (d *linuxDetector) monitorDeviceSignals() {
 	d.logger.Info("Signal monitoring started for HDMI devices")
 
-	// Start periodic check for signal loss detection (30 seconds)
-	go d.periodicSignalCheck()
-
 	// Start event-based monitoring for HDMI devices without signal
 	d.startEventMonitors()
-}
-
-// periodicSignalCheck checks HDMI devices that have signal for signal loss.
-func (d *linuxDetector) periodicSignalCheck() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-d.ctx.Done():
-			d.logger.Debug("Periodic signal check stopped")
-			return
-		case <-ticker.C:
-			d.checkHDMISignals()
-		}
-	}
-}
-
-// checkHDMISignals checks only HDMI devices for signal status.
-func (d *linuxDetector) checkHDMISignals() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	for deviceID, device := range d.lastDevices {
-		// Skip non-HDMI devices (use cached type)
-		if device.Type != DeviceTypeHDMI {
-			continue
-		}
-
-		// Skip devices without signal - they're handled by event monitors
-		if !device.Ready {
-			continue
-		}
-
-		// Get current signal status using non-querying method (only for devices with signal)
-		status := v4l2.GetDVTimings(device.DevicePath)
-		newReady := (status.State == v4l2.SignalStateLocked)
-
-		// Log periodic check at debug level
-		if d.logger.Enabled(d.ctx, slog.LevelDebug) {
-			if newReady {
-				d.logger.Debug("HDMI device signal check",
-					"device_id", deviceID,
-					"path", device.DevicePath,
-					"state", "locked",
-					"resolution", fmt.Sprintf("%dx%d", status.Width, status.Height),
-					"fps", fmt.Sprintf("%.2f", status.FPS))
-			} else {
-				d.logger.Debug("HDMI device signal check",
-					"device_id", deviceID,
-					"path", device.DevicePath,
-					"state", signalStateString(status.State))
-			}
-		}
-
-		// Check if status changed
-		if device.Ready != newReady {
-			if newReady {
-				// Signal acquired
-				d.logger.Info("HDMI device signal acquired",
-					"device_id", deviceID,
-					"device_name", device.DeviceName,
-					"resolution", fmt.Sprintf("%dx%d", status.Width, status.Height),
-					"fps", fmt.Sprintf("%.2f", status.FPS))
-			} else {
-				// Signal lost
-				reason := signalStateString(status.State)
-				d.logger.Warn("HDMI device signal lost",
-					"device_id", deviceID,
-					"device_name", device.DeviceName,
-					"reason", reason)
-
-				// Start event monitor for this device
-				go d.monitorDeviceEvents(deviceID, device.DevicePath)
-			}
-
-			device.Ready = newReady
-			d.lastDevices[deviceID] = device
-			d.broadcaster.BroadcastDeviceDiscovery("status_changed", device, time.Now().Format(time.RFC3339))
-		}
-	}
 }
 
 // startEventMonitors starts event monitoring for HDMI devices without signal.
