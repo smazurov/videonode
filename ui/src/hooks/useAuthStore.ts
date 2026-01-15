@@ -17,6 +17,12 @@ interface AuthState {
   clearAuth: () => void;
 }
 
+// Standalone function to clear auth state - can be called outside React components
+export function clearAuthState(): void {
+  localStorage.removeItem('auth_credentials');
+  useAuthStore.getState().setUser(null);
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({

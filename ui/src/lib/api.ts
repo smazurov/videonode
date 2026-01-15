@@ -1,3 +1,6 @@
+import { toast } from 'react-hot-toast';
+import { clearAuthState } from '../hooks/useAuthStore';
+
 export const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8090`;
 
 // Helper function to build full URLs from backend's :port/path format
@@ -49,9 +52,10 @@ export async function makeApiRequest(
   });
   
   if (!response.ok) {
-    // Clear invalid credentials on 401
+    // Clear auth state and redirect to login on 401
     if (response.status === 401) {
-      localStorage.removeItem('auth_credentials');
+      toast.error('Session expired. Please log in again.');
+      clearAuthState();
     }
     throw new ApiError(response.status, `API request failed: ${response.statusText}`);
   }
@@ -96,15 +100,16 @@ export async function apiDelete(endpoint: string): Promise<void> {
 
 export async function testAuth(username: string, password: string): Promise<boolean> {
   const credentials = btoa(`${username}:${password}`);
-  
+
   try {
-    const response = await fetch(`${API_BASE_URL}/api/health`, {
+    // Use /api/streams which requires auth, unlike /api/health which is public
+    const response = await fetch(`${API_BASE_URL}/api/streams`, {
       headers: {
         'Authorization': `Basic ${credentials}`,
         'Content-Type': 'application/json',
       },
     });
-    
+
     return response.ok;
   } catch (error) {
     console.error("Auth test failed:", error);
@@ -448,7 +453,8 @@ export async function webrtcSignaling(streamId: string, offer: string, signal?: 
 
   if (!response.ok) {
     if (response.status === 401) {
-      localStorage.removeItem('auth_credentials');
+      toast.error('Session expired. Please log in again.');
+      clearAuthState();
     }
     throw new ApiError(response.status, `WebRTC signaling failed: ${response.statusText}`);
   }
