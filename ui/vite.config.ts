@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { vitePluginVersionMark } from "vite-plugin-version-mark";
 
-export default defineConfig(({ mode, command }) => {
+export default defineConfig(() => {
   const plugins = [
     tailwindcss(),
     tsconfigPaths(),
