@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import {
-  API_BASE_URL,
   SSEStreamLifecycleEvent,
   SSEStreamMetricsEvent,
   SSEStreamCreatedEvent,
@@ -8,6 +7,7 @@ import {
   SSEStreamDeletedEvent,
   StreamData,
 } from '../lib/api';
+import { SSEClient, SSEStatus } from '../lib/api_sse';
 
 type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
 
@@ -16,10 +16,6 @@ interface SSEManagerOptions {
   onStreamMetricsEvent?: (event: SSEStreamMetricsEvent) => void;
   onConnectionStatusChange?: (status: ConnectionStatus) => void;
 }
-
-// Constants to avoid duplication
-const INITIAL_RECONNECT_DELAY = 5000;
-const MAX_RECONNECT_DELAY = 60000;
 
 // Types for SSE event data parsing
 interface StreamCreatedData {
@@ -47,150 +43,95 @@ interface StreamMetricsData {
   duplicate_frames?: string;
 }
 
-// Global SSE manager state
-let globalEventSource: EventSource | null = null;
-let globalReconnectTimeout: number | null = null;
-let globalReconnectDelay = INITIAL_RECONNECT_DELAY;
+// Global SSE client instance
+let globalClient: SSEClient | null = null;
 
 // Global handlers for different event types
 const globalConnectionHandlers = new Set<(status: ConnectionStatus) => void>();
 const globalStreamLifecycleHandlers = new Set<(event: SSEStreamLifecycleEvent) => void>();
 const globalStreamMetricsHandlers = new Set<(event: SSEStreamMetricsEvent) => void>();
 
+function mapStatus(status: SSEStatus): ConnectionStatus {
+  switch (status) {
+    case 'connected': return 'online';
+    case 'reconnecting': return 'reconnecting';
+    default: return 'offline';
+  }
+}
+
 function setupGlobalSSE(): void {
-  if (globalEventSource) return; // Already connected
+  if (globalClient) return;
 
-  const credentials = localStorage.getItem('auth_credentials');
-  if (!credentials) return;
-
-  try {
-    const sseUrl = `${API_BASE_URL}/api/events?auth=${encodeURIComponent(credentials)}`;
-    const eventSource = new EventSource(sseUrl, {
-      withCredentials: false,
-    });
-
-    // Connection opened successfully
-    eventSource.onopen = () => {
+  globalClient = new SSEClient({
+    endpoint: '/api/events',
+    onStatusChange: (status) => {
+      const mapped = mapStatus(status);
+      for (const handler of globalConnectionHandlers) {
+        handler(mapped);
+      }
+    },
+    onConnect: () => {
       console.log('SSE connection established');
-      globalReconnectDelay = INITIAL_RECONNECT_DELAY; // Reset reconnect delay on successful connection
-      for (const handler of globalConnectionHandlers) {
-        handler('online');
-      }
+    },
+  });
+
+  // Register typed event handlers
+  globalClient.on<StreamCreatedData>('stream-created', (data) => {
+    const event: SSEStreamCreatedEvent = {
+      type: 'stream-created',
+      stream: data.stream,
+      action: data.action,
+      timestamp: data.timestamp,
     };
+    for (const handler of globalStreamLifecycleHandlers) {
+      handler(event);
+    }
+  });
 
-    // Handle stream lifecycle events
-    eventSource.addEventListener('stream-created', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(String(event.data)) as StreamCreatedData;
-        const streamEvent: SSEStreamCreatedEvent = {
-          type: 'stream-created',
-          stream: data.stream,
-          action: data.action,
-          timestamp: data.timestamp,
-        };
-        for (const handler of globalStreamLifecycleHandlers) {
-          handler(streamEvent);
-        }
-      } catch (error) {
-        console.error('Error parsing stream-created event:', error);
-      }
-    });
-
-    eventSource.addEventListener('stream-deleted', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(String(event.data)) as StreamDeletedData;
-        const streamEvent: SSEStreamDeletedEvent = {
-          type: 'stream-deleted',
-          stream_id: data.stream_id,
-          action: data.action,
-          timestamp: data.timestamp,
-        };
-        for (const handler of globalStreamLifecycleHandlers) {
-          handler(streamEvent);
-        }
-      } catch (error) {
-        console.error('Error parsing stream-deleted event:', error);
-      }
-    });
-
-    eventSource.addEventListener('stream-updated', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(String(event.data)) as StreamUpdatedData;
-        const streamEvent: SSEStreamUpdatedEvent = {
-          type: 'stream-updated',
-          stream: data.stream,
-          action: data.action,
-          timestamp: data.timestamp,
-        };
-        for (const handler of globalStreamLifecycleHandlers) {
-          handler(streamEvent);
-        }
-      } catch (error) {
-        console.error('Error parsing stream-updated event:', error);
-      }
-    });
-
-    // Handle stream metrics events
-    eventSource.addEventListener('stream-metrics', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(String(event.data)) as StreamMetricsData;
-        const metricsEvent: SSEStreamMetricsEvent = {
-          type: 'stream-metrics',
-          stream_id: data.stream_id,
-          ...(data.fps !== undefined && { fps: data.fps }),
-          ...(data.dropped_frames !== undefined && { dropped_frames: data.dropped_frames }),
-          ...(data.duplicate_frames !== undefined && { duplicate_frames: data.duplicate_frames }),
-        };
-        for (const handler of globalStreamMetricsHandlers) {
-          handler(metricsEvent);
-        }
-      } catch (error) {
-        console.error('Error parsing stream-metrics event:', error);
-      }
-    });
-
-
-
-    eventSource.onerror = () => {
-      console.error('SSE connection error');
-      for (const handler of globalConnectionHandlers) {
-        handler('reconnecting');
-      }
-      eventSource.close();
-      globalEventSource = null;
-      
-      // Clear any existing reconnect timeout
-      if (globalReconnectTimeout) {
-        window.clearTimeout(globalReconnectTimeout);
-      }
-      
-      // Exponential backoff with max delay
-      const currentDelay = globalReconnectDelay;
-      console.log(`Reconnecting in ${currentDelay / 1000} seconds...`);
-      
-      globalReconnectTimeout = window.setTimeout(() => {
-        setupGlobalSSE();
-        // Double the delay for next attempt, max 60 seconds
-        globalReconnectDelay = Math.min(currentDelay * 2, MAX_RECONNECT_DELAY);
-      }, currentDelay);
+  globalClient.on<StreamDeletedData>('stream-deleted', (data) => {
+    const event: SSEStreamDeletedEvent = {
+      type: 'stream-deleted',
+      stream_id: data.stream_id,
+      action: data.action,
+      timestamp: data.timestamp,
     };
+    for (const handler of globalStreamLifecycleHandlers) {
+      handler(event);
+    }
+  });
 
-    globalEventSource = eventSource;
-    } catch (error) {
-      console.error('Failed to setup SSE:', error);
-      for (const handler of globalConnectionHandlers) {
-        handler('offline');
-      }
-    }}
+  globalClient.on<StreamUpdatedData>('stream-updated', (data) => {
+    const event: SSEStreamUpdatedEvent = {
+      type: 'stream-updated',
+      stream: data.stream,
+      action: data.action,
+      timestamp: data.timestamp,
+    };
+    for (const handler of globalStreamLifecycleHandlers) {
+      handler(event);
+    }
+  });
+
+  globalClient.on<StreamMetricsData>('stream-metrics', (data) => {
+    const event: SSEStreamMetricsEvent = {
+      type: 'stream-metrics',
+      stream_id: data.stream_id,
+      ...(data.fps !== undefined && { fps: data.fps }),
+      ...(data.dropped_frames !== undefined && { dropped_frames: data.dropped_frames }),
+      ...(data.duplicate_frames !== undefined && { duplicate_frames: data.duplicate_frames }),
+    };
+    for (const handler of globalStreamMetricsHandlers) {
+      handler(event);
+    }
+  });
+
+  globalClient.connect();
+}
 
 function disconnectGlobalSSE(): void {
-  if (globalReconnectTimeout) {
-    window.clearTimeout(globalReconnectTimeout);
-    globalReconnectTimeout = null;
-  }
-  if (globalEventSource) {
-    globalEventSource.close();
-    globalEventSource = null;
+  if (globalClient) {
+    globalClient.disconnect();
+    globalClient = null;
   }
 }
 
