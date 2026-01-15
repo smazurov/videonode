@@ -7,7 +7,6 @@ import (
 
 // LogEntry represents a single log line stored in the ring buffer.
 type LogEntry struct {
-	Seq        uint64         `json:"seq"`
 	Timestamp  time.Time      `json:"timestamp"`
 	Level      string         `json:"level"`
 	Module     string         `json:"module"`
@@ -21,7 +20,6 @@ type RingBuffer struct {
 	size    int
 	head    int
 	count   int
-	seq     uint64 // monotonic counter, never resets
 	mu      sync.RWMutex
 }
 
@@ -38,8 +36,6 @@ func (rb *RingBuffer) Write(entry LogEntry) {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
-	rb.seq++
-	entry.Seq = rb.seq
 	rb.entries[rb.head] = entry
 	rb.head = (rb.head + 1) % rb.size
 

@@ -34,7 +34,6 @@ func (s *Server) registerLogRoutes() {
 			entries := buffer.ReadAll()
 			for _, entry := range entries {
 				event := events.LogEntryEvent{
-					Seq:        entry.Seq,
 					Timestamp:  entry.Timestamp.Format(time.RFC3339Nano),
 					Level:      entry.Level,
 					Module:     entry.Module,
