@@ -1,14 +1,14 @@
 package led
 
-import "log/slog"
+import "github.com/smazurov/videonode/internal/logging"
 
 // noop implements Controller as a no-op for systems without LED support.
 type noop struct {
-	logger *slog.Logger
+	logger logging.Logger
 }
 
 // newNoop creates a new no-op LED controller.
-func newNoop(logger *slog.Logger) *noop {
+func newNoop(logger logging.Logger) *noop {
 	return &noop{
 		logger: logger,
 	}

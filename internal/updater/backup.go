@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/creativeprojects/go-selfupdate"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/version"
 )
 
@@ -30,10 +30,10 @@ type backupManager struct {
 	mu        sync.RWMutex
 	backupDir string
 	info      *backupInfo
-	logger    *slog.Logger
+	logger    logging.Logger
 }
 
-func newBackupManager(logger *slog.Logger) (*backupManager, error) {
+func newBackupManager(logger logging.Logger) (*backupManager, error) {
 	// Use ~/.cache/videonode/backup/ for backups
 	home, err := os.UserHomeDir()
 	if err != nil {

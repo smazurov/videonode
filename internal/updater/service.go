@@ -3,7 +3,6 @@ package updater
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -37,7 +36,7 @@ type service struct {
 	// Restart state
 	restartPending bool
 
-	logger *slog.Logger
+	logger logging.Logger
 }
 
 // NewService creates a new updater service.

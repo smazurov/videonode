@@ -2,13 +2,13 @@ package streaming
 
 import (
 	"errors"
-	"log/slog"
 	"sync"
 
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/rtsp"
 	"github.com/AlexxIT/go2rtc/pkg/webrtc"
 	"github.com/pion/rtp"
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // ErrStreamNotFound is returned when a requested stream doesn't exist.
@@ -20,12 +20,12 @@ var ErrStreamNotFound = errors.New("stream not found")
 type Hub struct {
 	producers          map[string]*rtsp.Conn
 	mu                 sync.RWMutex
-	logger             *slog.Logger
+	logger             logging.Logger
 	onProducerReplaced func(streamID string)
 }
 
 // NewHub creates a new stream hub.
-func NewHub(logger *slog.Logger) *Hub {
+func NewHub(logger logging.Logger) *Hub {
 	return &Hub{
 		producers: make(map[string]*rtsp.Conn),
 		logger:    logger,
