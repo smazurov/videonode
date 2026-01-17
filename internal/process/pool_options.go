@@ -1,6 +1,6 @@
 package process
 
-import "log/slog"
+import "github.com/smazurov/videonode/internal/logging"
 
 // CommandProvider generates the command string for a process ID.
 // This allows domain-specific command generation (e.g., FFmpeg commands from stream config).
@@ -26,5 +26,5 @@ type PoolOptions struct {
 	ConfigureProcess Configurer
 
 	// Logger for pool operations. If nil, uses slog.Default().
-	Logger *slog.Logger
+	Logger logging.Logger
 }

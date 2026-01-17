@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -14,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // OutputHandler receives output lines from the subprocess.
@@ -40,9 +41,9 @@ type Process struct {
 	command         string
 	commandMu       sync.RWMutex
 	cmd             *exec.Cmd
-	logger          *slog.Logger
-	processLogger   *slog.Logger // logger for process output (nil = use logger)
-	logParser       LogParser    // parses process output for log level (nil = no parsing)
+	logger          logging.Logger
+	processLogger   logging.Logger // logger for process output (nil = use logger)
+	logParser       LogParser      // parses process output for log level (nil = no parsing)
 	ctx             context.Context
 	cancel          context.CancelFunc
 	restartChan     chan string // receives new command for restart
@@ -52,13 +53,13 @@ type Process struct {
 }
 
 // NewProcess creates a new process.
-func NewProcess(id, command string, logger *slog.Logger) *Process {
+func NewProcess(id, command string, logger logging.Logger) *Process {
 	return NewProcessWithOutput(id, command, logger, nil)
 }
 
 // NewProcessWithOutput creates a new process with an output handler.
 // The handler receives each line of stdout/stderr from the subprocess.
-func NewProcessWithOutput(id, command string, logger *slog.Logger, handler OutputHandler) *Process {
+func NewProcessWithOutput(id, command string, logger logging.Logger, handler OutputHandler) *Process {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Process{
 		id:              id,
@@ -83,7 +84,7 @@ func (p *Process) GetCommand() string {
 // SetLogParser sets a custom logger and log parser for process output.
 // The logger is used for process output (e.g., module="ffmpeg").
 // The parser extracts log level from process-specific output formats.
-func (p *Process) SetLogParser(logger *slog.Logger, parser LogParser) {
+func (p *Process) SetLogParser(logger logging.Logger, parser LogParser) {
 	p.processLogger = logger
 	p.logParser = parser
 }

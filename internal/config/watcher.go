@@ -2,11 +2,11 @@ package config
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // Watcher watches a configuration file and notifies typed handlers
@@ -20,7 +20,7 @@ type Watcher[T any] struct {
 	onError  func(error)
 	mu       sync.RWMutex
 	watcher  *fsnotify.Watcher
-	logger   *slog.Logger
+	logger   logging.Logger
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
@@ -50,7 +50,7 @@ func WithErrorHandler[T any](handler func(error)) WatcherOption[T] {
 func NewConfigWatcher[T any](
 	path string,
 	loader func(path string) (T, error),
-	logger *slog.Logger,
+	logger logging.Logger,
 	opts ...WatcherOption[T],
 ) *Watcher[T] {
 	ctx, cancel := context.WithCancel(context.Background())
