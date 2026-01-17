@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/base64"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -28,7 +27,7 @@ type Server struct {
 	options        *Options
 	deviceDetector devices.DeviceDetector
 	eventBus       *events.Bus
-	logger         *slog.Logger
+	logger         logging.Logger
 }
 
 // basicAuthMiddleware creates middleware for HTTP basic authentication.

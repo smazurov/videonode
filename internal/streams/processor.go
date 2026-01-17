@@ -2,7 +2,6 @@ package streams
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
@@ -33,7 +32,7 @@ type processor struct {
 	deviceResolver  deviceResolver
 	getStreamState  func(streamID string) (*Stream, bool) // Get runtime state
 	isCrashed       func(streamID string) bool            // Check if stream crashed
-	logger          *slog.Logger
+	logger          logging.Logger
 }
 
 // newProcessor creates a new stream processor.

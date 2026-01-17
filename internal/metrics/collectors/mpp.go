@@ -10,11 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/metrics"
 )
 
 // MPPCollector collects Rockchip MPP metrics from /proc/mpp_service/load.
 type MPPCollector struct {
+	logger   logging.Logger
 	procPath string
 	interval time.Duration
 	ctx      context.Context
@@ -24,6 +26,7 @@ type MPPCollector struct {
 // NewMPPCollector creates a new MPP collector.
 func NewMPPCollector() *MPPCollector {
 	return &MPPCollector{
+		logger:   logging.GetLogger("mpp"),
 		procPath: "/proc/mpp_service/load",
 		interval: 5 * time.Second,
 	}
@@ -45,6 +48,7 @@ func (m *MPPCollector) Stop() error {
 }
 
 func (m *MPPCollector) run() {
+	m.logger.Info("Starting MPP metrics collection", "path", m.procPath, "interval", m.interval)
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 
@@ -63,12 +67,14 @@ func (m *MPPCollector) run() {
 func (m *MPPCollector) collectMetrics() {
 	file, err := os.Open(m.procPath)
 	if err != nil {
+		m.logger.Warn("Failed to open MPP proc file", "error", err)
 		return
 	}
 	defer file.Close()
 
 	devices, err := m.parseContent(file)
 	if err != nil {
+		m.logger.Warn("Failed to parse MPP metrics", "error", err)
 		return
 	}
 

@@ -3,7 +3,6 @@ package streams
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -32,7 +31,7 @@ type service struct {
 	processManager  StreamProcessManager // Process manager for FFmpeg subprocesses
 	encoderSelector encoders.Selector    // Encoder selection strategy
 	eventBus        *events.Bus          // Event bus for broadcasting state changes
-	logger          *slog.Logger         // Module logger
+	logger          logging.Logger       // Module logger
 }
 
 // NewStreamService creates a new stream service with options.
