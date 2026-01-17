@@ -2,7 +2,6 @@ package encoders
 
 import (
 	"fmt"
-	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -26,7 +25,7 @@ type Selector interface {
 
 // DefaultSelector implements Selector using validation data and registry.
 type DefaultSelector struct {
-	logger            *slog.Logger
+	logger            logging.Logger
 	validationManager *valmanager.Manager
 	registry          *validation.ValidatorRegistry
 }

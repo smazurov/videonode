@@ -1,10 +1,10 @@
 package led
 
 import (
-	"log/slog"
 	"sync"
 
 	"github.com/smazurov/videonode/internal/events"
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // Manager subscribes to stream events and controls system LED based on aggregate state.
@@ -13,13 +13,13 @@ type Manager struct {
 	eventBus        *events.Bus
 	unsubscribe     func()
 	stopChan        chan struct{}
-	logger          *slog.Logger
+	logger          logging.Logger
 	streamStates    map[string]bool // streamID -> enabled state
 	streamStatesMux sync.RWMutex
 }
 
 // NewManager creates a new LED manager that reacts to stream state changes.
-func NewManager(controller Controller, eventBus *events.Bus, logger *slog.Logger) *Manager {
+func NewManager(controller Controller, eventBus *events.Bus, logger logging.Logger) *Manager {
 	return &Manager{
 		controller:   controller,
 		eventBus:     eventBus,

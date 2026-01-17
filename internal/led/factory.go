@@ -1,16 +1,17 @@
 package led
 
 import (
-	"log/slog"
 	"os"
 	"strings"
+
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 const deviceTreeModelPath = "/proc/device-tree/model"
 
 // New creates a new LED controller based on board detection
 // Falls back to no-op controller if LEDs are not available.
-func New(logger *slog.Logger) Controller {
+func New(logger logging.Logger) Controller {
 	boardModel := detectBoard()
 
 	if logger != nil {

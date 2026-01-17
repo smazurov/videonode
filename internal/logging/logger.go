@@ -9,6 +9,15 @@ import (
 
 const defaultBufferSize = 1000
 
+// Logger is a duck-typed interface satisfied by *slog.Logger.
+// Use this interface instead of *slog.Logger to decouple from the concrete type.
+type Logger interface {
+	Debug(msg string, args ...any)
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+}
+
 var (
 	moduleLoggers   = make(map[string]*slog.Logger)
 	moduleLevelVars = make(map[string]*slog.LevelVar)

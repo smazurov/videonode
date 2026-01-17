@@ -2,11 +2,11 @@ package streams
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/types"
 	valManager "github.com/smazurov/videonode/internal/validation"
 )
@@ -53,7 +53,7 @@ func copyStream(stream *Stream) *Stream {
 }
 
 // makeEncoderSelector creates an encoder selector from options or default.
-func makeEncoderSelector(logger *slog.Logger, opts *ServiceOptions, repo Store) encoders.Selector {
+func makeEncoderSelector(logger logging.Logger, opts *ServiceOptions, repo Store) encoders.Selector {
 	if opts != nil && opts.EncoderSelector != nil {
 		return opts.EncoderSelector
 	}
@@ -68,7 +68,7 @@ func makeEncoderSelector(logger *slog.Logger, opts *ServiceOptions, repo Store) 
 }
 
 // makeEncoderSelectorFunc creates the encoder selector function for the processor.
-func makeEncoderSelectorFunc(encoderSelector encoders.Selector, logger *slog.Logger) func(string, string, *types.QualityParams, string) *ffmpeg.Params {
+func makeEncoderSelectorFunc(encoderSelector encoders.Selector, logger logging.Logger) func(string, string, *types.QualityParams, string) *ffmpeg.Params {
 	return func(codec string, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) *ffmpeg.Params {
 		// Convert codec string to CodecType
 		codecType := parseCodecType(codec)
@@ -95,7 +95,7 @@ func makeEncoderSelectorFunc(encoderSelector encoders.Selector, logger *slog.Log
 }
 
 // makeDeviceResolver creates the device resolver function for the processor.
-func makeDeviceResolver(logger *slog.Logger) func(string) string {
+func makeDeviceResolver(logger logging.Logger) func(string) string {
 	return func(deviceID string) string {
 		devicePath, err := devices.ResolveDevicePath(deviceID)
 		if err != nil {

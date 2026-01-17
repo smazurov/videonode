@@ -1,13 +1,13 @@
 package streaming
 
 import (
-	"log/slog"
 	"sync"
 
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/webrtc"
 	petname "github.com/dustinkirkland/golang-petname"
 	pion "github.com/pion/webrtc/v4"
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // WebRTCConfig holds configuration for WebRTC connections.
@@ -23,11 +23,11 @@ type WebRTCManager struct {
 	peers       map[string]*webrtc.Conn
 	streamPeers map[string]map[string]bool // streamID -> set of peerIDs
 	mu          sync.RWMutex
-	logger      *slog.Logger
+	logger      logging.Logger
 }
 
 // NewWebRTCManager creates a new WebRTC manager.
-func NewWebRTCManager(hub *Hub, config WebRTCConfig, logger *slog.Logger) *WebRTCManager {
+func NewWebRTCManager(hub *Hub, config WebRTCConfig, logger logging.Logger) *WebRTCManager {
 	return &WebRTCManager{
 		hub:         hub,
 		config:      config,

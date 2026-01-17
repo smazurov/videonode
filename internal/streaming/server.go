@@ -2,25 +2,25 @@ package streaming
 
 import (
 	"errors"
-	"log/slog"
 	"net"
 	"sync"
 
 	"github.com/AlexxIT/go2rtc/pkg/rtsp"
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // Server handles RTSP connections from FFmpeg (producers) and clients (consumers).
 type Server struct {
 	hub      *Hub
 	listener net.Listener
-	logger   *slog.Logger
+	logger   logging.Logger
 	wg       sync.WaitGroup
 	closed   bool
 	mu       sync.Mutex
 }
 
 // NewServer creates a new streaming server.
-func NewServer(hub *Hub, logger *slog.Logger) *Server {
+func NewServer(hub *Hub, logger logging.Logger) *Server {
 	return &Server{
 		hub:    hub,
 		logger: logger,

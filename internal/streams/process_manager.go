@@ -3,7 +3,6 @@ package streams
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -68,7 +67,7 @@ type streamProcessManager struct {
 	store          Store
 	processor      *processor
 	eventBus       *events.Bus
-	logger         *slog.Logger
+	logger         logging.Logger
 	crashedStreams map[string]bool
 	mu             sync.Mutex
 }

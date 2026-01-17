@@ -5,7 +5,6 @@ package devices
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/smazurov/videonode/internal/logging"
 )
@@ -98,7 +97,7 @@ var mockFramerates = map[string]map[uint32]map[string][]Framerate{
 }
 
 type darwinDetector struct {
-	logger *slog.Logger
+	logger logging.Logger
 }
 
 func newDetector() DeviceDetector {

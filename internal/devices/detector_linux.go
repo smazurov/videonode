@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -22,7 +21,7 @@ type linuxDetector struct {
 	broadcaster EventBroadcaster
 	lastDevices map[string]DeviceInfo // key is DeviceID
 	mu          sync.Mutex
-	logger      *slog.Logger
+	logger      logging.Logger
 	eventBus    *events.Bus
 }
 

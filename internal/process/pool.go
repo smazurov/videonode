@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // Pool manages multiple named processes with lifecycle control.
@@ -46,7 +48,7 @@ type pool struct {
 	opts      PoolOptions
 	processes map[string]*managedProcess
 	mu        sync.RWMutex
-	logger    *slog.Logger
+	logger    logging.Logger
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
