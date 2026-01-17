@@ -151,8 +151,8 @@ func (m *streamProcessManager) onStateChange(id string, _, newState process.Stat
 }
 
 // configureProcess sets up FFmpeg-specific log parsing.
-func (m *streamProcessManager) configureProcess(_ string, proc *process.Process) {
-	proc.SetLogParser(logging.GetLogger("ffmpeg"), ffmpeg.ParseLogLevel)
+func (m *streamProcessManager) configureProcess(streamID string, proc *process.Process) {
+	proc.SetLogParser(logging.GetLogger("ffmpeg").With("stream_id", streamID), ffmpeg.ParseLogLevel)
 }
 
 // Start starts the FFmpeg process for a stream.
