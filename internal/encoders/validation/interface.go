@@ -18,33 +18,27 @@ type EncoderParams map[string]string
 
 // EncoderSettings contains the specific FFmpeg settings needed for an encoder.
 type EncoderSettings struct {
-	GlobalArgs   []string          `json:"global_args"`   // Global FFmpeg arguments (e.g., -vaapi_device)
-	OutputParams map[string]string `json:"output_params"` // Output parameters (e.g., qp, preset, cq)
-	VideoFilters string            `json:"video_filters"` // Video filter chain (e.g., format=nv12,hwupload)
+	GlobalArgs   []string          `json:"global_args"`
+	OutputParams map[string]string `json:"output_params"`
+	VideoFilters string            `json:"video_filters"`
 }
 
 // EncoderValidator defines the interface for validating specific encoder types.
 type EncoderValidator interface {
-	// CanValidate returns true if this validator can handle the given encoder name
 	CanValidate(encoderName string) bool
-
-	// Validate tests the encoder and returns true if it works, along with any error
 	Validate(encoderName string) (bool, error)
-
-	// GetEncoderNames returns a list of encoder names this validator handles
 	GetEncoderNames() []string
-
-	// GetDescription returns a human-readable description of this validator
 	GetDescription() string
-
-	// GetProductionSettings returns the production FFmpeg settings for the encoder
-	// These are the same settings used in validation tests
-	// The inputFormat parameter specifies the input format (e.g., "mjpeg", "h264", "yuyv422")
-	// to allow the validator to return appropriate video filters for format conversion
 	GetProductionSettings(encoderName string, inputFormat string) (*EncoderSettings, error)
-
-	// GetQualityParams translates quality settings to encoder-specific parameters
 	GetQualityParams(encoderName string, params *types.QualityParams) (EncoderParams, error)
+	GetBackendName() string
+	ValidateDecoders(logger Logger) (working, failed []string)
+	ValidateFilters(logger Logger) (working, failed []string)
+}
+
+// Logger receives per-probe stderr output during validation runs.
+type Logger interface {
+	Printf(format string, v ...any)
 }
 
 // ValidatorRegistry holds all registered validators.
@@ -142,22 +136,17 @@ func ValidateEncoderWithSettings(validator EncoderValidator, encoderName string)
 
 	testFile := filepath.Join(tempDir, fmt.Sprintf("test_%s.mp4", encoderName))
 
-	// Get production settings for this encoder
-	// Use empty input format for validation tests (they use synthetic test data)
 	settings, err := validator.GetProductionSettings(encoderName, "")
 	if err != nil {
 		return false, fmt.Errorf("failed to get production settings: %w", err)
 	}
 
-	// Build FFmpeg command manually
 	cmdParts := []string{"ffmpeg"}
 
-	// Add global arguments first
 	if len(settings.GlobalArgs) > 0 {
 		cmdParts = append(cmdParts, settings.GlobalArgs...)
 	}
 
-	// Add input parameters
 	cmdParts = append(cmdParts,
 		"-f", "lavfi",
 		"-i", "testsrc2=duration=2:size=640x480:rate=30",
@@ -165,26 +154,20 @@ func ValidateEncoderWithSettings(validator EncoderValidator, encoderName string)
 		"-c:v", encoderName,
 	)
 
-	// Add video filters if specified
 	if settings.VideoFilters != "" {
 		cmdParts = append(cmdParts, "-vf", settings.VideoFilters)
 	}
 
-	// Add all output parameters from settings
 	for key, value := range settings.OutputParams {
 		cmdParts = append(cmdParts, fmt.Sprintf("-%s", key), value)
 	}
 
-	// Add output file and overwrite flag
 	cmdParts = append(cmdParts, "-y", testFile)
 
-	// Log the command for debugging
 	fmt.Printf("Executing FFmpeg command: %s\n", strings.Join(cmdParts, " "))
 
-	// Execute command with timeout
 	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
 
-	// Capture stderr for debugging
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 

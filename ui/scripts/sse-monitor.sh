@@ -4,7 +4,7 @@
 ENDPOINT="events"
 FILTER=""
 BASE_URL="http://localhost:8090/api"
-AUTH="pinball:pinball"
+AUTH="videonode:videonode"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do

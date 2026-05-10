@@ -15,11 +15,7 @@ import (
 
 // Selector interface defines the contract for encoder selection strategies.
 type Selector interface {
-	// SelectEncoder chooses the best encoder for the given codec type and input format
-	// Returns FFmpegParams with all encoding parameters populated
-	// If encoderOverride is provided, uses that encoder directly with proper settings
 	SelectEncoder(codecType CodecType, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) (*ffmpeg.Params, error)
-	// ValidateEncoder checks if an encoder is valid for use
 	ValidateEncoder(encoder string) error
 }
 
@@ -41,31 +37,37 @@ func NewDefaultSelector(validationManager *valmanager.Manager) *DefaultSelector 
 
 // SelectEncoder chooses the best available encoder for the given codec type and input format.
 func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) (*ffmpeg.Params, error) {
+	params, err := s.selectEncoderInner(codecType, inputFormat, qualityParams, encoderOverride)
+	if err != nil {
+		return nil, err
+	}
+	if params != nil {
+		params.HWBackend = hwBackendForEncoder(params.Encoder)
+	}
+	return params, nil
+}
+
+func (s *DefaultSelector) selectEncoderInner(codecType CodecType, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) (*ffmpeg.Params, error) {
 	params := &ffmpeg.Params{}
 
-	// If encoder override is provided, use it directly with proper settings
 	if encoderOverride != "" {
 		params.Encoder = encoderOverride
 		settings := s.getSettingsForEncoder(encoderOverride, inputFormat, qualityParams)
 		if settings != nil {
 			s.convertSettingsToParams(params, settings, qualityParams)
 		} else {
-			// No specific settings found, just populate quality params
 			s.populateQualityParams(params, qualityParams, s.isHardwareEncoder(encoderOverride))
 		}
 		return params, nil
 	}
 
-	// Get validation results for auto-selection
 	validationResults := s.validationManager.GetValidation()
 	if validationResults == nil {
-		// No validation data, fall back to software encoder
 		params.Encoder = s.getFallbackEncoder(codecType)
 		s.populateQualityParams(params, qualityParams, false)
 		return params, nil
 	}
 
-	// Get working encoders for the codec type
 	var workingEncoders []string
 	switch codecType {
 	case CodecH264:
@@ -76,7 +78,6 @@ func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string,
 		return nil, fmt.Errorf("unsupported codec type: %v", codecType)
 	}
 
-	// If no working encoders, use fallback
 	if len(workingEncoders) == 0 {
 		params.Encoder = s.getFallbackEncoder(codecType)
 		s.logger.Warn("No validated encoders, using fallback", "codec_type", codecType, "encoder", params.Encoder)
@@ -84,21 +85,16 @@ func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string,
 		return params, nil
 	}
 
-	// Get available validators in priority order
 	availableValidators := s.registry.GetAvailableValidators()
 
-	// Find the first working encoder based on validator priority
 	for _, validator := range availableValidators {
 		encoderList := s.registry.GetCompiledEncoders(validator)
 
-		// Check each encoder from this validator
 		for _, encoder := range encoderList {
 			if slices.Contains(workingEncoders, encoder) {
-				// Found a working encoder
 				params.Encoder = encoder
 				s.logger.Info("Selected encoder with priority", "codec_type", codecType, "encoder", encoder)
 
-				// Get settings from validator and convert to params
 				settings := s.getEncoderSettingsFromValidator(validator, encoder, inputFormat, qualityParams)
 				if settings != nil {
 					s.convertSettingsToParams(params, settings, qualityParams)
@@ -108,7 +104,6 @@ func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string,
 		}
 	}
 
-	// If somehow we didn't find anything (shouldn't happen), use first working encoder
 	params.Encoder = workingEncoders[0]
 	settings := s.getSettingsForEncoder(workingEncoders[0], inputFormat, qualityParams)
 	if settings != nil {
@@ -117,15 +112,25 @@ func (s *DefaultSelector) SelectEncoder(codecType CodecType, inputFormat string,
 	return params, nil
 }
 
+// hwBackendForEncoder maps an encoder name to "rkmpp", "vaapi", or "sw".
+func hwBackendForEncoder(encoder string) string {
+	switch {
+	case strings.HasSuffix(encoder, "_rkmpp"):
+		return "rkmpp"
+	case strings.HasSuffix(encoder, "_vaapi"):
+		return "vaapi"
+	default:
+		return "sw"
+	}
+}
+
 // ValidateEncoder checks if an encoder is in the validated working list.
 func (s *DefaultSelector) ValidateEncoder(encoder string) error {
 	if s.validationManager.IsEncoderWorking(encoder) {
 		return nil
 	}
 
-	// Check if validation data exists
 	if s.validationManager.GetValidation() == nil {
-		// No validation data, allow with warning
 		s.logger.Warn("No encoder validation data found, allowing encoder", "encoder", encoder)
 		return nil
 	}
@@ -145,14 +150,11 @@ func (s *DefaultSelector) getFallbackEncoder(codecType CodecType) string {
 	}
 }
 
-// getSettingsForEncoder retrieves settings for a specific encoder.
+// getSettingsForEncoder retrieves settings for a specific encoder (override path: skips compile check).
 func (s *DefaultSelector) getSettingsForEncoder(encoderName string, inputFormat string, qualityParams *types.QualityParams) *validation.EncoderSettings {
-	// Try to find settings from validators
-	// Use GetAllValidators for encoder overrides - don't check if compiled
 	availableValidators := s.registry.GetAllValidators()
 
 	for _, validator := range availableValidators {
-		// Just check if validator can handle this encoder
 		if validator.CanValidate(encoderName) {
 			return s.getEncoderSettingsFromValidator(validator, encoderName, inputFormat, qualityParams)
 		}
@@ -163,32 +165,26 @@ func (s *DefaultSelector) getSettingsForEncoder(encoderName string, inputFormat 
 
 // getEncoderSettingsFromValidator retrieves settings for a specific encoder from a validator.
 func (s *DefaultSelector) getEncoderSettingsFromValidator(validator validation.EncoderValidator, encoderName string, inputFormat string, qualityParams *types.QualityParams) *validation.EncoderSettings {
-	// Get production settings from the validator
 	settings, err := validator.GetProductionSettings(encoderName, inputFormat)
 	if err != nil {
 		s.logger.Warn("Failed to get production settings", "encoder", encoderName, "error", err)
 		return nil
 	}
 
-	// If quality params are provided, get quality-specific encoder params and merge
 	if qualityParams != nil {
 		qualityEncoderParams, qualityErr := validator.GetQualityParams(encoderName, qualityParams)
 		if qualityErr != nil {
 			s.logger.Warn("Failed to get quality params", "encoder", encoderName, "error", qualityErr)
-			// Return settings without quality params rather than failing completely
 			return settings
 		}
 
-		// Merge OutputParams - quality params override existing ones
 		if settings.OutputParams == nil {
 			settings.OutputParams = make(map[string]string)
 		}
 
-		// First copy existing params
+		// Quality params override existing OutputParams.
 		mergedParams := make(map[string]string)
 		maps.Copy(mergedParams, settings.OutputParams)
-
-		// Then apply quality params (these override)
 		maps.Copy(mergedParams, qualityEncoderParams)
 
 		settings.OutputParams = mergedParams
@@ -236,7 +232,7 @@ func (s *DefaultSelector) populateQualityParams(params *ffmpeg.Params, qualityPa
 		if qualityParams.Quality != nil {
 			params.CRF = *qualityParams.Quality
 		} else if !isHardware {
-			params.CRF = 23 // Default CRF for software encoders
+			params.CRF = 23
 		}
 
 	case types.RateControlCQP:
@@ -245,14 +241,13 @@ func (s *DefaultSelector) populateQualityParams(params *ffmpeg.Params, qualityPa
 		}
 	}
 
-	// Common parameters
 	if qualityParams.KeyframeInterval != nil {
 		params.GOP = *qualityParams.KeyframeInterval
 	}
 	if qualityParams.BFrames != nil {
 		params.BFrames = *qualityParams.BFrames
 	} else {
-		params.BFrames = 0 // Default to 0 for WebRTC compatibility
+		params.BFrames = 0 // WebRTC default
 	}
 	if qualityParams.Preset != nil && !isHardware {
 		params.Preset = *qualityParams.Preset
@@ -261,22 +256,19 @@ func (s *DefaultSelector) populateQualityParams(params *ffmpeg.Params, qualityPa
 
 // convertSettingsToParams converts EncoderSettings to FFmpegParams.
 func (s *DefaultSelector) convertSettingsToParams(params *ffmpeg.Params, settings *validation.EncoderSettings, qualityParams *types.QualityParams) {
-	// Set global args and video filters
 	params.GlobalArgs = settings.GlobalArgs
 	params.VideoFilters = settings.VideoFilters
+	params.HWBackend = hwBackendForEncoder(params.Encoder)
 
-	// Determine if hardware encoder
 	isHardware := s.isHardwareEncoder(params.Encoder)
 
-	// Process output params but skip b:v since we handle it via qualityParams
 	for key, value := range settings.OutputParams {
 		switch key {
 		case "b:v":
-			// Skip - handled via qualityParams
+			// handled via qualityParams
 		case "rc_mode":
 			params.RCMode = value
 		case "qp", "qp_init":
-			// Convert to int if needed
 			if params.QP == 0 {
 				fmt.Sscanf(value, "%d", &params.QP)
 			}
@@ -311,13 +303,12 @@ func (s *DefaultSelector) convertSettingsToParams(params *ffmpeg.Params, setting
 		}
 	}
 
-	// Now populate from quality params, which takes precedence
+	// Quality params take precedence over OutputParams.
 	s.populateQualityParams(params, qualityParams, isHardware)
 }
 
 // isHardwareEncoder checks if an encoder is hardware-accelerated.
 func (s *DefaultSelector) isHardwareEncoder(encoder string) bool {
-	// List of known hardware encoder prefixes/suffixes
 	hardwareEncoders := []string{
 		"_vaapi", "_nvenc", "_qsv", "_amf", "_videotoolbox", "_v4l2m2m", "_mmal", "_omx", "_rkmpp",
 	}
@@ -347,18 +338,15 @@ func NewPrioritySelector(validationManager *valmanager.Manager, priorities map[s
 
 // SelectEncoder chooses encoder based on custom priorities.
 func (s *PrioritySelector) SelectEncoder(codecType CodecType, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) (*ffmpeg.Params, error) {
-	// If encoder override provided, delegate to default selector
 	if encoderOverride != "" {
 		return s.DefaultSelector.SelectEncoder(codecType, inputFormat, qualityParams, encoderOverride)
 	}
 
-	// Get validation results
 	validationResults := s.validationManager.GetValidation()
 	if validationResults == nil {
 		return s.DefaultSelector.SelectEncoder(codecType, inputFormat, qualityParams, "")
 	}
 
-	// Get working encoders
 	var workingEncoders []string
 	switch codecType {
 	case CodecH264:
@@ -373,14 +361,13 @@ func (s *PrioritySelector) SelectEncoder(codecType CodecType, inputFormat string
 		return s.DefaultSelector.SelectEncoder(codecType, inputFormat, qualityParams, "")
 	}
 
-	// Find encoder with best priority
 	bestEncoder := ""
-	bestPriority := int(^uint(0) >> 1) // Max int
+	bestPriority := int(^uint(0) >> 1)
 
 	for _, encoder := range workingEncoders {
 		priority, hasPriority := s.priorities[encoder]
 		if !hasPriority {
-			priority = 1000 // Default priority for unlisted encoders
+			priority = 1000
 		}
 
 		if priority < bestPriority {
@@ -398,11 +385,11 @@ func (s *PrioritySelector) SelectEncoder(codecType CodecType, inputFormat string
 		if settings != nil {
 			s.convertSettingsToParams(params, settings, qualityParams)
 		}
+		params.HWBackend = hwBackendForEncoder(params.Encoder)
 
 		s.logger.Info("Selected encoder based on priority", "codec_type", codecType, "encoder", bestEncoder, "priority", bestPriority)
 		return params, nil
 	}
 
-	// Fall back to default selection
 	return s.DefaultSelector.SelectEncoder(codecType, inputFormat, qualityParams, "")
 }

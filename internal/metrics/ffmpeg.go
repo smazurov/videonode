@@ -2,8 +2,6 @@
 package metrics
 
 import (
-	"sync"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -36,10 +34,6 @@ var (
 		Name:      "processing_speed",
 		Help:      "FFmpeg processing speed multiplier",
 	}, []string{"stream_id"})
-
-	// Local cache for SSE exporter access.
-	ffmpegCache   = make(map[string]*FFmpegStreamMetrics)
-	ffmpegCacheMu sync.RWMutex
 )
 
 // FFmpegStreamMetrics holds current metric values for a stream.
@@ -53,25 +47,21 @@ type FFmpegStreamMetrics struct {
 // SetFFmpegFPS sets the current FPS for a stream.
 func SetFFmpegFPS(streamID string, fps float64) {
 	ffmpegFPS.WithLabelValues(streamID).Set(fps)
-	updateCache(streamID, func(m *FFmpegStreamMetrics) { m.FPS = fps })
 }
 
 // SetFFmpegDroppedFrames sets the dropped frames count for a stream.
 func SetFFmpegDroppedFrames(streamID string, count float64) {
 	ffmpegDroppedFrames.WithLabelValues(streamID).Set(count)
-	updateCache(streamID, func(m *FFmpegStreamMetrics) { m.DroppedFrames = count })
 }
 
 // SetFFmpegDuplicateFrames sets the duplicate frames count for a stream.
 func SetFFmpegDuplicateFrames(streamID string, count float64) {
 	ffmpegDuplicateFrames.WithLabelValues(streamID).Set(count)
-	updateCache(streamID, func(m *FFmpegStreamMetrics) { m.DuplicateFrames = count })
 }
 
 // SetFFmpegSpeed sets the processing speed for a stream.
 func SetFFmpegSpeed(streamID string, speed float64) {
 	ffmpegSpeed.WithLabelValues(streamID).Set(speed)
-	updateCache(streamID, func(m *FFmpegStreamMetrics) { m.Speed = speed })
 }
 
 // DeleteFFmpegMetrics removes all metrics for a stream.
@@ -80,42 +70,4 @@ func DeleteFFmpegMetrics(streamID string) {
 	ffmpegDroppedFrames.DeleteLabelValues(streamID)
 	ffmpegDuplicateFrames.DeleteLabelValues(streamID)
 	ffmpegSpeed.DeleteLabelValues(streamID)
-
-	ffmpegCacheMu.Lock()
-	delete(ffmpegCache, streamID)
-	ffmpegCacheMu.Unlock()
-}
-
-// GetFFmpegMetrics returns current metric values for a stream.
-func GetFFmpegMetrics(streamID string) *FFmpegStreamMetrics {
-	ffmpegCacheMu.RLock()
-	defer ffmpegCacheMu.RUnlock()
-	if m, ok := ffmpegCache[streamID]; ok {
-		dup := *m
-		return &dup
-	}
-	return nil
-}
-
-// GetAllFFmpegMetrics returns metrics for all active streams.
-func GetAllFFmpegMetrics() map[string]*FFmpegStreamMetrics {
-	ffmpegCacheMu.RLock()
-	defer ffmpegCacheMu.RUnlock()
-	result := make(map[string]*FFmpegStreamMetrics, len(ffmpegCache))
-	for id, m := range ffmpegCache {
-		dup := *m
-		result[id] = &dup
-	}
-	return result
-}
-
-func updateCache(streamID string, update func(*FFmpegStreamMetrics)) {
-	ffmpegCacheMu.Lock()
-	defer ffmpegCacheMu.Unlock()
-	m, ok := ffmpegCache[streamID]
-	if !ok {
-		m = &FFmpegStreamMetrics{}
-		ffmpegCache[streamID] = m
-	}
-	update(m)
 }

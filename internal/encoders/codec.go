@@ -7,8 +7,7 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// SelectBestCodec selects the best available codec using the validator registry
-// prioritizing hardware encoders over software ones.
+// SelectBestCodec selects the best available codec, preferring hardware over software.
 func SelectBestCodec(encoderList *EncoderList) *Encoder {
 	if encoderList == nil || len(encoderList.VideoEncoders) == 0 {
 		return nil
@@ -17,13 +16,11 @@ func SelectBestCodec(encoderList *EncoderList) *Encoder {
 	registry := CreateValidatorRegistry()
 	availableValidators := registry.GetAvailableValidators()
 
-	// Create a map of available encoders for quick lookup
 	availableEncoders := make(map[string]Encoder)
 	for _, encoder := range encoderList.VideoEncoders {
 		availableEncoders[encoder.Name] = encoder
 	}
 
-	// Try each validator in order (hardware validators first, generic last)
 	for _, validator := range availableValidators {
 		compiledEncoders := registry.GetCompiledEncoders(validator)
 		for _, encoderName := range compiledEncoders {
@@ -33,7 +30,6 @@ func SelectBestCodec(encoderList *EncoderList) *Encoder {
 		}
 	}
 
-	// Final fallback: return the first available encoder
 	if len(encoderList.VideoEncoders) > 0 {
 		return &encoderList.VideoEncoders[0]
 	}
@@ -50,25 +46,18 @@ const (
 	CodecH265 CodecType = "h265"
 )
 
-// GetOptimalCodec returns the best available codec for encoding (backward compatibility)
-//
-// Deprecated: Use GetOptimalEncoderWithSettings instead.
+// GetOptimalCodec returns the default software encoder. Deprecated: use GetOptimalEncoderWithSettings.
 func GetOptimalCodec() string {
-	// Can't use StreamManager here for backward compatibility, just return default
 	return "libx264"
 }
 
-// GetOptimalEncoderWithSettings returns the best available encoder with its settings
-//
-// Deprecated: Use Selector interface instead.
+// GetOptimalEncoderWithSettings returns the best working encoder. Deprecated: use Selector.
 func GetOptimalEncoderWithSettings(codecType CodecType, provider types.ValidationProvider) (string, *validation.EncoderSettings, error) {
-	// Get validation results directly from provider
 	validationResults := provider.GetValidation()
 	if validationResults == nil {
 		return "", nil, fmt.Errorf("no validation data available")
 	}
 
-	// Get working encoders for the codec type
 	var workingEncoders []string
 	switch codecType {
 	case CodecH264:
@@ -80,14 +69,12 @@ func GetOptimalEncoderWithSettings(codecType CodecType, provider types.Validatio
 	}
 
 	if len(workingEncoders) == 0 {
-		// Fall back to software encoder
 		if codecType == CodecH264 {
 			return "libx264", nil, nil
 		}
 		return "libx265", nil, nil
 	}
 
-	// Return the first working encoder with its settings
 	registry := CreateValidatorRegistry()
 	for _, encoder := range workingEncoders {
 		validator := registry.FindValidator(encoder)

@@ -248,15 +248,13 @@ func TestMonitorConcurrentFilterAdd(t *testing.T) {
 	// Test concurrent writes to filters map
 	var wg sync.WaitGroup
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 100 {
 				m.AddSubsystemFilter(SubsystemVideo4Linux)
 				m.AddSubsystemFilter(SubsystemUSB)
 				m.AddSubsystemFilter(SubsystemSound)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

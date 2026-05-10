@@ -65,6 +65,8 @@ function createEmptyStats(): WebRTCStats {
     rtt: null,
     audioCodec: null,
     audioPacketsLost: 0,
+    avSyncOffsetMs: null,
+    avSyncMethod: 'unavailable',
   };
 }
 
@@ -149,6 +151,69 @@ function getVideoPlaybackQuality(video: HTMLVideoElement | null, stats: WebRTCSt
   }
 }
 
+interface PlayoutData {
+  audioPlayoutTs: number | undefined;
+  videoPlayoutTs: number | undefined;
+  audioJitterDelay: number;
+  audioJitterEmitted: number;
+}
+
+function extractPlayoutData(rtcStats: RTCStatsReport): PlayoutData {
+  const data: PlayoutData = {
+    audioPlayoutTs: undefined,
+    videoPlayoutTs: undefined,
+    audioJitterDelay: 0,
+    audioJitterEmitted: 0,
+  };
+
+  for (const report of rtcStats.values()) {
+    if ((report as RTCStats).type === 'inbound-rtp') {
+      const r = report as InboundRtpReport & { estimatedPlayoutTimestamp?: number };
+      if (r.kind === 'audio') {
+        data.audioPlayoutTs = r.estimatedPlayoutTimestamp;
+        data.audioJitterDelay = r.jitterBufferDelay ?? 0;
+        data.audioJitterEmitted = r.jitterBufferEmittedCount ?? 0;
+      } else if (r.kind === 'video') {
+        data.videoPlayoutTs = r.estimatedPlayoutTimestamp;
+      }
+    }
+  }
+  return data;
+}
+
+function calculateAvSync(playout: PlayoutData, stats: WebRTCStats): void {
+  // Primary: estimatedPlayoutTimestamp (Chrome)
+  if (playout.audioPlayoutTs !== undefined && playout.videoPlayoutTs !== undefined) {
+    stats.avSyncOffsetMs = playout.audioPlayoutTs - playout.videoPlayoutTs;
+    stats.avSyncMethod = 'playout';
+    return;
+  }
+
+  // Fallback: jitter buffer differential
+  const audioBufferMs =
+    playout.audioJitterEmitted > 0 ? (playout.audioJitterDelay / playout.audioJitterEmitted) * 1000 : null;
+  const videoBufferMs =
+    stats.jitterBufferEmittedCount > 0
+      ? (stats.jitterBufferDelay / stats.jitterBufferEmittedCount) * 1000
+      : null;
+
+  if (audioBufferMs !== null && videoBufferMs !== null) {
+    stats.avSyncOffsetMs = audioBufferMs - videoBufferMs;
+    stats.avSyncMethod = 'jitter';
+  } else {
+    stats.avSyncOffsetMs = null;
+    stats.avSyncMethod = 'unavailable';
+  }
+}
+
+function formatAvSync(offsetMs: number | null, method: WebRTCStats['avSyncMethod']): string {
+  if (offsetMs === null) {
+    return `-- (${method})`;
+  }
+  const sign = offsetMs > 0 ? '+' : '';
+  return `${sign}${offsetMs.toFixed(0)} ms (${method})`;
+}
+
 export function StatsOverlay({ pc, videoRef, streamId, peerId, onClose }: StatsOverlayProps) {
   const [stats, setStats] = useState<WebRTCStats | null>(null);
   const [history, setHistory] = useState<StatsSample[]>([]);
@@ -168,6 +233,10 @@ export function StatsOverlay({ pc, videoRef, streamId, peerId, onClose }: StatsO
       const codecMap = buildCodecMap(rtcStats);
 
       processRtcReports(rtcStats, newStats, codecMap);
+
+      // Calculate A/V sync offset
+      const playoutData = extractPlayoutData(rtcStats);
+      calculateAvSync(playoutData, newStats);
 
       // Calculate bytes per second
       const now = Date.now();
@@ -234,7 +303,7 @@ export function StatsOverlay({ pc, videoRef, streamId, peerId, onClose }: StatsO
 
   if (!stats) {
     return (
-      <div className="absolute top-2 left-2 bg-black/80 text-white px-3 py-2 rounded text-xs font-mono">
+      <div className="absolute top-2 left-2 bg-surface-overlay text-fg-inverse px-3 py-2 rounded text-xs font-mono">
         Connecting...
       </div>
     );
@@ -247,16 +316,16 @@ export function StatsOverlay({ pc, videoRef, streamId, peerId, onClose }: StatsO
   return (
     <>
       {showWarning && (
-        <div className="absolute top-0 left-0 right-0 bg-yellow-600/90 text-white text-center py-1 text-xs font-medium">
+        <div className="absolute top-0 left-0 right-0 bg-warning/90 text-fg-inverse text-center py-1 text-xs font-medium">
           Poor connection quality
         </div>
       )}
 
-      <div className="absolute top-2 left-2 bg-black/85 text-white px-3 py-2 rounded text-xs font-mono min-w-[280px]">
+      <div className="absolute top-2 left-2 bg-surface-overlay text-fg-inverse px-3 py-2 rounded text-xs font-mono min-w-[280px]">
         {onClose && (
           <button
             onClick={onClose}
-            className="absolute top-1 right-1 text-gray-400 hover:text-white px-1"
+            className="absolute top-1 right-1 text-fg-subtle hover:text-fg-inverse px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             aria-label="Close stats"
           >
             [X]
@@ -264,15 +333,15 @@ export function StatsOverlay({ pc, videoRef, streamId, peerId, onClose }: StatsO
         )}
 
         <table className="w-full">
-          <tbody className="[&_td]:py-0.5 [&_td:first-child]:text-gray-400 [&_td:first-child]:pr-4">
+          <tbody className="[&_td]:py-0.5 [&_td:first-child]:text-fg-subtle [&_td:first-child]:pr-4">
             <tr>
               <td>Stream</td>
-              <td className="text-gray-100">{streamId}</td>
+              <td className="text-fg-inverse">{streamId}</td>
             </tr>
             {peerId && (
               <tr>
                 <td>Peer ID</td>
-                <td className="text-cyan-400">{peerId}</td>
+                <td className="text-info">{peerId}</td>
               </tr>
             )}
             <tr>
@@ -335,11 +404,15 @@ export function StatsOverlay({ pc, videoRef, streamId, peerId, onClose }: StatsO
               </td>
             </tr>
             <tr>
+              <td>A/V Sync</td>
+              <td>{formatAvSync(stats.avSyncOffsetMs, stats.avSyncMethod)}</td>
+            </tr>
+            <tr>
               <td>Packets</td>
               <td>
                 {stats.packetsReceived.toLocaleString()} received
                 {stats.packetsLost > 0 && (
-                  <span className="text-red-400"> / {stats.packetsLost} lost ({lossPercent}%)</span>
+                  <span className="text-danger"> / {stats.packetsLost} lost ({lossPercent}%)</span>
                 )}
               </td>
             </tr>

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { SSEClient, SSEStatus } from '../lib/api_sse';
+import { SSEClient, type SSEStatus } from '../lib/api';
 
 export interface UseSSEOptions {
-  endpoint: string;
+  endpoint: '/api/events' | '/api/logs/stream';
   onMessage?: (event: MessageEvent) => void;
   onConnect?: () => void;
   enabled?: boolean;
@@ -17,7 +17,7 @@ export interface UseSSEResult {
 export function useSSE(options: UseSSEOptions): UseSSEResult {
   const { endpoint, onMessage, onConnect, enabled = true } = options;
   const [status, setStatus] = useState<SSEStatus>('disconnected');
-  const clientRef = useRef<SSEClient | null>(null);
+  const clientRef = useRef<SSEClient<typeof endpoint> | null>(null);
 
   // Store callbacks in refs to avoid recreating client on callback changes
   const onMessageRef = useRef(onMessage);

@@ -2,6 +2,7 @@ package validation
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/smazurov/videonode/internal/types"
@@ -40,22 +41,133 @@ func (v *RkmppValidator) GetDescription() string {
 	return "RKMPP (Rockchip Media Process Platform) - Hardware acceleration for Rockchip SoCs"
 }
 
+// GetBackendName returns the canonical backend tag.
+func (v *RkmppValidator) GetBackendName() string { return "rkmpp" }
+
+// rkmppDeviceAvailable reports whether the Rockchip MPP service is present.
+func rkmppDeviceAvailable() bool {
+	_, err := os.Stat("/proc/mpp_service/load")
+	return err == nil
+}
+
+// ValidateDecoders probes RKMPP HW decode for each canvas-relevant codec.
+func (v *RkmppValidator) ValidateDecoders(logger Logger) (working, failed []string) {
+	if !rkmppDeviceAvailable() {
+		return nil, nil
+	}
+	for _, codec := range []string{"h264", "hevc", "mjpeg"} {
+		// rkmpp's MJPEG decoder rejects yuvj422p; only 4:2:0 is accepted.
+		pixFmt := ""
+		if codec == "mjpeg" {
+			pixFmt = "yuvj420p"
+		}
+		probe := buildDecoderProbe("rkmpp", "drm_prime", codec, pixFmt)
+		ok, stderr := runProbe(probe)
+		if ok {
+			working = append(working, codec)
+			continue
+		}
+		failed = append(failed, codec)
+		if logger != nil && stderr != "" {
+			logger.Printf("rkmpp decode %s: %s", codec, stderr)
+		}
+	}
+	return working, failed
+}
+
+// ValidateFilters probes each rkrga filter the canvas builder emits.
+func (v *RkmppValidator) ValidateFilters(logger Logger) (working, failed []string) {
+	if !rkmppDeviceAvailable() {
+		return nil, nil
+	}
+	probes := []Probe{
+		rkmppScaleProbe(),
+		rkmppScaleBGRAProbe(),
+		rkmppTransposeProbe(),
+		rkmppOverlayProbe(),
+	}
+	for _, p := range probes {
+		ok, stderr := runProbe(p)
+		if ok {
+			working = append(working, p.Name)
+			continue
+		}
+		failed = append(failed, p.Name)
+		if logger != nil && stderr != "" {
+			logger.Printf("rkmpp filter %s: %s", p.Name, stderr)
+		}
+	}
+	return working, failed
+}
+
+// rkmppFilterProbe pipes MJPEG through rkmpp hwaccel decode into the given filter chain.
+func rkmppFilterProbe(name, chain string, extraInputs ...string) Probe {
+	args := make([]string, 0, 16+len(extraInputs)+9)
+	args = append(args,
+		"-hide_banner", "-nostats", "-loglevel", "error",
+		"-init_hw_device", "rkmpp=hw", "-filter_hw_device", "hw",
+		"-hwaccel", "rkmpp", "-hwaccel_output_format", "drm_prime",
+		"-f", "mjpeg", "-i", "-",
+	)
+	args = append(args, extraInputs...)
+	args = append(args,
+		"-filter_complex", chain,
+		"-map", "[v]", "-frames:v", "5", "-f", "null", "-",
+	)
+	return Probe{
+		Name:         name,
+		Args:         args,
+		ProducerArgs: mjpegProducerArgs("yuvj420p"),
+	}
+}
+
+func rkmppScaleProbe() Probe {
+	return rkmppFilterProbe(
+		"scale_rkrga",
+		"[0:v]scale_rkrga=160:120:format=nv12,hwdownload,format=nv12[v]",
+	)
+}
+
+// rkmppScaleBGRAProbe verifies scale_rkrga can output BGRA in one pass (BGRA-overlay path).
+func rkmppScaleBGRAProbe() Probe {
+	return rkmppFilterProbe(
+		"scale_rkrga_bgra",
+		"[0:v]scale_rkrga=160:120:format=bgra,hwdownload,format=bgra[v]",
+	)
+}
+
+func rkmppTransposeProbe() Probe {
+	return rkmppFilterProbe(
+		"vpp_rkrga",
+		"[0:v]vpp_rkrga=transpose=clock,hwdownload,format=nv12[v]",
+	)
+}
+
+// rkmppOverlayProbe exercises overlay_rkrga in production shape: YUV-main + BGRA-overlay → YUV-out.
+// RGA's compositor only accepts BGRA-on-YUV (supported_formats_overlay = RGB_FORMATS).
+func rkmppOverlayProbe() Probe {
+	return rkmppFilterProbe(
+		"overlay_rkrga",
+		"[1:v]format=nv12,hwupload,scale_rkrga=80:60:format=bgra[layer];"+
+			"[0:v][layer]overlay_rkrga=x=10:y=10,hwdownload,format=nv12[v]",
+		"-f", "lavfi", "-i", "color=size=80x60:rate=10:duration=0.3",
+	)
+}
+
 // GetProductionSettings returns production settings for RKMPP encoders.
 func (v *RkmppValidator) GetProductionSettings(encoderName string, inputFormat string) (*EncoderSettings, error) {
 	if !v.CanValidate(encoderName) {
 		return nil, fmt.Errorf("encoder %s is not supported by RKMPP validator", encoderName)
 	}
 
-	// Determine if it's MJPEG encoder
 	if strings.Contains(encoderName, "mjpeg") {
 		return &EncoderSettings{
 			GlobalArgs:   []string{},
 			OutputParams: map[string]string{},
-			VideoFilters: "format=nv12", // MJPEG encoder needs nv12
+			VideoFilters: "format=nv12",
 		}, nil
 	}
 
-	// H264/H265 encoder settings
 	settings := &EncoderSettings{
 		GlobalArgs: []string{},
 		OutputParams: map[string]string{
@@ -65,40 +177,18 @@ func (v *RkmppValidator) GetProductionSettings(encoderName string, inputFormat s
 		},
 	}
 
-	// RKMPP is more flexible than VAAPI - it accepts many formats directly
-	// Use hardware decode for compressed formats, format conversion for raw formats
 	switch inputFormat {
 	case "testsrc":
-		// Test sources work better without RGA hardware filters on Rockchip
-		// RKMPP can handle yuv420p directly from test sources
 		settings.VideoFilters = ""
-	case "mjpeg":
-		// Use hardware MJPEG decode for best performance
-		// This keeps everything in hardware
+	case "mjpeg", "h264":
 		settings.GlobalArgs = append(settings.GlobalArgs, "-hwaccel", "rkmpp", "-hwaccel_output_format", "drm_prime")
-		settings.VideoFilters = "" // No filter needed with HW decode
-	case "h264":
-		// For H264 input, use hardware decode for best performance
-		// This keeps everything in hardware
-		settings.GlobalArgs = append(settings.GlobalArgs, "-hwaccel", "rkmpp", "-hwaccel_output_format", "drm_prime")
-		settings.VideoFilters = "" // No filter needed with HW decode
+		settings.VideoFilters = ""
 	case "yuyv422", "yuvj422":
-		// Use RGA hardware scaler for format conversion (much faster than CPU)
-		// Need to initialize hardware device and upload frames to hardware memory
 		settings.GlobalArgs = append(settings.GlobalArgs, "-init_hw_device", "rkmpp=hw", "-filter_hw_device", "hw")
 		settings.VideoFilters = "hwupload,scale_rkrga=format=nv12:afbc=0"
-	case "bgr24", "rgb24", "nv24", "nv16":
-		// RKMPP encoders support these formats directly according to ffmpeg-rockchip wiki!
-		// No conversion needed for modern RKMPP
-		settings.VideoFilters = ""
-		// Could optionally use RGA for AFBC compression to save bandwidth:
-		// settings.GlobalArgs = append(settings.GlobalArgs, "-init_hw_device", "rkmpp=hw", "-filter_hw_device", "hw")
-		// settings.VideoFilters = "hwupload,scale_rkrga=format=nv12:afbc=1"
-	case "":
-		// Empty input format means validation mode or unknown format
+	case "bgr24", "rgb24", "nv24", "nv16", "":
 		settings.VideoFilters = ""
 	default:
-		// Unknown format - convert to nv12 which RKMPP handles well
 		settings.VideoFilters = "format=nv12"
 	}
 
@@ -113,15 +203,12 @@ func (v *RkmppValidator) GetQualityParams(encoderName string, params *types.Qual
 
 	result := make(EncoderParams)
 
-	// RKMPP rate control modes:
-	// 0 = VBR, 1 = CBR, 2 = CQP, 3 = AVBR
 	switch params.Mode {
 	case types.RateControlCBR:
 		result["rc_mode"] = "CBR"
 		if params.TargetBitrate != nil {
 			result["b:v"] = fmt.Sprintf("%.1fM", *params.TargetBitrate)
 		}
-		// RKMPP doesn't use bufsize for CBR
 
 	case types.RateControlVBR:
 		result["rc_mode"] = "VBR"
@@ -135,18 +222,10 @@ func (v *RkmppValidator) GetQualityParams(encoderName string, params *types.Qual
 			result["maxrate"] = fmt.Sprintf("%.1fM", *params.MaxBitrate)
 		}
 
-	case types.RateControlCQP:
+	case types.RateControlCQP, types.RateControlCRF:
+		// RKMPP has no CRF; CQP carries both modes via qp_init.
 		result["rc_mode"] = "CQP"
 		if params.Quality != nil {
-			// RKMPP uses qp_init for constant QP mode
-			result["qp_init"] = fmt.Sprintf("%d", *params.Quality)
-		}
-
-	case types.RateControlCRF:
-		// RKMPP doesn't support CRF, but we can use CQP as an alternative
-		result["rc_mode"] = "CQP"
-		if params.Quality != nil {
-			// Map CRF values to QP (both use 0-51 range)
 			result["qp_init"] = fmt.Sprintf("%d", *params.Quality)
 		}
 
@@ -154,13 +233,9 @@ func (v *RkmppValidator) GetQualityParams(encoderName string, params *types.Qual
 		return nil, fmt.Errorf("unsupported rate control mode %s for RKMPP", params.Mode)
 	}
 
-	// Add common parameters
 	if params.KeyframeInterval != nil {
 		result["g"] = fmt.Sprintf("%d", *params.KeyframeInterval)
 	}
-
-	// RKMPP doesn't use B-frames parameter directly in the same way
-	// It's controlled via encoder profile settings
 
 	return result, nil
 }

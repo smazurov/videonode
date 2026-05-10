@@ -6,15 +6,21 @@
   "engines": {
     "node": ">=22.15.0"
   },
-  "packageManager": "pnpm@10.13.1",
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
     "dev": "vite",
+    "tokens": "node scripts/build-tokens.mjs",
+    "prebuild": "pnpm tokens",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint './src/**/*.{ts,tsx}'",
     "lint:fix": "eslint './src/**/*.{ts,tsx}' --fix",
     "preview": "vite preview",
-    "sse": "bash scripts/sse-monitor.sh"
+    "ladle": "ladle serve",
+    "ladle:build": "pnpm tokens && ladle build",
+    "ladle:preview": "ladle preview",
+    "sse": "bash scripts/sse-monitor.sh",
+    "gen:api": "go run .. openapi | openapi-typescript /dev/stdin -o src/lib/api.generated.ts"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
@@ -24,6 +30,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.18",
     "cva": "1.0.0-beta.4",
+    "openapi-fetch": "^0.17.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-hot-toast": "^2.6.0",
@@ -36,6 +43,7 @@
     "@eslint/compat": "^2.0.0",
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.39.2",
+    "@ladle/react": "^5.1.1",
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/postcss": "^4.1.18",
     "@tailwindcss/typography": "^0.5.19",
@@ -45,6 +53,7 @@
     "@typescript-eslint/eslint-plugin": "^8.50.1",
     "@typescript-eslint/parser": "^8.50.1",
     "@vitejs/plugin-react": "^5.1.2",
+    "@vitejs/plugin-react-swc": "^4.3.0",
     "autoprefixer": "^10.4.23",
     "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "^9.39.2",
@@ -58,6 +67,8 @@
     "eslint-plugin-unicorn": "^62.0.0",
     "eslint-plugin-zustand-rules": "github:voxtex/eslint-plugin-zustand-rules",
     "globals": "^16.5.0",
+    "mini-svg-data-uri": "^1.4.4",
+    "openapi-typescript": "^7.13.0",
     "postcss": "^8.5.6",
     "prettier": "^3.7.4",
     "prettier-plugin-tailwindcss": "^0.7.2",

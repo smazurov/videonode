@@ -1,44 +1,58 @@
 package ffmpeg
 
-// Params represents all parameters needed to generate an FFmpeg command
-// This replaces the map[string]string approach with strongly typed fields.
+// Params holds all parameters needed to generate an FFmpeg command.
 type Params struct {
-	// Input Configuration
 	DevicePath  string
-	InputFormat string // yuyv422, mjpeg, etc.
-	Resolution  string // 1920x1080
-	FPS         string // 30, 60, etc.
-	OverlayText string // If set, use test source with this overlay (e.g. "TEST MODE", "NO SIGNAL", "CRASH")
+	InputFormat string
+	Resolution  string
+	FPS         string
+	OverlayText string // non-empty forces lavfi testsrc2
 
-	// Encoder Configuration
-	Encoder string // h264_vaapi, libx264, etc.
+	Encoder string
 
-	// Rate Control (only set what's needed)
-	Bitrate    string // For CBR/VBR: 5.0M
-	MinRate    string // For VBR: minimum bitrate
-	MaxRate    string // For VBR/CBR: maximum bitrate
-	BufferSize string // For CBR/VBR: buffer size
-	CRF        int    // For CRF mode: 0-51 (0 = not set)
-	QP         int    // For CQP mode: quantization (0 = not set)
-	RCMode     string // rc_mode for hardware encoders
+	Bitrate    string
+	MinRate    string
+	MaxRate    string
+	BufferSize string
+	CRF        int // 0 = not set
+	QP         int // 0 = not set
+	RCMode     string
 
-	// Encoder Options
-	Preset  string // fast, medium, slow
-	GOP     int    // Keyframe interval (0 = not set)
-	BFrames int    // B-frame count (-1 = not set, 0 = no B-frames)
+	Preset  string
+	GOP     int // 0 = not set
+	BFrames int // -1 = not set
 
-	// Hardware Acceleration
-	GlobalArgs   []string // -vaapi_device, etc.
-	VideoFilters string   // format=nv12,hwupload
+	GlobalArgs   []string
+	VideoFilters string
+	HWBackend    string // "rkmpp", "vaapi", "sw", or ""
 
-	// Audio
-	AudioDevice  string // hw:4,0
-	AudioFilters string // aresample=async=1:min_hard_comp=0.100000:first_pts=0
+	AudioDevice  string
+	AudioFilters string
 
-	// Output
-	ProgressSocket string // /tmp/ffmpeg-progress-xxx.sock
-	OutputURL      string // srt://localhost:8890?streamid=publish:<stream-id>
+	ProgressSocket string
+	OutputURL      string
 
-	// Behavior Options
-	Options []OptionType // FFmpeg behavior flags
+	Options []OptionType
+
+	VisionEnabled bool
+	VisionWidth   int // default 640
+	VisionHeight  int // default 480
+	VisionFPS     int // 0 = no throttle
+
+	Perspective *PerspectiveConfig
+
+	Rotation int // 0, 90, 180, 270
+}
+
+// PerspectiveConfig stores 4 source corner points clockwise [TL, TR, BR, BL] in input pixels.
+type PerspectiveConfig struct {
+	Corners [4][2]int `toml:"corners" json:"corners"`
+}
+
+// VisionConfig enables raw frame output for the AI vision sidecar.
+type VisionConfig struct {
+	Enabled bool `toml:"enabled" json:"enabled"`
+	Width   int  `toml:"width,omitempty" json:"width,omitempty"`
+	Height  int  `toml:"height,omitempty" json:"height,omitempty"`
+	FPS     int  `toml:"fps,omitempty" json:"fps,omitempty"`
 }

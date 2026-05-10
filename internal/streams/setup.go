@@ -8,32 +8,26 @@ import (
 	"github.com/smazurov/videonode/internal/metrics/collectors"
 )
 
-// LoadStreamsFromConfig loads existing streams from TOML config into memory.
-// Called only at startup - runtime management is via CRUD APIs.
+// LoadStreamsFromConfig loads streams from TOML config into memory at startup.
 func (s *service) LoadStreamsFromConfig() error {
 	if s.store == nil {
 		return fmt.Errorf("repository not initialized")
 	}
 
-	// Load the configuration from file
 	if err := s.store.Load(); err != nil {
 		return fmt.Errorf("failed to load streams configuration: %w", err)
 	}
 
 	streams := s.store.GetAllStreams()
 	s.logger.Info("Loaded streams from configuration", "count", len(streams))
-	// No lock needed here - InitializeStream handles its own locking
 
 	for _, streamConfig := range streams {
-		// Initialize ALL streams regardless of enabled state
-		// Enabled state is runtime-only and controlled by device monitoring
 		if err := s.InitializeStream(streamConfig); err != nil {
 			s.logger.Warn("Failed to initialize stream", "stream_id", streamConfig.ID, "error", err)
 			continue
 		}
 	}
 
-	// Start all stream processes via process manager
 	if s.processManager != nil {
 		if err := s.processManager.StartAll(); err != nil {
 			s.logger.Warn("Some streams failed to start", "error", err)
@@ -47,22 +41,26 @@ func (s *service) LoadStreamsFromConfig() error {
 func (s *service) InitializeStream(streamConfig StreamSpec) error {
 	socketPath := getSocketPath(streamConfig.ID)
 
-	// Create and start metrics collector for this stream
 	ffmpegCollector := collectors.NewFFmpegCollector(socketPath, streamConfig.ID)
 	if err := ffmpegCollector.Start(context.Background()); err != nil {
 		s.logger.Warn("Failed to start metrics collector for stream", "stream_id", streamConfig.ID, "error", err)
 	}
 
-	// Create stream runtime state
 	stream := &Stream{
 		ID:             streamConfig.ID,
-		Enabled:        false, // Runtime state, set by device monitoring
+		Enabled:        false,
 		StartTime:      time.Now(),
 		ProgressSocket: socketPath,
 		Collector:      ffmpegCollector,
 	}
 
-	// Store the stream in memory
+	if streamConfig.Canvas != nil {
+		stream.InputsEnabled = make(map[string]bool, len(streamConfig.Canvas.SourceStreams))
+		for _, srcID := range streamConfig.Canvas.SourceStreams {
+			stream.InputsEnabled[srcID] = false
+		}
+	}
+
 	s.streamsMutex.Lock()
 	s.streams[streamConfig.ID] = stream
 	s.streamsMutex.Unlock()

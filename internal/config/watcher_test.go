@@ -405,13 +405,11 @@ func TestConfigWatcher_ThreadSafety(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 100 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			unsub := watcher.OnReload(func(_ testConfig) {})
 			time.Sleep(time.Millisecond)
 			unsub()
-		}()
+		})
 	}
 
 	// Trigger some changes while handlers are being added/removed

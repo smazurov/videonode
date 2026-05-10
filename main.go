@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2/humacli"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/smazurov/videonode/cmd"
 	"github.com/smazurov/videonode/internal/api"
+	"github.com/smazurov/videonode/internal/auth"
 	"github.com/smazurov/videonode/internal/config"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/led"
@@ -36,28 +38,43 @@ type Options struct {
 	// Streaming server settings
 	StreamingRTSPPort string `help:"RTSP server port" default:":8554" toml:"streaming.rtsp_port" env:"STREAMING_RTSP_PORT"`
 
+	// SRT server settings
+	SRTEnabled bool   `help:"Enable SRT server" default:"true" toml:"srt.enabled" env:"SRT_ENABLED"`
+	SRTAddr    string `help:"SRT listen address" default:":6001" toml:"srt.addr" env:"SRT_ADDR"`
+	SRTLatency int    `help:"SRT latency in milliseconds" default:"20" toml:"srt.latency" env:"SRT_LATENCY"`
+
 	// Metrics settings
 	SSEEnabled bool `help:"Enable SSE metrics" default:"true" toml:"metrics.sse_enabled" env:"METRICS_SSE_ENABLED"`
 
-	// Capture settings
-	CaptureDefaultDelayMs int `help:"Default capture delay in milliseconds" default:"3000" toml:"capture.default_delay_ms" env:"CAPTURE_DEFAULT_DELAY_MS"`
-
 	// Auth settings
-	AuthUsername string `help:"Basic auth username" default:"admin" toml:"auth.username" env:"AUTH_USERNAME"`
-	AuthPassword string `help:"Basic auth password" default:"password" toml:"auth.password" env:"AUTH_PASSWORD"`
+	AuthType     string `help:"Auth type (basic, linux)" default:"linux" toml:"auth.type" env:"AUTH_TYPE"`
+	AuthUsername string `help:"Fallback username for basic auth" default:"videonode" toml:"auth.username" env:"AUTH_USERNAME"`
+	AuthPassword string `help:"Fallback password for basic auth" default:"videonode" toml:"auth.password" env:"AUTH_PASSWORD"`
 
 	// Features settings
 	FeaturesLEDControl bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
 
+	// Recording settings
+	RecordingDataDir string `help:"Recording data directory" default:"data/recording" toml:"recording.data_dir" env:"RECORDING_DATA_DIR"`
+
 	// Update settings
 	UpdateEnabled    bool `help:"Enable self-update functionality" default:"true" toml:"update.enabled" env:"UPDATE_ENABLED"`
 	UpdatePrerelease bool `help:"Include prereleases in updates" default:"false" toml:"update.prerelease" env:"UPDATE_PRERELEASE"`
+
+	// Vision settings
+	VisionDefaultFPS int `help:"Default FPS for vision raw-frame pipes" default:"10" toml:"vision.default_fps" env:"VISION_DEFAULT_FPS"`
 }
 
 func main() {
 	// Create Huma CLI
 	var cli humacli.CLI
 	cli = humacli.New(func(hooks humacli.Hooks, opts *Options) {
+		// Lightweight subcommands (openapi, validate-encoders) don't need the full
+		// server setup. Skip heavy initialization when running them.
+		if len(os.Args) > 1 && os.Args[1] == "openapi" {
+			return
+		}
+
 		// Load configuration with proper precedence: CLI > env > config file
 		if err := config.LoadConfig(opts, cli.Root()); err != nil {
 			slog.Warn("Failed to load config", "error", err)
@@ -106,16 +123,39 @@ func main() {
 			ledManager = led.NewManager(ledController, eventBus, logger)
 		}
 
-		// Initialize streaming server (RTSP + WebRTC)
-		streamingLogger := logging.GetLogger("streaming")
-		streamingHub := streaming.NewHub(streamingLogger)
-		streamingServer := streaming.NewServer(streamingHub, streamingLogger)
-		webrtcManager := streaming.NewWebRTCManager(streamingHub, streaming.WebRTCConfig{}, logging.GetLogger("webrtc"))
+		// Initialize streaming server (RTSP + WebRTC + SRT)
+		streamingLogger := logging.GetLogger("streams")
+		streamingServer := streaming.NewServer(streamingLogger)
+		webrtcManager := streaming.NewWebRTCManager(streamingServer, streaming.WebRTCConfig{}, logging.GetLogger("webrtc"))
 
-		// Close WebRTC consumers when stream producer is replaced (enables client reconnection)
-		streamingHub.SetOnProducerReplaced(func(streamID string) {
-			streamingLogger.Info("Producer replaced, closing WebRTC consumers", "stream_id", streamID)
+		// Initialize SRT server if enabled
+		var srtServer *streaming.SRTServer
+		if opts.SRTEnabled {
+			srtConfig := streaming.SRTConfig{
+				Enabled: true,
+				Addr:    opts.SRTAddr,
+				Latency: opts.SRTLatency,
+			}
+			srtServer = streaming.NewSRTServer(streamingServer, srtConfig, logging.GetLogger("srt"))
+		}
+
+		// Close WebRTC and SRT consumers when stream producer is replaced (enables client reconnection)
+		streamingServer.SetOnProducerReplaced(func(streamID string) {
+			streamingLogger.Info("Producer replaced, closing consumers", "stream_id", streamID)
 			webrtcManager.CloseStreamConsumers(streamID)
+			if srtServer != nil {
+				srtServer.CloseStreamConsumers(streamID)
+			}
+		})
+
+		// Emit "running" event when a stream's RTSP producer connects
+		streamingServer.SetOnProducerConnected(func(streamID string) {
+			eventBus.Publish(events.StreamStateChangedEvent{
+				StreamID:  streamID,
+				Enabled:   true,
+				Action:    "running",
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
 		})
 
 		// Default command starts the server using existing API server
@@ -124,8 +164,9 @@ func main() {
 
 		// Create stream service
 		serviceOpts := &streams.ServiceOptions{
-			Store:    streamStore,
-			EventBus: eventBus,
+			Store:            streamStore,
+			EventBus:         eventBus,
+			VisionDefaultFPS: opts.VisionDefaultFPS,
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)
@@ -154,15 +195,23 @@ func main() {
 			}
 		}
 
+		// Create authenticator
+		authenticator := auth.New(auth.Config{
+			Type:     opts.AuthType,
+			Username: opts.AuthUsername,
+			Password: opts.AuthPassword,
+		}, logger)
+
 		apiOpts := &api.Options{
-			AuthUsername:          opts.AuthUsername,
-			AuthPassword:          opts.AuthPassword,
-			CaptureDefaultDelayMs: opts.CaptureDefaultDelayMs,
-			StreamService:         streamService,
-			EventBus:              eventBus,
-			WebRTCManager:         webrtcManager,
-			PrometheusHandler:     promhttp.Handler(), // Prometheus metrics via promauto
-			UpdateService:         updateService,
+			Authenticator:       authenticator,
+			StreamService:       streamService,
+			EventBus:            eventBus,
+			WebRTCManager:       webrtcManager,
+			StreamProvider:      streamingServer,
+			RawSnapshotProvider: streamService.GetProcessManager(),
+			RecordingDir:        opts.RecordingDataDir,
+			PrometheusHandler:   promhttp.Handler(), // Prometheus metrics via promauto
+			UpdateService:       updateService,
 		}
 
 		// Add LED controller if available
@@ -178,10 +227,31 @@ func main() {
 		}
 
 		hooks.OnStart(func() {
+			// Validate recording directory is writable
+			if err := os.MkdirAll(opts.RecordingDataDir, 0o755); err != nil {
+				logger.Error("Failed to create recording directory", "path", opts.RecordingDataDir, "error", err)
+				os.Exit(1)
+			}
+			testFile := opts.RecordingDataDir + "/.write_test"
+			if err := os.WriteFile(testFile, []byte("ok"), 0o644); err != nil {
+				logger.Error("Recording directory is not writable", "path", opts.RecordingDataDir, "error", err)
+				os.Exit(1)
+			}
+			os.Remove(testFile)
+			logger.Info("Recording directory ready", "path", opts.RecordingDataDir)
+
 			// Start RTSP streaming server first (must be ready for FFmpeg)
 			if err := streamingServer.Start(opts.StreamingRTSPPort); err != nil {
 				logger.Error("Failed to start RTSP server", "error", err)
 				os.Exit(1)
+			}
+
+			// Start SRT server if enabled
+			if srtServer != nil {
+				if startErr := srtServer.Start(); startErr != nil {
+					logger.Error("Failed to start SRT server", "error", startErr)
+					os.Exit(1)
+				}
 			}
 
 			// Start SSE exporter if enabled
@@ -221,6 +291,11 @@ func main() {
 			// Stop WebRTC peers
 			webrtcManager.Stop()
 
+			// Stop SRT server
+			if srtServer != nil {
+				srtServer.Stop()
+			}
+
 			if ledManager != nil {
 				ledManager.Stop()
 			}
@@ -245,6 +320,10 @@ func main() {
 	// Add stream command
 	streamCmd := cmd.CreateStreamCmd()
 	cli.Root().AddCommand(streamCmd)
+
+	// Add openapi command
+	openapiCmd := cmd.CreateOpenAPICmd()
+	cli.Root().AddCommand(openapiCmd)
 
 	// Run the CLI
 	cli.Run()

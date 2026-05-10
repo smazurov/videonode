@@ -101,6 +101,25 @@ func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Param
 	ffmpegParams.Options = streamConfig.FFmpeg.Options
 	ffmpegParams.OutputURL = fmt.Sprintf("rtsp://127.0.0.1:8554/%s", streamID)
 
+	// Vision pipeline — auto-enable when perspective is set
+	if streamConfig.Vision != nil && streamConfig.Vision.Enabled {
+		ffmpegParams.VisionEnabled = true
+		ffmpegParams.VisionWidth = streamConfig.Vision.Width
+		ffmpegParams.VisionHeight = streamConfig.Vision.Height
+	} else if streamConfig.Perspective != nil {
+		ffmpegParams.VisionEnabled = true
+		w, h := parseResolutionWH(streamConfig.FFmpeg.Resolution)
+		ffmpegParams.VisionWidth = w
+		ffmpegParams.VisionHeight = h
+	}
+
+	// Perspective correction
+	if streamConfig.Perspective != nil {
+		ffmpegParams.Perspective = streamConfig.Perspective
+	}
+
+	ffmpegParams.Rotation = streamConfig.FFmpeg.Rotation
+
 	// Determine overlay text (if set, test source is used instead of device)
 	switch {
 	case noSignalReason == "crashed":
@@ -138,14 +157,7 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 		enabled = false
 	}
 
-	// Priority order:
-	// 1. NO SIGNAL (device offline) - absolute precedence
-	// 2. Custom command (device online + custom command set)
-	// 3. Test mode (device online + no custom command + test mode enabled)
-	// 4. Normal capture (device online + no custom command + test mode disabled)
-
-	// If device is online AND custom command is set - use custom command
-	// (skip if device is offline to generate NO SIGNAL pattern instead)
+	// Priority: offline → NO SIGNAL; online → custom command, then test mode, then capture.
 	if enabled && streamConfig.CustomFFmpegCommand != "" {
 		return &ProcessedStream{
 			StreamID:      streamID,
@@ -191,9 +203,6 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	var ffmpegParams *ffmpeg.Params
 
 	if streamConfig.FFmpeg.Codec != "" {
-		// Use encoder selector to get optimal encoder and all params
-		// If encoderOverride is provided, selector will use it directly with proper settings
-		// Pass "testsrc" as input format when using test source to get appropriate filters
 		inputFormat := streamConfig.FFmpeg.InputFormat
 		if useTestSource {
 			inputFormat = "testsrc"

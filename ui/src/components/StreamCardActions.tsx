@@ -1,35 +1,77 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { useShallow } from 'zustand/react/shallow';
+import { Menu, MenuButton, MenuItems } from '@headlessui/react';
+import {
+  ArrowPathIcon,
+  CodeBracketIcon,
+  DocumentTextIcon,
+  PencilSquareIcon,
+  TrashIcon,
+  ViewfinderCircleIcon,
+} from '@heroicons/react/24/outline';
+import { EllipsisVerticalIcon } from '@heroicons/react/24/solid';
 import { Button } from './Button';
-import { toggleTestMode, restartStream } from '../lib/api';
+import { TestModeMenuItem } from './menu/TestModeMenuItem';
+import { MenuRow } from './menu/MenuRow';
+import { MENU_DOTS_BUTTON_CLASS } from './menu/menuStyles';
+import { api } from '../lib/api';
 import { useStreamStore } from '../hooks/useStreamStore';
+import { useSSEManager, type TaggedStreamStateChangedEvent } from '../hooks/useSSEManager';
+import { ICON_SIZE } from '../utils';
 
 interface StreamCardActionsProps {
   streamId: string;
   onDelete?: ((streamId: string) => void) | undefined;
   onShowFFmpegSheet: () => void;
+  onShowLogsSheet: () => void;
+  onShowPerspectiveSheet: () => void;
   onRequestPlayerRefresh: () => void;
 }
 
-function FFmpegCommandButton({ streamId, onShowSheet }: { readonly streamId: string; readonly onShowSheet: () => void }) {
-  const hasCustomCommand = useStreamStore(
-    (state) => !!state.streamsById[streamId]?.custom_ffmpeg_command
+const RESTART_TIMEOUT_MS = 10_000;
+
+function useWaitForStreamRunning(streamId: string) {
+  const pendingRef = useRef<{
+    resolve: () => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+
+  const settle = useCallback((err?: Error) => {
+    const pending = pendingRef.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingRef.current = null;
+    if (err) pending.reject(err);
+    else pending.resolve();
+  }, []);
+
+  const handler = useCallback(
+    (event: TaggedStreamStateChangedEvent) => {
+      if (event.stream_id === streamId && event.action === 'running') {
+        settle();
+      }
+    },
+    [streamId, settle]
   );
 
-  return (
-    <Button
-      theme={hasCustomCommand ? "primary" : "blank"}
-      size="SM"
-      onClick={onShowSheet}
-      title={hasCustomCommand ? "Custom FFmpeg Command" : "FFmpeg Command"}
-      LeadingIcon={({ className }) => (
-        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-        </svg>
-      )}
-    />
+  useSSEManager({ onStreamStateEvent: handler });
+
+  return useCallback(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        // Cancel any prior pending wait — only the latest restart is relevant.
+        if (pendingRef.current) {
+          clearTimeout(pendingRef.current.timer);
+          pendingRef.current.reject(new Error('superseded'));
+        }
+        const timer = setTimeout(() => {
+          settle(new Error('timeout waiting for stream to become running'));
+        }, RESTART_TIMEOUT_MS);
+        pendingRef.current = { resolve, reject, timer };
+      }),
+    [settle]
   );
 }
 
@@ -42,11 +84,7 @@ function EditButton({ streamId }: { readonly streamId: string }) {
       size="SM"
       onClick={() => navigate(`/streams/${streamId}/edit`)}
       title="Edit Stream"
-      LeadingIcon={({ className }) => (
-        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-        </svg>
-      )}
+      LeadingIcon={PencilSquareIcon}
     />
   );
 }
@@ -59,15 +97,23 @@ function RestartButton({
   readonly onRequestPlayerRefresh: () => void;
 }) {
   const [isRestarting, setIsRestarting] = useState(false);
+  const waitForRunning = useWaitForStreamRunning(streamId);
 
   const handleRestart = async () => {
     setIsRestarting(true);
 
+    const wait = waitForRunning();
+    // Swallow the wait promise's rejection independently — we only care about
+    // unhandled rejections, not propagating "superseded" / timeout errors past
+    // the catch below.
+    wait.catch(() => {});
     try {
-      await restartStream(streamId);
+      const { error } = await api.POST('/api/streams/{stream_id}/restart', {
+        params: { path: { stream_id: streamId } },
+      });
+      if (error) throw new Error(error.detail ?? 'Failed to restart stream');
 
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
+      await wait;
       onRequestPlayerRefresh();
     } catch (error) {
       console.error('Failed to restart stream:', error);
@@ -84,78 +130,42 @@ function RestartButton({
       onClick={handleRestart}
       disabled={isRestarting}
       title="Restart Stream"
-      LeadingIcon={({ className }) => (
-        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-      )}
+      LeadingIcon={ArrowPathIcon}
     />
   );
 }
 
-function TestModeButton({
-  streamId,
-  onRequestPlayerRefresh,
-}: {
+interface MoreActionsMenuProps {
   readonly streamId: string;
+  readonly onDelete?: ((streamId: string) => void) | undefined;
+  readonly onShowFFmpegSheet: () => void;
+  readonly onShowLogsSheet: () => void;
+  readonly onShowPerspectiveSheet: () => void;
   readonly onRequestPlayerRefresh: () => void;
-}) {
-  const [isTogglingTestMode, setIsTogglingTestMode] = useState(false);
-  const { testMode, hasCustomCommand } = useStreamStore(
-    useShallow((state) => ({
-      testMode: state.streamsById[streamId]?.test_mode ?? false,
-      hasCustomCommand: !!state.streamsById[streamId]?.custom_ffmpeg_command,
-    }))
-  );
-
-  const handleToggleTestMode = async () => {
-    setIsTogglingTestMode(true);
-
-    try {
-      await toggleTestMode(streamId, !testMode);
-
-      onRequestPlayerRefresh();
-    } catch (error) {
-      console.error('Failed to toggle test mode:', error);
-      toast.error('Failed to toggle test mode');
-    } finally {
-      setIsTogglingTestMode(false);
-    }
-  };
-
-  const title = (() => {
-    if (hasCustomCommand) return "Test mode disabled when custom command is set";
-    if (testMode) return "Disable Test Mode";
-    return "Enable Test Mode";
-  })();
-
-  return (
-    <Button
-      theme={testMode ? "primary" : "blank"}
-      size="SM"
-      onClick={handleToggleTestMode}
-      disabled={isTogglingTestMode || hasCustomCommand}
-      title={title}
-      LeadingIcon={({ className }) => (
-        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-        </svg>
-      )}
-    />
-  );
 }
 
-function DeleteButton({
+function MoreActionsMenu({
   streamId,
   onDelete,
-}: {
-  readonly streamId: string;
-  readonly onDelete: (streamId: string) => void;
-}) {
+  onShowFFmpegSheet,
+  onShowLogsSheet,
+  onShowPerspectiveSheet,
+  onRequestPlayerRefresh,
+}: MoreActionsMenuProps) {
+  const hasCustomCommand = useStreamStore(
+    (state) => !!state.streamsById[streamId]?.custom_ffmpeg_command,
+  );
   const [isDeleting, setIsDeleting] = useState(false);
+  const waitForRunning = useWaitForStreamRunning(streamId);
+
+  const handleTestModeAfterToggle = useCallback(async () => {
+    const wait = waitForRunning();
+    await wait;
+    onRequestPlayerRefresh();
+  }, [waitForRunning, onRequestPlayerRefresh]);
 
   const handleDelete = async () => {
-    if (isDeleting) return;
+    if (!onDelete || isDeleting) return;
 
     setIsDeleting(true);
     try {
@@ -166,20 +176,37 @@ function DeleteButton({
       setIsDeleting(false);
     }
   };
-
   return (
-    <Button
-      theme="danger"
-      size="SM"
-      onClick={handleDelete}
-      disabled={isDeleting}
-      title="Delete Stream"
-      LeadingIcon={({ className }) => (
-        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-        </svg>
-      )}
-    />
+    <Menu>
+      <MenuButton title="More actions" className={MENU_DOTS_BUTTON_CLASS}>
+        <EllipsisVerticalIcon className={`${ICON_SIZE.SM} shrink-0`} />
+      </MenuButton>
+      <MenuItems
+        anchor="bottom end"
+        className="z-50 mt-1 min-w-[220px] rounded border border-border bg-surface-raised py-1 shadow-lg focus:outline-none"
+      >
+        <MenuRow
+          icon={CodeBracketIcon}
+          label={hasCustomCommand ? 'Custom FFmpeg Command' : 'FFmpeg Command'}
+          onClick={onShowFFmpegSheet}
+          trailing={hasCustomCommand ? <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" /> : null}
+        />
+        <MenuRow icon={DocumentTextIcon} label="Stream Logs" onClick={onShowLogsSheet} />
+        <MenuRow icon={ViewfinderCircleIcon} label="Perspective Calibration" onClick={onShowPerspectiveSheet} />
+
+        <TestModeMenuItem streamId={streamId} onAfterToggle={handleTestModeAfterToggle} />
+
+        {onDelete && (
+          <MenuRow
+            icon={TrashIcon}
+            label="Delete Stream"
+            onClick={handleDelete}
+            variant="danger"
+            disabled={isDeleting}
+          />
+        )}
+      </MenuItems>
+    </Menu>
   );
 }
 
@@ -187,23 +214,25 @@ export function StreamCardActions({
   streamId,
   onDelete,
   onShowFFmpegSheet,
+  onShowLogsSheet,
+  onShowPerspectiveSheet,
   onRequestPlayerRefresh,
 }: Readonly<StreamCardActionsProps>) {
   return (
     <div className="flex items-center space-x-1">
-      <FFmpegCommandButton streamId={streamId} onShowSheet={onShowFFmpegSheet} />
       <EditButton streamId={streamId} />
       <RestartButton
         streamId={streamId}
         onRequestPlayerRefresh={onRequestPlayerRefresh}
       />
-      <TestModeButton
+      <MoreActionsMenu
         streamId={streamId}
+        onDelete={onDelete}
+        onShowFFmpegSheet={onShowFFmpegSheet}
+        onShowLogsSheet={onShowLogsSheet}
+        onShowPerspectiveSheet={onShowPerspectiveSheet}
         onRequestPlayerRefresh={onRequestPlayerRefresh}
       />
-      {onDelete && (
-        <DeleteButton streamId={streamId} onDelete={onDelete} />
-      )}
     </div>
   );
 }

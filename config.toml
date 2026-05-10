@@ -25,14 +25,23 @@ enabled = true
 # Include prereleases in updates
 prerelease = false
 
-[capture]
-# Default capture delay in milliseconds
-default_delay_ms = 3000
+[recording]
+# Base directory for all recording output (snapshots, future video recordings)
+data_dir = "data/recording"
+
+[vision]
+# Default frame rate for the vision raw-frame pipe (per source).
+# Per-source `vision.fps` in streams.toml overrides this. 0 = no throttle.
+default_fps = 10
 
 [auth]
-# Basic HTTP authentication credentials
-username = "pinball"
-password = "pinball"
+# Authentication type: "linux" (default) or "basic"
+# linux: Uses service user's Linux credentials via unix_chkpwd
+# basic: Uses username/password below
+type = "basic"
+# Fallback credentials (used when type="basic" or linux auth unavailable)
+username = "videonode"
+password = "videonode"
 
 [features]
 # Enable LED control (requires appropriate hardware)
@@ -46,9 +55,10 @@ level = "info"
 format = "text"
 # Module-specific logging levels
 streams = "info"
-streaming = "info"
+streaming = "debug"
 devices = "info"
 encoders = "info"
-capture = "info"
+recording = "info"
 api = "info"
 webrtc = "debug"
+srt = "debug"

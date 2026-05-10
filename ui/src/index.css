@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./design/tokens.css";
 
 @config "../tailwind.config.js";
 
@@ -28,6 +29,17 @@
     100% {
       opacity: 1;
       transform: scale(1);
+    }
+  }
+
+  @keyframes blip {
+    0% {
+      background-color: var(--color-orange-500);
+      color: white;
+      scale: 1.15;
+    }
+    100% {
+      scale: 1;
     }
   }
 
