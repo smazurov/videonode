@@ -1,27 +1,12 @@
+import createClient, { type Middleware } from "openapi-fetch";
 import { toast } from 'react-hot-toast';
 import { clearAuthState } from '../hooks/useAuthStore';
+import { getAuthCredentials } from './auth';
+import type { paths } from "./api.generated";
 
 export const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8090`;
 
-// Helper function to build full URLs from backend's :port/path format
-export function buildStreamURL(partialUrl: string | undefined, protocol: 'http' | 'rtsp' | 'srt' = 'http'): string | undefined {
-  if (!partialUrl) return undefined;
-
-  // Backend returns format like ":8889/stream-001" or ":8890?streamid=read:stream-001"
-  if (partialUrl.startsWith(':')) {
-    const fullUrl = `${protocol}://${window.location.hostname}${partialUrl}`;
-
-    // Add 50ms latency for SRT streams
-    if (protocol === 'srt') {
-      return `${fullUrl}&latency=50000`;
-    }
-
-    return fullUrl;
-  }
-
-  // If it's already a full URL, return as-is
-  return partialUrl;
-}
+const SESSION_EXPIRED_MSG = 'Session expired. Please log in again.';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -30,79 +15,56 @@ export class ApiError extends Error {
   }
 }
 
-export async function makeApiRequest(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<Response> {
-  const credentials = localStorage.getItem('auth_credentials');
-  
-  if (!credentials) {
-    throw new ApiError(401, 'No credentials found');
+// unwrap throws if the openapi-fetch result has an error, otherwise returns
+// the data. Centralizes the if (error) throw idiom used at every call site.
+export function unwrap<TData, TError extends { detail?: string } | undefined>(
+  result: { data?: TData; error?: TError },
+  fallbackMsg: string,
+): TData {
+  if (result.error) {
+    throw new Error(result.error.detail ?? fallbackMsg);
   }
-  
-  const url = `${API_BASE_URL}${endpoint}`;
-  
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Authorization': `Basic ${credentials}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-  
-  if (!response.ok) {
-    // Clear auth state and redirect to login on 401
+  return result.data as TData;
+}
+
+const authMiddleware: Middleware = {
+  async onRequest({ request }) {
+    const credentials = getAuthCredentials();
+    if (credentials) {
+      request.headers.set('Authorization', `Basic ${credentials}`);
+    }
+    return request;
+  },
+  async onResponse({ response }) {
     if (response.status === 401) {
-      toast.error('Session expired. Please log in again.');
+      toast.error(SESSION_EXPIRED_MSG);
       clearAuthState();
     }
-    throw new ApiError(response.status, `API request failed: ${response.statusText}`);
+    return response;
+  },
+};
+
+export const api = createClient<paths>({ baseUrl: API_BASE_URL });
+api.use(authMiddleware);
+
+export function buildStreamURL(partialUrl: string | undefined, protocol: 'http' | 'rtsp' | 'srt' = 'http'): string | undefined {
+  if (!partialUrl) return undefined;
+
+  if (partialUrl.startsWith(':')) {
+    const fullUrl = `${protocol}://${window.location.hostname}${partialUrl}`;
+    if (protocol === 'srt') {
+      return `${fullUrl}&latency=50000`;
+    }
+    return fullUrl;
   }
-  
-  return response;
-}
 
-export async function apiGet<T>(endpoint: string): Promise<T> {
-  const response = await makeApiRequest(endpoint);
-  return response.json() as Promise<T>;
-}
-
-export async function apiPost<T>(endpoint: string, data?: unknown): Promise<T> {
-  const response = await makeApiRequest(endpoint, {
-    method: 'POST',
-    body: data ? JSON.stringify(data) : null,
-  });
-  return response.json() as Promise<T>;
-}
-
-export async function apiPut<T>(endpoint: string, data?: unknown): Promise<T> {
-  const response = await makeApiRequest(endpoint, {
-    method: 'PUT',
-    body: data ? JSON.stringify(data) : null,
-  });
-  return response.json() as Promise<T>;
-}
-
-export async function apiPatch<T>(endpoint: string, data?: unknown): Promise<T> {
-  const response = await makeApiRequest(endpoint, {
-    method: 'PATCH',
-    body: data ? JSON.stringify(data) : null,
-  });
-  return response.json() as Promise<T>;
-}
-
-export async function apiDelete(endpoint: string): Promise<void> {
-  await makeApiRequest(endpoint, {
-    method: 'DELETE',
-  });
+  return partialUrl;
 }
 
 export async function testAuth(username: string, password: string): Promise<boolean> {
   const credentials = btoa(`${username}:${password}`);
 
   try {
-    // Use /api/streams which requires auth, unlike /api/health which is public
     const response = await fetch(`${API_BASE_URL}/api/streams`, {
       headers: {
         'Authorization': `Basic ${credentials}`,
@@ -117,325 +79,8 @@ export async function testAuth(username: string, password: string): Promise<bool
   }
 }
 
-// Stream-related types
-export interface StreamData {
-  stream_id: string;
-  device_id: string;
-  codec: string;
-  bitrate?: string;
-  start_time?: string;
-  rtsp_url?: string;
-  // Configuration fields for editing
-  input_format?: string;
-  resolution?: string;
-  framerate?: string;
-  audio_device?: string;
-  custom_ffmpeg_command?: string;
-  test_mode?: boolean;
-  options?: string[];
-  // Metrics fields
-  fps?: string;
-  dropped_frames?: string;
-  duplicate_frames?: string;
-}
-
-export interface StreamListData {
-  streams: StreamData[];
-  count: number;
-}
-
-export interface StreamRequestData {
-  stream_id: string;
-  device_id: string;
-  codec: string;
-  input_format: string;
-  bitrate?: number; // In Mbps
-  width?: number;
-  height?: number;
-  framerate?: number;
-  audio_device?: string;
-  options?: string[];
-  custom_ffmpeg_command?: string;
-  test_mode?: boolean;
-}
-
-export interface DeviceInfo {
-  device_path: string;
-  device_name: string;
-  device_id: string;
-  caps: number;
-  capabilities: string[];
-}
-
-export interface DeviceData {
-  devices: DeviceInfo[];
-  count: number;
-}
-
-// Stream API functions
-export async function getStreams(): Promise<StreamListData> {
-  return apiGet<StreamListData>('/api/streams');
-}
-
-export async function createStream(request: StreamRequestData): Promise<StreamData> {
-  return apiPost<StreamData>('/api/streams', request);
-}
-
-export async function updateStream(streamId: string, data: Partial<StreamRequestData>): Promise<StreamData> {
-  return apiPatch<StreamData>(`/api/streams/${streamId}`, data);
-}
-
-export async function deleteStream(streamId: string): Promise<void> {
-  await apiDelete(`/api/streams/${streamId}`);
-}
-
-// Device API functions
-export async function getDevices(): Promise<DeviceData> {
-  return apiGet<DeviceData>('/api/devices');
-}
-
-// Device capabilities types
-export interface FormatInfo {
-  format_name: string;
-  original_name: string;
-  emulated: boolean;
-}
-
-export interface DeviceCapabilitiesData {
-  device_path: string;
-  formats: FormatInfo[];
-}
-
-export interface Resolution {
-  width: number;
-  height: number;
-  type: 'discrete' | 'stepwise' | 'continuous';
-  min_width?: number;
-  max_width?: number;
-  step_width?: number;
-  min_height?: number;
-  max_height?: number;
-  step_height?: number;
-}
-
-export interface DeviceResolutionsData {
-  resolutions: Resolution[];
-}
-
-export interface Framerate {
-  numerator: number;
-  denominator: number;
-  fps: number;
-  type: 'discrete' | 'stepwise' | 'continuous';
-  min_numerator?: number;
-  min_denominator?: number;
-  max_numerator?: number;
-  max_denominator?: number;
-  step_numerator?: number;
-  step_denominator?: number;
-}
-
-export interface DeviceFrameratesData {
-  framerates: Framerate[];
-}
-
-// Version info types
-export interface VersionInfo {
-  version: string;
-  git_commit: string;
-  build_date: string;
-  build_id: string;
-  go_version: string;
-  compiler: string;
-  platform: string;
-}
-
-// System API functions
-export async function getVersion(): Promise<VersionInfo> {
-  return apiGet<VersionInfo>('/api/version');
-}
-
-// Device capabilities API functions
-export async function getDeviceFormats(deviceId: string): Promise<DeviceCapabilitiesData> {
-  return apiGet<DeviceCapabilitiesData>(`/api/devices/${deviceId}/formats`);
-}
-
-export async function getDeviceResolutions(deviceId: string, formatName: string): Promise<DeviceResolutionsData> {
-  const params = new URLSearchParams({ format_name: formatName });
-  return apiGet<DeviceResolutionsData>(`/api/devices/${deviceId}/resolutions?${params}`);
-}
-
-export async function getDeviceFramerates(
-  deviceId: string, 
-  formatName: string, 
-  width: number, 
-  height: number
-): Promise<DeviceFrameratesData> {
-  const params = new URLSearchParams({
-    format_name: formatName,
-    width: width.toString(),
-    height: height.toString()
-  });
-  return apiGet<DeviceFrameratesData>(`/api/devices/${deviceId}/framerates?${params}`);
-}
-
-// Health API types and functions
-export interface HealthData {
-  status: string;
-  message: string;
-  version?: string;
-}
-
-export async function getHealth(): Promise<HealthData> {
-  return apiGet<HealthData>('/api/health');
-}
-
-// Encoder API types and functions
-export interface EncoderInfo {
-  type: 'video' | 'audio';
-  name: string;
-  description: string;
-  hwaccel: boolean;
-}
-
-export interface EncoderData {
-  video_encoders: EncoderInfo[];
-  audio_encoders: EncoderInfo[];
-  count: number;
-}
-
-export async function getEncoders(): Promise<EncoderData> {
-  return apiGet<EncoderData>('/api/encoders');
-}
-
-// FFmpeg Options API types and functions
-export interface FFmpegOption {
-  key: string;
-  name: string;
-  description: string;
-  category: string;
-  app_default: boolean;
-  exclusive_group?: string;
-  conflicts_with?: string[];
-}
-
-export interface FFmpegOptionsData {
-  options: FFmpegOption[];
-}
-
-export async function getFFmpegOptions(): Promise<FFmpegOptionsData> {
-  return apiGet<FFmpegOptionsData>('/api/options');
-}
-
-// SSE Event types
-export interface SSEDeviceDiscoveryEvent {
-  type: 'device-discovery';
-  device_path: string;
-  device_name: string;
-  device_id: string;
-  caps: number;
-  capabilities: string[];
-  action: 'added' | 'removed' | 'changed';
-  timestamp: string;
-}
-
-export interface SSEStreamCreatedEvent {
-  type: 'stream-created';
-  stream: StreamData;
-  action: 'created';
-  timestamp: string;
-}
-
-export interface SSEStreamDeletedEvent {
-  type: 'stream-deleted';
-  stream_id: string;
-  action: 'deleted';
-  timestamp: string;
-}
-
-export interface SSEStreamUpdatedEvent {
-  type: 'stream-updated';
-  stream: StreamData;
-  action: 'updated' | 'restarted';
-  timestamp: string;
-}
-
-
-
-export interface SSEStreamMetricsEvent {
-  type: 'stream-metrics';
-  stream_id: string;
-  fps?: string;
-  dropped_frames?: string;
-  duplicate_frames?: string;
-}
-
-export type SSEStreamLifecycleEvent = SSEStreamCreatedEvent | SSEStreamUpdatedEvent | SSEStreamDeletedEvent;
-
-// Audio device types
-export interface AudioDevice {
-  card_number: number;
-  card_id: string;
-  card_name: string;
-  device_number: number;
-  device_name: string;
-  type: string;
-  alsa_device: string;
-  supported_rates?: number[];
-  min_channels?: number;
-  max_channels?: number;
-  supported_formats?: string[];
-  min_buffer_size?: number;
-  max_buffer_size?: number;
-  min_period_size?: number;
-  max_period_size?: number;
-}
-
-export interface AudioDevicesData {
-  devices: AudioDevice[];
-  count: number;
-}
-
-// Audio API functions
-export async function getAudioDevices(): Promise<AudioDevicesData> {
-  return apiGet<AudioDevicesData>('/api/devices/audio');
-}
-
-// FFmpeg command types
-export interface FFmpegCommandData {
-  stream_id: string;
-  command: string;
-  is_custom: boolean;
-}
-
-// FFmpeg command functions
-export async function getFFmpegCommand(streamId: string, encoderOverride?: string): Promise<FFmpegCommandData> {
-  const params = encoderOverride ? `?override=${encodeURIComponent(encoderOverride)}` : '';
-  return apiGet<FFmpegCommandData>(`/api/streams/${streamId}/ffmpeg${params}`);
-}
-
-export async function setFFmpegCommand(streamId: string, command: string): Promise<StreamData> {
-  // When setting a custom command, also disable test mode
-  return updateStream(streamId, { custom_ffmpeg_command: command, test_mode: false });
-}
-
-export async function clearFFmpegCommand(streamId: string): Promise<StreamData> {
-  return updateStream(streamId, { custom_ffmpeg_command: "" });
-}
-
-export async function toggleTestMode(streamId: string, enabled: boolean): Promise<StreamData> {
-  return updateStream(streamId, { test_mode: enabled });
-}
-
-export async function restartStream(streamId: string): Promise<void> {
-  await makeApiRequest(`/api/streams/${streamId}/restart`, { method: 'POST' });
-}
-
-// WebRTC signaling - sends SDP offer, receives SDP answer
-// Auth is optional since the backend /api/webrtc endpoint is public
 export async function webrtcSignaling(streamId: string, offer: string, signal?: AbortSignal): Promise<string> {
-  const credentials = localStorage.getItem('auth_credentials');
-
+  const credentials = getAuthCredentials();
   const headers: HeadersInit = {
     'Content-Type': 'application/sdp',
   };
@@ -453,14 +98,205 @@ export async function webrtcSignaling(streamId: string, offer: string, signal?: 
 
   if (!response.ok) {
     if (response.status === 401) {
-      toast.error('Session expired. Please log in again.');
+      toast.error(SESSION_EXPIRED_MSG);
       clearAuthState();
     }
     throw new ApiError(response.status, `WebRTC signaling failed: ${response.statusText}`);
   }
 
-  // Response is raw SDP
   return response.text();
 }
 
-export type SSEEvent = SSEDeviceDiscoveryEvent | SSEStreamLifecycleEvent | SSEStreamMetricsEvent;
+// SSE type helpers — extract event→data map from generated path types
+type GetContent<P extends keyof paths> =
+  paths[P] extends { get: { responses: { 200: { content: infer C } } } } ? C : never;
+
+type SSEPath = {
+  [P in keyof paths]: GetContent<P> extends { "text/event-stream": unknown }
+    ? P
+    : never;
+}[keyof paths];
+
+type SSEStream<P extends SSEPath> = GetContent<P> extends {
+  "text/event-stream": infer S;
+}
+  ? S
+  : never;
+
+type SSEEvent<P extends SSEPath> = SSEStream<P> extends (infer E)[] ? E : never;
+
+type SSEEventMap<P extends SSEPath> = {
+  [E in SSEEvent<P> as E extends { event: infer N extends string }
+    ? N
+    : never]: E extends { data: infer D } ? D : never;
+};
+
+export type SSEStatus =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "reconnecting";
+
+const INITIAL_RECONNECT_DELAY = 5000;
+const MAX_RECONNECT_DELAY = 60000;
+export interface SSEClientConfig<P extends SSEPath> {
+  endpoint: P;
+  onStatusChange?: (status: SSEStatus) => void;
+  onConnect?: () => void;
+  onError?: (willReconnect: boolean) => void;
+}
+
+type MessageHandler = (event: MessageEvent) => void;
+type TypedEventHandler<T> = (data: T) => void;
+
+export class SSEClient<P extends SSEPath> {
+  private eventSource: EventSource | null = null;
+  private reconnectTimeout: number | null = null;
+  private reconnectDelay = INITIAL_RECONNECT_DELAY;
+  private messageHandler: MessageHandler | null = null;
+  private readonly typedHandlers: Map<string, TypedEventHandler<unknown>> =
+    new Map();
+  private status: SSEStatus = "disconnected";
+
+  constructor(private readonly config: SSEClientConfig<P>) {}
+
+  connect(): void {
+    if (this.eventSource) return;
+
+    const credentials = getAuthCredentials();
+    if (!credentials) {
+      this.setStatus('disconnected');
+      return;
+    }
+
+    this.setStatus("connecting");
+
+    const sseUrl = `${API_BASE_URL}${this.config.endpoint}?auth=${encodeURIComponent(credentials)}`;
+    this.eventSource = new EventSource(sseUrl);
+
+    this.eventSource.onopen = () => {
+      this.reconnectDelay = INITIAL_RECONNECT_DELAY;
+      this.setStatus("connected");
+      this.config.onConnect?.();
+    };
+
+    if (this.messageHandler) {
+      this.eventSource.onmessage = this.messageHandler;
+    }
+
+    for (const [eventType, handler] of this.typedHandlers) {
+      this.attachTypedHandler(eventType, handler);
+    }
+
+    this.eventSource.onerror = async () => {
+      this.setStatus('reconnecting');
+      this.eventSource?.close();
+      this.eventSource = null;
+
+      const authFailed = await this.verifyAuthOrRedirect();
+      if (authFailed) {
+        this.config.onError?.(false);
+        return;
+      }
+
+      this.config.onError?.(true);
+      this.scheduleReconnect();
+    };
+  }
+
+  disconnect(): void {
+    if (this.reconnectTimeout) {
+      window.clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+    this.setStatus("disconnected");
+  }
+
+  getEventSource(): EventSource | null {
+    return this.eventSource;
+  }
+
+  getStatus(): SSEStatus {
+    return this.status;
+  }
+
+  onMessage(handler: MessageHandler): void {
+    this.messageHandler = handler;
+    if (this.eventSource) {
+      this.eventSource.onmessage = handler;
+    }
+  }
+
+  on<K extends keyof SSEEventMap<P> & string>(
+    eventType: K,
+    handler: TypedEventHandler<SSEEventMap<P>[K]>,
+  ): void {
+    this.typedHandlers.set(
+      eventType,
+      handler as TypedEventHandler<unknown>,
+    );
+    if (this.eventSource) {
+      this.attachTypedHandler(
+        eventType,
+        handler as TypedEventHandler<unknown>,
+      );
+    }
+  }
+
+  off(eventType: keyof SSEEventMap<P> & string): void {
+    this.typedHandlers.delete(eventType);
+  }
+
+  private attachTypedHandler(
+    eventType: string,
+    handler: TypedEventHandler<unknown>,
+  ): void {
+    this.eventSource?.addEventListener(eventType, (event: MessageEvent) => {
+      try {
+        const data: unknown = JSON.parse(String(event.data));
+        handler(data);
+      } catch (error) {
+        console.error(`Error parsing ${eventType} event:`, error);
+      }
+    });
+  }
+
+  private setStatus(status: SSEStatus): void {
+    this.status = status;
+    this.config.onStatusChange?.(status);
+  }
+
+  private async verifyAuthOrRedirect(): Promise<boolean> {
+    if (!getAuthCredentials()) {
+      toast.error(SESSION_EXPIRED_MSG);
+      clearAuthState();
+      return true;
+    }
+    // authMiddleware.onResponse handles the 401 toast + clearAuthState; we
+    // just need to know whether the call succeeded enough to continue
+    // reconnect attempts.
+    const { response, error } = await api.GET('/api/streams');
+    if (response?.status === 401) return true;
+    // Network errors leave error truthy but no 401 — keep reconnecting.
+    if (error) return false;
+    return false;
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimeout) {
+      window.clearTimeout(this.reconnectTimeout);
+    }
+
+    const currentDelay = this.reconnectDelay;
+    console.log(`SSE reconnecting in ${currentDelay / 1000} seconds...`);
+
+    this.reconnectTimeout = window.setTimeout(() => {
+      this.connect();
+      this.reconnectDelay = Math.min(currentDelay * 2, MAX_RECONNECT_DELAY);
+    }, currentDelay);
+  }
+}

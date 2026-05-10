@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { PlayIcon } from '@heroicons/react/24/outline';
 import { webrtcSignaling } from '../../lib/api';
 import { StatsOverlay } from './StatsOverlay';
 
-const RECONNECT_DELAY_MS = 2000;
+const RECONNECT_BASE_MS = 2000;
+const RECONNECT_MAX_MS = 30_000;
 const ICE_GATHER_TIMEOUT_MS = 2000;
 
 interface Props {
@@ -36,35 +38,36 @@ function waitForIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<
   });
 }
 
-interface ConnectionHandlers {
+interface PeerConnectionCallbacks {
   onConnected: () => void;
   onOffline: () => void;
-  onTrack: (stream: MediaStream) => void;
+  onStream: (stream: MediaStream) => void;
 }
 
-function attachTrackHandler(
-  pc: RTCPeerConnection,
-  handlers: ConnectionHandlers
-): void {
-  pc.ontrack = (e) => {
-    const stream = e.streams[0];
-    if (stream) handlers.onTrack(stream);
-  };
-}
-
-function attachStateHandler(
+function attachPeerHandlers(
   pc: RTCPeerConnection,
   cancelledRef: React.RefObject<boolean>,
-  handlers: ConnectionHandlers,
+  callbacks: PeerConnectionCallbacks,
   scheduleReconnect: () => void
 ): void {
+  const stream = new MediaStream();
+  let streamDelivered = false;
+
+  pc.ontrack = (e) => {
+    stream.addTrack(e.track);
+    if (!streamDelivered) {
+      streamDelivered = true;
+      callbacks.onStream(stream);
+    }
+  };
+
   pc.onconnectionstatechange = () => {
     if (cancelledRef.current) return;
     const state = pc.connectionState;
     if (state === 'connected') {
-      handlers.onConnected();
+      callbacks.onConnected();
     } else if (state === 'failed' || state === 'disconnected') {
-      handlers.onOffline();
+      callbacks.onOffline();
       scheduleReconnect();
     }
   };
@@ -93,6 +96,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const cancelledRef = useRef(false);
   const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
   const connectRef = useRef<() => Promise<void>>(undefined);
 
   const [pc, setPC] = useState<RTCPeerConnection | null>(null);
@@ -111,22 +115,27 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
 
     const scheduleReconnect = () => {
       if (reconnectTimerRef.current) return;
+      const attempt = reconnectAttemptsRef.current;
+      const delay = Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS);
+      reconnectAttemptsRef.current = attempt + 1;
       reconnectTimerRef.current = window.setTimeout(() => {
         reconnectTimerRef.current = null;
         if (!cancelledRef.current) connectRef.current?.();
-      }, RECONNECT_DELAY_MS);
+      }, delay);
     };
 
-    const handlers: ConnectionHandlers = {
-      onConnected: () => setConnectionState('connected'),
+    const callbacks: PeerConnectionCallbacks = {
+      onConnected: () => {
+        reconnectAttemptsRef.current = 0;
+        setConnectionState('connected');
+      },
       onOffline: () => setConnectionState('offline'),
-      onTrack: (stream) => {
+      onStream: (stream) => {
         const video = videoRef.current;
         if (!video) return;
         video.srcObject = stream;
-        // Only set playBlocked if play actually fails and stays failed
-        video.play().catch(() => {
-          // Double-check video is still paused before showing overlay
+        video.play().catch((error_: DOMException) => {
+          console.warn(`WebRTC [${streamId}]: play() failed:`, error_.name, error_.message);
           if (video.paused) setPlayBlocked(true);
         });
       },
@@ -144,8 +153,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       pcRef.current = peerConnection;
       setPC(peerConnection);
 
-      attachTrackHandler(peerConnection, handlers);
-      attachStateHandler(peerConnection, cancelledRef, handlers, scheduleReconnect);
+      attachPeerHandlers(peerConnection, cancelledRef, callbacks, scheduleReconnect);
 
       peerConnection.addTransceiver('video', { direction: 'recvonly' });
       peerConnection.addTransceiver('audio', { direction: 'recvonly' });
@@ -154,7 +162,9 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         const extractedPeerId = await performSignaling(peerConnection, streamId, cancelledRef);
         setPeerId(extractedPeerId);
       } catch (error_) {
-        console.error(`WebRTC [${streamId}]: connection failed`, error_);
+        // Loud first attempt, quiet retries: avoids spamming during transient 404s.
+        const log = reconnectAttemptsRef.current === 0 ? console.error : console.debug;
+        log(`WebRTC [${streamId}]: connection failed`, error_);
         if (!cancelledRef.current) {
           setConnectionState('offline');
           scheduleReconnect();
@@ -191,7 +201,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
   if (error) {
     return (
       <div className={`relative flex items-center justify-center ${className}`} style={{ background: '#000' }}>
-        <span className="text-red-400 text-sm">{error}</span>
+        <span className="text-danger text-sm">{error}</span>
       </div>
     );
   }
@@ -210,12 +220,12 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       />
       {isOffline && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-gray-400 text-sm">Stream offline</span>
+          <span className="text-fg-subtle text-sm">Stream offline</span>
         </div>
       )}
       {isConnecting && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-gray-400 text-sm">Connecting...</span>
+          <span className="text-fg-subtle text-sm">Connecting...</span>
         </div>
       )}
       {showStats && connectionState === 'connected' && (
@@ -223,13 +233,11 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       )}
       {playBlocked && (
         <div
-          className="absolute inset-0 flex items-center justify-center cursor-pointer bg-black/50"
+          className="absolute inset-0 flex items-center justify-center cursor-pointer bg-surface-overlay"
           onClick={handleClickToPlay}
         >
-          <div className="text-white text-center">
-            <svg className="w-16 h-16 mx-auto" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z" />
-            </svg>
+          <div className="text-fg-inverse text-center">
+            <PlayIcon className="w-16 h-16 mx-auto" />
             <span className="text-sm mt-2 block">Click to play</span>
           </div>
         </div>

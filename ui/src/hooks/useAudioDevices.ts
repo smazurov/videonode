@@ -1,41 +1,21 @@
-import { useState, useEffect } from 'react';
-import { getAudioDevices, AudioDevice } from '../lib/api';
+import type { components } from '../lib/api.generated';
+import { api, unwrap } from '../lib/api';
+import { useAbortableQuery } from './useAbortableQuery';
+
+type AudioDevice = components["schemas"]["AudioDevice"];
 
 export function useAudioDevices() {
-  const [devices, setDevices] = useState<AudioDevice[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    const fetchDevices = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        const data = await getAudioDevices();
-        if (mounted) {
-          setDevices(data.devices);
-        }
-      } catch (error_) {
-        if (mounted) {
-          setError(error_ instanceof Error ? error_.message : 'Failed to load audio devices');
-          console.error('Failed to fetch audio devices:', error_);
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchDevices();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const { data: devices, loading, error } = useAbortableQuery<AudioDevice[]>(
+    async (signal) => {
+      const result = unwrap(
+        await api.GET("/api/devices/audio", { signal }),
+        'Failed to load audio devices',
+      );
+      return result.devices ?? [];
+    },
+    [],
+    { initial: [] },
+  );
 
   return { devices, loading, error };
 }

@@ -7,12 +7,11 @@ import {
   ClockIcon
 } from "@heroicons/react/24/outline";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import {
-  getHealth,
-  getEncoders,
-  type HealthData,
-  type EncoderData
-} from "../lib/api";
+import type { components } from "../lib/api.generated";
+import { api } from "../lib/api";
+
+type HealthData = components["schemas"]["HealthData"];
+type EncoderData = components["schemas"]["EncoderData"];
 import { useDeviceStore } from "../hooks/useDeviceStore";
 import { useStreamStore } from "../hooks/useStreamStore";
 import { useSSEManager } from "../hooks/useSSEManager";
@@ -45,10 +44,10 @@ function StatusIndicator({ status, size = 'sm' }: Readonly<StatusIndicatorProps>
   } as const;
 
   const colorClasses = {
-    online: 'bg-green-500',
-    warning: 'bg-yellow-500', 
-    offline: 'bg-red-500',
-    reconnecting: 'bg-yellow-500'
+    online: 'bg-success',
+    warning: 'bg-warning',
+    offline: 'bg-danger',
+    reconnecting: 'bg-warning'
   } as const;
 
   return (
@@ -71,24 +70,24 @@ interface InfoItemProps {
 
 function InfoItem({ icon: Icon, label, value, status, subtitle, onClick }: Readonly<InfoItemProps>) {
   return (
-    <div 
+    <div
       className={cn(
         "flex items-center space-x-2 px-3 py-1.5 rounded-md transition-colors",
-        onClick && "cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+        onClick && "cursor-pointer hover:bg-surface-muted"
       )}
       onClick={onClick}
     >
       <div className="flex items-center space-x-1.5">
-        <Icon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+        <Icon className="w-4 h-4 text-fg-subtle" />
         {status && <StatusIndicator status={status} />}
       </div>
       <div className="flex flex-col">
         <div className="flex items-center space-x-1">
-          <span className="text-xs text-gray-600 dark:text-gray-300">{label}:</span>
-          <span className="text-xs font-medium text-gray-900 dark:text-white">{value}</span>
+          <span className="text-xs text-fg-muted">{label}:</span>
+          <span className="text-xs font-medium text-fg">{value}</span>
         </div>
         {subtitle && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</span>
+          <span className="text-xs text-fg-subtle">{subtitle}</span>
         )}
       </div>
     </div>
@@ -101,7 +100,7 @@ interface SeparatorProps {
 
 function Separator({ className }: Readonly<SeparatorProps>) {
   return (
-    <div className={cn("w-px h-6 bg-gray-300 dark:bg-gray-600", className)} />
+    <div className={cn("w-px h-6 bg-border", className)} />
   );
 }
 
@@ -147,10 +146,12 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
         setSystemInfo(prev => ({ ...prev, loading: true, error: null }));
       }
       
-      const [health, encoders] = await Promise.all([
-        getHealth().catch(() => null),
-        getEncoders().catch(() => null)
+      const [healthResult, encodersResult] = await Promise.all([
+        api.GET("/api/health").catch(() => null),
+        api.GET("/api/encoders").catch(() => null),
       ]);
+      const health = healthResult?.data ?? null;
+      const encoders = encodersResult?.data ?? null;
 
       // Also fetch devices and streams if this is the initial load
       if (showLoading) {
@@ -193,7 +194,7 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
 
   return (
     <div className={cn(
-      "flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-xs overflow-x-auto",
+      "flex items-center justify-between px-4 py-2 bg-surface-raised border-t border-border text-xs overflow-x-auto",
       className
     )}>
       {/* Left section - Core metrics */}
@@ -221,9 +222,9 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
         {systemInfo.error && (
           <>
             <Separator className="hidden sm:block" />
-            <div className="flex items-center space-x-1.5 px-2 py-1 bg-red-50 dark:bg-red-900/20 rounded-md">
-              <ExclamationTriangleIcon className="w-4 h-4 text-red-500" />
-              <span className="text-xs text-red-700 dark:text-red-400 hidden sm:inline">Connection Error</span>
+            <div className="flex items-center space-x-1.5 px-2 py-1 bg-danger-soft rounded-md">
+              <ExclamationTriangleIcon className="w-4 h-4 text-danger" />
+              <span className="text-xs text-danger-soft-fg hidden sm:inline">Connection Error</span>
             </div>
           </>
         )}
@@ -235,8 +236,8 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
         {systemInfo.lastUpdated && !systemInfo.loading && (
           <>
             <div className="hidden xl:flex items-center space-x-1.5">
-              <ClockIcon className="w-4 h-4 text-gray-400" />
-              <span className="text-xs text-gray-500 dark:text-gray-400">
+              <ClockIcon className="w-4 h-4 text-fg-subtle" />
+              <span className="text-xs text-fg-subtle">
                 Updated {formatLastUpdated(systemInfo.lastUpdated)}
               </span>
             </div>
@@ -262,31 +263,31 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
                     }
                   })()}
                   status={connectionStatus}
-                  {...(systemInfo.health?.version && { subtitle: `v${systemInfo.health.version}` })}
+                  {...(versionInfo?.version && { subtitle: `v${versionInfo.version}` })}
                 />
               </div>
             </Tooltip.Trigger>
             <Tooltip.Portal>
               <Tooltip.Content
-                className="z-50 px-3 py-2 text-xs bg-gray-900 text-white rounded-md shadow-lg"
+                className="z-50 px-3 py-2 text-xs bg-fg text-fg-inverse rounded-md shadow-lg"
                 sideOffset={5}
               >
                 {versionInfo && (
                   <div className="space-y-1 font-mono">
                     <div>
-                      <span className="text-gray-400">API:</span> {versionInfo.version} • {versionInfo.build_date}
+                      <span className="text-fg-subtle">API:</span> {versionInfo.version} • {versionInfo.build_date}
                     </div>
                     <div>
-                      <span className="text-gray-400">UI:&nbsp;</span> {
+                      <span className="text-fg-subtle">UI:&nbsp;</span> {
                         typeof __VIDEONODE_UI_VERSION__ !== 'undefined' ? __VIDEONODE_UI_VERSION__ : 'dev'
                       }
                     </div>
                   </div>
                 )}
                 {!versionInfo && (
-                  <div className="text-gray-400">Loading version info...</div>
+                  <div className="text-fg-subtle">Loading version info...</div>
                 )}
-                <Tooltip.Arrow className="fill-gray-900" />
+                <Tooltip.Arrow className="fill-fg" />
               </Tooltip.Content>
             </Tooltip.Portal>
           </Tooltip.Root>

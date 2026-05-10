@@ -43,16 +43,16 @@ export function StreamMetrics({ streamId }: Readonly<StreamMetricsProps>) {
   return (
     <>
       <div className="flex justify-between">
-        <span className="text-gray-600 dark:text-gray-300">Uptime:</span>
-        <span className="text-gray-900 dark:text-white font-medium font-mono">
+        <span className="text-fg-muted">Uptime:</span>
+        <span className="text-fg font-medium font-mono">
           {uptime}
         </span>
       </div>
 
       {metrics?.fps && (
         <div className="flex justify-between">
-          <span className="text-gray-600 dark:text-gray-300">FPS:</span>
-          <span className="text-gray-900 dark:text-white font-medium font-mono">
+          <span className="text-fg-muted">FPS:</span>
+          <span className="text-fg font-medium font-mono">
             {metrics.fps}
           </span>
         </div>
@@ -60,8 +60,8 @@ export function StreamMetrics({ streamId }: Readonly<StreamMetricsProps>) {
 
       {hasDroppedOrDuplicate && (
         <div className="flex justify-between">
-          <span className="text-gray-600 dark:text-gray-300">Dropped / Duplicate:</span>
-          <span className="text-gray-900 dark:text-white font-medium font-mono">
+          <span className="text-fg-muted">Dropped / Duplicate:</span>
+          <span className="text-fg font-medium font-mono">
             {metrics?.dropped_frames ?? '0'} / {metrics?.duplicate_frames ?? '0'}
           </span>
         </div>

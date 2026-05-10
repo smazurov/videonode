@@ -41,13 +41,13 @@ export default function AuthLayout({
           <div className="isolate flex h-full w-full items-center justify-center">
             <div className="-mt-16 max-w-2xl space-y-8">
               <div className="space-y-2 text-center">
-                <h1 className="text-4xl font-semibold text-black dark:text-white">
+                <h1 className="text-4xl font-semibold text-fg">
                   {title}
                 </h1>
-                <p className="text-slate-600 dark:text-slate-400">{description}</p>
+                <p className="text-fg-muted">{description}</p>
               </div>
 
-              <Fieldset className="space-y-12 border-slate-800/30 dark:border-slate-300/20">
+              <Fieldset className="space-y-12 border-border-strong">
                 <div className="mx-auto max-w-sm space-y-4">
                   {children}
                 </div>
@@ -58,7 +58,7 @@ export default function AuthLayout({
         
         {/* Version footer */}
         <div className="pb-4 text-center">
-          <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+          <div className="text-xs text-fg-subtle font-mono">
             {versionInfo && (
               <>
                 <span>API: {versionInfo.version} • {versionInfo.build_date}</span>

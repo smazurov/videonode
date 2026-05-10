@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 const defaultBufferSize = 1000
@@ -176,8 +177,8 @@ func createHandler(format string, level slog.Leveler) slog.Handler {
 		handlers = append(handlers, NewJournalHandler(level))
 	}
 
-	// Always add buffer handler - it dynamically checks if buffer is available
-	handlers = append(handlers, NewBufferHandler(level))
+	// Always add buffer handler - wrapped in dedup to prevent log spam from flooding the ring buffer
+	handlers = append(handlers, NewDedupHandler(NewBufferHandler(level), 10*time.Second))
 
 	// Return appropriate handler based on available outputs
 	switch len(handlers) {

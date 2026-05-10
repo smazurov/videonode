@@ -16,15 +16,9 @@ func New() *Bus {
 	}
 }
 
-// Publish publishes an event to all subscribers
-// Usage: bus.Publish(CaptureSuccessEvent{...}).
+// Publish publishes an event to all subscribers.
 func (b *Bus) Publish(ev Event) {
-	// Use type switch to call the generic Publish with the correct type
 	switch e := ev.(type) {
-	case CaptureSuccessEvent:
-		event.Publish(b.dispatcher, e)
-	case CaptureErrorEvent:
-		event.Publish(b.dispatcher, e)
 	case DeviceDiscoveryEvent:
 		event.Publish(b.dispatcher, e)
 	case StreamCreatedEvent:
@@ -44,21 +38,11 @@ func (b *Bus) Publish(ev Event) {
 	}
 }
 
-// Subscribe subscribes to events with a handler function
-// The handler type determines which events it receives (type inference)
-// Returns an unsubscribe function
-// Usage: unsub := bus.Subscribe(func(e CaptureSuccessEvent) { ... }).
+// Subscribe subscribes to events with a handler function.
+// The handler type determines which events it receives (type inference).
+// Returns an unsubscribe function.
 func (b *Bus) Subscribe(handler any) func() {
-	// This is a bit tricky - we need to extract the type from the handler
-	// The kelindar/event library uses reflection to determine the event type
-	// We'll use a type assertion approach
-
-	// For each known event type, check if the handler matches
 	switch h := handler.(type) {
-	case func(CaptureSuccessEvent):
-		return event.Subscribe(b.dispatcher, h)
-	case func(CaptureErrorEvent):
-		return event.Subscribe(b.dispatcher, h)
 	case func(DeviceDiscoveryEvent):
 		return event.Subscribe(b.dispatcher, h)
 	case func(StreamCreatedEvent):

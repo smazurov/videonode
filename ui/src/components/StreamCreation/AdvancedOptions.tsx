@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { getFFmpegOptions, type FFmpegOption } from '../../lib/api';
+import type { components } from '../../lib/api.generated';
+import { api } from '../../lib/api';
+
+type FFmpegOption = components["schemas"]["Option"];
 
 interface AdvancedOptionsProps {
   selectedOptions: string[];
@@ -26,8 +29,9 @@ export function AdvancedOptions({
   const loadOptions = async () => {
     try {
       setLoading(true);
-      const data = await getFFmpegOptions();
-      setOptions(data.options);
+      const { data, error } = await api.GET("/api/options");
+      if (error) throw new Error(error.detail ?? 'Failed to load options');
+      setOptions(data.options ?? []);
       setError(null);
     } catch (error_) {
       setError('Failed to load advanced options');
@@ -79,7 +83,7 @@ export function AdvancedOptions({
         key={groupOption.key}
         className={`
           flex items-start space-x-3 p-2 rounded-md cursor-pointer
-          ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-surface-muted'}
         `}
       >
         <input
@@ -88,20 +92,20 @@ export function AdvancedOptions({
           checked={isGroupOptionSelected}
           onChange={() => handleExclusiveGroupChange(groupOption, groupOptions)}
           disabled={disabled}
-          className="mt-0.5 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 disabled:cursor-not-allowed"
+          className="mt-0.5 h-4 w-4 accent-accent focus-visible:ring-2 focus-visible:ring-focus-ring border-border disabled:cursor-not-allowed"
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center space-x-2">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <span className="text-sm font-medium text-fg">
               {groupOption.name}
             </span>
             {groupOption.app_default && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-soft text-accent-soft-fg">
                 Default
               </span>
             )}
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-xs text-fg-subtle mt-1">
             {groupOption.description}
           </p>
         </div>
@@ -168,7 +172,7 @@ export function AdvancedOptions({
 
   if (loading) {
     return (
-      <div className={`text-sm text-gray-500 dark:text-gray-400 ${className}`}>
+      <div className={`text-sm text-fg-subtle ${className}`}>
         Loading advanced options...
       </div>
     );
@@ -176,7 +180,7 @@ export function AdvancedOptions({
 
   if (error) {
     return (
-      <div className={`text-sm text-red-600 dark:text-red-400 ${className}`}>
+      <div className={`text-sm text-danger-soft-fg ${className}`}>
         {error}
       </div>
     );
@@ -184,21 +188,21 @@ export function AdvancedOptions({
 
   return (
     <details 
-      className={`border border-gray-200 dark:border-gray-700 rounded-lg ${className}`}
+      className={`border border-border rounded-lg ${className}`}
       open={expanded}
       onToggle={(e) => setExpanded((e.target as HTMLDetailsElement).open)}
     >
-      <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 select-none">
+      <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-fg-muted hover:text-fg select-none">
         Advanced Options
         {customOptionsCount > 0 && (
-          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+          <span className="ml-2 text-xs text-fg-subtle">
             ({customOptionsCount} custom selected)
           </span>
         )}
       </summary>
       
       <div className="px-4 pb-4">
-        <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">
+        <p className="text-xs text-fg-muted mb-4">
           Fine-tune FFmpeg behavior for your stream. Default options are pre-selected.
         </p>
         
@@ -208,7 +212,7 @@ export function AdvancedOptions({
           
           return (
             <div key={category} className="mb-4">
-              <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2">
+              <h4 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-2">
                 {category}
               </h4>
               <div className="space-y-2">
@@ -248,7 +252,7 @@ export function AdvancedOptions({
                     className={`
                       flex items-start space-x-3 p-2 rounded-md cursor-pointer
                       ${isDisabled && !isSelected ? 'opacity-50 cursor-not-allowed' : ''}
-                      ${!isDisabled ? 'hover:bg-gray-50 dark:hover:bg-gray-800' : ''}
+                      ${!isDisabled ? 'hover:bg-surface-muted' : ''}
                     `}
                   >
                     <input
@@ -256,24 +260,24 @@ export function AdvancedOptions({
                       checked={isSelected}
                       onChange={() => !isDisabled && toggleOption(option.key)}
                       disabled={isDisabled}
-                      className="mt-0.5 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded disabled:cursor-not-allowed"
+                      className="mt-0.5 h-4 w-4 accent-accent focus-visible:ring-2 focus-visible:ring-focus-ring border-border rounded disabled:cursor-not-allowed"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-2">
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        <span className="text-sm font-medium text-fg">
                           {option.name}
                         </span>
                         {option.app_default && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-soft text-accent-soft-fg">
                             Default
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      <p className="text-xs text-fg-subtle mt-0.5">
                         {option.description}
                       </p>
                       {conflicts.length > 0 && !isSelected && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        <p className="text-xs text-warning-soft-fg mt-1">
                           Conflicts with: {getConflictNames(conflicts, options)}
                         </p>
                       )}
@@ -287,7 +291,7 @@ export function AdvancedOptions({
         })}
         
         {Object.keys(optionsByCategory).length === 0 && (
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-fg-subtle">
             No advanced options available
           </p>
         )}

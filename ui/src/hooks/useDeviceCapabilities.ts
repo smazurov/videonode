@@ -1,19 +1,11 @@
-import { useState, useEffect } from 'react';
-import {
-  FormatInfo,
-  Resolution,
-  Framerate,
-  DeviceCapabilitiesData,
-  DeviceResolutionsData,
-  DeviceFrameratesData,
-  getDeviceFormats,
-  getDeviceResolutions,
-  getDeviceFramerates,
-} from '../lib/api';
+import type { components } from '../lib/api.generated';
+import { api, unwrap } from '../lib/api';
+import { useAbortableQuery } from './useAbortableQuery';
 
-// Request deduplication and cancellation management
-const requestCache = new Map<string, Promise<unknown>>();
-const activeControllers = new Map<string, AbortController>();
+type FormatInfo = components["schemas"]["FormatInfo"];
+type FormatName = FormatInfo["format_name"];
+type Resolution = components["schemas"]["Resolution"];
+type Framerate = components["schemas"]["Framerate"];
 
 export interface DeviceFrameratesResult {
   framerates: Framerate[];
@@ -22,199 +14,85 @@ export interface DeviceFrameratesResult {
 }
 
 export function useDeviceFormats(deviceId: string) {
-  const [formats, setFormats] = useState<FormatInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!deviceId) {
-      setFormats([]);
-      return;
-    }
-
-    const cacheKey = `formats:${deviceId}`;
-    
-    // Cancel previous request
-    activeControllers.get(cacheKey)?.abort();
-    
-    const controller = new AbortController();
-    activeControllers.set(cacheKey, controller);
-
-    const fetchFormats = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        // Check if request already in flight
-        if (!requestCache.has(cacheKey)) {
-          requestCache.set(cacheKey, getDeviceFormats(deviceId));
-        }
-        
-        const data = await requestCache.get(cacheKey) as DeviceCapabilitiesData;
-        
-        if (!controller.signal.aborted) {
-          setFormats(data.formats);
-        }
-      } catch (error_: unknown) {
-        const errorObj = error_ as { name?: string };
-        if (!controller.signal.aborted && errorObj?.name !== 'AbortError') {
-          setError(error_ instanceof Error ? error_.message : 'Failed to fetch formats');
-          setFormats([]);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-          requestCache.delete(cacheKey);
-        }
-      }
-    };
-
-    fetchFormats();
-
-    return () => {
-      controller.abort();
-      activeControllers.delete(cacheKey);
-    };
-  }, [deviceId]);
+  const { data: formats, loading, error } = useAbortableQuery<FormatInfo[]>(
+    async (signal) => {
+      const result = unwrap(
+        await api.GET("/api/devices/{device_id}/formats", {
+          params: { path: { device_id: deviceId } },
+          signal,
+        }),
+        'Failed to fetch formats',
+      );
+      return result.formats ?? [];
+    },
+    [deviceId],
+    { initial: [], enabled: !!deviceId },
+  );
 
   return { formats, loading, error };
 }
 
-export function useDeviceResolutions(deviceId: string, formatName: string) {
-  const [resolutions, setResolutions] = useState<Resolution[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!deviceId || !formatName) {
-      setResolutions([]);
-      setLoading(false);
-      return;
-    }
-
-    // Clear immediately on parameter change
-    setResolutions([]);
-    
-    const cacheKey = `resolutions:${deviceId}:${formatName}`;
-    
-    // Cancel previous request
-    activeControllers.get(cacheKey)?.abort();
-    
-    const controller = new AbortController();
-    activeControllers.set(cacheKey, controller);
-
-    const fetchResolutions = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        // Check if request already in flight
-        if (!requestCache.has(cacheKey)) {
-          requestCache.set(cacheKey, getDeviceResolutions(deviceId, formatName));
-        }
-        
-        const data = await requestCache.get(cacheKey) as DeviceResolutionsData;
-        
-        if (!controller.signal.aborted) {
-          setResolutions(data.resolutions);
-        }
-      } catch (error_: unknown) {
-        const errorObj = error_ as { name?: string };
-        if (!controller.signal.aborted && errorObj?.name !== 'AbortError') {
-          setError(error_ instanceof Error ? error_.message : 'Failed to fetch resolutions');
-          setResolutions([]);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-          requestCache.delete(cacheKey);
-        }
-      }
-    };
-
-    fetchResolutions();
-
-    return () => {
-      controller.abort();
-      activeControllers.delete(cacheKey);
-    };
-  }, [deviceId, formatName]);
+export function useDeviceResolutions(deviceId: string, formatName: FormatName | undefined) {
+  const enabled = !!deviceId && !!formatName;
+  const { data: resolutions, loading, error } = useAbortableQuery<Resolution[]>(
+    async (signal) => {
+      const result = unwrap(
+        await api.GET("/api/devices/{device_id}/resolutions", {
+          params: {
+            path: { device_id: deviceId },
+            query: { format_name: formatName as FormatName },
+          },
+          signal,
+        }),
+        'Failed to fetch resolutions',
+      );
+      return result.resolutions ?? [];
+    },
+    [deviceId, formatName],
+    { initial: [], enabled },
+  );
 
   return { resolutions, loading, error };
 }
 
 export function useDeviceFramerates(
   deviceId: string | undefined,
-  formatName: string | undefined,
+  formatName: FormatName | undefined,
   width: number | undefined,
-  height: number | undefined
+  height: number | undefined,
 ): DeviceFrameratesResult {
-  const [framerates, setFramerates] = useState<Framerate[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    // More strict validation
-    if (!deviceId || !formatName || !width || !height || width === 0 || height === 0) {
-      setFramerates([]);
-      setLoading(false);
-      return;
-    }
-
-    const cacheKey = `framerates:${deviceId}:${formatName}:${width}x${height}`;
-    
-    // Cancel previous request
-    activeControllers.get(cacheKey)?.abort();
-    
-    const controller = new AbortController();
-    activeControllers.set(cacheKey, controller);
-
-    const fetchFramerates = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        // Check if request already in flight
-        if (!requestCache.has(cacheKey)) {
-          requestCache.set(
-            cacheKey, 
-            getDeviceFramerates(deviceId, formatName, width, height)
-          );
-        }
-        
-        const data = await requestCache.get(cacheKey) as DeviceFrameratesData;
-        
-        if (!controller.signal.aborted) {
-          setFramerates(data.framerates);
-        }
-      } catch (error_: unknown) {
-        const errorObj = error_ as { name?: string };
-        if (!controller.signal.aborted && errorObj?.name !== 'AbortError') {
-          // Don't set error for expected 400/500 errors (invalid resolution)
-          const errorMessage = error_ instanceof Error ? error_.message : String(error_);
-          if (errorMessage.includes('400') || errorMessage.includes('500')) {
-            setFramerates([]);
-            setError(null); // Silent fail for invalid combinations
-          } else {
-            setError(errorMessage);
-            setFramerates([]);
-          }
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-          requestCache.delete(cacheKey);
-        }
-      }
-    };
-
-    fetchFramerates();
-
-    return () => {
-      controller.abort();
-      activeControllers.delete(cacheKey);
-    };
-  }, [deviceId, formatName, width, height]);
+  const enabled = !!deviceId && !!formatName && !!width && !!height;
+  const { data: framerates, loading, error } = useAbortableQuery<Framerate[]>(
+    async (signal) => {
+      const result = unwrap(
+        await api.GET("/api/devices/{device_id}/framerates", {
+          params: {
+            path: { device_id: deviceId as string },
+            query: {
+              format_name: formatName as FormatName,
+              width: width as number,
+              height: height as number,
+            },
+          },
+          signal,
+        }),
+        'Failed to fetch framerates',
+      );
+      return result.framerates ?? [];
+    },
+    [deviceId, formatName, width, height],
+    {
+      initial: [],
+      enabled,
+      // Suppress error noise for invalid resolution combinations the backend
+      // rejects with 400/500 — UI silently shows empty list instead.
+      onError: (err) => {
+        const msg = err.message;
+        if (msg.includes('400') || msg.includes('500')) return null;
+        return msg;
+      },
+    },
+  );
 
   return { framerates, loading, error };
 }

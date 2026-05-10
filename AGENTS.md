@@ -123,6 +123,7 @@ Available integration tests:
 Use `go doc` or the `mcp__godoc__get_doc` tool to read package documentation:
 
 ```bash
+# Internal packages
 go doc ./internal/api          # API server and endpoints
 go doc ./internal/streams      # Stream lifecycle management
 go doc ./internal/encoders     # Hardware encoder detection
@@ -133,7 +134,14 @@ go doc ./internal/ffmpeg       # FFmpeg command building
 go doc ./internal/logging      # Structured logging
 go doc ./pkg/linuxav/v4l2      # V4L2 device detection
 go doc ./pkg/linuxav/hotplug   # USB hotplug monitoring
+
+# External modules (use full import path)
+go doc github.com/danielgtaylor/huma/v2          # Huma API framework
+go doc github.com/danielgtaylor/huma/v2.Register # Specific symbol
+go doc github.com/pelletier/go-toml/v2           # TOML parsing
 ```
+
+Use `go doc -all <path>` for complete documentation including unexported symbols.
 
 ### API Design
 - **OpenAPI Documentation**: Automatically generated at `/docs` endpoint
@@ -166,6 +174,16 @@ go doc ./pkg/linuxav/hotplug   # USB hotplug monitoring
 - The `--collect` flag removes the unit after completion, but **logs persist in journald**
 - Per systemd docs: "after unloading the unit it cannot be inspected using systemctl status, but its logs are still in journal"
 
+#### slog Attributes in journald
+slog attributes map to uppercase journal fields (e.g., `STREAM_ID`, `MODULE`).
+
+```bash
+journalctl -t videonode -o verbose      # show all fields
+journalctl -t videonode -o json | jq '{MESSAGE, STREAM_ID, MODULE}'
+journalctl -t videonode STREAM_ID=test  # filter by attribute
+journalctl -F STREAM_ID                 # list all values for a field
+```
+
 ### Device Monitoring
 - **Hotplug Support**: udev-based monitoring for USB device insertion/removal via `pkg/linuxav/hotplug`
 - **SSE Updates**: Real-time notifications when devices are added/removed
@@ -185,7 +203,7 @@ The API includes endpoints for:
 
 ## Development Notes
 
-- **Server is always running via air** on port 8090 with Basic Auth credentials: `REDACTED-CREDS`
+- **Server is always running via air** on port 8090 with Basic Auth credentials: `videonode:videonode`
 - **Health check**: `curl http://localhost:8090/api/health`
 - **When writing API models, make sure every field is in snake_case**
 - **Run all python commands through uv**

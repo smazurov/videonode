@@ -4,9 +4,7 @@ import "github.com/smazurov/videonode/internal/api/models"
 
 // Event type constants for kelindar/event.
 const (
-	TypeCaptureSuccess uint32 = iota + 1
-	TypeCaptureError
-	TypeDeviceDiscovery
+	TypeDeviceDiscovery uint32 = iota + 1
 	TypeStreamCreated
 	TypeStreamUpdated
 	TypeStreamDeleted
@@ -14,34 +12,13 @@ const (
 	TypeStreamMetrics
 	TypeLogEntry
 	TypeStreamCrashed
+	TypeCanvasRestarted
 )
 
 // Event interface required by kelindar/event.
 type Event interface {
 	Type() uint32
 }
-
-// CaptureSuccessEvent represents a successful screenshot capture.
-type CaptureSuccessEvent struct {
-	DevicePath string `json:"device_path" example:"/dev/video0" doc:"Path to the video device"`
-	Message    string `json:"message" example:"Screenshot captured successfully" doc:"Message"`
-	ImageData  string `json:"image_data" doc:"Base64-encoded screenshot image"`
-	Timestamp  string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Capture timestamp"`
-}
-
-// Type returns the event type identifier for CaptureSuccessEvent.
-func (e CaptureSuccessEvent) Type() uint32 { return TypeCaptureSuccess }
-
-// CaptureErrorEvent represents a failed screenshot capture.
-type CaptureErrorEvent struct {
-	DevicePath string `json:"device_path" example:"/dev/video0" doc:"Path to the video device"`
-	Message    string `json:"message" example:"Screenshot capture failed" doc:"Error message"`
-	Error      string `json:"error" example:"Device not found" doc:"Detailed error description"`
-	Timestamp  string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Error timestamp"`
-}
-
-// Type returns the event type identifier for CaptureErrorEvent.
-func (e CaptureErrorEvent) Type() uint32 { return TypeCaptureError }
 
 // DeviceDiscoveryEvent represents device hotplug events.
 type DeviceDiscoveryEvent struct {
@@ -88,6 +65,7 @@ func (e StreamUpdatedEvent) Type() uint32 { return TypeStreamUpdated }
 type StreamStateChangedEvent struct {
 	StreamID  string `json:"stream_id" example:"stream-001" doc:"Stream identifier"`
 	Enabled   bool   `json:"enabled" example:"true" doc:"Whether stream is enabled"`
+	Action    string `json:"action,omitempty" example:"running" doc:"Action: enabled, disabled, running"`
 	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
 }
 
@@ -138,3 +116,17 @@ type StreamCrashedEvent struct {
 
 // Type returns the event type identifier for StreamCrashedEvent.
 func (e StreamCrashedEvent) Type() uint32 { return TypeStreamCrashed }
+
+// CanvasRestartedEvent is published when a canvas stream is restarted in
+// response to a source stream's config change. The UI uses this to refresh
+// the canvas card (layout may have changed based on the source's new
+// effective aspect ratio) without waiting for the next metrics tick.
+type CanvasRestartedEvent struct {
+	CanvasID  string            `json:"canvas_id" example:"mycanvas" doc:"Canvas stream identifier that was restarted"`
+	TriggerID string            `json:"trigger_id" example:"cam1" doc:"Source stream whose update triggered the restart"`
+	Canvas    models.StreamData `json:"canvas" doc:"Full canvas stream data after restart"`
+	Timestamp string            `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+}
+
+// Type returns the event type identifier for CanvasRestartedEvent.
+func (e CanvasRestartedEvent) Type() uint32 { return TypeCanvasRestarted }

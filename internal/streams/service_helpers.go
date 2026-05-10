@@ -2,6 +2,7 @@ package streams
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/encoders"
@@ -49,6 +50,10 @@ func copyStream(stream *Stream) *Stream {
 		return nil
 	}
 	streamCopy := *stream
+	if stream.InputsEnabled != nil {
+		streamCopy.InputsEnabled = make(map[string]bool, len(stream.InputsEnabled))
+		maps.Copy(streamCopy.InputsEnabled, stream.InputsEnabled)
+	}
 	return &streamCopy
 }
 

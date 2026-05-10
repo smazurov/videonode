@@ -63,7 +63,10 @@ func (s *SSEExporter) run() {
 }
 
 func (s *SSEExporter) publishMetrics() {
-	allMetrics := metrics.GetAllFFmpegMetrics()
+	allMetrics, err := metrics.GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		return
+	}
 	for streamID, m := range allMetrics {
 		s.eventBus.Publish(events.StreamMetricsEvent{
 			EventType:       "stream_metrics",

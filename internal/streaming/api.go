@@ -57,7 +57,7 @@ func RegisterWebRTCAPI(api huma.API, webrtcManager *WebRTCManager) {
 		Description: "Returns a list of stream IDs that currently have active producers",
 		Tags:        []string{"streaming"},
 	}, func(_ context.Context, _ *struct{}) (*StreamListOutput, error) {
-		streams := webrtcManager.hub.ListStreams()
+		streams := webrtcManager.ListStreams()
 		return &StreamListOutput{
 			Body: struct {
 				Streams []string `json:"streams" doc:"List of active stream IDs"`

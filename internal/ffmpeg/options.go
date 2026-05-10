@@ -25,11 +25,9 @@ func Base() string {
 	return "ffmpeg -hide_banner -nostats -nostdin -loglevel level+info"
 }
 
-// FFmpegBase returns the ffmpeg command with standard flags.
+// Deprecated: use Base.
 //
-// Deprecated: Use Base() instead.
-//
-//nolint:revive // Keeping for backward compatibility despite stutter
+//nolint:revive // backward compat stutter
 func FFmpegBase() string {
 	return Base()
 }
@@ -39,7 +37,6 @@ func FFprobeBase() string {
 	return "ffprobe -hide_banner -nostats"
 }
 
-// Helper functions for internal use.
 func ffmpegBase() string {
 	return Base()
 }
@@ -73,9 +70,9 @@ type Option struct {
 	Name           string          `json:"name"`
 	Description    string          `json:"description"`
 	Category       OptionCategory  `json:"category"`
-	AppDefault     bool            `json:"app_default"`               // Application default
-	ExclusiveGroup *ExclusiveGroup `json:"exclusive_group,omitempty"` // Group for mutually exclusive options
-	ConflictsWith  []OptionType    `json:"conflicts_with,omitempty"`  // Options that may conflict
+	AppDefault     bool            `json:"app_default"`
+	ExclusiveGroup *ExclusiveGroup `json:"exclusive_group,omitempty"`
+	ConflictsWith  []OptionType    `json:"conflicts_with,omitempty"`
 }
 
 // AllOptions contains all available FFmpeg feature flags with comprehensive metadata.
@@ -102,7 +99,7 @@ var AllOptions = []Option{
 		Description:    "Use 1024 thread queue size (helps with buffer corruption)",
 		Category:       CategoryPerformance,
 		AppDefault:     true,
-		ExclusiveGroup: func() *ExclusiveGroup { g := GroupThreadQueue; return &g }(), // Mutually exclusive with other thread queue sizes
+		ExclusiveGroup: func() *ExclusiveGroup { g := GroupThreadQueue; return &g }(),
 	},
 	{
 		Key:            OptionThreadQueue4096,
@@ -110,7 +107,7 @@ var AllOptions = []Option{
 		Description:    "Use 4096 thread queue size (for high bitrate streams)",
 		Category:       CategoryPerformance,
 		AppDefault:     false,
-		ExclusiveGroup: func() *ExclusiveGroup { g := GroupThreadQueue; return &g }(), // Mutually exclusive with other thread queue sizes
+		ExclusiveGroup: func() *ExclusiveGroup { g := GroupThreadQueue; return &g }(),
 	},
 	{
 		Key:         OptionLowLatency,
@@ -124,7 +121,7 @@ var AllOptions = []Option{
 		Name:           "Copy Timestamps with PTS Generation",
 		Description:    "Preserve original timestamps with PTS regeneration (fixes V4L2 and DTS issues)",
 		Category:       CategoryTiming,
-		AppDefault:     true, // MAKE THIS DEFAULT FOR ALL STREAMS
+		AppDefault:     true,
 		ExclusiveGroup: func() *ExclusiveGroup { g := GroupTimestampHandling; return &g }(),
 	},
 	{
@@ -175,7 +172,6 @@ func GetExclusiveGroups() map[ExclusiveGroup][]Option {
 
 // ValidateOptions checks for conflicts and exclusive group violations.
 func ValidateOptions(selectedOptions []OptionType) error {
-	// Check for exclusive group violations
 	exclusiveGroups := make(map[ExclusiveGroup][]OptionType)
 
 	for _, optionKey := range selectedOptions {
@@ -189,7 +185,6 @@ func ValidateOptions(selectedOptions []OptionType) error {
 		}
 	}
 
-	// Check if multiple options from same exclusive group are selected
 	for group, options := range exclusiveGroups {
 		if len(options) > 1 {
 			var optionNames []string
@@ -202,7 +197,6 @@ func ValidateOptions(selectedOptions []OptionType) error {
 		}
 	}
 
-	// Check for conflicting options
 	selectedSet := make(map[OptionType]bool)
 	for _, opt := range selectedOptions {
 		selectedSet[opt] = true
@@ -240,20 +234,8 @@ func GetDefaultOptions() []OptionType {
 	return defaults
 }
 
-// CaptureConfig represents parameters for screenshot capture.
-type CaptureConfig struct {
-	DevicePath    string
-	OutputPath    string
-	InputFormat   string // FFmpeg input format (e.g., "yuyv422", "mjpeg")
-	Resolution    string
-	FPS           string
-	DelayMs       int // Delay in milliseconds before capture
-	FFmpegOptions []OptionType
-}
-
 // CommandBuilder interface for generating FFmpeg commands.
 type CommandBuilder interface {
-	BuildCaptureCommand(config CaptureConfig) (string, error)
 	BuildProbeCommand(devicePath string) (string, error)
 	BuildEncodersListCommand() (string, error)
 }
@@ -291,14 +273,11 @@ func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionT
 			cmd.WriteString(" -flags +low_delay")
 			appliedOptions = append(appliedOptions, OptionLowLatency)
 		case OptionCopytsWithGenpts:
-			// Note: copyts and start_at_zero need to be applied AFTER input
-			// They will be handled separately in BuildStreamCommand
-			// But we add genpts to fflags here
+			// copyts/start_at_zero apply after input; only genpts goes here.
 			fflags = append(fflags, "+genpts")
 			appliedOptions = append(appliedOptions, OptionCopytsWithGenpts)
 		case OptionVsyncPassthrough:
-			// Note: fps_mode needs to be applied AFTER input
-			// It will be handled separately in BuildStreamCommand
+			// fps_mode applies after input; handled in BuildStreamCommand.
 			appliedOptions = append(appliedOptions, OptionVsyncPassthrough)
 		case OptionVerboseLogging:
 			cmd.WriteString(" -loglevel warning")
@@ -306,69 +285,11 @@ func ApplyOptionsToCommand(options []OptionType, cmd *strings.Builder) []OptionT
 		}
 	}
 
-	// Apply fflags if any were collected
 	if len(fflags) > 0 {
 		fmt.Fprintf(cmd, " -fflags %s", strings.Join(fflags, ""))
 	}
 
 	return appliedOptions
-}
-
-// BuildCaptureCommand creates an FFmpeg command for screenshot capture.
-func (cb *DefaultCommandBuilder) BuildCaptureCommand(config CaptureConfig) (string, error) {
-	if config.DevicePath == "" {
-		return "", fmt.Errorf("device path is required")
-	}
-	if config.OutputPath == "" {
-		return "", fmt.Errorf("output path is required")
-	}
-
-	var cmd strings.Builder
-	cmd.WriteString(ffmpegBase())
-
-	// Add delay if specified (using input seeking)
-	if config.DelayMs > 0 {
-		delaySeconds := float64(config.DelayMs) / 1000.0
-		cmd.WriteString(fmt.Sprintf(" -ss %.3f", delaySeconds))
-	}
-
-	// Input parameters
-	cmd.WriteString(" -f v4l2")
-
-	// Apply configurable FFmpeg options
-	appliedOptions := ApplyOptionsToCommand(config.FFmpegOptions, &cmd)
-	if len(appliedOptions) > 0 {
-		fmt.Printf("[FFMPEG] Applied FFmpeg options for capture: %v\n", appliedOptions)
-	}
-
-	// Use the selected FFmpeg input format
-	if config.InputFormat != "" {
-		cmd.WriteString(fmt.Sprintf(" -input_format %s", config.InputFormat))
-	} else {
-		cmd.WriteString(" -input_format yuyv422") // Default to YUYV
-	}
-
-	// Resolution - only add if specified, let device decide if empty
-	if config.Resolution != "" {
-		cmd.WriteString(fmt.Sprintf(" -video_size %s", config.Resolution))
-	}
-
-	// Framerate - only add if specified, let device decide if empty
-	if config.FPS != "" {
-		cmd.WriteString(fmt.Sprintf(" -framerate %s", config.FPS))
-	}
-
-	// Input device
-	cmd.WriteString(fmt.Sprintf(" -i %s", config.DevicePath))
-
-	// Capture single frame
-	cmd.WriteString(" -frames:v 1")
-
-	// Output format and path
-	cmd.WriteString(" -y") // Overwrite output file
-	cmd.WriteString(fmt.Sprintf(" %s", config.OutputPath))
-
-	return cmd.String(), nil
 }
 
 // BuildProbeCommand creates an FFmpeg command for probing device capabilities.
@@ -397,4 +318,12 @@ func isHardwareEncoder(codec string) bool {
 		}
 	}
 	return false
+}
+
+// isHevcOrH264 reports whether the encoder is in the H.264/HEVC family.
+func isHevcOrH264(encoder string) bool {
+	return strings.Contains(encoder, "h264") ||
+		strings.Contains(encoder, "x264") ||
+		strings.Contains(encoder, "hevc") ||
+		strings.Contains(encoder, "x265")
 }

@@ -4,19 +4,19 @@ const BAR_WIDTH = 16;
 
 function getQualityColor(quality: QualityScore): string {
   switch (quality) {
-    case 'excellent': return 'bg-green-500';
-    case 'good': return 'bg-green-400';
-    case 'fair': return 'bg-yellow-500';
-    case 'poor': return 'bg-red-500';
-    default: return 'bg-gray-600';
+    case 'excellent': return 'bg-success';
+    case 'good': return 'bg-success/80';
+    case 'fair': return 'bg-warning';
+    case 'poor': return 'bg-danger';
+    default: return 'bg-fg-subtle';
   }
 }
 
 function getFrameColor(frames: number): string {
-  if (frames >= 25) return 'bg-green-500';
-  if (frames >= 15) return 'bg-yellow-500';
-  if (frames > 0) return 'bg-red-500';
-  return 'bg-red-700';
+  if (frames >= 25) return 'bg-success';
+  if (frames >= 15) return 'bg-warning';
+  if (frames > 0) return 'bg-danger';
+  return 'bg-danger-hover';
 }
 
 interface HistoryBarProps {
@@ -42,12 +42,12 @@ export function HistoryBar({
   const bars = (
     <div className={`flex h-3 ${inline ? 'mr-2 inline-flex' : ''}`}>
       {Array.from({ length: emptySlots }).map((_, i) => (
-        <div key={`empty-${i}`} className="w-2 h-full bg-gray-700" />
+        <div key={`empty-${i}`} className="w-2 h-full bg-surface-muted" />
       ))}
       {recentSamples.map((sample, i) => {
         const ratio = Math.min(getValue(sample) / maxValue, 1);
         return (
-          <div key={`sample-${i}`} className="w-2 h-full bg-gray-700 overflow-hidden flex flex-col-reverse">
+          <div key={`sample-${i}`} className="w-2 h-full bg-surface-muted overflow-hidden flex flex-col-reverse">
             <div className={`w-full ${getColor(sample)}`} style={{ height: `${ratio * 100}%` }} />
           </div>
         );
@@ -60,7 +60,7 @@ export function HistoryBar({
   return (
     <div className="flex items-center gap-2">
       {bars}
-      <span className="text-gray-300">{label}</span>
+      <span className="text-fg-muted">{label}</span>
     </div>
   );
 }

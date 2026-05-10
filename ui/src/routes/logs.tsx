@@ -9,16 +9,14 @@ import {
 } from '@tanstack/react-table';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { Header } from '../components/Header';
-import { useSSE } from '../hooks/useSSE';
+import { useLogStream } from '../hooks/useLogStream';
 import { LogRow, type LogEntry } from '../components/logs/LogRow';
 import {
   LogFilters,
   type AttributeFilter,
   ALL_LEVELS,
 } from '../components/logs/LogFilters';
-import type { SSEStatus } from '../lib/api_sse';
 
-const MAX_LOGS = 10_000;
 const LOG_SETTINGS_KEY = 'logSettings';
 
 interface LogSettings {
@@ -50,25 +48,6 @@ function loadLogSettings(): LogSettings {
   }
 }
 
-interface LogEventData {
-  timestamp: string;
-  level: string;
-  module: string;
-  message: string;
-  attributes?: Record<string, unknown>;
-}
-
-function isLogEventData(data: unknown): data is LogEventData {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    'timestamp' in data &&
-    'level' in data &&
-    'module' in data &&
-    'message' in data
-  );
-}
-
 // Filter functions
 const multiLevelFilter: FilterFn<LogEntry> = (row, _columnId, filterValue: string[]) => {
   if (!filterValue || filterValue.length === 0 || filterValue.length === ALL_LEVELS.length) {
@@ -86,27 +65,11 @@ const moduleFilter: FilterFn<LogEntry> = (row, _columnId, filterValue: string[])
 
 const columnHelper = createColumnHelper<LogEntry>();
 
-// Map SSE status to simpler connection status for UI
-function mapConnectionStatus(status: SSEStatus): 'connecting' | 'connected' | 'disconnected' {
-  switch (status) {
-    case 'connected': return 'connected';
-    case 'connecting': return 'connecting';
-    default: return 'disconnected';
-  }
-}
-
 export default function Logs() {
   const { logout } = useAuthStore();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const newestTimestampRef = useRef<string>('');
 
-  // Core state
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-
-  // Buffering refs for batching log updates
-  const bufferRef = useRef<LogEntry[]>([]);
-  const flushTimeoutRef = useRef<number | null>(null);
-  const idCounterRef = useRef(0);
+  const { logs, connectionStatus, clearLogs } = useLogStream({ enabled: true });
 
   // Filter state (initialized from localStorage)
   const [settings] = useState(loadLogSettings);
@@ -117,79 +80,6 @@ export default function Logs() {
   const [attributeFilters, setAttributeFilters] = useState<AttributeFilter[]>(settings.attributeFilters);
   const [inlineAttributes, setInlineAttributes] = useState<string[]>(settings.inlineAttributes);
   const [autoScroll, setAutoScroll] = useState(settings.autoScroll);
-
-  // Flush buffer to state
-  const flushBuffer = useCallback(() => {
-    const buffer = bufferRef.current;
-    // Filter out duplicates: keep logs newer than last seen
-    const toFlush = buffer.filter(log =>
-      !newestTimestampRef.current || log.timestamp > newestTimestampRef.current
-    );
-    bufferRef.current = [];
-    flushTimeoutRef.current = null;
-
-    if (toFlush.length > 0) {
-      const timestamps = toFlush.map(log => log.timestamp).filter(t => t);
-      if (timestamps.length > 0) {
-        newestTimestampRef.current = timestamps.reduce((a, b) => a > b ? a : b, '');
-      }
-      setLogs(prev => [...prev, ...toFlush].slice(-MAX_LOGS));
-    }
-  }, []);
-
-  const scheduleFlush = useCallback(() => {
-    if (!flushTimeoutRef.current) {
-      flushTimeoutRef.current = window.setTimeout(flushBuffer, 50);
-    }
-  }, [flushBuffer]);
-
-  // SSE connection using the abstracted hook
-  const { status } = useSSE({
-    endpoint: '/api/logs/stream',
-    onConnect: () => {
-      // Inject synthetic log entry to mark connection
-      bufferRef.current.push({
-        id: String(++idCounterRef.current),
-        timestamp: new Date().toISOString(),
-        level: 'INFO',
-        module: 'system',
-        message: 'Log stream connected',
-        attributes: {},
-      });
-      scheduleFlush();
-    },
-    onMessage: (event) => {
-      try {
-        const data: unknown = JSON.parse(String(event.data));
-        if (!isLogEventData(data)) {
-          console.error('Invalid log data format:', event.data);
-          return;
-        }
-        bufferRef.current.push({
-          id: String(++idCounterRef.current),
-          timestamp: data.timestamp,
-          level: data.level,
-          module: data.module,
-          message: data.message,
-          attributes: data.attributes ?? {},
-        });
-        scheduleFlush();
-      } catch (error) {
-        console.error('Log parse error:', error, event.data);
-      }
-    },
-  });
-
-  const connectionStatus = mapConnectionStatus(status);
-
-  // Clean up flush timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (flushTimeoutRef.current) {
-        window.clearTimeout(flushTimeoutRef.current);
-      }
-    };
-  }, []);
 
   // Persist filter settings to localStorage
   useEffect(() => {
@@ -354,7 +244,7 @@ export default function Logs() {
           autoScroll={autoScroll}
           onAutoScrollChange={setAutoScroll}
           onClearFilters={clearFilters}
-          onClearLogs={() => setLogs([])}
+          onClearLogs={clearLogs}
         />
       </div>
 

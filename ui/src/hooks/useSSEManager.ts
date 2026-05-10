@@ -1,55 +1,42 @@
 import { useEffect } from 'react';
-import {
-  SSEStreamLifecycleEvent,
-  SSEStreamMetricsEvent,
-  SSEStreamCreatedEvent,
-  SSEStreamUpdatedEvent,
-  SSEStreamDeletedEvent,
-  StreamData,
-} from '../lib/api';
-import { SSEClient, SSEStatus } from '../lib/api_sse';
+import type { components } from '../lib/api.generated';
+import { SSEClient, type SSEStatus } from '../lib/api';
+
+type StreamCreatedEvent = components["schemas"]["StreamCreatedEvent"];
+type StreamUpdatedEvent = components["schemas"]["StreamUpdatedEvent"];
+type StreamDeletedEvent = components["schemas"]["StreamDeletedEvent"];
+type StreamMetricsEvent = components["schemas"]["StreamMetricsEvent"];
+type StreamStateChangedEvent = components["schemas"]["StreamStateChangedEvent"];
+type CanvasRestartedEvent = components["schemas"]["CanvasRestartedEvent"];
+
+export type TaggedStreamCreatedEvent = StreamCreatedEvent & { type: 'stream-created' };
+export type TaggedStreamUpdatedEvent = StreamUpdatedEvent & { type: 'stream-updated' };
+export type TaggedStreamDeletedEvent = StreamDeletedEvent & { type: 'stream-deleted' };
+export type TaggedStreamStateChangedEvent = StreamStateChangedEvent & { type: 'stream-state-changed' };
+export type TaggedCanvasRestartedEvent = CanvasRestartedEvent & { type: 'canvas-restarted' };
+export type StreamLifecycleEvent =
+  | TaggedStreamCreatedEvent
+  | TaggedStreamUpdatedEvent
+  | TaggedStreamDeletedEvent
+  | TaggedCanvasRestartedEvent;
 
 type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
 
 interface SSEManagerOptions {
-  onStreamLifecycleEvent?: (event: SSEStreamLifecycleEvent) => void;
-  onStreamMetricsEvent?: (event: SSEStreamMetricsEvent) => void;
+  onStreamLifecycleEvent?: (event: StreamLifecycleEvent) => void;
+  onStreamMetricsEvent?: (event: StreamMetricsEvent) => void;
+  onStreamStateEvent?: (event: TaggedStreamStateChangedEvent) => void;
   onConnectionStatusChange?: (status: ConnectionStatus) => void;
 }
 
-// Types for SSE event data parsing
-interface StreamCreatedData {
-  stream: StreamData;
-  action: 'created';
-  timestamp: string;
-}
-
-interface StreamDeletedData {
-  stream_id: string;
-  action: 'deleted';
-  timestamp: string;
-}
-
-interface StreamUpdatedData {
-  stream: StreamData;
-  action: 'updated' | 'restarted';
-  timestamp: string;
-}
-
-interface StreamMetricsData {
-  stream_id: string;
-  fps?: string;
-  dropped_frames?: string;
-  duplicate_frames?: string;
-}
-
 // Global SSE client instance
-let globalClient: SSEClient | null = null;
+let globalClient: SSEClient<"/api/events"> | null = null;
 
 // Global handlers for different event types
 const globalConnectionHandlers = new Set<(status: ConnectionStatus) => void>();
-const globalStreamLifecycleHandlers = new Set<(event: SSEStreamLifecycleEvent) => void>();
-const globalStreamMetricsHandlers = new Set<(event: SSEStreamMetricsEvent) => void>();
+const globalStreamLifecycleHandlers = new Set<(event: StreamLifecycleEvent) => void>();
+const globalStreamMetricsHandlers = new Set<(event: StreamMetricsEvent) => void>();
+export const globalStreamStateHandlers = new Set<(event: TaggedStreamStateChangedEvent) => void>();
 
 function mapStatus(status: SSEStatus): ConnectionStatus {
   switch (status) {
@@ -75,52 +62,43 @@ function setupGlobalSSE(): void {
     },
   });
 
-  // Register typed event handlers
-  globalClient.on<StreamCreatedData>('stream-created', (data) => {
-    const event: SSEStreamCreatedEvent = {
-      type: 'stream-created',
-      stream: data.stream,
-      action: data.action,
-      timestamp: data.timestamp,
-    };
+  globalClient.on('stream-created', (data) => {
+    const event = { ...data, type: 'stream-created' as const };
     for (const handler of globalStreamLifecycleHandlers) {
       handler(event);
     }
   });
 
-  globalClient.on<StreamDeletedData>('stream-deleted', (data) => {
-    const event: SSEStreamDeletedEvent = {
-      type: 'stream-deleted',
-      stream_id: data.stream_id,
-      action: data.action,
-      timestamp: data.timestamp,
-    };
+  globalClient.on('stream-deleted', (data) => {
+    const event = { ...data, type: 'stream-deleted' as const };
     for (const handler of globalStreamLifecycleHandlers) {
       handler(event);
     }
   });
 
-  globalClient.on<StreamUpdatedData>('stream-updated', (data) => {
-    const event: SSEStreamUpdatedEvent = {
-      type: 'stream-updated',
-      stream: data.stream,
-      action: data.action,
-      timestamp: data.timestamp,
-    };
+  globalClient.on('stream-updated', (data) => {
+    const event = { ...data, type: 'stream-updated' as const };
     for (const handler of globalStreamLifecycleHandlers) {
       handler(event);
     }
   });
 
-  globalClient.on<StreamMetricsData>('stream-metrics', (data) => {
-    const event: SSEStreamMetricsEvent = {
-      type: 'stream-metrics',
-      stream_id: data.stream_id,
-      ...(data.fps !== undefined && { fps: data.fps }),
-      ...(data.dropped_frames !== undefined && { dropped_frames: data.dropped_frames }),
-      ...(data.duplicate_frames !== undefined && { duplicate_frames: data.duplicate_frames }),
-    };
+  globalClient.on('canvas-restarted', (data) => {
+    const event = { ...data, type: 'canvas-restarted' as const };
+    for (const handler of globalStreamLifecycleHandlers) {
+      handler(event);
+    }
+  });
+
+  globalClient.on('stream-metrics', (data) => {
     for (const handler of globalStreamMetricsHandlers) {
+      handler(data);
+    }
+  });
+
+  globalClient.on('stream-state-changed', (data) => {
+    const event = { ...data, type: 'stream-state-changed' as const };
+    for (const handler of globalStreamStateHandlers) {
       handler(event);
     }
   });
@@ -136,10 +114,9 @@ function disconnectGlobalSSE(): void {
 }
 
 export function useSSEManager(options: SSEManagerOptions = {}) {
-  const { onStreamLifecycleEvent, onStreamMetricsEvent, onConnectionStatusChange } = options;
+  const { onStreamLifecycleEvent, onStreamMetricsEvent, onStreamStateEvent, onConnectionStatusChange } = options;
 
   useEffect(() => {
-    // Register this component's handlers
     if (onConnectionStatusChange) {
       globalConnectionHandlers.add(onConnectionStatusChange);
     }
@@ -149,12 +126,13 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
     if (onStreamMetricsEvent) {
       globalStreamMetricsHandlers.add(onStreamMetricsEvent);
     }
+    if (onStreamStateEvent) {
+      globalStreamStateHandlers.add(onStreamStateEvent);
+    }
 
-    // Start global SSE if not already started
     setupGlobalSSE();
 
     return () => {
-      // Unregister handlers
       if (onConnectionStatusChange) {
         globalConnectionHandlers.delete(onConnectionStatusChange);
       }
@@ -164,15 +142,18 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
       if (onStreamMetricsEvent) {
         globalStreamMetricsHandlers.delete(onStreamMetricsEvent);
       }
+      if (onStreamStateEvent) {
+        globalStreamStateHandlers.delete(onStreamStateEvent);
+      }
 
-      // Only disconnect if no handlers remain
       if (globalConnectionHandlers.size === 0 &&
           globalStreamLifecycleHandlers.size === 0 &&
-          globalStreamMetricsHandlers.size === 0) {
+          globalStreamMetricsHandlers.size === 0 &&
+          globalStreamStateHandlers.size === 0) {
         disconnectGlobalSSE();
       }
     };
-  }, [onStreamLifecycleEvent, onStreamMetricsEvent, onConnectionStatusChange]);
+  }, [onStreamLifecycleEvent, onStreamMetricsEvent, onStreamStateEvent, onConnectionStatusChange]);
 
   return {
     disconnect: disconnectGlobalSSE,

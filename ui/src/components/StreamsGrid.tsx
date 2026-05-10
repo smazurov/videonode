@@ -1,7 +1,17 @@
 import { useState, useEffect } from 'react';
+import {
+  ChevronDownIcon,
+  ExclamationTriangleIcon,
+  PlusIcon,
+  VideoCameraIcon,
+} from '@heroicons/react/24/outline';
+import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
 import { StreamCard } from './StreamCard';
+import { CanvasMembersGroupCard } from './CanvasMembersGroupCard';
 import { Button } from './Button';
 import { Card } from './Card';
+import { Checkbox } from './Checkbox';
+import { useStreamStore } from '../hooks/useStreamStore';
 
 const SHOW_VIDEOS_KEY = 'streamGrid.showVideos';
 
@@ -12,6 +22,7 @@ export interface StreamsGridProps {
   onRefresh?: () => void;
   onDeleteStream?: (streamId: string) => void;
   onCreateStream?: () => void;
+  onCreateCanvas?: () => void;
   className?: string;
 }
 
@@ -22,6 +33,7 @@ export function StreamsGrid({
   onRefresh,
   onDeleteStream,
   onCreateStream,
+  onCreateCanvas,
   className = ''
 }: Readonly<StreamsGridProps>) {
   const [showVideos, setShowVideos] = useState(() => {
@@ -33,44 +45,62 @@ export function StreamsGrid({
     localStorage.setItem(SHOW_VIDEOS_KEY, String(showVideos));
   }, [showVideos]);
 
-  const renderGridView = () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-      {streamIds.map((streamId) => (
-        <StreamCard
-          key={streamId}
-          streamId={streamId}
-          showVideo={showVideos}
-          {...(onDeleteStream && { onDelete: onDeleteStream })}
-          {...(onRefresh && { onRefresh })}
-        />
-      ))}
-    </div>
-  );
+  const streamsById = useStreamStore((state) => state.streamsById);
+
+  const renderGridView = () => {
+    const memberGroups = new Map<string, string[]>();
+    for (const id of streamIds) {
+      const owner = streamsById[id]?.owned_by;
+      if (!owner) continue;
+      const list = memberGroups.get(owner) ?? [];
+      list.push(id);
+      memberGroups.set(owner, list);
+    }
+
+    const renderedGroupOwners = new Set<string>();
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {streamIds.map((streamId) => {
+          const owner = streamsById[streamId]?.owned_by;
+          const group = owner ? memberGroups.get(owner) ?? [] : [];
+          if (owner && group.length >= 2) {
+            if (renderedGroupOwners.has(owner)) return null;
+            renderedGroupOwners.add(owner);
+            return (
+              <CanvasMembersGroupCard
+                key={`group:${owner}`}
+                canvasId={owner}
+                streamIds={group}
+              />
+            );
+          }
+          return (
+            <StreamCard
+              key={streamId}
+              streamId={streamId}
+              showVideo={showVideos}
+              {...(onDeleteStream && { onDelete: onDeleteStream })}
+              {...(onRefresh && { onRefresh })}
+            />
+          );
+        })}
+      </div>
+    );
+  };
 
 
 
   const renderEmptyState = () => (
     <Card className="text-center py-12">
       <Card.Content>
-        <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg
-            className="w-8 h-8 text-gray-400 dark:text-gray-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-            />
-          </svg>
+        <div className="w-16 h-16 bg-surface-muted rounded-full flex items-center justify-center mx-auto mb-4">
+          <VideoCameraIcon className="w-8 h-8 text-fg-subtle" />
         </div>
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+        <h3 className="text-lg font-medium text-fg mb-2">
           No active streams
         </h3>
-        <p className="text-gray-600 dark:text-gray-300 mb-6">
+        <p className="text-fg-muted mb-6">
           Create your first video stream to get started
         </p>
         {onCreateStream && (
@@ -78,11 +108,7 @@ export function StreamsGrid({
             onClick={onCreateStream}
             theme="primary"
             size="LG"
-            LeadingIcon={({ className }) => (
-              <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            )}
+            LeadingIcon={PlusIcon}
             text="Create Stream"
           />
         )}
@@ -96,23 +122,23 @@ export function StreamsGrid({
         <Card key={index} className="h-full">
           <Card.Header className="pb-3">
             <div className="flex items-center justify-between">
-              <div className="w-24 h-5 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-              <div className="w-12 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="w-24 h-5 bg-surface-muted rounded animate-pulse" />
+              <div className="w-12 h-4 bg-surface-muted rounded animate-pulse" />
             </div>
           </Card.Header>
           <Card.Content className="space-y-4">
-            <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse" />
+            <div className="aspect-video bg-surface-muted rounded-lg animate-pulse" />
             <div className="space-y-2">
               {Array.from({ length: 4 }, (_, i) => (
                 <div key={i} className="flex justify-between">
-                  <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-                  <div className="w-20 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                  <div className="w-16 h-4 bg-surface-muted rounded animate-pulse" />
+                  <div className="w-20 h-4 bg-surface-muted rounded animate-pulse" />
                 </div>
               ))}
             </div>
             <div className="flex space-x-2 pt-2">
-              <div className="flex-1 h-8 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-              <div className="flex-1 h-8 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="flex-1 h-8 bg-surface-muted rounded animate-pulse" />
+              <div className="flex-1 h-8 bg-surface-muted rounded animate-pulse" />
             </div>
           </Card.Content>
         </Card>
@@ -123,25 +149,13 @@ export function StreamsGrid({
   const renderErrorState = () => (
     <Card className="text-center py-12">
       <Card.Content>
-        <div className="w-16 h-16 bg-red-100 dark:bg-red-900 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg
-            className="w-8 h-8 text-red-600 dark:text-red-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.651 16.5c-.77.833.192 2.5 1.732 2.5z"
-            />
-          </svg>
+        <div className="w-16 h-16 bg-danger-soft rounded-full flex items-center justify-center mx-auto mb-4">
+          <ExclamationTriangleIcon className="w-8 h-8 text-danger-soft-fg" />
         </div>
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+        <h3 className="text-lg font-medium text-fg mb-2">
           Failed to load streams
         </h3>
-        <p className="text-gray-600 dark:text-gray-300 mb-6">
+        <p className="text-fg-muted mb-6">
           {error || 'An error occurred while fetching streams'}
         </p>
         {onRefresh && (
@@ -161,10 +175,8 @@ export function StreamsGrid({
       {/* Header with Controls */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Video Streams
-          </h2>
-          <p className="text-gray-600 dark:text-gray-300 mt-1">
+          <h2 className="text-2xl font-bold text-fg">Video Streams</h2>
+          <p className="text-fg-muted mt-1">
             {streamIds.length} active {streamIds.length === 1 ? 'stream' : 'streams'}
           </p>
         </div>
@@ -172,15 +184,11 @@ export function StreamsGrid({
         <div className="flex items-center space-x-3">
           {/* Show Videos Checkbox */}
           {streamIds.length > 0 && (
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showVideos}
-                onChange={(e) => setShowVideos(e.target.checked)}
-                className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Show Videos</span>
-            </label>
+            <Checkbox
+              checked={showVideos}
+              onChange={(e) => setShowVideos(e.target.checked)}
+              label={<span className="text-fg-muted">Show Videos</span>}
+            />
           )}
 
           {/* Action Buttons */}
@@ -196,17 +204,48 @@ export function StreamsGrid({
             )}
 
             {onCreateStream && (
-              <Button
-                onClick={onCreateStream}
-                theme="primary"
-                size="MD"
-                LeadingIcon={({ className }) => (
-                  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                )}
-                text="Create Stream"
-              />
+              <Menu as="div" className="relative inline-flex">
+                <button
+                  type="button"
+                  onClick={onCreateStream}
+                  className="h-10 px-4 inline-flex items-center gap-2 bg-accent hover:bg-accent-hover active:bg-accent-active text-accent-fg font-medium text-sm rounded-l-md border-r border-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                >
+                  <PlusIcon className="w-5 h-5" />
+                  Create Stream
+                </button>
+                <MenuButton
+                  aria-label="More create options"
+                  className="h-10 px-2 inline-flex items-center bg-accent hover:bg-accent-hover active:bg-accent-active text-accent-fg rounded-r-md focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                >
+                  <ChevronDownIcon className="w-4 h-4" />
+                </MenuButton>
+                <MenuItems
+                  anchor="bottom end"
+                  className="mt-2 w-64 rounded-md bg-surface-raised border border-border shadow-lg focus:outline-none z-10"
+                >
+                  {onCreateCanvas && (
+                    <MenuItem>
+                      {({ focus }) => (
+                        <button
+                          type="button"
+                          onClick={onCreateCanvas}
+                          className={`w-full px-4 py-3 text-left flex items-center gap-3 ${
+                            focus ? 'bg-surface-muted' : ''
+                          }`}
+                        >
+                          <PlusIcon className="w-5 h-5 text-fg-subtle shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-fg">Create Canvas</div>
+                            <div className="text-xs text-fg-subtle">
+                              Composite 1–4 streams
+                            </div>
+                          </div>
+                        </button>
+                      )}
+                    </MenuItem>
+                  )}
+                </MenuItems>
+              </Menu>
             )}
           </div>
         </div>

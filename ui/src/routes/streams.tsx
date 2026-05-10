@@ -8,10 +8,10 @@ import { useSSEManager } from '../hooks/useSSEManager';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { InfoBar } from '../components/InfoBar';
 import { StreamsGrid } from '../components/StreamsGrid';
-import {
-  SSEStreamLifecycleEvent,
-  SSEStreamMetricsEvent
-} from '../lib/api';
+import type { components } from '../lib/api.generated';
+import type { StreamLifecycleEvent } from '../hooks/useSSEManager';
+
+type StreamMetricsEvent = components["schemas"]["StreamMetricsEvent"];
 
 export default function Streams() {
   const navigate = useNavigate();
@@ -31,21 +31,17 @@ export default function Streams() {
   // Get actions without subscribing to state changes
   const fetchStreams = useStreamStore((state) => state.fetchStreams);
   const deleteStream = useStreamStore((state) => state.deleteStream);
-  const addStreamFromSSE = useStreamStore((state) => state.addStreamFromSSE);
-  const removeStreamFromSSE = useStreamStore((state) => state.removeStreamFromSSE);
+  const addStream = useStreamStore((state) => state.addStream);
+  const removeStream = useStreamStore((state) => state.removeStream);
   const updateStreamMetrics = useStreamStore((state) => state.updateStreamMetrics);
+  const bumpStreamRefreshKey = useStreamStore((state) => state.bumpStreamRefreshKey);
 
-  // Stable SSE event handlers
-  const handleStreamLifecycle = useCallback((event: SSEStreamLifecycleEvent) => {
-    console.log('Received SSE stream lifecycle event:', event);
-
+  const handleStreamLifecycle = useCallback((event: StreamLifecycleEvent) => {
     if (event.type === 'stream-created') {
-      addStreamFromSSE(event.stream);
+      addStream(event.stream);
     } else if (event.type === 'stream-updated') {
-      // Get current state before update to detect changes
       const currentStream = useStreamStore.getState().streamsById[event.stream.stream_id];
-
-      addStreamFromSSE(event.stream);
+      addStream(event.stream);
 
       if (event.action === 'restarted') {
         toast.success(`Stream '${event.stream.stream_id}' has restarted`);
@@ -53,11 +49,16 @@ export default function Streams() {
         toast.success(`Test mode ${event.stream.test_mode ? 'enabled' : 'disabled'}`);
       }
     } else if (event.type === 'stream-deleted') {
-      removeStreamFromSSE(event.stream_id);
+      removeStream(event.stream_id);
+    } else if (event.type === 'canvas-restarted') {
+      if (event.canvas) {
+        addStream(event.canvas);
+      }
+      bumpStreamRefreshKey(event.canvas_id);
     }
-  }, [addStreamFromSSE, removeStreamFromSSE]);
+  }, [addStream, removeStream, bumpStreamRefreshKey]);
 
-  const handleStreamMetrics = useCallback((event: SSEStreamMetricsEvent) => {
+  const handleStreamMetrics = useCallback((event: StreamMetricsEvent) => {
     updateStreamMetrics(event);
   }, [updateStreamMetrics]);
 
@@ -85,6 +86,10 @@ export default function Streams() {
     navigate('/streams/new');
   }, [navigate]);
 
+  const handleCreateCanvas = useCallback(() => {
+    navigate('/streams/canvas/new');
+  }, [navigate]);
+
   const handleLogout = useCallback(() => {
     logout();
   }, [logout]);
@@ -105,6 +110,7 @@ export default function Streams() {
           onRefresh={fetchStreams}
           onDeleteStream={handleDeleteStream}
           onCreateStream={handleCreateStream}
+          onCreateCanvas={handleCreateCanvas}
         />
       </DashboardLayout.MainContent>
     </DashboardLayout>

@@ -16,3 +16,10 @@ processes:
         condition: process_started
     availability:
       restart: "on_failure"
+
+  # Design system preview (Ladle) — http://localhost:61000/
+  ladle:
+    command: "pnpm ladle"
+    working_dir: "./ui"
+    availability:
+      restart: "on_failure"

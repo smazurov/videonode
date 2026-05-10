@@ -11,24 +11,22 @@ import (
 
 func TestBus_PublishSubscribe(t *testing.T) {
 	bus := New()
-	received := make(chan CaptureSuccessEvent, 1)
+	received := make(chan DeviceDiscoveryEvent, 1)
 
-	unsub := bus.Subscribe(func(e CaptureSuccessEvent) {
+	unsub := bus.Subscribe(func(e DeviceDiscoveryEvent) {
 		received <- e
 	})
 	defer unsub()
 
-	event := CaptureSuccessEvent{
-		DevicePath: "/dev/video0",
-		Message:    "test",
-		ImageData:  "data",
-		Timestamp:  "2025-01-27T10:30:00Z",
+	event := DeviceDiscoveryEvent{
+		Action:    "added",
+		Timestamp: "2025-01-27T10:30:00Z",
 	}
 	bus.Publish(event)
 
 	got := <-received
-	if got.DevicePath != event.DevicePath {
-		t.Errorf("Expected device_path %s, got %s", event.DevicePath, got.DevicePath)
+	if got.Action != event.Action {
+		t.Errorf("Expected action %s, got %s", event.Action, got.Action)
 	}
 }
 
@@ -59,18 +57,18 @@ func TestBus_MultipleSubscribers(_ *testing.T) {
 
 func TestBus_Unsubscribe(t *testing.T) {
 	bus := New()
-	received := make(chan CaptureErrorEvent, 1)
+	received := make(chan StreamDeletedEvent, 1)
 
-	unsub := bus.Subscribe(func(e CaptureErrorEvent) {
+	unsub := bus.Subscribe(func(e StreamDeletedEvent) {
 		received <- e
 	})
 
-	bus.Publish(CaptureErrorEvent{DevicePath: "/dev/video0"})
+	bus.Publish(StreamDeletedEvent{StreamID: "test-1"})
 	<-received
 
 	unsub()
 
-	bus.Publish(CaptureErrorEvent{DevicePath: "/dev/video1"})
+	bus.Publish(StreamDeletedEvent{StreamID: "test-2"})
 	select {
 	case <-received:
 		t.Fatal("Should not have received event after unsubscribe")
@@ -82,11 +80,11 @@ func TestBus_Unsubscribe(t *testing.T) {
 func TestBus_TypeSafety(t *testing.T) {
 	bus := New()
 
-	captureReceived := make(chan bool, 1)
+	discoveryReceived := make(chan bool, 1)
 	streamReceived := make(chan bool, 1)
 
-	unsub1 := bus.Subscribe(func(_ CaptureSuccessEvent) {
-		captureReceived <- true
+	unsub1 := bus.Subscribe(func(_ DeviceDiscoveryEvent) {
+		discoveryReceived <- true
 	})
 	defer unsub1()
 
@@ -95,13 +93,13 @@ func TestBus_TypeSafety(t *testing.T) {
 	})
 	defer unsub2()
 
-	// Publish CaptureSuccessEvent
-	bus.Publish(CaptureSuccessEvent{DevicePath: "/dev/video0"})
-	<-captureReceived
+	// Publish DeviceDiscoveryEvent
+	bus.Publish(DeviceDiscoveryEvent{Action: "added"})
+	<-discoveryReceived
 
 	select {
 	case <-streamReceived:
-		t.Fatal("Stream subscriber should NOT have received CaptureSuccessEvent")
+		t.Fatal("Stream subscriber should NOT have received DeviceDiscoveryEvent")
 	case <-time.After(10 * time.Millisecond):
 		// Expected
 	}
@@ -111,8 +109,8 @@ func TestBus_TypeSafety(t *testing.T) {
 	<-streamReceived
 
 	select {
-	case <-captureReceived:
-		t.Fatal("Capture subscriber should NOT have received StreamCreatedEvent")
+	case <-discoveryReceived:
+		t.Fatal("Discovery subscriber should NOT have received StreamCreatedEvent")
 	case <-time.After(10 * time.Millisecond):
 		// Expected
 	}
@@ -133,16 +131,14 @@ func TestBus_ThreadSafety(_ *testing.T) {
 	defer unsub()
 
 	for range numGoroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range eventsPerGoroutine {
 				bus.Publish(DeviceDiscoveryEvent{
 					Action:    "added",
 					Timestamp: time.Now().Format(time.RFC3339),
 				})
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -160,8 +156,6 @@ func TestBus_AllEventTypes(t *testing.T) {
 		name  string
 		event Event
 	}{
-		{"CaptureSuccess", CaptureSuccessEvent{DevicePath: "/dev/video0"}},
-		{"CaptureError", CaptureErrorEvent{DevicePath: "/dev/video0"}},
 		{"DeviceDiscovery", DeviceDiscoveryEvent{Action: "added"}},
 		{"StreamCreated", StreamCreatedEvent{Action: "created"}},
 		{"StreamUpdated", StreamUpdatedEvent{Action: "updated"}},
@@ -176,10 +170,6 @@ func TestBus_AllEventTypes(t *testing.T) {
 
 			var unsub func()
 			switch tt.event.(type) {
-			case CaptureSuccessEvent:
-				unsub = bus.Subscribe(func(e CaptureSuccessEvent) { received <- e })
-			case CaptureErrorEvent:
-				unsub = bus.Subscribe(func(e CaptureErrorEvent) { received <- e })
 			case DeviceDiscoveryEvent:
 				unsub = bus.Subscribe(func(e DeviceDiscoveryEvent) { received <- e })
 			case StreamCreatedEvent:
@@ -207,12 +197,10 @@ func TestEventJSONSerialization(t *testing.T) {
 		event any
 	}{
 		{
-			"CaptureSuccessEvent",
-			CaptureSuccessEvent{
-				DevicePath: "/dev/video0",
-				Message:    "Success",
-				ImageData:  "base64data",
-				Timestamp:  "2025-01-27T10:30:00Z",
+			"DeviceDiscoveryEvent",
+			DeviceDiscoveryEvent{
+				Action:    "added",
+				Timestamp: "2025-01-27T10:30:00Z",
 			},
 		},
 		{
@@ -272,22 +260,21 @@ func TestSubscribeToChannel(t *testing.T) {
 	bus := New()
 	ch := make(chan any, 10)
 
-	unsub := SubscribeToChannel[CaptureSuccessEvent](bus, ch)
+	unsub := SubscribeToChannel[DeviceDiscoveryEvent](bus, ch)
 	defer unsub()
 
-	event := CaptureSuccessEvent{
-		DevicePath: "/dev/video0",
-		Message:    "test",
+	event := DeviceDiscoveryEvent{
+		Action: "added",
 	}
 	bus.Publish(event)
 
 	received := <-ch
-	captureEvent, ok := received.(CaptureSuccessEvent)
+	discoveryEvent, ok := received.(DeviceDiscoveryEvent)
 	if !ok {
-		t.Fatalf("Expected CaptureSuccessEvent, got %T", received)
+		t.Fatalf("Expected DeviceDiscoveryEvent, got %T", received)
 	}
-	if captureEvent.DevicePath != event.DevicePath {
-		t.Errorf("Expected device_path %s, got %s", event.DevicePath, captureEvent.DevicePath)
+	if discoveryEvent.Action != event.Action {
+		t.Errorf("Expected action %s, got %s", event.Action, discoveryEvent.Action)
 	}
 }
 

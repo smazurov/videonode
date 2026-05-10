@@ -26,16 +26,23 @@ type QualityParams struct {
 
 // ValidationResults represents the complete validation results.
 type ValidationResults struct {
-	Timestamp      string          `toml:"timestamp" json:"timestamp"`
-	FFmpegVersion  string          `toml:"ffmpeg_version" json:"ffmpeg_version"`
-	TestDuration   int             `toml:"test_duration" json:"test_duration"`
-	TestResolution string          `toml:"test_resolution" json:"test_resolution"`
-	H264           CodecValidation `toml:"h264" json:"h264"`
-	H265           CodecValidation `toml:"h265" json:"h265"`
+	Timestamp      string                       `toml:"timestamp" json:"timestamp"`
+	FFmpegVersion  string                       `toml:"ffmpeg_version" json:"ffmpeg_version"`
+	TestDuration   int                          `toml:"test_duration" json:"test_duration"`
+	TestResolution string                       `toml:"test_resolution" json:"test_resolution"`
+	H264           CodecValidation              `toml:"h264" json:"h264"`
+	H265           CodecValidation              `toml:"h265" json:"h265"`
+	Backends       map[string]BackendValidation `toml:"backends,omitempty" json:"backends,omitempty"`
 }
 
 // CodecValidation represents validation results for a specific codec.
 type CodecValidation struct {
 	Working []string `toml:"working" json:"working"`
 	Failed  []string `toml:"failed" json:"failed"`
+}
+
+// BackendValidation holds per-backend HW capability probe results (decoders + filters).
+type BackendValidation struct {
+	Decoders CodecValidation `toml:"decoders" json:"decoders"`
+	Filters  CodecValidation `toml:"filters" json:"filters"`
 }

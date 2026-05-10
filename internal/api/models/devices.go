@@ -3,7 +3,6 @@ package models
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -68,18 +67,14 @@ func (vf VideoFormat) IsValid() bool {
 	return exists
 }
 
-// PixelFormatToHumanReadable converts V4L2 pixel format codes to human-readable names.
-func PixelFormatToHumanReadable(pixelFormat uint32) string {
-	// Reverse lookup in our map
+// PixelFormatToVideoFormat converts V4L2 pixel format codes to VideoFormat.
+func PixelFormatToVideoFormat(pixelFormat uint32) (VideoFormat, bool) {
 	for format, code := range videoFormatToPixelFormat {
 		if code == pixelFormat {
-			return string(format)
+			return format, true
 		}
 	}
-
-	logger := slog.With("component", "device_models")
-	logger.Warn("Unknown pixel format code", "pixel_format", pixelFormat)
-	return "unknown"
+	return "", false
 }
 
 // DeviceType represents the type of V4L2 device.
@@ -116,9 +111,9 @@ type DeviceInfo struct {
 
 // FormatInfo represents a video format with human-readable format names and snake_case fields.
 type FormatInfo struct {
-	FormatName   string `json:"format_name" example:"yuyv422" doc:"Human-readable format name"`
-	OriginalName string `json:"original_name" example:"YUYV 4:2:2" doc:"Original V4L2 format name"`
-	Emulated     bool   `json:"emulated" example:"false" doc:"Whether format is emulated"`
+	FormatName   VideoFormat `json:"format_name" example:"yuyv422" doc:"Human-readable format name"`
+	OriginalName string      `json:"original_name" example:"YUYV 4:2:2" doc:"Original V4L2 format name"`
+	Emulated     bool        `json:"emulated" example:"false" doc:"Whether format is emulated"`
 }
 
 // Resolution represents video resolution with snake_case fields.

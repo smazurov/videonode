@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react';
+import { DocumentDuplicateIcon } from '@heroicons/react/24/outline';
 import { Button } from './Button';
-import { getFFmpegCommand, setFFmpegCommand, clearFFmpegCommand, FFmpegCommandData } from '../lib/api';
+import { IconButton } from './IconButton';
+import { Badge } from './Badge';
+import { BottomSheet } from './BottomSheet';
+import { Spinner } from './Spinner';
+import { Checkbox } from './Checkbox';
+import type { components } from '../lib/api.generated';
+import { api } from '../lib/api';
+
+type FFmpegCommandData = components["schemas"]["FFmpegCommandData"];
 import { useStreamStore } from '../hooks/useStreamStore';
 import toast from 'react-hot-toast';
 
@@ -71,7 +79,10 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
   const loadBaseCommand = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getFFmpegCommand(streamId);
+      const { data, error } = await api.GET("/api/streams/{stream_id}/ffmpeg", {
+        params: { path: { stream_id: streamId } },
+      });
+      if (error) throw new Error(error.detail ?? 'Failed to fetch FFmpeg command');
       setCache(prev => ({ ...prev, base: data }));
     } catch (error) {
       console.error('Failed to fetch FFmpeg command:', error);
@@ -102,7 +113,10 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
 
     setLoading(true);
     try {
-      const data = await getFFmpegCommand(streamId, encoder);
+      const { data, error } = await api.GET("/api/streams/{stream_id}/ffmpeg", {
+        params: { path: { stream_id: streamId }, query: { override: encoder } },
+      });
+      if (error) throw new Error(error.detail ?? `Failed to load command for ${encoder}`);
       setCache(prev => ({
         ...prev,
         overrides: { ...prev.overrides, [encoder]: data }
@@ -148,7 +162,11 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
 
     setSaving(true);
     try {
-      await setFFmpegCommand(streamId, editedCommand);
+      const { error } = await api.PATCH("/api/streams/{stream_id}", {
+        params: { path: { stream_id: streamId } },
+        body: { custom_ffmpeg_command: editedCommand, test_mode: false },
+      });
+      if (error) throw new Error(error.detail ?? 'Failed to save FFmpeg command');
       setMode('view');
       // Refresh base command to reflect the custom command
       await loadBaseCommand();
@@ -169,7 +187,11 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
   const revertToAuto = async () => {
     setSaving(true);
     try {
-      await clearFFmpegCommand(streamId);
+      const { error } = await api.PATCH("/api/streams/{stream_id}", {
+        params: { path: { stream_id: streamId } },
+        body: { custom_ffmpeg_command: "" },
+      });
+      if (error) throw new Error(error.detail ?? 'Failed to clear custom command');
       // Clear cache and reload
       setCache({ base: null, overrides: {} });
       setSelectedEncoder('');
@@ -204,77 +226,35 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
 
 
   return (
-    <Transition show={isOpen}>
-      <Dialog onClose={onClose} className="relative z-50">
-        <TransitionChild
-          enter="ease-out duration-300"
-          enterFrom="opacity-0"
-          enterTo="opacity-100"
-          leave="ease-in duration-200"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
-        >
-          <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-        </TransitionChild>
-
-        <div className="fixed inset-x-0 bottom-0 flex items-end justify-center">
-          <TransitionChild
-            enter="ease-out duration-300"
-            enterFrom="opacity-0 translate-y-full"
-            enterTo="opacity-100 translate-y-0"
-            leave="ease-in duration-200"
-            leaveFrom="opacity-100 translate-y-0"
-            leaveTo="opacity-0 translate-y-full"
-          >
-            <DialogPanel className="w-full max-w-4xl bg-white dark:bg-gray-900 rounded-t-2xl shadow-xl">
-              <div className="p-6">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <DialogTitle className="text-lg font-semibold text-gray-900 dark:text-white">
-                      FFmpeg Command - {streamId}
-                    </DialogTitle>
-                    {currentCommand?.is_custom && (
-                      <span className="px-2 py-1 text-xs font-medium bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded">
-                        Custom
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={onClose}
-                    className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-
+    <BottomSheet
+      open={isOpen}
+      onClose={onClose}
+      title={`FFmpeg Command - ${streamId}`}
+      maxWidth="4xl"
+      headerExtra={currentCommand?.is_custom ? <Badge tone="warning">Custom</Badge> : undefined}
+    >
+      <>
                 {/* Encoder Override (only in view mode and if not custom) */}
                 {mode === 'view' && !currentCommand?.is_custom && (
                   <div className="mb-4">
-                    <label className="flex items-center space-x-2 cursor-pointer mb-2">
-                      <input
-                        type="checkbox"
-                        checked={showEncoderOverride}
-                        onChange={(e) => {
-                          setShowEncoderOverride(e.target.checked);
-                          if (!e.target.checked) {
-                            setSelectedEncoder('');
-                          }
-                        }}
-                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                      />
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Override encoder
-                      </span>
-                    </label>
-                    
+                    <Checkbox
+                      className="mb-2"
+                      checked={showEncoderOverride}
+                      onChange={(e) => {
+                        setShowEncoderOverride(e.target.checked);
+                        if (!e.target.checked) {
+                          setSelectedEncoder('');
+                        }
+                      }}
+                      label={<span className="text-sm font-medium text-fg">Override encoder</span>}
+                    />
+
                     {showEncoderOverride && (
                       <select
                         value={selectedEncoder}
+                        aria-label="Encoder override"
                         onChange={(e) => handleEncoderChange(e.target.value)}
-                        className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+                        className="block w-full px-3 py-2 border border-border rounded-md shadow-sm bg-surface text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:border-accent"
                         disabled={loading}
                       >
                         <option value="">Auto-select encoder</option>
@@ -297,27 +277,26 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
                   if (loading) {
                     return (
                       <div className="flex items-center justify-center h-48">
-                        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+                        <Spinner size="lg" />
                       </div>
                     );
                   }
-                  
+
                   if (!currentCommand) {
                     return (
-                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        No command data available
-                      </div>
+                      <div className="text-center py-8 text-fg-subtle">No command data available</div>
                     );
                   }
-                  
+
                   return (
                   <div className="space-y-4">
                     <div className="relative group">
                       {mode === 'edit' ? (
                         <textarea
                           value={editedCommand}
+                          aria-label="FFmpeg command"
                           onChange={(e) => setEditedCommand(e.target.value)}
-                          className="w-full h-48 p-4 font-mono text-sm text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent overflow-auto break-all"
+                          className="w-full h-48 p-4 font-mono text-sm text-fg bg-surface-muted border border-border rounded-lg resize-none focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:border-accent overflow-auto break-all"
                           placeholder="Enter FFmpeg command..."
                           disabled={saving}
                           spellCheck={false}
@@ -325,18 +304,16 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
                         />
                       ) : (
                         <>
-                          <pre className="w-full h-48 p-4 font-mono text-sm text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg overflow-auto whitespace-pre-wrap break-all">
+                          <pre className="w-full h-48 p-4 font-mono text-sm text-fg bg-surface-muted border border-border rounded-lg overflow-auto whitespace-pre-wrap break-all">
                             {currentCommand.command}
                           </pre>
-                          <button
+                          <IconButton
+                            icon={DocumentDuplicateIcon}
+                            label="Copy to clipboard"
+                            size="SM"
                             onClick={copyToClipboard}
-                            className="absolute top-2 right-2 p-2 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded opacity-0 group-hover:opacity-100 transition"
-                            title="Copy to clipboard"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                          </button>
+                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                          />
                         </>
                       )}
                     </div>
@@ -391,11 +368,7 @@ export function FFmpegCommandSheet({ isOpen, onClose, streamId, onRefresh }: Rea
                   </div>
                   );
                 })()}
-              </div>
-            </DialogPanel>
-          </TransitionChild>
-        </div>
-      </Dialog>
-    </Transition>
+      </>
+    </BottomSheet>
   );
 }

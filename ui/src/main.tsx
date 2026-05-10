@@ -9,6 +9,7 @@ import VideoRoute from "./routes/video";
 import Streams from "./routes/streams";
 import CreateStream from "./routes/create-stream";
 import EditStream from "./routes/edit-stream";
+import CanvasRoute from "./routes/canvas";
 import Logs from "./routes/logs";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -55,6 +56,22 @@ const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <EditStream />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "streams/canvas/new",
+        element: (
+          <ProtectedRoute>
+            <CanvasRoute />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "streams/canvas/:streamId/edit",
+        element: (
+          <ProtectedRoute>
+            <CanvasRoute />
           </ProtectedRoute>
         ),
       },

@@ -10,7 +10,8 @@ import (
 
 // mockStore is a test implementation of Store.
 type mockStore struct {
-	streams map[string]StreamSpec
+	streams    map[string]StreamSpec
+	validation *types.ValidationResults
 }
 
 func (m *mockStore) Load() error                       { return nil }
@@ -20,11 +21,14 @@ func (m *mockStore) UpdateStream(id string, stream StreamSpec) error {
 	m.streams[id] = stream
 	return nil
 }
-func (m *mockStore) RemoveStream(id string) error                    { delete(m.streams, id); return nil }
-func (m *mockStore) GetStream(id string) (StreamSpec, bool)          { s, ok := m.streams[id]; return s, ok }
-func (m *mockStore) GetAllStreams() map[string]StreamSpec            { return m.streams }
-func (m *mockStore) GetValidation() *types.ValidationResults         { return nil }
-func (m *mockStore) UpdateValidation(*types.ValidationResults) error { return nil }
+func (m *mockStore) RemoveStream(id string) error            { delete(m.streams, id); return nil }
+func (m *mockStore) GetStream(id string) (StreamSpec, bool)  { s, ok := m.streams[id]; return s, ok }
+func (m *mockStore) GetAllStreams() map[string]StreamSpec    { return m.streams }
+func (m *mockStore) GetValidation() *types.ValidationResults { return m.validation }
+func (m *mockStore) UpdateValidation(v *types.ValidationResults) error {
+	m.validation = v
+	return nil
+}
 
 func TestProcessorRemovesBitrateFromEncoderParams(t *testing.T) {
 	// Create mock repository

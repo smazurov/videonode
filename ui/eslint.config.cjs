@@ -68,9 +68,48 @@ const commonRules = {
   "sonarjs/prefer-immediate-return": "error",
 };
 
+// Design-system enforcement: ban raw Tailwind palette classes (e.g. bg-slate-800) and
+// arbitrary-value hex colors in component files. Forces use of semantic tokens defined
+// in src/design/tokens.dtcg.json (bg-surface, text-fg, border-danger, etc.).
+// See ui/src/design/README.md for the allowed vocabulary.
+const TAILWIND_PALETTE_PATTERN = String.raw`\b(bg|text|border|ring|from|to|via|divide|placeholder|fill|stroke|outline|decoration|accent|caret|shadow)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b`;
+const HEX_COLOR_ARBITRARY_PATTERN = String.raw`\[#[0-9a-fA-F]{3,8}\]`;
+
+const designSystemRules = {
+  "no-restricted-syntax": [
+    "error",
+    {
+      selector: `Literal[value=/${TAILWIND_PALETTE_PATTERN}/]`,
+      message:
+        "Use a semantic token (e.g. bg-surface, text-fg, border-danger) instead of a raw Tailwind palette class. See ui/src/design/README.md.",
+    },
+    {
+      selector: `TemplateElement[value.raw=/${TAILWIND_PALETTE_PATTERN}/]`,
+      message:
+        "Use a semantic token (e.g. bg-surface, text-fg, border-danger) instead of a raw Tailwind palette class. See ui/src/design/README.md.",
+    },
+    {
+      selector: `Literal[value=/${HEX_COLOR_ARBITRARY_PATTERN}/]`,
+      message:
+        "Do not use arbitrary hex colors in class strings; add the value to tokens.dtcg.json and reference it as a semantic token.",
+    },
+    {
+      selector: `TemplateElement[value.raw=/${HEX_COLOR_ARBITRARY_PATTERN}/]`,
+      message:
+        "Do not use arbitrary hex colors in class strings; add the value to tokens.dtcg.json and reference it as a semantic token.",
+    },
+  ],
+};
+
+// Files that still contain raw palette classes and are tracked as migration debt.
+// Remove entries here as they are migrated. Do not grow this list.
+// Empty — all component files have been migrated to semantic tokens.
+// Keep this constant so future regressions can be pinned explicitly rather than re-growing allowlists.
+const DESIGN_SYSTEM_DEBT = [];
+
 module.exports = [
   {
-    ignores: ["**/dist", "**/build", "**/node_modules"],
+    ignores: ["**/dist", "**/build", "**/node_modules", "**/api.generated.ts"],
   },
   // Base JavaScript recommended rules
   js.configs.recommended,
@@ -140,11 +179,24 @@ module.exports = [
       "@typescript-eslint/no-unsafe-call": "error",
       "@typescript-eslint/no-unsafe-member-access": "error",
       "@typescript-eslint/no-unsafe-return": "error",
-      
+
       // Disable conflicting rules
       "no-undef": "off", // TypeScript handles this
       "no-unused-vars": "off", // Use @typescript-eslint/no-unused-vars instead
     },
+  },
+  // Design-system enforcement: semantic tokens only in component files.
+  {
+    files: ["src/components/**/*.{ts,tsx}"],
+    ignores: [
+      // Primitives and the design module are the source of truth for tokens.
+      "src/components/Button.tsx",
+      "src/components/IconButton.tsx",
+      "src/components/Badge.tsx",
+      "src/design/**",
+      ...DESIGN_SYSTEM_DEBT,
+    ],
+    rules: designSystemRules,
   },
   // JavaScript files configuration
   {
