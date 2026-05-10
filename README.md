@@ -23,6 +23,7 @@ go build -o videonode .
 
 - **HTTP API**: http://localhost:8090 (configurable)
 - **RTSP**: rtsp://localhost:8554 (configurable)
+- **SRT**: srt://localhost:6001 (configurable)
 - **API Docs**: http://localhost:8090/docs
 
 ## Configuration
@@ -64,6 +65,27 @@ led_control_enabled = false
 level = "info"
 format = "text"
 # Module-specific levels: streams, streaming, devices, encoders, capture, api, webrtc
+```
+
+## Playback
+
+### WebRTC
+
+Open `http://localhost:8090` and click on a live stream.
+
+### SRT (lowest latency)
+
+```bash
+ffplay -fflags nobuffer -flags low_delay -framedrop -fast \
+  -analyzeduration 0 -probesize 32768 -sync ext \
+  -i "srt://localhost:6001?streamid=<stream-id>&latency=20000"
+```
+
+### RTSP
+
+```bash
+ffplay -fflags nobuffer -flags low_delay -framedrop \
+  -rtsp_transport tcp rtsp://localhost:8554/<stream-id>
 ```
 
 ## Features

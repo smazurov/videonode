@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
-import { API_BASE_URL, type VersionInfo } from '../lib/api';
+import { API_BASE_URL } from '../lib/api';
+import type { components } from '../lib/api.generated';
+
+type VersionData = components["schemas"]["VersionData"];
 
 export function useVersion() {
-  const [version, setVersion] = useState<VersionInfo | null>(null);
+  const [version, setVersion] = useState<VersionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -13,7 +16,7 @@ export function useVersion() {
         if (!res.ok) throw new Error(`Failed to fetch version: ${res.statusText}`);
         return res.json();
       })
-      .then((data: VersionInfo) => {
+      .then((data: VersionData) => {
         setVersion(data);
         setError(null);
       })

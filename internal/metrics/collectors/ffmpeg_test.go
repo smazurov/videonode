@@ -64,7 +64,11 @@ progress=continue
 	// Wait for metrics to be processed
 	time.Sleep(50 * time.Millisecond)
 
-	m := metrics.GetFFmpegMetrics(streamID)
+	all, err := metrics.GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		t.Fatalf("failed to get metrics: %v", err)
+	}
+	m := all[streamID]
 	if m == nil {
 		t.Fatal("expected metrics to be set")
 	}
@@ -123,7 +127,11 @@ func TestFFmpegCollectorMultipleProgressUpdates(t *testing.T) {
 	}
 	time.Sleep(30 * time.Millisecond)
 
-	m := metrics.GetFFmpegMetrics(streamID)
+	all, err := metrics.GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		t.Fatalf("failed to get metrics: %v", err)
+	}
+	m := all[streamID]
 	if m == nil || m.FPS != 30 {
 		t.Errorf("first update: FPS = %v, want 30", m)
 	}
@@ -138,7 +146,11 @@ func TestFFmpegCollectorMultipleProgressUpdates(t *testing.T) {
 	}
 	time.Sleep(30 * time.Millisecond)
 
-	m = metrics.GetFFmpegMetrics(streamID)
+	all, err = metrics.GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		t.Fatalf("failed to get metrics: %v", err)
+	}
+	m = all[streamID]
 	if m == nil || m.FPS != 60 {
 		t.Errorf("second update: FPS = %v, want 60", m)
 	}
@@ -175,7 +187,11 @@ func TestFFmpegCollectorStop(t *testing.T) {
 	}
 
 	// Metrics should be deleted
-	if m := metrics.GetFFmpegMetrics(streamID); m != nil {
+	all, err := metrics.GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		t.Fatalf("failed to get metrics: %v", err)
+	}
+	if all[streamID] != nil {
 		t.Error("expected metrics to be deleted after stop")
 	}
 

@@ -1,9 +1,8 @@
 import { useEffect } from 'react';
 import { Button } from '../Button';
 import { useDeviceStore } from '../../hooks/useDeviceStore';
-import { 
-  useDeviceFormats
-} from '../../hooks/useDeviceCapabilities';
+import { useDeviceFormats } from '../../hooks/useDeviceCapabilities';
+import { Spinner } from '../Spinner';
 
 type DeviceFormat = {
   format_name: string;
@@ -19,50 +18,51 @@ interface DeviceSelectorProps {
   required?: boolean;
 }
 
-export function DeviceSelector({ 
-  value, 
-  onChange, 
-  error, 
+const selectClasses =
+  'block w-full px-3 py-2 border border-border rounded-md shadow-sm bg-surface text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:border-accent';
+
+export function DeviceSelector({
+  value,
+  onChange,
+  error,
   disabled = false,
-  required = false 
+  required = false
 }: Readonly<DeviceSelectorProps>) {
   const devices = useDeviceStore((state) => state.devices);
   const loadingDevices = useDeviceStore((state) => state.loading);
   const deviceError = useDeviceStore((state) => state.error);
-  
+
   const { formats, loading: loadingFormats, error: formatsError } = useDeviceFormats(value);
-  
-  // Load devices on mount only if store is empty
+
   useEffect(() => {
     if (devices.length === 0) {
       useDeviceStore.getState().fetchDevices();
     }
   }, [devices.length]);
-  
-  // Auto-select first device when devices are loaded
+
   useEffect(() => {
     if (devices.length > 0 && !value) {
       onChange(devices[0]?.device_id || '');
     }
   }, [devices, value, onChange]);
-  
+
   const selectedDevice = devices.find(d => d.device_id === value);
-  
+
   const renderDeviceSelection = () => {
     if (loadingDevices) {
       return (
-        <div className="flex items-center space-x-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
-          <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm text-gray-600 dark:text-gray-300">Loading devices...</span>
+        <div className="flex items-center space-x-2 p-3 border border-border rounded-md bg-surface-muted">
+          <Spinner size="sm" />
+          <span className="text-sm text-fg-muted">Loading devices...</span>
         </div>
       );
     }
-    
+
     if (deviceError !== null) {
       return (
         <div className="space-y-2">
-          <div className="p-3 border border-red-300 dark:border-red-600 rounded-md bg-red-50 dark:bg-red-900/20">
-            <p className="text-sm text-red-600 dark:text-red-400">{deviceError}</p>
+          <div className="p-3 border border-danger rounded-md bg-danger-soft">
+            <p className="text-sm text-danger-soft-fg">{deviceError}</p>
           </div>
           <Button
             type="button"
@@ -74,22 +74,23 @@ export function DeviceSelector({
         </div>
       );
     }
-    
+
     if (devices.length === 0) {
       return (
-        <div className="p-3 border border-yellow-300 dark:border-yellow-600 rounded-md bg-yellow-50 dark:bg-yellow-900/20">
-          <p className="text-sm text-yellow-700 dark:text-yellow-300">
+        <div className="p-3 border border-warning rounded-md bg-warning-soft">
+          <p className="text-sm text-warning-soft-fg">
             No devices found. Make sure your video capture devices are connected.
           </p>
         </div>
       );
     }
-    
+
     return (
       <select
+        aria-label="Video device"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
+        className={selectClasses}
         disabled={disabled}
         required={required}
       >
@@ -102,18 +103,18 @@ export function DeviceSelector({
       </select>
     );
   };
-  
+
   const renderFormatsList = (formats: DeviceFormat[]) => (
     <div className="text-sm">
-      <p className="text-gray-700 dark:text-gray-200 font-medium mb-1">Available Input Formats:</p>
+      <p className="text-fg font-medium mb-1">Available Input Formats:</p>
       <div className="flex flex-wrap gap-1">
         {formats.map(format => (
-          <span 
+          <span
             key={format.format_name}
             className={`px-2 py-1 rounded text-xs ${
-              format.emulated 
-                ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' 
-                : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+              format.emulated
+                ? 'bg-surface-muted text-fg-muted'
+                : 'bg-accent-soft text-accent-soft-fg'
             }`}
             title={`${format.original_name}${format.emulated ? ' (Emulated)' : ''}`}
           >
@@ -123,42 +124,40 @@ export function DeviceSelector({
       </div>
     </div>
   );
-  
+
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-        Video Device {required && <span className="text-red-500">*</span>}
+      <label className="block text-sm font-medium text-fg mb-2">
+        Video Device {required && <span className="text-danger">*</span>}
       </label>
-      
+
       {renderDeviceSelection()}
-      
-      {error && (
-        <p className="mt-1 text-sm text-red-600 dark:text-red-400">{error}</p>
-      )}
-      
+
+      {error && <p className="mt-1 text-sm text-danger-soft-fg">{error}</p>}
+
       {selectedDevice && (
-        <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded">
+        <div className="mt-2 p-3 bg-surface-muted rounded">
           <div className="space-y-2">
             <div className="text-sm">
-              <p className="text-gray-600 dark:text-gray-300">
+              <p className="text-fg-muted">
                 <strong>Device:</strong> {selectedDevice.device_name}
               </p>
-              <p className="text-gray-600 dark:text-gray-300">
-                <strong>Capabilities:</strong> {selectedDevice.capabilities.join(', ')}
+              <p className="text-fg-muted">
+                <strong>Capabilities:</strong> {(selectedDevice.capabilities ?? []).join(', ')}
               </p>
             </div>
-            
+
             {loadingFormats && (
               <div className="flex items-center space-x-2 text-sm">
-                <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-gray-600 dark:text-gray-300">Loading formats...</span>
+                <Spinner size="xs" />
+                <span className="text-fg-muted">Loading formats...</span>
               </div>
             )}
-            
+
             {!loadingFormats && formats.length > 0 && renderFormatsList(formats)}
-            
+
             {formatsError && (
-              <p className="text-sm text-red-600 dark:text-red-400">
+              <p className="text-sm text-danger-soft-fg">
                 Failed to load formats: {formatsError}
               </p>
             )}

@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { StreamCreation } from '../components/StreamCreation';
+import { StreamForm } from '../components/StreamForm';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { Button } from '../components/Button';
 import { InfoBar } from '../components/InfoBar';
@@ -9,9 +9,7 @@ export default function CreateStream() {
   const navigate = useNavigate();
   const { logout } = useAuthStore();
 
-  const handleCreateStream = async () => {
-    // Stream is already created by the useStreamCreation hook
-    // Just navigate back to streams list
+  const handleSuccess = async () => {
     navigate('/streams');
   };
 
@@ -23,13 +21,8 @@ export default function CreateStream() {
     logout();
   };
 
-  const bottomBar = <InfoBar />;
-
   return (
-    <DashboardLayout
-      onLogout={handleLogout}
-      bottomBar={bottomBar}
-    >
+    <DashboardLayout onLogout={handleLogout} bottomBar={<InfoBar />}>
       <DashboardLayout.MainContent>
         <div className="space-y-6">
           <div className="flex items-center justify-between">
@@ -41,20 +34,15 @@ export default function CreateStream() {
                 Configure a new video stream from your capture devices
               </p>
             </div>
-            <div className="flex items-center space-x-2">
-              <Button
-                theme="light"
-                onClick={handleCancel}
-                size="SM"
-                text="Back to Streams"
-              />
-            </div>
+            <Button
+              theme="light"
+              onClick={handleCancel}
+              size="SM"
+              text="Back to Streams"
+            />
           </div>
-          
-          <StreamCreation
-            onCreateStream={handleCreateStream}
-            onCancel={handleCancel}
-          />
+
+          <StreamForm onSuccess={handleSuccess} onCancel={handleCancel} />
         </div>
       </DashboardLayout.MainContent>
     </DashboardLayout>

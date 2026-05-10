@@ -2,10 +2,7 @@ package ffmpeg
 
 import "strings"
 
-// ParseLogLevel extracts the log level from ffmpeg output.
-// FFmpeg with -loglevel level+info outputs lines like "[info] message"
-// or "[component @ 0x...] [level] message" for component-specific logs.
-// Returns the level and the message with level stripped but component preserved.
+// ParseLogLevel extracts the level from "[level] msg" or "[component] [level] msg" ffmpeg output.
 func ParseLogLevel(line string) (level, msg string) {
 	if len(line) < 3 || line[0] != '[' {
 		return "info", line
@@ -22,8 +19,7 @@ func ParseLogLevel(line string) (level, msg string) {
 		return bracket, line[end+2:]
 	}
 
-	// Check for component prefix: [component @ 0x...] [level] message
-	// Keep the component, strip only the [level]
+	// "[component] [level] msg": keep component, strip [level].
 	component := line[:end+2]
 	rest := line[end+2:]
 	if len(rest) > 2 && rest[0] == '[' {

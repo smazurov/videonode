@@ -35,7 +35,7 @@ export function DashboardLayout({
 }: Readonly<DashboardLayoutProps>) {
   
   return (
-    <div className={cn("h-screen flex flex-col bg-gray-50 dark:bg-gray-900", className)}>
+    <div className={cn("h-screen flex flex-col bg-surface-sunken", className)}>
       {/* Header - fixed */}
       <Header {...(onLogout && { onLogout })} />
       
@@ -65,7 +65,7 @@ export function DashboardLayout({
       
       {/* Bottom info bar - fixed */}
       {bottomBar && (
-        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 z-10">
+        <div className="border-t border-border bg-surface-raised z-10">
           {bottomBar}
         </div>
       )}

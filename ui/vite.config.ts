@@ -30,15 +30,17 @@ export default defineConfig(() => {
 
   return {
     plugins,
-    build: { 
+    cacheDir: "node_modules/.vite-app",
+    build: {
       outDir: "dist",
       chunkSizeWarningLimit: 1000
     },
     server: {
       host: "localhost",
-      port: 3000,
+      port: 5173,
       proxy: {
-        "/api": "http://localhost:8090"
+        "/api": "http://localhost:8090",
+        "/openapi.json": "http://localhost:8090"
       }
     }
   };

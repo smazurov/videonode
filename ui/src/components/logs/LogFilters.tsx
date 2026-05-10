@@ -1,4 +1,6 @@
 import { MultiSelect, type MultiSelectOption } from '../MultiSelect';
+import { Checkbox } from '../Checkbox';
+import { logLevelClasses, connectionStatusClasses } from '../../design/status';
 
 interface AttributeFilter {
   key: string;
@@ -8,24 +10,11 @@ interface AttributeFilter {
 
 const ALL_LEVELS = ['error', 'warn', 'info', 'debug'];
 
-const LEVEL_COLORS: Record<string, string> = {
-  error: 'text-red-400',
-  warn: 'text-yellow-400',
-  info: 'text-blue-400',
-  debug: 'text-gray-400',
-};
-
 const LEVEL_OPTIONS: MultiSelectOption[] = ALL_LEVELS.map(level => ({
   value: level,
   label: level.toUpperCase(),
-  color: LEVEL_COLORS[level] ?? 'text-gray-300',
+  color: logLevelClasses(level),
 }));
-
-const CONNECTION_STATUS_CLASSES: Record<string, string> = {
-  connected: 'bg-green-500',
-  connecting: 'bg-yellow-500 animate-pulse',
-  disconnected: 'bg-red-500',
-};
 
 interface LogFiltersProps {
   readonly connectionStatus: 'connecting' | 'connected' | 'disconnected';
@@ -70,7 +59,7 @@ export function LogFilters({
   onClearFilters,
   onClearLogs,
 }: LogFiltersProps) {
-  const statusClass = CONNECTION_STATUS_CLASSES[connectionStatus] ?? 'bg-red-500';
+  const statusClass = connectionStatusClasses(connectionStatus);
 
   const moduleOptions: MultiSelectOption[] = availableModules.map(m => ({
     value: m,
@@ -85,11 +74,11 @@ export function LogFilters({
   return (
     <>
       {/* Main Filter Bar */}
-      <div className="flex flex-wrap items-center gap-2 p-2 bg-gray-800 border-b border-gray-700 shrink-0">
+      <div className="flex flex-wrap items-center gap-2 p-2 bg-surface-muted border-b border-border shrink-0">
         {/* Connection Status */}
-        <div className="flex items-center gap-1.5 pr-3 border-r border-gray-600">
+        <div className="flex items-center gap-1.5 pr-3 border-r border-border">
           <div className={`w-2 h-2 rounded-full ${statusClass}`} />
-          <span className="text-xs text-gray-400">{connectionStatus}</span>
+          <span className="text-xs text-fg-muted">{connectionStatus}</span>
         </div>
 
         {/* Level Filter */}
@@ -124,16 +113,17 @@ export function LogFilters({
         <input
           type="text"
           placeholder="Search..."
+          aria-label="Search logs"
           value={globalFilter}
           onChange={e => onGlobalFilterChange(e.target.value)}
-          className="px-2 py-0.5 text-xs bg-gray-700 border border-gray-600 rounded text-gray-300 placeholder-gray-500 w-32"
+          className="px-2 py-0.5 text-xs bg-surface border border-border rounded text-fg placeholder:text-fg-subtle w-32 focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         />
 
         {/* Add Attribute Filter */}
         {availableAttributeKeys.length > 0 && (
           <button
             onClick={onAddAttributeFilter}
-            className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+            className="px-2 py-0.5 text-xs bg-surface text-fg-muted rounded hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             + Attr
           </button>
@@ -142,26 +132,22 @@ export function LogFilters({
         <div className="flex-1" />
 
         {/* Auto-scroll */}
-        <label className="flex items-center gap-1 text-xs text-gray-400">
-          <input
-            type="checkbox"
-            checked={autoScroll}
-            onChange={e => onAutoScrollChange(e.target.checked)}
-            className="rounded bg-gray-700 border-gray-600 text-blue-500"
-          />
-          Follow
-        </label>
+        <Checkbox
+          checked={autoScroll}
+          onChange={e => onAutoScrollChange(e.target.checked)}
+          label={<span className="text-xs text-fg-muted">Follow</span>}
+        />
 
         {/* Clear buttons */}
         <button
           onClick={onClearFilters}
-          className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+          className="px-2 py-0.5 text-xs bg-surface text-fg-muted rounded hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
           Reset
         </button>
         <button
           onClick={onClearLogs}
-          className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+          className="px-2 py-0.5 text-xs bg-surface text-fg-muted rounded hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
           Clear
         </button>
@@ -169,13 +155,14 @@ export function LogFilters({
 
       {/* Attribute Filters Row */}
       {attributeFilters.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-gray-800 border-b border-gray-700 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-surface-muted border-b border-border shrink-0">
           {attributeFilters.map((filter, index) => (
-            <div key={index} className="flex items-center gap-1 bg-gray-700 rounded px-2 py-0.5">
+            <div key={index} className="flex items-center gap-1.5">
               <select
                 value={filter.key}
+                aria-label={`Attribute key ${index + 1}`}
                 onChange={e => onUpdateAttributeFilter(index, { key: e.target.value })}
-                className="bg-transparent text-xs text-purple-400"
+                className="pl-2 pr-7 py-0.5 text-xs bg-surface border border-border rounded text-canvas-soft-fg cursor-pointer bg-right focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 {availableAttributeKeys.map(key => (
                   <option key={key} value={key}>{key}</option>
@@ -183,8 +170,9 @@ export function LogFilters({
               </select>
               <select
                 value={filter.operator}
+                aria-label={`Attribute operator ${index + 1}`}
                 onChange={e => onUpdateAttributeFilter(index, { operator: e.target.value as AttributeFilter['operator'] })}
-                className="bg-transparent text-xs text-gray-400"
+                className="pl-2 pr-7 py-0.5 text-xs bg-surface border border-border rounded text-fg-muted cursor-pointer bg-right focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 <option value="contains">~</option>
                 <option value="equals">=</option>
@@ -194,14 +182,16 @@ export function LogFilters({
                 <input
                   type="text"
                   value={filter.value}
+                  aria-label={`Attribute value ${index + 1}`}
                   onChange={e => onUpdateAttributeFilter(index, { value: e.target.value })}
                   placeholder="value"
-                  className="w-16 bg-transparent text-xs text-yellow-300 placeholder-gray-500"
+                  className="w-20 px-2 py-0.5 text-xs bg-surface border border-border rounded text-srt-soft-fg placeholder:text-fg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                 />
               )}
               <button
                 onClick={() => onRemoveAttributeFilter(index)}
-                className="text-gray-500 hover:text-gray-300"
+                aria-label={`Remove attribute filter ${index + 1}`}
+                className="px-1.5 py-0.5 text-xs text-fg-subtle hover:text-fg bg-surface border border-border rounded hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 ×
               </button>

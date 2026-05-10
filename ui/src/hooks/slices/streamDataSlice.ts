@@ -1,6 +1,10 @@
 import { StateCreator } from 'zustand';
-import { StreamData, StreamListData, SSEStreamMetricsEvent } from '../../lib/api';
+import type { components } from '../../lib/api.generated';
 import { StreamStore } from '../useStreamStore';
+
+type StreamData = components["schemas"]["StreamData"];
+type StreamListData = components["schemas"]["StreamListData"];
+type StreamMetricsEvent = components["schemas"]["StreamMetricsEvent"];
 
 export interface StreamMetrics {
   fps?: string | undefined;
@@ -12,11 +16,13 @@ export interface StreamDataSlice {
   streamIds: string[];
   streamsById: Record<string, StreamData>;
   metricsById: Record<string, StreamMetrics>;
+  streamRefreshKeys: Record<string, number>;
 
   setStreams: (streamData: StreamListData) => void;
   addStream: (stream: StreamData) => void;
   removeStream: (streamId: string) => void;
-  updateStreamMetrics: (metrics: SSEStreamMetricsEvent) => void;
+  updateStreamMetrics: (metrics: StreamMetricsEvent) => void;
+  bumpStreamRefreshKey: (streamId: string) => void;
   getStreamById: (streamId: string) => StreamData | undefined;
 }
 
@@ -29,25 +35,29 @@ export const createStreamDataSlice: StateCreator<
   streamIds: [],
   streamsById: {},
   metricsById: {},
+  streamRefreshKeys: {},
 
   setStreams: (streamData) => {
     const ids: string[] = [];
     const byId: Record<string, StreamData> = {};
-    const metricsById: Record<string, StreamMetrics> = {};
-    for (const stream of streamData.streams) {
+    for (const stream of streamData.streams ?? []) {
       ids.push(stream.stream_id);
       byId[stream.stream_id] = stream;
-      metricsById[stream.stream_id] = {
-        fps: stream.fps,
-        dropped_frames: stream.dropped_frames,
-        duplicate_frames: stream.duplicate_frames,
-      };
     }
-    set({
-      streamIds: ids,
-      streamsById: byId,
-      metricsById,
-      lastUpdated: new Date(),
+    set((state) => {
+      // Preserve metrics for streams that still exist; only drop metrics for
+      // deleted streams. Wiping wholesale flashes empty stats on every
+      // refresh until SSE refills them.
+      const nextMetrics: Record<string, StreamMetrics> = {};
+      for (const id of ids) {
+        if (state.metricsById[id]) nextMetrics[id] = state.metricsById[id];
+      }
+      return {
+        streamIds: ids,
+        streamsById: byId,
+        metricsById: nextMetrics,
+        lastUpdated: new Date(),
+      };
     });
   },
 
@@ -59,14 +69,6 @@ export const createStreamDataSlice: StateCreator<
           ? [...state.streamIds, stream.stream_id]
           : state.streamIds,
         streamsById: { ...state.streamsById, [stream.stream_id]: stream },
-        metricsById: {
-          ...state.metricsById,
-          [stream.stream_id]: {
-            fps: stream.fps,
-            dropped_frames: stream.dropped_frames,
-            duplicate_frames: stream.duplicate_frames,
-          },
-        },
         lastUpdated: new Date(),
       };
     });
@@ -90,18 +92,37 @@ export const createStreamDataSlice: StateCreator<
   updateStreamMetrics: (metrics) => {
     set((state) => {
       const existing = state.metricsById[metrics.stream_id];
+      // No-op when the three reported fields are identical — avoids
+      // re-rendering every consumer on each metrics tick.
+      if (
+        existing &&
+        existing.fps === metrics.fps &&
+        existing.dropped_frames === metrics.dropped_frames &&
+        existing.duplicate_frames === metrics.duplicate_frames
+      ) {
+        return state;
+      }
       return {
         metricsById: {
           ...state.metricsById,
           [metrics.stream_id]: {
             ...existing,
-            ...(metrics.fps !== undefined && { fps: metrics.fps }),
-            ...(metrics.dropped_frames !== undefined && { dropped_frames: metrics.dropped_frames }),
-            ...(metrics.duplicate_frames !== undefined && { duplicate_frames: metrics.duplicate_frames }),
+            fps: metrics.fps,
+            dropped_frames: metrics.dropped_frames,
+            duplicate_frames: metrics.duplicate_frames,
           },
         },
       };
     });
+  },
+
+  bumpStreamRefreshKey: (streamId) => {
+    set((state) => ({
+      streamRefreshKeys: {
+        ...state.streamRefreshKeys,
+        [streamId]: (state.streamRefreshKeys[streamId] ?? 0) + 1,
+      },
+    }));
   },
 
   getStreamById: (streamId) => get().streamsById[streamId],

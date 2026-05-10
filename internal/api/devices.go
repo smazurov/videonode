@@ -2,19 +2,13 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"strconv"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
-	"github.com/smazurov/videonode/internal/capture"
 	"github.com/smazurov/videonode/internal/devices"
-	"github.com/smazurov/videonode/internal/events"
 )
 
 // DevicePathInput represents device path parameter input.
@@ -31,20 +25,8 @@ type DeviceFormatInput struct {
 // DeviceResolutionInput represents device resolution query input.
 type DeviceResolutionInput struct {
 	DeviceFormatInput
-	Width  string `query:"width" example:"1920" doc:"Video width in pixels"`
-	Height string `query:"height" example:"1080" doc:"Video height in pixels"`
-}
-
-// DeviceCaptureBody represents the request body for device capture.
-type DeviceCaptureBody struct {
-	Resolution string  `json:"resolution,omitempty" example:"1920x1080" doc:"Optional resolution"`
-	Delay      float64 `json:"delay,omitempty" example:"2.0" doc:"Delay before capture in seconds"`
-}
-
-// DeviceCaptureInput combines path parameters and request body.
-type DeviceCaptureInput struct {
-	DevicePathInput
-	Body DeviceCaptureBody
+	Width  uint32 `query:"width" example:"1920" doc:"Video width in pixels"`
+	Height uint32 `query:"height" example:"1080" doc:"Video height in pixels"`
 }
 
 // humanReadableToPixelFormat converts human-readable format names to V4L2 pixel format codes.
@@ -232,8 +214,14 @@ func GetDeviceCapabilities(devicePath string) (models.DeviceCapabilitiesData, er
 			logger.Warn("Skipping unsupported format", "error", formatErr)
 			continue
 		}
+		videoFormat, ok := models.PixelFormatToVideoFormat(format.PixelFormat)
+		if !ok {
+			logger := slog.With("component", "devices_api")
+			logger.Warn("Unknown pixel format code", "pixel_format", format.PixelFormat)
+			continue
+		}
 		formats = append(formats, models.FormatInfo{
-			FormatName:   models.PixelFormatToHumanReadable(format.PixelFormat),
+			FormatName:   videoFormat,
 			OriginalName: format.FormatName,
 			Emulated:     format.Emulated,
 		})
@@ -357,18 +345,8 @@ func (s *Server) registerDeviceRoutes() {
 			return nil, huma.Error400BadRequest("Invalid format name", err)
 		}
 
-		width, err := strconv.ParseUint(input.Width, 10, 32)
-		if err != nil {
-			return nil, huma.Error400BadRequest("Invalid width parameter", err)
-		}
-
-		height, err := strconv.ParseUint(input.Height, 10, 32)
-		if err != nil {
-			return nil, huma.Error400BadRequest("Invalid height parameter", err)
-		}
-
 		detector := devices.NewDetector()
-		framerates, err := detector.GetDeviceFramerates(devicePath, pixelFormat, uint32(width), uint32(height))
+		framerates, err := detector.GetDeviceFramerates(devicePath, pixelFormat, input.Width, input.Height)
 		if err != nil {
 			return nil, huma.Error500InternalServerError("Failed to get device framerates", err)
 		}
@@ -389,68 +367,6 @@ func (s *Server) registerDeviceRoutes() {
 
 		return &models.DeviceFrameratesResponse{
 			Body: models.DeviceFrameratesData{Framerates: apiFramerates},
-		}, nil
-	})
-
-	// Capture screenshot from device
-	huma.Register(s.api, huma.Operation{
-		OperationID:   "device-capture-screenshot",
-		Method:        http.MethodPost,
-		Path:          "/api/devices/{device_id}/capture",
-		Summary:       "Capture Screenshot",
-		Description:   "Capture a screenshot from the device. Results are sent via SSE events.",
-		Tags:          []string{"devices"},
-		DefaultStatus: http.StatusAccepted, // 202 Accepted
-		Security:      withAuth(),
-		Errors:        []int{401, 404},
-	}, func(_ context.Context, input *DeviceCaptureInput) (*models.CaptureResponse, error) {
-		// Resolve device ID to device path
-		devicePath, err := resolveDevicePath(input.DeviceID)
-		if err != nil {
-			return nil, huma.Error404NotFound("Device not found", err)
-		}
-
-		// Validate device exists
-		if _, statErr := os.Stat(devicePath); os.IsNotExist(statErr) {
-			return nil, huma.Error404NotFound(fmt.Sprintf("Device %s does not exist", devicePath), nil)
-		}
-
-		// Trigger capture asynchronously and send results via SSE
-		go func() {
-			// Use config default delay if none provided in request
-			delay := input.Body.Delay
-			if delay == 0 {
-				delay = float64(s.options.CaptureDefaultDelayMs) / 1000.0
-			}
-
-			fmt.Printf("API capture with delay: %.1f seconds\n", delay)
-			timestamp := time.Now().Format(time.RFC3339)
-
-			imageBytes, captureErr := capture.ToBytes(devicePath, delay)
-
-			if captureErr != nil {
-				// Log the capture error
-				fmt.Printf("Screenshot capture failed for %s: %s\n", devicePath, captureErr.Error())
-			} else {
-				// Broadcast success event with base64 image via Huma SSE
-				base64Image := base64.StdEncoding.EncodeToString(imageBytes)
-				if s.eventBus != nil {
-					s.eventBus.Publish(events.CaptureSuccessEvent{
-						DevicePath: devicePath,
-						Message:    "Screenshot captured successfully",
-						ImageData:  base64Image,
-						Timestamp:  timestamp,
-					})
-				}
-			}
-		}()
-
-		// Return immediate acknowledgment that capture was triggered
-		return &models.CaptureResponse{
-			Body: models.CaptureData{
-				Status:  "accepted",
-				Message: "Screenshot capture triggered. Results will be sent via SSE.",
-			},
 		}, nil
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -84,6 +85,7 @@ func (v *Validator) ValidateEncoders() (*types.ValidationResults, error) {
 			Working: []string{},
 			Failed:  []string{},
 		},
+		Backends: map[string]types.BackendValidation{},
 	}
 
 	registry := CreateValidatorRegistry()
@@ -96,7 +98,6 @@ func (v *Validator) ValidateEncoders() (*types.ValidationResults, error) {
 	for _, validator := range availableValidators {
 		v.logger.Printf("=== %s ===", validator.GetDescription())
 
-		// Get only the compiled encoders for this validator
 		compiledEncoders := registry.GetCompiledEncoders(validator)
 
 		for _, encoderName := range compiledEncoders {
@@ -105,7 +106,6 @@ func (v *Validator) ValidateEncoders() (*types.ValidationResults, error) {
 			if valid, err := validator.Validate(encoderName); valid {
 				v.logger.Printf("%s: ✓ WORKING", encoderName)
 
-				// Categorize by codec type (including software encoders)
 				if strings.Contains(encoderName, "h264") || strings.Contains(encoderName, "x264") {
 					results.H264.Working = append(results.H264.Working, encoderName)
 				} else if strings.Contains(encoderName, "hevc") || strings.Contains(encoderName, "h265") || strings.Contains(encoderName, "x265") {
@@ -114,13 +114,27 @@ func (v *Validator) ValidateEncoders() (*types.ValidationResults, error) {
 			} else {
 				v.logger.Printf("%s: ✗ FAILED (%v)", encoderName, err)
 
-				// Categorize by codec type (including software encoders)
 				if strings.Contains(encoderName, "h264") || strings.Contains(encoderName, "x264") {
 					results.H264.Failed = append(results.H264.Failed, encoderName)
 				} else if strings.Contains(encoderName, "hevc") || strings.Contains(encoderName, "h265") || strings.Contains(encoderName, "x265") {
 					results.H265.Failed = append(results.H265.Failed, encoderName)
 				}
 			}
+		}
+
+		backendName := validator.GetBackendName()
+		if backendName == "" || backendName == "sw" {
+			continue
+		}
+		v.logger.Printf("--- %s backend probes ---", backendName)
+		decW, decF := validator.ValidateDecoders(v.logger)
+		fltW, fltF := validator.ValidateFilters(v.logger)
+		if len(decW)+len(decF)+len(fltW)+len(fltF) == 0 {
+			continue
+		}
+		results.Backends[backendName] = types.BackendValidation{
+			Decoders: types.CodecValidation{Working: decW, Failed: decF},
+			Filters:  types.CodecValidation{Working: fltW, Failed: fltF},
 		}
 	}
 
@@ -129,13 +143,11 @@ func (v *Validator) ValidateEncoders() (*types.ValidationResults, error) {
 
 // SaveValidationResults saves validation results using ValidationProvider.
 func (v *Validator) SaveValidationResults(results *types.ValidationResults) error {
-	// Update validation data directly through provider
 	return v.provider.UpdateValidation(results)
 }
 
 // LoadValidationResults loads validation results from ValidationProvider.
 func (v *Validator) LoadValidationResults() (*types.ValidationResults, error) {
-	// Get validation data from provider
 	validation := v.provider.GetValidation()
 	if validation == nil {
 		return nil, fmt.Errorf("no validation data found")
@@ -144,9 +156,7 @@ func (v *Validator) LoadValidationResults() (*types.ValidationResults, error) {
 	return validation, nil
 }
 
-// LoadValidationResults loads validation results from ValidationProvider.
-//
-// Deprecated: Use Validator.LoadValidationResults() instead.
+// LoadValidationResults loads validation results via a ValidationProvider. Deprecated: use Validator.LoadValidationResults.
 func LoadValidationResults(provider types.ValidationProvider) (*types.ValidationResults, error) {
 	v := NewValidator(provider)
 	return v.LoadValidationResults()
@@ -175,6 +185,34 @@ func PrintValidationSummary(results *types.ValidationResults) {
 			fmt.Printf("  H.265: %s\n", strings.Join(results.H265.Failed, ", "))
 		}
 	}
+
+	if len(results.Backends) > 0 {
+		fmt.Println("\nHardware backends:")
+		names := make([]string, 0, len(results.Backends))
+		for k := range results.Backends {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			b := results.Backends[name]
+			fmt.Printf("  %s:\n", name)
+			fmt.Printf("    decoders working: %s\n", joinOrEmpty(b.Decoders.Working))
+			if len(b.Decoders.Failed) > 0 {
+				fmt.Printf("    decoders failed:  %s\n", strings.Join(b.Decoders.Failed, ", "))
+			}
+			fmt.Printf("    filters working:  %s\n", joinOrEmpty(b.Filters.Working))
+			if len(b.Filters.Failed) > 0 {
+				fmt.Printf("    filters failed:   %s\n", strings.Join(b.Filters.Failed, ", "))
+			}
+		}
+	}
+}
+
+func joinOrEmpty(s []string) string {
+	if len(s) == 0 {
+		return "(none)"
+	}
+	return strings.Join(s, ", ")
 }
 
 // RunValidateCommand runs the validation command logic.
@@ -185,32 +223,29 @@ func (v *Validator) RunValidateCommand(quiet bool) error {
 		v.SetLogger(NewVerboseLogger())
 	}
 
-	// Run validation
 	results, err := v.ValidateEncoders()
 	if err != nil {
 		return fmt.Errorf("error validating encoders: %w", err)
 	}
 
-	// Save results
 	saveErr := v.SaveValidationResults(results)
 	if saveErr != nil {
 		return fmt.Errorf("error saving validation results: %w", saveErr)
 	}
 
-	// Print summary
 	PrintValidationSummary(results)
 	fmt.Println("\nResults saved")
 
 	return nil
 }
 
-// RunValidateCommandWithOptions runs validation with ValidationProvider - for backward compatibility.
+// RunValidateCommandWithOptions runs validation with a ValidationProvider.
 func RunValidateCommandWithOptions(provider types.ValidationProvider, quiet bool) {
 	v := NewValidator(provider)
 	if err := v.RunValidateCommand(quiet); err != nil {
 		logger := slog.With("component", "encoder_validation")
 		logger.Error("Validation command failed", "error", err)
-		panic(err) // Maintain the same behavior as log.Fatal
+		panic(err)
 	}
 }
 
@@ -224,7 +259,6 @@ func getFFmpegVersion() string {
 
 	lines := strings.Split(string(output), "\n")
 	if len(lines) > 0 {
-		// Extract version from first line like "ffmpeg version 7.1.1 Copyright..."
 		parts := strings.Fields(lines[0])
 		if len(parts) >= 3 {
 			return parts[2]

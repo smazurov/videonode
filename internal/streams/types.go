@@ -5,17 +5,22 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/devices"
+	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/types"
 )
 
 // StreamService defines the interface for stream operations.
 type StreamService interface {
 	CreateStream(ctx context.Context, params StreamCreateParams) (*Stream, error)
 	UpdateStream(ctx context.Context, streamID string, params StreamUpdateParams) (*Stream, error)
+	UpdatePartial(ctx context.Context, streamID string, patch func(*StreamSpec) error) (*Stream, error)
+	SetEnabled(ctx context.Context, streamID string, enabled bool) (bool, error)
 	DeleteStream(ctx context.Context, streamID string) error
 	RestartStream(ctx context.Context, streamID string) error
 	GetStream(ctx context.Context, streamID string) (*Stream, error)
 	GetStreamSpec(ctx context.Context, streamID string) (*StreamSpec, error)
 	ListStreams(ctx context.Context) ([]Stream, error)
+	ListStreamsWithSpecs(ctx context.Context) ([]StreamWithSpec, error)
 	GetFFmpegCommand(ctx context.Context, streamID string, encoderOverride string) (string, bool, error)
 
 	// Initialization
@@ -28,19 +33,27 @@ type StreamService interface {
 	BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string)
 }
 
+// StreamWithSpec pairs a runtime Stream with its persisted StreamSpec.
+type StreamWithSpec struct {
+	Stream Stream
+	Spec   StreamSpec
+}
+
 // StreamCollector is the interface for stream metrics collectors.
 type StreamCollector interface {
 	Stop() error
 }
 
-// Stream represents a video stream's runtime state
-// Configuration is stored separately in StreamSpec.
+// Stream is a video stream's runtime state. Configuration lives in StreamSpec.
 type Stream struct {
 	ID             string          `json:"stream_id"`
-	Enabled        bool            `json:"enabled"`    // Device online/offline state, set by monitoring
-	StartTime      time.Time       `json:"start_time"` // When stream was started
-	ProgressSocket string          `json:"-"`          // Runtime socket path, not serialized
-	Collector      StreamCollector `json:"-"`          // Metrics collector for this stream
+	Enabled        bool            `json:"enabled"`
+	StartTime      time.Time       `json:"start_time"`
+	ProgressSocket string          `json:"-"`
+	Collector      StreamCollector `json:"-"`
+	InputsEnabled  map[string]bool `json:"inputs_enabled,omitempty"` // canvas streams only
+
+	OwnedBy string `json:"owned_by,omitempty"` // canvas ID currently owning this stream's device
 }
 
 // StreamCreateParams contains parameters for creating a new stream.
@@ -49,25 +62,31 @@ type StreamCreateParams struct {
 	DeviceID    string
 	Codec       string
 	InputFormat string
-	Bitrate     *float64 // Optional, in Mbps
-	Width       *int     // Optional, video width
-	Height      *int     // Optional, video height
-	Framerate   *int     // Optional, video framerate
-	AudioDevice string   // Optional, ALSA audio device
-	Options     []string // Optional, FFmpeg option keys
+	Bitrate     *float64      // Optional, in Mbps
+	Width       *int          // Optional, video width
+	Height      *int          // Optional, video height
+	Framerate   *int          // Optional, video framerate
+	AudioDevice string        // Optional, ALSA audio device
+	Options     []string      // Optional, FFmpeg option keys
+	Canvas      *CanvasConfig // nil for regular streams, non-nil for canvas (composite) streams
+	Rotation    int           // Output rotation in degrees (0, 90, 180, 270)
 }
 
-// StreamUpdateParams contains parameters for updating an existing stream.
+// StreamUpdateParams is the legacy fully-populated update payload; prefer UpdatePartial.
 type StreamUpdateParams struct {
-	Codec               *string  // Optional, video codec
-	InputFormat         *string  // Optional, input format
-	Bitrate             *float64 // Optional, in Mbps
-	Width               *int     // Optional, video width
-	Height              *int     // Optional, video height
-	Framerate           *int     // Optional, video framerate
-	AudioDevice         *string  // Optional, ALSA audio device
-	Options             []string // Optional, FFmpeg option keys
-	CustomFFmpegCommand *string  // Optional, custom FFmpeg command override
-	TestMode            *bool    // Optional, enable test pattern mode
-	Enabled             *bool    // Optional, manual override of runtime enabled state
+	Codec               string
+	InputFormat         string
+	Resolution          string
+	FPS                 string
+	AudioDevice         string
+	Options             []ffmpeg.OptionType
+	QualityParams       *types.QualityParams
+	CustomFFmpegCommand string
+	TestMode            bool
+	Canvas              *CanvasConfig
+	Perspective         *ffmpeg.PerspectiveConfig
+	Vision              *ffmpeg.VisionConfig
+	Rotation            int
+
+	Enabled *bool // runtime state, applied only when non-nil; not persisted
 }

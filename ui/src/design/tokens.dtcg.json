@@ -1,0 +1,153 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "videonode design tokens in W3C DTCG format (2025.10). Primitive tokens hold raw palette values; semantic tokens reference primitives and carry intent. Semantic tokens with {light|dark} $extensions resolve per mode.",
+  "primitive": {
+    "color": {
+      "white":  { "$type": "color", "$value": "#ffffff" },
+      "black":  { "$type": "color", "$value": "#000000" },
+      "transparent": { "$type": "color", "$value": "#00000000" },
+
+      "slate": {
+        "100": { "$type": "color", "$value": "#f1f5f9" },
+        "200": { "$type": "color", "$value": "#e2e8f0" },
+        "300": { "$type": "color", "$value": "#cbd5e1" },
+        "600": { "$type": "color", "$value": "#475569" },
+        "700": { "$type": "color", "$value": "#334155" },
+        "800": { "$type": "color", "$value": "#1e293b" },
+        "900": { "$type": "color", "$value": "#0f172a" }
+      },
+      "gray": {
+        "100": { "$type": "color", "$value": "#f3f4f6" },
+        "200": { "$type": "color", "$value": "#e5e7eb" },
+        "300": { "$type": "color", "$value": "#d1d5db" },
+        "400": { "$type": "color", "$value": "#9ca3af" },
+        "500": { "$type": "color", "$value": "#6b7280" },
+        "600": { "$type": "color", "$value": "#4b5563" },
+        "700": { "$type": "color", "$value": "#374151" },
+        "800": { "$type": "color", "$value": "#1f2937" },
+        "900": { "$type": "color", "$value": "#111827" }
+      },
+      "blue": {
+        "50":  { "$type": "color", "$value": "#eff6ff" },
+        "100": { "$type": "color", "$value": "#dbeafe" },
+        "200": { "$type": "color", "$value": "#bfdbfe" },
+        "300": { "$type": "color", "$value": "#93c5fd" },
+        "400": { "$type": "color", "$value": "#60a5fa" },
+        "500": { "$type": "color", "$value": "#3b82f6" },
+        "600": { "$type": "color", "$value": "#2563eb" },
+        "700": { "$type": "color", "$value": "#1d4ed8" },
+        "800": { "$type": "color", "$value": "#1e40af" },
+        "900": { "$type": "color", "$value": "#1e3a8a" }
+      },
+      "red": {
+        "50":  { "$type": "color", "$value": "#fef2f2" },
+        "100": { "$type": "color", "$value": "#fee2e2" },
+        "300": { "$type": "color", "$value": "#fca5a5" },
+        "400": { "$type": "color", "$value": "#f87171" },
+        "500": { "$type": "color", "$value": "#ef4444" },
+        "600": { "$type": "color", "$value": "#dc2626" },
+        "700": { "$type": "color", "$value": "#b91c1c" },
+        "800": { "$type": "color", "$value": "#991b1b" },
+        "900": { "$type": "color", "$value": "#7f1d1d" }
+      },
+      "green": {
+        "400": { "$type": "color", "$value": "#4ade80" },
+        "500": { "$type": "color", "$value": "#22c55e" },
+        "600": { "$type": "color", "$value": "#16a34a" }
+      },
+      "yellow": {
+        "100": { "$type": "color", "$value": "#fef9c3" },
+        "200": { "$type": "color", "$value": "#fef08a" },
+        "300": { "$type": "color", "$value": "#fde047" },
+        "400": { "$type": "color", "$value": "#facc15" },
+        "500": { "$type": "color", "$value": "#eab308" },
+        "800": { "$type": "color", "$value": "#854d0e" },
+        "900": { "$type": "color", "$value": "#713f12" }
+      },
+      "orange": {
+        "100": { "$type": "color", "$value": "#ffedd5" },
+        "300": { "$type": "color", "$value": "#fdba74" },
+        "500": { "$type": "color", "$value": "#f97316" },
+        "800": { "$type": "color", "$value": "#9a3412" },
+        "900": { "$type": "color", "$value": "#7c2d12" }
+      },
+      "amber": {
+        "100": { "$type": "color", "$value": "#fef3c7" },
+        "200": { "$type": "color", "$value": "#fde68a" },
+        "800": { "$type": "color", "$value": "#92400e" },
+        "900": { "$type": "color", "$value": "#78350f" }
+      },
+      "purple": {
+        "100": { "$type": "color", "$value": "#f3e8ff" },
+        "200": { "$type": "color", "$value": "#e9d5ff" },
+        "300": { "$type": "color", "$value": "#d8b4fe" },
+        "400": { "$type": "color", "$value": "#c084fc" },
+        "700": { "$type": "color", "$value": "#7e22ce" },
+        "800": { "$type": "color", "$value": "#6b21a8" },
+        "900": { "$type": "color", "$value": "#581c87" }
+      },
+      "cyan": {
+        "400": { "$type": "color", "$value": "#22d3ee" }
+      }
+    }
+  },
+
+  "semantic": {
+    "color": {
+      "surface-sunken":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.100}",     "dark": "{primitive.color.gray.900}"   } } },
+      "surface":         { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.white}",        "dark": "{primitive.color.slate.800}" } } },
+      "surface-muted":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.100}",     "dark": "{primitive.color.gray.800}"   } } },
+      "surface-raised":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.white}",        "dark": "{primitive.color.slate.800}"  } } },
+      "surface-overlay": { "$type": "color", "$extensions": { "videonode.mode": { "light": "rgb(0 0 0 / 0.30)",              "dark": "rgb(0 0 0 / 0.50)"            } } },
+
+      "fg":         { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.900}", "dark": "{primitive.color.white}" } } },
+      "fg-muted":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.600}", "dark": "{primitive.color.gray.300}" } } },
+      "fg-subtle":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.500}", "dark": "{primitive.color.gray.500}" } } },
+      "fg-inverse": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.white}",    "dark": "{primitive.color.gray.900}" } } },
+
+      "border":         { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.slate.200}", "dark": "{primitive.color.slate.700}" } } },
+      "border-strong":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "rgb(30 41 59 / 0.30)",         "dark": "rgb(203 213 225 / 0.20)" } } },
+      "focus-ring":     { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.700}",   "dark": "{primitive.color.blue.500}" } } },
+
+      "accent":         { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.600}", "dark": "{primitive.color.blue.500}" } } },
+      "accent-hover":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.700}", "dark": "{primitive.color.blue.600}" } } },
+      "accent-active":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.800}", "dark": "{primitive.color.blue.700}" } } },
+      "accent-fg":      { "$type": "color", "$value": "{primitive.color.white}" },
+      "accent-soft":    { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.50}",  "dark": "{primitive.color.blue.900}" } } },
+      "accent-soft-fg": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.800}", "dark": "{primitive.color.blue.200}" } } },
+
+      "danger":         { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.red.600}",  "dark": "{primitive.color.red.500}" } } },
+      "danger-hover":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.red.700}",  "dark": "{primitive.color.red.600}" } } },
+      "danger-fg":      { "$type": "color", "$value": "{primitive.color.white}" },
+      "danger-soft":    { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.red.50}",   "dark": "rgb(127 29 29 / 0.30)" } } },
+      "danger-soft-fg": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.red.600}",  "dark": "{primitive.color.red.400}" } } },
+
+      "warning":        { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.yellow.500}", "dark": "{primitive.color.yellow.400}" } } },
+      "warning-soft":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.yellow.100}", "dark": "{primitive.color.yellow.900}" } } },
+      "warning-soft-fg":{ "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.yellow.800}", "dark": "{primitive.color.yellow.200}" } } },
+
+      "success":        { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.green.500}", "dark": "{primitive.color.green.400}" } } },
+      "info":           { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.500}",  "dark": "{primitive.color.blue.400}" } } },
+
+      "canvas-soft":    { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.purple.100}", "dark": "{primitive.color.purple.900}" } } },
+      "canvas-soft-fg": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.purple.800}", "dark": "{primitive.color.purple.200}" } } },
+
+      "webrtc-soft":    { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.100}",   "dark": "{primitive.color.blue.900}" } } },
+      "webrtc-soft-fg": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.800}",   "dark": "{primitive.color.blue.200}" } } },
+
+      "rtsp-soft":      { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.purple.100}", "dark": "{primitive.color.purple.900}" } } },
+      "rtsp-soft-fg":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.purple.800}", "dark": "{primitive.color.purple.200}" } } },
+
+      "srt-soft":       { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.orange.100}", "dark": "{primitive.color.orange.900}" } } },
+      "srt-soft-fg":    { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.orange.800}", "dark": "{primitive.color.orange.300}" } } },
+
+      "rtmp-soft":      { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.amber.100}",  "dark": "{primitive.color.amber.900}" } } },
+      "rtmp-soft-fg":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.amber.800}",  "dark": "{primitive.color.amber.200}" } } },
+
+      "log-error": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.red.600}",    "dark": "{primitive.color.red.400}" } } },
+      "log-warn":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.yellow.500}", "dark": "{primitive.color.yellow.400}" } } },
+      "log-info":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.600}",   "dark": "{primitive.color.blue.400}" } } },
+      "log-debug": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.500}",   "dark": "{primitive.color.gray.500}" } } }
+    }
+  }
+}

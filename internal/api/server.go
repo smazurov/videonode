@@ -9,9 +9,11 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/smazurov/videonode/internal/api/models"
+	"github.com/smazurov/videonode/internal/auth"
 	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/recording"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/updater"
@@ -31,7 +33,7 @@ type Server struct {
 }
 
 // basicAuthMiddleware creates middleware for HTTP basic authentication.
-func (s *Server) basicAuthMiddleware(username, password string) func(huma.Context, func(huma.Context)) {
+func (s *Server) basicAuthMiddleware(authenticator auth.Authenticator) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		// Skip auth for operations without security requirements
 		op := ctx.Operation()
@@ -92,8 +94,14 @@ func (s *Server) basicAuthMiddleware(username, password string) func(huma.Contex
 			return
 		}
 
-		// Validate credentials
-		if parts[0] != username || parts[1] != password {
+		// Validate credentials using authenticator
+		result := authenticator.Authenticate(parts[0], parts[1])
+		if result.Error != nil {
+			ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
+			huma.WriteErr(s.api, ctx, http.StatusInternalServerError, "Authentication error")
+			return
+		}
+		if !result.Valid {
 			ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
 			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials")
 			return
@@ -106,19 +114,20 @@ func (s *Server) basicAuthMiddleware(username, password string) func(huma.Contex
 
 // Options represents the main application options (imported from main package).
 type Options struct {
-	AuthUsername          string
-	AuthPassword          string
-	CaptureDefaultDelayMs int
-	StreamService         streams.StreamService
-	EventBus              *events.Bus     // Event bus for in-process events
-	PrometheusHandler     http.Handler    // Optional Prometheus metrics handler
-	UpdateService         updater.Service // Optional self-update service
-	LEDController         interface {     // Optional LED controller
+	Authenticator     auth.Authenticator
+	StreamService     streams.StreamService
+	EventBus          *events.Bus     // Event bus for in-process events
+	PrometheusHandler http.Handler    // Optional Prometheus metrics handler
+	UpdateService     updater.Service // Optional self-update service
+	LEDController     interface {     // Optional LED controller
 		Set(ledType string, enabled bool, pattern string) error
 		Available() []string
 		Patterns() []string
 	}
-	WebRTCManager *streaming.WebRTCManager // WebRTC signaling manager
+	WebRTCManager       *streaming.WebRTCManager      // WebRTC signaling manager
+	StreamProvider      streaming.StreamProvider      // Stream access for snapshots/recording
+	RawSnapshotProvider recording.RawSnapshotProvider // Raw vision pipe snapshot provider
+	RecordingDir        string                        // Directory for snapshot images
 }
 
 // NewServer creates a new API server with Huma v2 using Go 1.22+ native routing.
@@ -162,9 +171,9 @@ func NewServer(opts *Options) *Server {
 	// Apply HTTP logging middleware after CORS but before auth
 	api.UseMiddleware(HTTPLoggingMiddleware)
 
-	// Apply basic auth middleware globally if credentials are provided
-	if opts.AuthUsername != "" && opts.AuthPassword != "" {
-		api.UseMiddleware(server.basicAuthMiddleware(opts.AuthUsername, opts.AuthPassword))
+	// Apply auth middleware globally if authenticator is provided
+	if opts.Authenticator != nil {
+		api.UseMiddleware(server.basicAuthMiddleware(opts.Authenticator))
 	}
 
 	// Register Prometheus metrics endpoint before other routes (no auth required)
@@ -326,11 +335,19 @@ func (s *Server) registerRoutes() {
 		streaming.RegisterWebRTCAPI(s.api, s.options.WebRTCManager)
 	}
 
+	// Recording endpoints (snapshots, future: video recording)
+	if s.options.StreamProvider != nil && s.options.RecordingDir != "" {
+		recording.RegisterAPI(s.api, s.mux, s.options.StreamProvider, s.options.RawSnapshotProvider, s.options.RecordingDir)
+	}
+
 	// SSE endpoints
 	s.registerSSERoutes()
 
 	// Log streaming endpoint
 	s.registerLogRoutes()
+
+	// Metrics JSON endpoint (with auth)
+	s.registerMetricsRoutes()
 }
 
 // withAuth returns security requirement for basic auth.

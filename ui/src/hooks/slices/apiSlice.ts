@@ -1,13 +1,10 @@
 import { StateCreator } from 'zustand';
-import { 
-  StreamRequestData, 
-  StreamData, 
-  getStreams, 
-  createStream, 
-  updateStream,
-  deleteStream 
-} from '../../lib/api';
+import type { components } from '../../lib/api.generated';
+import { api, unwrap } from '../../lib/api';
 import { StreamStore } from '../useStreamStore';
+
+type StreamRequestData = components["schemas"]["StreamRequestData"];
+type StreamData = components["schemas"]["StreamData"];
 
 export interface APISlice {
   fetchStreams: () => Promise<void>;
@@ -25,14 +22,13 @@ export const createAPISlice: StateCreator<
   fetchStreams: async () => {
     const { setLoading, setError, setStreams, streamIds } = get();
 
-    // Only show loading if we don't have any streams yet (initial load)
     const hasExistingStreams = streamIds.length > 0;
     if (!hasExistingStreams) {
       setLoading(true);
     }
-    
+
     try {
-      const data = await getStreams();
+      const data = unwrap(await api.GET("/api/streams"), 'Failed to fetch streams');
       setStreams(data);
       setError(null);
     } catch (error) {
@@ -43,57 +39,59 @@ export const createAPISlice: StateCreator<
       }
     }
   },
-  
+
   createStream: async (request) => {
-    const { setLoading, setError, addStreamFromPost } = get();
-    setLoading(true);
-    
+    const { setError } = get();
+
     try {
-      const stream = await createStream(request);
-      addStreamFromPost(stream);
+      const data = unwrap(
+        await api.POST("/api/streams", { body: request }),
+        'Failed to create stream',
+      );
       setError(null);
-      return stream;
+      return data;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create stream';
       setError(message);
       throw error;
-    } finally {
-      setLoading(false);
     }
   },
-  
+
   updateStream: async (streamId, data) => {
-    const { setLoading, setError, addStream } = get();
-    setLoading(true);
-    
+    const { setError } = get();
+
     try {
-      const stream = await updateStream(streamId, data);
-      addStream(stream); // Updates existing stream in memory
+      const stream = unwrap(
+        await api.PATCH("/api/streams/{stream_id}", {
+          params: { path: { stream_id: streamId } },
+          body: data,
+        }),
+        'Failed to update stream',
+      );
       setError(null);
       return stream;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update stream';
       setError(message);
       throw error;
-    } finally {
-      setLoading(false);
     }
   },
-  
+
   deleteStream: async (streamId) => {
-    const { setLoading, setError, removeStreamFromPost } = get();
-    setLoading(true);
-    
+    const { setError } = get();
+
     try {
-      await deleteStream(streamId);
-      removeStreamFromPost(streamId);
+      unwrap(
+        await api.DELETE("/api/streams/{stream_id}", {
+          params: { path: { stream_id: streamId } },
+        }),
+        'Failed to delete stream',
+      );
       setError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete stream';
       setError(message);
       throw error;
-    } finally {
-      setLoading(false);
     }
   },
 });

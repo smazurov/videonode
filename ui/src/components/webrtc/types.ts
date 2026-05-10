@@ -18,6 +18,8 @@ export interface WebRTCStats {
   rtt: number | null;
   audioCodec: string | null;
   audioPacketsLost: number;
+  avSyncOffsetMs: number | null;
+  avSyncMethod: 'playout' | 'jitter' | 'unavailable';
 }
 
 export type QualityScore = 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';

@@ -1,7 +1,11 @@
 package streaming
 
 import (
-	"github.com/AlexxIT/go2rtc/pkg/core"
+	"crypto/rand"
+	"encoding/base64"
+	"log/slog"
+	"strings"
+
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/nack"
 	"github.com/pion/interceptor/pkg/report"
@@ -47,6 +51,13 @@ func NewWebRTCAPI(streamID, peerID string) (*pion.API, error) {
 	s.SetSRTPReplayProtectionWindow(SRTPReplayProtectionWindow)
 	// Set peer ID as ice-ufrag (visible to client in SDP answer)
 	s.SetICECredentials(peerID, generateICEPassword())
+	// Filter out Docker bridge and veth interfaces from ICE candidates
+	s.SetInterfaceFilter(func(iface string) bool {
+		if strings.HasPrefix(iface, "docker") || strings.HasPrefix(iface, "br-") || strings.HasPrefix(iface, "veth") {
+			return false
+		}
+		return true
+	})
 
 	return pion.NewAPI(
 		pion.WithMediaEngine(m),
@@ -58,7 +69,11 @@ func NewWebRTCAPI(streamID, peerID string) (*pion.API, error) {
 // generateICEPassword generates a secure password for ICE authentication.
 // ICE requires at least 128 bits of randomness for the password.
 func generateICEPassword() string {
-	return core.RandString(22, 22)
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		slog.Error("Failed to generate random bytes for ICE password", "error", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // registerCodecs registers audio and video codecs with RTCP feedback support.
@@ -145,7 +160,7 @@ func registerCodecs(m *pion.MediaEngine) error {
 				SDPFmtpLine:  "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640032",
 				RTCPFeedback: videoRTCPFeedback,
 			},
-			PayloadType: 101,
+			PayloadType: 105,
 		},
 		{
 			// High Profile Level 5.2 (4K60)
@@ -156,6 +171,16 @@ func registerCodecs(m *pion.MediaEngine) error {
 				RTCPFeedback: videoRTCPFeedback,
 			},
 			PayloadType: 102,
+		},
+		{
+			// High Profile Level 5.2 with constraint flags (common from x264)
+			RTPCodecCapability: pion.RTPCodecCapability{
+				MimeType:     pion.MimeTypeH264,
+				ClockRate:    90000,
+				SDPFmtpLine:  "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c34",
+				RTCPFeedback: videoRTCPFeedback,
+			},
+			PayloadType: 104,
 		},
 		{
 			RTPCodecCapability: pion.RTPCodecCapability{
@@ -191,8 +216,6 @@ func configureInterceptors(m *pion.MediaEngine, i *interceptor.Registry) error {
 		return err
 	}
 
-	m.RegisterFeedback(pion.RTCPFeedback{Type: "nack"}, pion.RTPCodecTypeVideo)
-	m.RegisterFeedback(pion.RTCPFeedback{Type: "nack", Parameter: "pli"}, pion.RTPCodecTypeVideo)
 	i.Add(responder)
 	i.Add(generator)
 

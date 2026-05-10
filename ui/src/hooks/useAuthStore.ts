@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { testAuth } from "../lib/api";
+import { clearAuthCredentials, setAuthCredentials } from "../lib/auth";
 
 export interface User {
   username: string;
@@ -19,7 +20,7 @@ interface AuthState {
 
 // Standalone function to clear auth state - can be called outside React components
 export function clearAuthState(): void {
-  localStorage.removeItem('auth_credentials');
+  clearAuthCredentials();
   useAuthStore.getState().setUser(null);
 }
 
@@ -47,7 +48,7 @@ export const useAuthStore = create<AuthState>()(
             
             set({ user, isLoading: false });
             // Store credentials for future requests
-            localStorage.setItem('auth_credentials', btoa(`${username}:${password}`));
+            setAuthCredentials(username, password);
             return true;
           } else {
             set({ user: null, isLoading: false });
@@ -62,12 +63,12 @@ export const useAuthStore = create<AuthState>()(
       
       logout: () => {
         set({ user: null });
-        localStorage.removeItem('auth_credentials');
+        clearAuthCredentials();
       },
       
       clearAuth: () => {
         set({ user: null });
-        localStorage.removeItem('auth_credentials');
+        clearAuthCredentials();
       },
     }),
     {

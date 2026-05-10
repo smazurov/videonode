@@ -7,63 +7,58 @@ import (
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// StreamSpec represents a single stream specification.
-// This is the persistent configuration for each stream, containing metadata
-// and nested FFmpeg configuration.
+// StreamSpec is the persistent configuration for one stream.
 type StreamSpec struct {
-	// ID is the unique identifier for this stream
-	// This becomes the RTSP path name and must be unique
-	ID string `toml:"id" json:"id"`
+	ID       string `toml:"id" json:"id"`
+	Name     string `toml:"name" json:"name"`
+	Device   string `toml:"device" json:"device"` // "usb-BUS-PORT", resolved to /dev/videoX at runtime
+	TestMode bool   `toml:"test_mode" json:"test_mode"`
 
-	// Name is a human-readable name for the stream
-	// If not specified, defaults to the ID
-	Name string `toml:"name" json:"name"`
-
-	// Device is the stable USB device identifier
-	// Format: "usb-BUS-PORT" (e.g., "usb-0000:00:14.0-1.2")
-	// This is resolved to a /dev/videoX path at runtime
-	Device string `toml:"device" json:"device"`
-
-	// TestMode determines if stream should use test pattern instead of device
-	// When true, generates test video/audio instead of capturing from device
-	TestMode bool `toml:"test_mode" json:"test_mode"`
-
-	// FFmpeg contains all FFmpeg-specific configuration for this stream
 	FFmpeg FFmpegConfig `toml:"ffmpeg" json:"ffmpeg"`
 
-	// CustomFFmpegCommand is an optional override for the entire FFmpeg command
-	// When set, this completely bypasses automatic command generation
+	// Canvas, when set, makes this a composite stream and overrides the single-camera fields above.
+	Canvas *CanvasConfig `toml:"canvas,omitempty" json:"canvas,omitempty"`
+
 	CustomFFmpegCommand string `toml:"custom_ffmpeg_command,omitempty" json:"custom_ffmpeg_command,omitempty"`
 
-	// CreatedAt timestamp when the stream was first created
-	CreatedAt time.Time `toml:"created_at" json:"created_at"`
+	Perspective *ffmpeg.PerspectiveConfig `toml:"perspective,omitempty" json:"perspective,omitempty"`
+	Vision      *ffmpeg.VisionConfig      `toml:"vision,omitempty" json:"vision,omitempty"`
 
-	// UpdatedAt timestamp when the stream was last modified
+	CreatedAt time.Time `toml:"created_at" json:"created_at"`
 	UpdatedAt time.Time `toml:"updated_at" json:"updated_at"`
 }
 
 // FFmpegConfig contains FFmpeg settings embedded in StreamSpec.
-// This is used for TOML marshaling and internal stream configuration.
 type FFmpegConfig struct {
-	// Codec specifies the desired codec standard (NOT the encoder implementation)
-	// Values: "h264", "h265"
-	Codec string `toml:"codec,omitempty" json:"codec,omitempty"`
-
-	// InputFormat specifies the V4L2 pixel format to request from the device
-	InputFormat string `toml:"input_format,omitempty" json:"input_format,omitempty"`
-
-	// Resolution specifies the video dimensions in WIDTHxHEIGHT format
-	Resolution string `toml:"resolution,omitempty" json:"resolution,omitempty"`
-
-	// FPS specifies the framerate to capture from the device
-	FPS string `toml:"fps,omitempty" json:"fps,omitempty"`
-
-	// AudioDevice specifies the ALSA device for audio capture
-	AudioDevice string `toml:"audio_device,omitempty" json:"audio_device,omitempty"`
-
-	// Options contains FFmpeg behavior flags
-	Options []ffmpeg.OptionType `toml:"options,omitempty" json:"options,omitempty"`
-
-	// QualityParams stores the quality/rate control settings
+	Codec         string               `toml:"codec,omitempty" json:"codec,omitempty"` // "h264" or "h265" (not the encoder name)
+	InputFormat   string               `toml:"input_format,omitempty" json:"input_format,omitempty"`
+	Resolution    string               `toml:"resolution,omitempty" json:"resolution,omitempty"`
+	FPS           string               `toml:"fps,omitempty" json:"fps,omitempty"`
+	AudioDevice   string               `toml:"audio_device,omitempty" json:"audio_device,omitempty"`
+	Options       []ffmpeg.OptionType  `toml:"options,omitempty" json:"options,omitempty"`
 	QualityParams *types.QualityParams `toml:"quality_params,omitempty" json:"quality_params,omitempty"`
+	Rotation      int                  `toml:"rotation,omitempty" json:"rotation,omitempty"` // 0, 90, 180, 270
+}
+
+// CanvasConfig defines a composite canvas live-referencing 1–4 other streams.
+type CanvasConfig struct {
+	Width    int    `toml:"width" json:"width"`   // 1920 or 3840
+	Height   int    `toml:"height" json:"height"` // 1080 or 2160
+	FPS      string `toml:"fps" json:"fps"`
+	KeyColor string `toml:"key_color,omitempty" json:"key_color,omitempty"`
+
+	SourceStreams []string `toml:"source_streams" json:"source_streams"` // ordered, 1–4
+
+	AudioDevices []string `toml:"audio_devices,omitempty" json:"audio_devices,omitempty"` // v1 uses at most one
+
+	// SourceOverrides parallels SourceStreams; non-empty length must match.
+	SourceOverrides []CanvasSourceOverride `toml:"source_overrides,omitempty" json:"source_overrides,omitempty"`
+
+	// LayoutName pins a candidate by name; unknown names are silently ignored and scorer runs.
+	LayoutName string `toml:"layout_name,omitempty" json:"layout_name,omitempty"`
+}
+
+// CanvasSourceOverride shadows a source stream's settings for one canvas-item placement.
+type CanvasSourceOverride struct {
+	Rotation *int `toml:"rotation,omitempty" json:"rotation,omitempty"` // nil = inherit; 0, 90, 180, 270
 }

@@ -1,6 +1,6 @@
 import React from "react";
 import { useRouteError, isRouteErrorResponse } from "react-router-dom";
-import { ExclamationTriangleIcon } from "@heroicons/react/16/solid";
+import { ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 
 // TypeScript interfaces for proper error typing
 interface ErrorWithMessage {
@@ -69,7 +69,7 @@ export default function ErrorBoundary(): React.JSX.Element {
       <div className="h-full w-full flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-4">Page Not Found</h1>
-          <p className="text-gray-600 dark:text-gray-300">
+          <p className="text-fg-muted">
             The page you're looking for doesn't exist.
           </p>
         </div>
@@ -83,11 +83,11 @@ export default function ErrorBoundary(): React.JSX.Element {
       <div className="h-full w-full">
         <div className="flex h-full items-center justify-center">
           <div className="w-full max-w-2xl text-center">
-            <ExclamationTriangleIcon className="h-12 w-12 mx-auto mb-4 text-red-500" />
+            <ExclamationTriangleIcon className="h-12 w-12 mx-auto mb-4 text-danger" />
             <h1 className="text-2xl font-bold mb-4">
               {error.status} {error.statusText}
             </h1>
-            <p className="text-gray-600 dark:text-gray-300 mb-4">
+            <p className="text-fg-muted mb-4">
               {errorMessage}
             </p>
           </div>
@@ -101,13 +101,13 @@ export default function ErrorBoundary(): React.JSX.Element {
     <div className="h-full w-full">
       <div className="flex h-full items-center justify-center">
         <div className="w-full max-w-2xl text-center">
-          <ExclamationTriangleIcon className="h-12 w-12 mx-auto mb-4 text-red-500" />
+          <ExclamationTriangleIcon className="h-12 w-12 mx-auto mb-4 text-danger" />
           <h1 className="text-2xl font-bold mb-4">Oh no!</h1>
-          <p className="text-gray-600 dark:text-gray-300 mb-4">
+          <p className="text-fg-muted mb-4">
             Something went wrong. Please try again later.
           </p>
-          <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-md">
-            <code className="text-sm text-red-600 dark:text-red-400">
+          <div className="bg-surface-muted p-4 rounded-md">
+            <code className="text-sm text-danger-soft-fg">
               {errorMessage}
             </code>
           </div>

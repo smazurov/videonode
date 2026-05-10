@@ -5,15 +5,19 @@ import (
 	"testing"
 )
 
-func TestFFmpegMetricsCache(t *testing.T) {
+func TestFFmpegMetricsViaGatherer(t *testing.T) {
 	streamID := "test-stream-1"
 
 	// Clean state
 	DeleteFFmpegMetrics(streamID)
 
-	// Initially should return nil
-	if m := GetFFmpegMetrics(streamID); m != nil {
-		t.Error("expected nil for non-existent stream")
+	// Initially should return empty map
+	m, err := GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := m[streamID]; ok {
+		t.Error("expected no metrics for non-existent stream")
 	}
 
 	// Set metrics
@@ -22,39 +26,40 @@ func TestFFmpegMetricsCache(t *testing.T) {
 	SetFFmpegDuplicateFrames(streamID, 2)
 	SetFFmpegSpeed(streamID, 1.5)
 
-	// Verify cached values
-	m := GetFFmpegMetrics(streamID)
-	if m == nil {
+	// Verify values via gatherer
+	m, err = GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := m[streamID]
+	if got == nil {
 		t.Fatal("expected non-nil metrics")
 	}
-	if m.FPS != 30.0 {
-		t.Errorf("FPS = %v, want 30.0", m.FPS)
+	if got.FPS != 30.0 {
+		t.Errorf("FPS = %v, want 30.0", got.FPS)
 	}
-	if m.DroppedFrames != 5 {
-		t.Errorf("DroppedFrames = %v, want 5", m.DroppedFrames)
+	if got.DroppedFrames != 5 {
+		t.Errorf("DroppedFrames = %v, want 5", got.DroppedFrames)
 	}
-	if m.DuplicateFrames != 2 {
-		t.Errorf("DuplicateFrames = %v, want 2", m.DuplicateFrames)
+	if got.DuplicateFrames != 2 {
+		t.Errorf("DuplicateFrames = %v, want 2", got.DuplicateFrames)
 	}
-	if m.Speed != 1.5 {
-		t.Errorf("Speed = %v, want 1.5", m.Speed)
-	}
-
-	// Verify returned copy is independent
-	m.FPS = 999
-	m2 := GetFFmpegMetrics(streamID)
-	if m2.FPS != 30.0 {
-		t.Errorf("cache was modified, FPS = %v, want 30.0", m2.FPS)
+	if got.Speed != 1.5 {
+		t.Errorf("Speed = %v, want 1.5", got.Speed)
 	}
 
 	// Clean up
 	DeleteFFmpegMetrics(streamID)
-	if deleted := GetFFmpegMetrics(streamID); deleted != nil {
-		t.Error("expected nil after delete")
+	m, err = GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := m[streamID]; ok {
+		t.Error("expected no metrics after delete")
 	}
 }
 
-func TestGetAllFFmpegMetrics(t *testing.T) {
+func TestGetFFmpegMetricsMultipleStreams(t *testing.T) {
 	// Clean state
 	DeleteFFmpegMetrics("stream-a")
 	DeleteFFmpegMetrics("stream-b")
@@ -62,9 +67,9 @@ func TestGetAllFFmpegMetrics(t *testing.T) {
 	SetFFmpegFPS("stream-a", 25.0)
 	SetFFmpegFPS("stream-b", 60.0)
 
-	all := GetAllFFmpegMetrics()
-	if len(all) < 2 {
-		t.Fatalf("expected at least 2 streams, got %d", len(all))
+	all, err := GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if all["stream-a"] == nil || all["stream-a"].FPS != 25.0 {
@@ -72,13 +77,6 @@ func TestGetAllFFmpegMetrics(t *testing.T) {
 	}
 	if all["stream-b"] == nil || all["stream-b"].FPS != 60.0 {
 		t.Errorf("stream-b FPS = %v, want 60.0", all["stream-b"])
-	}
-
-	// Verify returned map is independent
-	all["stream-a"].FPS = 999
-	fresh := GetAllFFmpegMetrics()
-	if fresh["stream-a"].FPS != 25.0 {
-		t.Errorf("cache was modified")
 	}
 
 	DeleteFFmpegMetrics("stream-a")
@@ -96,16 +94,49 @@ func TestFFmpegMetricsConcurrency(t *testing.T) {
 			defer wg.Done()
 			SetFFmpegFPS(streamID, val)
 			SetFFmpegDroppedFrames(streamID, val)
-			_ = GetFFmpegMetrics(streamID)
-			_ = GetAllFFmpegMetrics()
+			_, _ = GetFFmpegMetricsFromRegistry()
 		}(float64(i))
 	}
 	wg.Wait()
 
 	// Should not panic, final value is indeterminate
-	m := GetFFmpegMetrics(streamID)
-	if m == nil {
+	m, err := GetFFmpegMetricsFromRegistry()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if m[streamID] == nil {
 		t.Error("expected non-nil metrics after concurrent access")
+	}
+
+	DeleteFFmpegMetrics(streamID)
+}
+
+func TestGetAllMetricsAsJSON(t *testing.T) {
+	streamID := "json-test-stream"
+	DeleteFFmpegMetrics(streamID)
+
+	SetFFmpegFPS(streamID, 29.97)
+
+	families, err := GetAllMetricsAsJSON()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var found bool
+	for _, fam := range families {
+		if fam.Name == "videonode_ffmpeg_fps" {
+			for _, metric := range fam.Metrics {
+				if metric.Labels["stream_id"] == streamID {
+					found = true
+					if metric.Value != 29.97 {
+						t.Errorf("FPS value = %v, want 29.97", metric.Value)
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("expected to find videonode_ffmpeg_fps metric")
 	}
 
 	DeleteFFmpegMetrics(streamID)

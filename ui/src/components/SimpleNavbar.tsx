@@ -12,10 +12,10 @@ export default function SimpleNavbar({ logoHref, actionElement, logoText = "Vide
   return (
     <div>
       <Container>
-        <div className="pb-4 my-4 border-b border-slate-800/20 isolate dark:border-slate-300/20">
+        <div className="pb-4 my-4 border-b border-border-strong isolate">
           <div className="flex items-center justify-between">
             <Link to={logoHref ?? "/"} className="h-[26px]">
-              <div className="text-xl font-bold text-black dark:text-white">
+              <div className="text-xl font-bold text-fg">
                 {logoText}
               </div>
             </Link>

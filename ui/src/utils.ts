@@ -22,3 +22,15 @@ export function truncateDeviceId(deviceId: string, maxLength: number = 30): stri
   }
   return deviceId.slice(0, maxLength) + '...';
 }
+
+/**
+ * Icon size tokens — single source of truth for heroicon h-N w-N pairs.
+ * Used by Button's iconVariants and by hand-coded icon call sites.
+ */
+export const ICON_SIZE = {
+  SM: "h-4 w-4",
+  MD: "h-5 w-5",
+  LG: "h-6 w-6",
+} as const;
+
+export type IconSize = keyof typeof ICON_SIZE;

@@ -18,13 +18,11 @@ import (
 )
 
 // OutputHandler receives output lines from the subprocess.
-// Implementations can forward output to NATS, store metrics, etc.
 type OutputHandler interface {
 	HandleLine(source, line string)
 }
 
-// LogParser parses a log line and returns the log level and message.
-// Used to extract structured log info from process output (ffmpeg, gstreamer, etc.)
+// LogParser extracts (level, msg) from a process output line.
 type LogParser func(line string) (level, msg string)
 
 type exitReason int
@@ -37,19 +35,21 @@ const (
 
 // Process manages the lifecycle of a subprocess.
 type Process struct {
-	id              string
-	command         string
-	commandMu       sync.RWMutex
-	cmd             *exec.Cmd
-	logger          logging.Logger
-	processLogger   logging.Logger // logger for process output (nil = use logger)
-	logParser       LogParser      // parses process output for log level (nil = no parsing)
-	ctx             context.Context
-	cancel          context.CancelFunc
-	restartChan     chan string // receives new command for restart
-	outputHandler   OutputHandler
-	gracefulTimeout time.Duration // timeout for graceful shutdown before force kill
-	killTimeout     time.Duration // timeout after Kill() before giving up
+	id               string
+	command          string
+	commandMu        sync.RWMutex
+	cmd              *exec.Cmd
+	logger           logging.Logger
+	processLogger    logging.Logger
+	logParser        LogParser
+	ctx              context.Context
+	cancel           context.CancelFunc
+	restartChan      chan string
+	outputHandler    OutputHandler
+	gracefulTimeout  time.Duration
+	killTimeout      time.Duration
+	visionPipeReads  []*os.File
+	visionPipeWrites []*os.File // write ends passed to child as fd 3, 4, 5, ...
 }
 
 // NewProcess creates a new process.
@@ -57,8 +57,7 @@ func NewProcess(id, command string, logger logging.Logger) *Process {
 	return NewProcessWithOutput(id, command, logger, nil)
 }
 
-// NewProcessWithOutput creates a new process with an output handler.
-// The handler receives each line of stdout/stderr from the subprocess.
+// NewProcessWithOutput creates a new process; handler receives each line of stdout/stderr.
 func NewProcessWithOutput(id, command string, logger logging.Logger, handler OutputHandler) *Process {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Process{
@@ -81,16 +80,24 @@ func (p *Process) GetCommand() string {
 	return p.command
 }
 
-// SetLogParser sets a custom logger and log parser for process output.
-// The logger is used for process output (e.g., module="ffmpeg").
-// The parser extracts log level from process-specific output formats.
+// SetupVisionPipe creates a vision frame pipe; the nth call maps to fd (3+n-1). Call before Start.
+func (p *Process) SetupVisionPipe() (*os.File, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("create vision pipe: %w", err)
+	}
+	p.visionPipeReads = append(p.visionPipeReads, r)
+	p.visionPipeWrites = append(p.visionPipeWrites, w)
+	return r, nil
+}
+
+// SetLogParser sets the logger and parser used for child process output.
 func (p *Process) SetLogParser(logger logging.Logger, parser LogParser) {
 	p.processLogger = logger
 	p.logParser = parser
 }
 
-// RequestRestart requests a restart with a new command.
-// Non-blocking: if a restart is already pending, this is a no-op.
+// RequestRestart requests a restart with a new command; no-op when one is pending.
 func (p *Process) RequestRestart(newCommand string) {
 	select {
 	case p.restartChan <- newCommand:
@@ -105,10 +112,9 @@ func (p *Process) Shutdown() {
 	p.cancel()
 }
 
-// runningProcess holds channels for monitoring a running subprocess.
 type runningProcess struct {
 	processDone <-chan error
-	outputDone  chan struct{} // receives twice, once per output stream
+	outputDone  chan struct{} // receives twice, one per output stream
 }
 
 // startProcess parses the command, starts the subprocess, and returns channels for monitoring.
@@ -125,7 +131,15 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 	}
 
 	p.cmd = exec.Command(args[0], args[1:]...)
-	p.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Pdeathsig kills child on parent crash; otherwise canvas restart leaks ffmpegs holding v4l2.
+	p.cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid:   true,
+		Pdeathsig: syscall.SIGKILL,
+	}
+
+	if len(p.visionPipeWrites) > 0 {
+		p.cmd.ExtraFiles = append([]*os.File{}, p.visionPipeWrites...)
+	}
 
 	stdout, err := p.cmd.StdoutPipe()
 	if err != nil {
@@ -144,9 +158,14 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 		return nil, err
 	}
 
+	// Close parent's copy of write ends; child inherited them.
+	for _, w := range p.visionPipeWrites {
+		_ = w.Close()
+	}
+	p.visionPipeWrites = nil
+
 	p.logger.Info("Process started", "id", p.id, "pid", p.cmd.Process.Pid, "command", command)
 
-	// Stream output in separate goroutines
 	outputDone := make(chan struct{}, 2)
 	go func() {
 		p.streamOutput(stdout, "stdout")
@@ -157,7 +176,6 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 		outputDone <- struct{}{}
 	}()
 
-	// Wait for process in goroutine
 	processDone := make(chan error, 1)
 	go func() {
 		processDone <- p.cmd.Wait()
@@ -172,8 +190,7 @@ func (p *Process) waitOutputDone(outputDone <-chan struct{}) {
 	<-outputDone
 }
 
-// exitCodeFromError extracts exit code from process error.
-// Returns 0 for nil error, the exit code for ExitError, or 1 for other errors.
+// exitCodeFromError returns 0 for nil, the exit code for ExitError, else 1.
 func exitCodeFromError(err error) int {
 	if err == nil {
 		return 0
@@ -185,7 +202,7 @@ func exitCodeFromError(err error) int {
 	return 1
 }
 
-// handleProcessExit extracts exit code from process error and logs non-ExitError errors.
+// handleProcessExit extracts the exit code and logs non-ExitError failures.
 func (p *Process) handleProcessExit(processErr error) int {
 	exitCode := exitCodeFromError(processErr)
 	if processErr != nil && exitCode == 1 {
@@ -195,7 +212,6 @@ func (p *Process) handleProcessExit(processErr error) int {
 }
 
 // Run starts the subprocess and blocks until it exits or receives a signal.
-// Returns the exit code of the subprocess.
 func (p *Process) Run() int {
 	rp, err := p.startProcess(p.command)
 	if err != nil {
@@ -223,11 +239,8 @@ func (p *Process) Run() int {
 	}
 }
 
-// RunWithRestart runs the subprocess and handles restart requests.
-// It loops, restarting the process when RequestRestart() is called.
-// Returns only on shutdown signal or unrecoverable error.
+// RunWithRestart loops the subprocess, honoring RequestRestart; returns on shutdown.
 func (p *Process) RunWithRestart() int {
-	// Setup signal handling once for the entire lifecycle
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
@@ -243,14 +256,14 @@ func (p *Process) RunWithRestart() int {
 			p.logger.Info("Restarting process")
 			continue
 		case exitReasonProcessExit:
-			// Process exited unexpectedly - don't restart, let parent handle
+			// Don't restart unexpected exits; let the parent decide.
 			p.logger.Info("Process exited unexpectedly", "exit_code", exitCode)
 			return exitCode
 		}
 	}
 }
 
-// runOnce runs the process once and returns the exit code and reason for exit.
+// runOnce runs the process once and returns (exitCode, reason).
 func (p *Process) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 	p.commandMu.RLock()
 	command := p.command
@@ -299,7 +312,7 @@ func (p *Process) sendStopSignal() {
 	}
 }
 
-// waitForExit waits for the process to exit with a timeout, force-killing if needed.
+// waitForExit waits for exit with a timeout, force-killing if needed.
 func (p *Process) waitForExit(processDone <-chan error, timeout time.Duration) int {
 	select {
 	case err := <-processDone:
@@ -308,16 +321,13 @@ func (p *Process) waitForExit(processDone <-chan error, timeout time.Duration) i
 		p.logger.Warn("Graceful shutdown timeout, forcing kill", "timeout", timeout)
 		if p.cmd.Process != nil {
 			if err := p.cmd.Process.Kill(); err != nil {
-				// "os: process already finished" is OK - process exited between timeout and kill
 				if !errors.Is(err, os.ErrProcessDone) {
 					p.logger.Error("Failed to kill process", "error", err)
 				}
 			}
 		}
-		// Wait for process to exit with a secondary timeout to prevent hanging
 		select {
 		case <-processDone:
-			// Process exited
 		case <-time.After(p.killTimeout):
 			p.logger.Error("Process did not exit after kill signal")
 		}
@@ -325,13 +335,10 @@ func (p *Process) waitForExit(processDone <-chan error, timeout time.Duration) i
 	}
 }
 
-// streamOutput streams output from the subprocess.
-// Uses the configured processLogger (or falls back to default logger).
-// Uses the configured LogParser to extract log levels from process output.
+// streamOutput pipes child output through processLogger (fallback: logger) and logParser.
 func (p *Process) streamOutput(reader io.Reader, source string) {
 	scanner := bufio.NewScanner(reader)
 
-	// Use process logger if configured, otherwise fall back to default logger
 	logger := p.processLogger
 	if logger == nil {
 		logger = p.logger
@@ -344,7 +351,6 @@ func (p *Process) streamOutput(reader io.Reader, source string) {
 			p.outputHandler.HandleLine(source, line)
 		}
 
-		// Use configured parser or default to info level
 		level, msg := "info", line
 		if p.logParser != nil {
 			level, msg = p.logParser(line)
@@ -367,8 +373,7 @@ func (p *Process) streamOutput(reader io.Reader, source string) {
 	}
 }
 
-// parseCommand parses a command string into arguments
-// Handles quoted strings and basic escaping.
+// parseCommand splits a command string into argv, honoring quoted segments and \-escapes.
 func parseCommand(command string) ([]string, error) {
 	var args []string
 	var current strings.Builder
@@ -398,15 +403,13 @@ func parseCommand(command string) ([]string, error) {
 				current.Reset()
 			}
 		case r == '\\' && i+1 < len(runes):
-			// Handle escape sequences
-			i++ // Skip the backslash
+			i++
 			current.WriteRune(runes[i])
 		default:
 			current.WriteRune(r)
 		}
 	}
 
-	// Add final argument
 	if current.Len() > 0 {
 		args = append(args, current.String())
 	}

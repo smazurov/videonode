@@ -69,6 +69,23 @@ func (rb *RingBuffer) ReadAll() []LogEntry {
 	return result
 }
 
+// UpdateLatest walks backward from the most recent entry, finds the first
+// entry matching the predicate, and applies the update function in-place.
+// Returns true if a matching entry was found and updated.
+func (rb *RingBuffer) UpdateLatest(match func(*LogEntry) bool, update func(*LogEntry)) bool {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+
+	for i := range rb.count {
+		idx := (rb.head - 1 - i + rb.size) % rb.size
+		if match(&rb.entries[idx]) {
+			update(&rb.entries[idx])
+			return true
+		}
+	}
+	return false
+}
+
 // Count returns the number of entries in the buffer.
 func (rb *RingBuffer) Count() int {
 	rb.mu.RLock()

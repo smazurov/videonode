@@ -117,12 +117,10 @@ func (p *pool) startProcess(id string, command string) error {
 
 	p.notifyStateChange(id, StateIdle, StateStarting, nil)
 
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
+	p.wg.Go(func() {
 		defer close(mp.done)
 		p.runProcess(ctx, mp)
-	}()
+	})
 
 	return nil
 }
@@ -243,9 +241,17 @@ func (p *pool) StopAll() {
 	}
 	p.mu.RUnlock()
 
+	// Fan out — each Stop blocks up to the per-process shutdown timeout, so
+	// stopping N processes serially would take N × timeout on a stuck system.
+	var stopWg sync.WaitGroup
+	stopWg.Add(len(ids))
 	for _, id := range ids {
-		_ = p.Stop(id)
+		go func(streamID string) {
+			defer stopWg.Done()
+			_ = p.Stop(streamID)
+		}(id)
 	}
+	stopWg.Wait()
 
 	p.wg.Wait()
 	p.logger.Info("All processes stopped")

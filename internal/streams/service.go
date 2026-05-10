@@ -9,29 +9,28 @@ import (
 
 	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/events"
-	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
-	"github.com/smazurov/videonode/internal/types"
 )
 
-// ServiceOptions contains optional configuration for StreamServiceImpl.
+// ServiceOptions contains optional configuration for the stream service.
 type ServiceOptions struct {
-	Store           Store                // Stream store for persistence (required)
-	EncoderSelector encoders.Selector    // Custom encoder selector
-	EventBus        *events.Bus          // Event bus for broadcasting state changes
-	ProcessManager  StreamProcessManager // Process manager for FFmpeg subprocesses (optional, created if nil)
+	Store            Store // required
+	EncoderSelector  encoders.Selector
+	EventBus         *events.Bus
+	ProcessManager   StreamProcessManager
+	VisionDefaultFPS int // default FPS for vision pipes; 0 = no throttle
 }
 
-// service implements the StreamService interface.
 type service struct {
-	store           Store              // Stream store for data access
-	processor       *processor         // Stream processor for runtime injection
-	streams         map[string]*Stream // In-memory stream cache
+	store           Store
+	processor       *processor
+	canvasProcessor *canvasProcessor
+	streams         map[string]*Stream
 	streamsMutex    sync.RWMutex
-	processManager  StreamProcessManager // Process manager for FFmpeg subprocesses
-	encoderSelector encoders.Selector    // Encoder selection strategy
-	eventBus        *events.Bus          // Event bus for broadcasting state changes
-	logger          logging.Logger       // Module logger
+	processManager  StreamProcessManager
+	encoderSelector encoders.Selector
+	eventBus        *events.Bus
+	logger          logging.Logger
 }
 
 // NewStreamService creates a new stream service with options.
@@ -47,21 +46,24 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		logger.Error("Store is required in ServiceOptions")
 		panic("Store is required in ServiceOptions")
 	}
-	if err := repo.Load(); err != nil {
-		logger.Warn("Failed to load existing streams", "error", err)
-	}
 
 	processor := newProcessor(repo)
 
-	// Configure processor with extracted helpers
 	encoderSelector := makeEncoderSelector(logger, opts, repo)
-	processor.setEncoderSelector(makeEncoderSelectorFunc(encoderSelector, logger))
-	processor.setDeviceResolver(makeDeviceResolver(logger))
+	encoderSelectorFunc := makeEncoderSelectorFunc(encoderSelector, logger)
+	deviceResolverFunc := makeDeviceResolver(logger)
+	processor.setEncoderSelector(encoderSelectorFunc)
+	processor.setDeviceResolver(deviceResolverFunc)
 
-	// Create service
+	cp := newCanvasProcessor(repo)
+	cp.encoderSelector = encoderSelectorFunc
+	cp.deviceResolver = deviceResolverFunc
+	cp.defaultVisionFPS = opts.VisionDefaultFPS
+
 	svc := &service{
 		store:           repo,
 		processor:       processor,
+		canvasProcessor: cp,
 		streams:         make(map[string]*Stream),
 		encoderSelector: encoderSelector,
 		logger:          logger,
@@ -69,6 +71,7 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 
 	// Wire up processor's access to runtime state
 	processor.setStreamStateGetter(svc.getStreamSafe)
+	cp.getStreamState = svc.getStreamSafe
 
 	// Apply options
 	svc.eventBus = opts.EventBus
@@ -78,20 +81,30 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		svc.processManager = opts.ProcessManager
 	} else {
 		svc.processManager = NewStreamProcessManager(&ProcessManagerOptions{
-			Store:     repo,
-			Processor: processor,
-			EventBus:  opts.EventBus,
+			Store:           repo,
+			Processor:       processor,
+			CanvasProcessor: cp,
+			EventBus:        opts.EventBus,
 		})
 	}
 
 	// Wire up processor's access to crash state
 	processor.setIsCrashed(svc.processManager.IsCrashed)
+	cp.isCrashed = svc.processManager.IsCrashed
 
 	return svc
 }
 
-// CreateStream creates a new video stream.
-func (s *service) CreateStream(_ context.Context, params StreamCreateParams) (*Stream, error) {
+// CreateStream creates a new video stream (single-camera or canvas composite).
+func (s *service) CreateStream(ctx context.Context, params StreamCreateParams) (*Stream, error) {
+	if params.Canvas != nil {
+		return s.createCanvasStream(ctx, params)
+	}
+	return s.createSingleStream(ctx, params)
+}
+
+// createSingleStream creates a single-camera stream.
+func (s *service) createSingleStream(_ context.Context, params StreamCreateParams) (*Stream, error) {
 	// Validate device ID using processor's device resolver
 	devicePath := s.processor.deviceResolver(params.DeviceID)
 	if devicePath == "" {
@@ -121,20 +134,19 @@ func (s *service) CreateStream(_ context.Context, params StreamCreateParams) (*S
 	qualityParams := buildQualityParams(params.Bitrate)
 	ffmpegOptions := buildFFmpegOptions(params.Options)
 
-	// Create stream configuration with FFmpeg section
-	// Store only the generic codec, not the specific encoder
 	streamConfigTOML := StreamSpec{
 		ID:     streamID,
 		Name:   streamID,
-		Device: params.DeviceID, // Store stable device ID
+		Device: params.DeviceID,
 		FFmpeg: FFmpegConfig{
-			Codec:         params.Codec, // Store generic codec (h264/h265), not specific encoder
+			Codec:         params.Codec,
 			InputFormat:   params.InputFormat,
 			Resolution:    resolution,
 			FPS:           fps,
 			Options:       ffmpegOptions,      // Apply user-provided or default options
 			QualityParams: qualityParams,      // Store quality params for future use
 			AudioDevice:   params.AudioDevice, // Pass through audio device if specified
+			Rotation:      params.Rotation,
 		},
 		CreatedAt: time.Now(),
 	}
@@ -187,6 +199,137 @@ func (s *service) CreateStream(_ context.Context, params StreamCreateParams) (*S
 	return copyStream(stream), nil
 }
 
+// syncCanvasInputsEnabledLocked syncs canvas.InputsEnabled to sources. Caller must hold streamsMutex.
+func (s *service) syncCanvasInputsEnabledLocked(canvas *Stream, sources []string) {
+	next := make(map[string]bool, len(sources))
+	for _, srcID := range sources {
+		if v, ok := canvas.InputsEnabled[srcID]; ok {
+			next[srcID] = v
+			continue
+		}
+		if src, ok := s.streams[srcID]; ok {
+			next[srcID] = src.Enabled
+		}
+	}
+	canvas.InputsEnabled = next
+}
+
+// validateCanvasConfig checks that a CanvasConfig is well-formed and references existing non-canvas sources.
+func (s *service) validateCanvasConfig(canvas *CanvasConfig) error {
+	if canvas == nil {
+		return fmt.Errorf("canvas config is required")
+	}
+
+	validSize := (canvas.Width == 1920 && canvas.Height == 1080) ||
+		(canvas.Width == 3840 && canvas.Height == 2160)
+	if !validSize {
+		return fmt.Errorf("canvas size must be 1920x1080 or 3840x2160, got %dx%d",
+			canvas.Width, canvas.Height)
+	}
+	if canvas.FPS == "" {
+		return fmt.Errorf("canvas fps is required")
+	}
+
+	n := len(canvas.SourceStreams)
+	if n < 1 || n > 4 {
+		return fmt.Errorf("canvas must reference 1–4 source streams, got %d", n)
+	}
+	seen := make(map[string]bool, n)
+	for _, srcID := range canvas.SourceStreams {
+		if srcID == "" {
+			return fmt.Errorf("source stream ID cannot be empty")
+		}
+		if seen[srcID] {
+			return fmt.Errorf("duplicate source stream: %s", srcID)
+		}
+		seen[srcID] = true
+
+		src, exists := s.store.GetStream(srcID)
+		if !exists {
+			return fmt.Errorf("source stream %s not found", srcID)
+		}
+		if src.Canvas != nil {
+			return fmt.Errorf("source stream %s is itself a canvas (nesting not allowed)", srcID)
+		}
+	}
+
+	if len(canvas.AudioDevices) > 1 {
+		return fmt.Errorf("canvas currently supports at most 1 audio device, got %d",
+			len(canvas.AudioDevices))
+	}
+	return nil
+}
+
+// createCanvasStream creates a composite canvas stream that live-references existing streams.
+func (s *service) createCanvasStream(_ context.Context, params StreamCreateParams) (*Stream, error) {
+	streamID := params.StreamID
+
+	if _, exists := s.getStreamSafe(streamID); exists {
+		return nil, NewStreamError(ErrCodeStreamExists,
+			fmt.Sprintf("stream %s already exists", streamID), nil)
+	}
+
+	if err := validateCodec(params.Codec); err != nil {
+		return nil, NewStreamError(ErrCodeInvalidParams, err.Error(), nil)
+	}
+
+	if err := s.validateCanvasConfig(params.Canvas); err != nil {
+		return nil, NewStreamError(ErrCodeInvalidParams, err.Error(), nil)
+	}
+
+	qualityParams := buildQualityParams(params.Bitrate)
+	ffmpegOptions := buildFFmpegOptions(params.Options)
+
+	streamConfigTOML := StreamSpec{
+		ID:   streamID,
+		Name: streamID,
+		FFmpeg: FFmpegConfig{
+			Codec:         params.Codec,
+			QualityParams: qualityParams,
+			Options:       ffmpegOptions,
+		},
+		Canvas:    params.Canvas,
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.InitializeStream(streamConfigTOML); err != nil {
+		return nil, NewStreamError(ErrCodeMonitoringError,
+			"failed to initialize stream", err)
+	}
+
+	s.streamsMutex.Lock()
+	if stream, found := s.streams[streamID]; found {
+		stream.InputsEnabled = make(map[string]bool, len(params.Canvas.SourceStreams))
+		for _, srcID := range params.Canvas.SourceStreams {
+			srcStream, ok := s.streams[srcID]
+			stream.InputsEnabled[srcID] = ok && srcStream.Enabled
+		}
+	}
+	s.streamsMutex.Unlock()
+
+	if s.store != nil {
+		if err := s.store.AddStream(streamConfigTOML); err != nil {
+			s.logger.Warn("Failed to save canvas stream to TOML config", "stream_id", streamID, "error", err)
+		} else {
+			s.logger.Info("Saved canvas stream to persistent TOML config", "stream_id", streamID)
+
+			if s.processManager != nil {
+				if err := s.processManager.Start(streamID); err != nil {
+					s.logger.Warn("Failed to start canvas stream process", "stream_id", streamID, "error", err)
+				}
+			}
+		}
+	}
+
+	stream, exists := s.getStreamSafe(streamID)
+	if !exists {
+		return nil, NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("stream %s was created but not found in memory", streamID), nil)
+	}
+
+	return copyStream(stream), nil
+}
+
 // UpdateStream updates an existing stream with new parameters.
 func (s *service) UpdateStream(_ context.Context, streamID string, params StreamUpdateParams) (*Stream, error) {
 	// Check if stream exists in config
@@ -206,43 +349,24 @@ func (s *service) UpdateStream(_ context.Context, streamID string, params Stream
 	oldEnabled := stream.Enabled
 	enabledChanged := false
 
-	// Update stream configuration with provided parameters
-	if params.Codec != nil {
-		streamConfig.FFmpeg.Codec = *params.Codec
-	}
-	if params.InputFormat != nil {
-		streamConfig.FFmpeg.InputFormat = *params.InputFormat
-	}
-	if params.Width != nil && params.Height != nil {
-		streamConfig.FFmpeg.Resolution = formatResolution(params.Width, params.Height)
-	}
-	if params.Framerate != nil {
-		streamConfig.FFmpeg.FPS = formatFPS(params.Framerate)
-	}
-	if params.AudioDevice != nil {
-		streamConfig.FFmpeg.AudioDevice = *params.AudioDevice
-	}
-	if params.Options != nil {
-		// Convert string slice to OptionType slice
-		var ffmpegOptions []ffmpeg.OptionType
-		for _, opt := range params.Options {
-			ffmpegOptions = append(ffmpegOptions, ffmpeg.OptionType(opt))
+	streamConfig.FFmpeg.Codec = params.Codec
+	streamConfig.FFmpeg.InputFormat = params.InputFormat
+	streamConfig.FFmpeg.Resolution = params.Resolution
+	streamConfig.FFmpeg.FPS = params.FPS
+	streamConfig.FFmpeg.AudioDevice = params.AudioDevice
+	streamConfig.FFmpeg.Options = params.Options
+	streamConfig.FFmpeg.QualityParams = params.QualityParams
+	streamConfig.FFmpeg.Rotation = params.Rotation
+	streamConfig.CustomFFmpegCommand = params.CustomFFmpegCommand
+	streamConfig.TestMode = params.TestMode
+	if params.Canvas != nil {
+		if err := s.validateCanvasConfig(params.Canvas); err != nil {
+			return nil, NewStreamError(ErrCodeInvalidParams, err.Error(), nil)
 		}
-		streamConfig.FFmpeg.Options = ffmpegOptions
 	}
-	if params.Bitrate != nil {
-		// Update quality params
-		if streamConfig.FFmpeg.QualityParams == nil {
-			streamConfig.FFmpeg.QualityParams = &types.QualityParams{}
-		}
-		streamConfig.FFmpeg.QualityParams.TargetBitrate = params.Bitrate
-	}
-	if params.CustomFFmpegCommand != nil {
-		streamConfig.CustomFFmpegCommand = *params.CustomFFmpegCommand
-	}
-	if params.TestMode != nil {
-		streamConfig.TestMode = *params.TestMode
-	}
+	streamConfig.Canvas = params.Canvas
+	streamConfig.Perspective = params.Perspective
+	streamConfig.Vision = params.Vision
 
 	// Update timestamp
 	streamConfig.UpdatedAt = time.Now()
@@ -261,16 +385,30 @@ func (s *service) UpdateStream(_ context.Context, streamID string, params Stream
 			enabledChanged = true
 		}
 	}
+	if streamConfig.Canvas != nil {
+		s.syncCanvasInputsEnabledLocked(stream, streamConfig.Canvas.SourceStreams)
+	}
 	s.streamsMutex.Unlock()
 
-	// Restart FFmpeg process with new config via process manager
+	// Canvas members route through RestartCanvas; the standalone process is dormant.
 	if s.processManager != nil {
-		if err := s.processManager.Restart(streamID); err != nil {
-			s.logger.Warn("Failed to restart stream process", "stream_id", streamID, "error", err)
+		switch {
+		case streamConfig.Canvas != nil:
+			if err := s.processManager.RestartCanvas(streamID); err != nil {
+				s.logger.Warn("Failed to restart canvas process", "stream_id", streamID, "error", err)
+			}
+		default:
+			if ownerID := s.processManager.OwnedBy(streamID); ownerID != "" {
+				if err := s.processManager.RestartCanvas(ownerID); err != nil {
+					s.logger.Warn("Failed to restart owning canvas after source update",
+						"stream_id", streamID, "canvas_id", ownerID, "error", err)
+				}
+			} else if err := s.processManager.Restart(streamID); err != nil {
+				s.logger.Warn("Failed to restart stream process", "stream_id", streamID, "error", err)
+			}
 		}
 	}
 
-	// Emit stream state changed event if enabled state was modified
 	if enabledChanged && s.eventBus != nil {
 		s.eventBus.Publish(events.StreamStateChangedEvent{
 			StreamID:  streamID,
@@ -281,7 +419,103 @@ func (s *service) UpdateStream(_ context.Context, streamID string, params Stream
 
 	s.logger.Info("Stream updated successfully", "stream_id", streamID)
 
-	return copyStream(stream), nil
+	out := copyStream(stream)
+	if s.processManager != nil {
+		out.OwnedBy = s.processManager.OwnedBy(streamID)
+	}
+	return out, nil
+}
+
+// UpdatePartial atomically applies patch to a stream's spec. Holds streamsMutex across load+save.
+func (s *service) UpdatePartial(_ context.Context, streamID string, patch func(*StreamSpec) error) (*Stream, error) {
+	if patch == nil {
+		return nil, NewStreamError(ErrCodeInvalidParams, "patch function is required", nil)
+	}
+
+	s.streamsMutex.Lock()
+	streamConfig, exists := s.store.GetStream(streamID)
+	if !exists {
+		s.streamsMutex.Unlock()
+		return nil, NewStreamError(ErrCodeStreamNotFound, fmt.Sprintf("stream %s not found", streamID), nil)
+	}
+
+	stream, streamExists := s.streams[streamID]
+	if !streamExists {
+		s.streamsMutex.Unlock()
+		return nil, NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("stream %s not found in memory", streamID), nil)
+	}
+
+	if err := patch(&streamConfig); err != nil {
+		s.streamsMutex.Unlock()
+		return nil, NewStreamError(ErrCodeInvalidParams, err.Error(), nil)
+	}
+
+	if streamConfig.Canvas != nil {
+		if err := s.validateCanvasConfig(streamConfig.Canvas); err != nil {
+			s.streamsMutex.Unlock()
+			return nil, NewStreamError(ErrCodeInvalidParams, err.Error(), nil)
+		}
+	}
+
+	streamConfig.UpdatedAt = time.Now()
+	if err := s.store.UpdateStream(streamID, streamConfig); err != nil {
+		s.streamsMutex.Unlock()
+		return nil, fmt.Errorf("failed to save updated stream: %w", err)
+	}
+
+	if streamConfig.Canvas != nil {
+		s.syncCanvasInputsEnabledLocked(stream, streamConfig.Canvas.SourceStreams)
+	}
+
+	stream.StartTime = time.Now()
+	streamCopy := copyStream(stream)
+	s.streamsMutex.Unlock()
+
+	if s.processManager != nil {
+		switch {
+		case streamConfig.Canvas != nil:
+			if err := s.processManager.RestartCanvas(streamID); err != nil {
+				s.logger.Warn("Failed to restart canvas process", "stream_id", streamID, "error", err)
+			}
+		default:
+			if ownerID := s.processManager.OwnedBy(streamID); ownerID != "" {
+				if err := s.processManager.RestartCanvas(ownerID); err != nil {
+					s.logger.Warn("Failed to restart owning canvas after source update",
+						"stream_id", streamID, "canvas_id", ownerID, "error", err)
+				}
+			} else if err := s.processManager.Restart(streamID); err != nil {
+				s.logger.Warn("Failed to restart stream process", "stream_id", streamID, "error", err)
+			}
+		}
+		streamCopy.OwnedBy = s.processManager.OwnedBy(streamID)
+	}
+
+	s.logger.Info("Stream updated successfully", "stream_id", streamID)
+	return streamCopy, nil
+}
+
+// SetEnabled toggles the runtime enabled flag and emits an event on change.
+func (s *service) SetEnabled(_ context.Context, streamID string, enabled bool) (bool, error) {
+	s.streamsMutex.Lock()
+	stream, ok := s.streams[streamID]
+	if !ok {
+		s.streamsMutex.Unlock()
+		return false, NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("stream %s not found", streamID), nil)
+	}
+	changed := stream.Enabled != enabled
+	stream.Enabled = enabled
+	s.streamsMutex.Unlock()
+
+	if changed && s.eventBus != nil {
+		s.eventBus.Publish(events.StreamStateChangedEvent{
+			StreamID:  streamID,
+			Enabled:   enabled,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+	}
+	return enabled, nil
 }
 
 // DeleteStream removes a stream.
@@ -358,7 +592,11 @@ func (s *service) GetStream(_ context.Context, streamID string) (*Stream, error)
 			fmt.Sprintf("stream %s not found", streamID), nil)
 	}
 
-	return copyStream(stream), nil
+	out := copyStream(stream)
+	if s.processManager != nil {
+		out.OwnedBy = s.processManager.OwnedBy(streamID)
+	}
+	return out, nil
 }
 
 // GetStreamSpec retrieves the detailed specification of a stream for editing.
@@ -381,9 +619,12 @@ func (s *service) ListStreams(_ context.Context) ([]Stream, error) {
 	defer s.streamsMutex.RUnlock()
 
 	streams := make([]Stream, 0, len(s.streams))
-	for _, stream := range s.streams {
+	for id, stream := range s.streams {
 		// Return copies to avoid external mutation
 		streamCopy := *stream
+		if s.processManager != nil {
+			streamCopy.OwnedBy = s.processManager.OwnedBy(id)
+		}
 		streams = append(streams, streamCopy)
 	}
 
@@ -395,37 +636,59 @@ func (s *service) ListStreams(_ context.Context) ([]Stream, error) {
 	return streams, nil
 }
 
+// ListStreamsWithSpecs returns each stream paired with its spec from one snapshot.
+func (s *service) ListStreamsWithSpecs(_ context.Context) ([]StreamWithSpec, error) {
+	s.streamsMutex.RLock()
+	allSpecs := s.store.GetAllStreams()
+	out := make([]StreamWithSpec, 0, len(s.streams))
+	for id, stream := range s.streams {
+		streamCopy := *stream
+		if s.processManager != nil {
+			streamCopy.OwnedBy = s.processManager.OwnedBy(id)
+		}
+		spec := allSpecs[id]
+		out = append(out, StreamWithSpec{Stream: streamCopy, Spec: spec})
+	}
+	s.streamsMutex.RUnlock()
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Stream.ID < out[j].Stream.ID
+	})
+	return out, nil
+}
+
 // GetProcessManager returns the process manager for shutdown handling.
 func (s *service) GetProcessManager() StreamProcessManager {
 	return s.processManager
 }
 
-// GetFFmpegCommand returns the FFmpeg command for a stream.
-// Returns the command string, whether it's a custom command, and any error.
+// GetFFmpegCommand returns (command, isCustom, err) for a stream.
 func (s *service) GetFFmpegCommand(_ context.Context, streamID string, encoderOverride string) (string, bool, error) {
-	// Check if stream has custom command
 	streamConfig, exists := s.store.GetStream(streamID)
 	if !exists {
 		return "", false, NewStreamError(ErrCodeStreamNotFound,
 			fmt.Sprintf("stream %s not found", streamID), nil)
 	}
 
-	// Get runtime state for enabled status
 	stream, hasState := s.getStreamSafe(streamID)
 	enabled := false
 	if hasState {
 		enabled = stream.Enabled
 	}
 
-	// If device is online AND custom command is set - return it
 	if enabled && streamConfig.CustomFFmpegCommand != "" {
 		return streamConfig.CustomFFmpegCommand, true, nil
 	}
 
-	// Otherwise, generate command via processor
-	processed, err := s.processor.processStreamWithEncoder(streamID, encoderOverride)
-	if err != nil {
-		return "", false, err
+	var processed *ProcessedStream
+	var procErr error
+	if streamConfig.Canvas != nil {
+		processed, procErr = s.canvasProcessor.processStream(streamID)
+	} else {
+		processed, procErr = s.processor.processStreamWithEncoder(streamID, encoderOverride)
+	}
+	if procErr != nil {
+		return "", false, procErr
 	}
 
 	return processed.FFmpegCommand, false, nil
