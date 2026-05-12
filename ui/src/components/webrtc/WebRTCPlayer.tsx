@@ -54,6 +54,13 @@ function attachPeerHandlers(
   let streamDelivered = false;
 
   pc.ontrack = (e) => {
+    // Server assigns MSIDs audio-0, audio-1, ... in canvas device order. Default
+    // to playing only audio-0 so the audible track doesn't depend on which
+    // ontrack callback fires first; consumers can re-enable others by toggling
+    // track.enabled (no renegotiation needed).
+    if (e.track.kind === 'audio' && e.track.id !== 'audio-0') {
+      e.track.enabled = false;
+    }
     stream.addTrack(e.track);
     if (!streamDelivered) {
       streamDelivered = true;

@@ -49,7 +49,7 @@ type CanvasConfig struct {
 
 	SourceStreams []string `toml:"source_streams" json:"source_streams"` // ordered, 1–4
 
-	AudioDevices []string `toml:"audio_devices,omitempty" json:"audio_devices,omitempty"` // v1 uses at most one
+	AudioDevices []string `toml:"audio_devices,omitempty" json:"audio_devices,omitempty"` // one output audio track per entry
 
 	// SourceOverrides parallels SourceStreams; non-empty length must match.
 	SourceOverrides []CanvasSourceOverride `toml:"source_overrides,omitempty" json:"source_overrides,omitempty"`

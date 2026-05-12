@@ -103,15 +103,19 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 
 	// Add tracks for each media in the stream
 	desc := stream.Description()
+	audioIdx := 0
 	for _, medi := range desc.Medias {
 		for _, forma := range medi.Formats {
-			track, trackErr := m.createTrack(forma)
+			track, trackErr := m.createTrack(forma, audioIdx)
 			if trackErr != nil {
 				m.logger.Warn("Failed to create track", "stream_id", streamID, "error", trackErr)
 				continue
 			}
 			if track == nil {
 				continue
+			}
+			if _, ok := forma.(*format.Opus); ok {
+				audioIdx++
 			}
 
 			sender, addErr := pc.AddTrack(track)
@@ -254,8 +258,10 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 	return pc.LocalDescription().SDP, nil
 }
 
-// createTrack creates a WebRTC track for the given format.
-func (m *WebRTCManager) createTrack(forma format.Format) (*pion.TrackLocalStaticRTP, error) {
+// createTrack creates a WebRTC track for the given format; audioIdx becomes
+// the MSID for Opus tracks so the browser can identify which canvas audio
+// device a track corresponds to (ignored for video formats).
+func (m *WebRTCManager) createTrack(forma format.Format, audioIdx int) (*pion.TrackLocalStaticRTP, error) {
 	switch f := forma.(type) {
 	case *format.H264:
 		// Build fmtp line with H264 profile parameters for browser codec negotiation
@@ -301,7 +307,7 @@ func (m *WebRTCManager) createTrack(forma format.Format) (*pion.TrackLocalStatic
 				ClockRate: 48000,
 				Channels:  2,
 			},
-			"audio",
+			fmt.Sprintf("audio-%d", audioIdx),
 			"videonode-audio",
 		)
 	case *format.MPEG4Audio:

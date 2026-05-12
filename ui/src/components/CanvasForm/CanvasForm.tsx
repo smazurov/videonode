@@ -246,18 +246,41 @@ export function CanvasForm({
           {/* Audio */}
           <div>
             <label className="block text-sm font-medium text-fg mb-2">
-              Audio Device
+              Audio Devices
             </label>
-            <input
-              type="text"
-              value={form.audioDevice}
-              onChange={(e) => form.setAudioDevice(e.target.value)}
-              placeholder="hw:4,0 (optional)"
-              className={selectClasses}
-              disabled={form.saving}
-            />
+            <div className="space-y-2">
+              {form.audioDevices.map((dev, i) => (
+                <div key={i} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={dev}
+                    onChange={(e) => form.updateAudioDevice(i, e.target.value)}
+                    placeholder="hw:4,0"
+                    className={selectClasses}
+                    disabled={form.saving}
+                  />
+                  <Button
+                    type="button"
+                    theme="light"
+                    size="MD"
+                    onClick={() => form.removeAudioDevice(i)}
+                    disabled={form.saving}
+                    text="Remove"
+                  />
+                </div>
+              ))}
+              <Button
+                type="button"
+                theme="light"
+                size="MD"
+                onClick={form.addAudioDevice}
+                disabled={form.saving}
+                text="Add audio device"
+              />
+            </div>
             <p className="mt-1 text-xs text-fg-subtle">
-              Standalone ALSA device. Canvas audio is independent of source streams.
+              One output audio track per device. In the WebRTC preview only the first device plays;
+              others arrive muted.
             </p>
           </div>
 
