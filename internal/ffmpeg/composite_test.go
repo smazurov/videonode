@@ -115,19 +115,60 @@ func TestBuildCompositeCommand_ThreeInputs(t *testing.T) {
 		t.Error("missing final overlay with vout setpts+fps")
 	}
 
-	// Audio mapping (audio is input 3 after three video inputs)
-	if !strings.Contains(cmd, "-map 3:a") {
-		t.Error("missing audio map")
+	// Audio chain inside filter_complex (audio is input 3 after three video inputs)
+	if !strings.Contains(cmd, "[3:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a0]") {
+		t.Error("missing audio aresample chain in filter_complex")
 	}
 
-	// Audio filter
-	if !strings.Contains(cmd, "-af aresample=async=1") {
-		t.Error("missing audio resample filter")
+	// Audio mapping via labeled output
+	if !strings.Contains(cmd, "-map \"[a0]\"") {
+		t.Error("missing audio map")
 	}
 
 	// Audio codec
 	if !strings.Contains(cmd, "-c:a libopus -b:a 128k") {
 		t.Error("missing audio codec")
+	}
+}
+
+func TestBuildCompositeCommand_MultipleAudioDevices(t *testing.T) {
+	p := baseCompositeParams()
+	p.AudioDevices = []string{"hw:4,0", "hw:5,0"}
+	p.Inputs = []CompositeInput{
+		{DevicePath: "/dev/video0", InputFormat: "nv12", Resolution: "1920x1080", FPS: "60", X: 0, Y: 0, Width: 960, Height: 1080},
+		{DevicePath: "/dev/video2", InputFormat: "nv12", Resolution: "1920x1080", FPS: "60", X: 960, Y: 0, Width: 960, Height: 1080},
+	}
+
+	cmd := BuildCompositeCommand(p)
+
+	if !strings.Contains(cmd, "-i hw:4,0") {
+		t.Error("missing first audio device")
+	}
+	if !strings.Contains(cmd, "-i hw:5,0") {
+		t.Error("missing second audio device")
+	}
+	if strings.Count(cmd, "-f alsa") != 2 {
+		t.Errorf("expected 2 ALSA inputs, got %d", strings.Count(cmd, "-f alsa"))
+	}
+
+	// Audio inputs follow video inputs at indices 2 and 3.
+	if !strings.Contains(cmd, "[2:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a0]") {
+		t.Error("missing first audio aresample chain")
+	}
+	if !strings.Contains(cmd, "[3:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a1]") {
+		t.Error("missing second audio aresample chain")
+	}
+
+	if !strings.Contains(cmd, "-map \"[a0]\"") {
+		t.Error("missing first audio map")
+	}
+	if !strings.Contains(cmd, "-map \"[a1]\"") {
+		t.Error("missing second audio map")
+	}
+
+	// Codec line applies to all audio output streams; emit once.
+	if strings.Count(cmd, "-c:a libopus") != 1 {
+		t.Errorf("expected one -c:a libopus, got %d", strings.Count(cmd, "-c:a libopus"))
 	}
 }
 

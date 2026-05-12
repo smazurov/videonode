@@ -61,7 +61,7 @@ type CompositeParams struct {
 
 	Inputs []CompositeInput
 
-	AudioDevices []string // v1 uses at most one entry
+	AudioDevices []string // one ALSA device per output audio track
 
 	Encoder      string
 	GlobalArgs   []string // e.g., -vaapi_device /dev/dri/renderD128
@@ -155,17 +155,15 @@ func BuildCompositeCommand(p *CompositeParams) string {
 		}
 	}
 
-	// First audio input lands at FFmpeg index len(p.Inputs).
-	audioInputIdx := -1
-	for i, dev := range p.AudioDevices {
+	// Audio inputs follow video inputs; one FFmpeg input per non-empty device.
+	var audioInputIndices []int
+	for _, dev := range p.AudioDevices {
 		if dev == "" {
 			continue
 		}
 		cmd.WriteString(" -thread_queue_size 1024 -f alsa -sample_fmt s16 -ar 48000 -ac 2")
 		cmd.WriteString(" -i " + dev)
-		if audioInputIdx < 0 {
-			audioInputIdx = len(p.Inputs) + i
-		}
+		audioInputIndices = append(audioInputIndices, len(p.Inputs)+len(audioInputIndices))
 	}
 
 	padColor := p.KeyColor
@@ -240,12 +238,15 @@ func BuildCompositeCommand(p *CompositeParams) string {
 		}
 	}
 
+	for k, idx := range audioInputIndices {
+		fc.WriteString(fmt.Sprintf(";\n    [%d:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a%d]", idx, k))
+	}
+
 	cmd.WriteString(" -filter_complex \"" + fc.String() + "\n  \"")
 
 	cmd.WriteString(" -map \"[vout]\"")
-	if audioInputIdx >= 0 {
-		cmd.WriteString(fmt.Sprintf(" -map %d:a", audioInputIdx))
-		cmd.WriteString(" -af aresample=async=1:min_hard_comp=0.100000:first_pts=0")
+	for k := range audioInputIndices {
+		cmd.WriteString(fmt.Sprintf(" -map \"[a%d]\"", k))
 	}
 
 	cmd.WriteString(" -c:v " + p.Encoder)
@@ -299,7 +300,7 @@ func BuildCompositeCommand(p *CompositeParams) string {
 		cmd.WriteString(" -bsf:v dump_extra=freq=keyframe")
 	}
 
-	if audioInputIdx >= 0 {
+	if len(audioInputIndices) > 0 {
 		cmd.WriteString(" -c:a libopus -b:a 128k -ar 48000")
 	}
 
