@@ -56,9 +56,9 @@ export function useCanvasForm(initialData?: StreamData) {
   const [layout, setLayout] = useState<CanvasLayoutData | null>(null);
   const [layoutLoading, setLayoutLoading] = useState(false);
   const [layoutName, setLayoutName] = useState<string>(existingCanvas?.layout_name ?? '');
-  const [audioDevice, setAudioDevice] = useState<string>(() => {
+  const [audioDevices, setAudioDevices] = useState<string[]>(() => {
     const devs = existingCanvas?.audio_devices ?? [];
-    return devs.length > 0 && typeof devs[0] === 'string' ? devs[0] : '';
+    return devs.filter((d): d is string => typeof d === 'string');
   });
   const [codec, setCodec] = useState<StreamRequestData['codec']>(
     (initialData?.codec as StreamRequestData['codec']) ?? 'h264',
@@ -134,6 +134,23 @@ export function useCanvasForm(initialData?: StreamData) {
     });
   }, []);
 
+  const addAudioDevice = useCallback(() => {
+    setAudioDevices((cur) => [...cur, '']);
+  }, []);
+
+  const removeAudioDevice = useCallback((index: number) => {
+    setAudioDevices((cur) => dropAt(cur, index));
+  }, []);
+
+  const updateAudioDevice = useCallback((index: number, value: string) => {
+    setAudioDevices((cur) => {
+      if (index < 0 || index >= cur.length) return cur;
+      const next = [...cur];
+      next[index] = value;
+      return next;
+    });
+  }, []);
+
   const setRotationOverride = useCallback((index: number, value: RotationOverride) => {
     setRotationOverrides((cur) => {
       if (index < 0 || index >= cur.length) return cur;
@@ -172,11 +189,11 @@ export function useCanvasForm(initialData?: StreamData) {
       fps,
       key_color: keyColor,
       source_streams: sourceIds,
-      audio_devices: audioDevice ? [audioDevice] : [],
+      audio_devices: audioDevices.filter((d) => d.trim() !== ''),
       ...(hasAnyOverride ? { source_overrides: overrides } : {}),
       ...(layoutName ? { layout_name: layoutName } : {}),
     };
-  }, [preset, fps, keyColor, sourceIds, audioDevice, rotationOverrides, layoutName]);
+  }, [preset, fps, keyColor, sourceIds, audioDevices, rotationOverrides, layoutName]);
 
   // Debounced canvas layout preview — backend is the single source of truth
   // for slot geometry and letterbox content rects.
@@ -313,8 +330,10 @@ export function useCanvasForm(initialData?: StreamData) {
     removeSource,
     moveSource,
     availableSources,
-    audioDevice,
-    setAudioDevice,
+    audioDevices,
+    addAudioDevice,
+    removeAudioDevice,
+    updateAudioDevice,
     codec,
     setCodec,
     bitrate,

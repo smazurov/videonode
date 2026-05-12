@@ -86,7 +86,7 @@ type CanvasData struct {
 	FPS             string                     `json:"fps" example:"30" doc:"Canvas output framerate"`
 	KeyColor        string                     `json:"key_color,omitempty" example:"0x000000" doc:"Background color for dead space"`
 	SourceStreams   []string                   `json:"source_streams" minItems:"1" maxItems:"4" doc:"Ordered list of source stream IDs (1–4)"`
-	AudioDevices    []string                   `json:"audio_devices,omitempty" maxItems:"1" doc:"Standalone ALSA audio devices (v1: max 1)"`
+	AudioDevices    []string                   `json:"audio_devices,omitempty" doc:"Standalone ALSA audio devices — one output track per entry"`
 	SourceOverrides []CanvasSourceOverrideData `json:"source_overrides,omitempty" doc:"Per-source-stream overrides. When set, length must equal source_streams. Each entry's nil fields inherit from the source stream."`
 	LayoutName      string                     `json:"layout_name,omitempty" doc:"Pinned layout candidate name (e.g. \"side-by-side\", \"2x2\"). Empty = auto-pick."`
 }
@@ -260,12 +260,16 @@ func (c *CanvasData) validate(prefix string) []error {
 			}
 		}
 	}
-	if len(c.AudioDevices) > 1 {
-		errs = append(errs, &huma.ErrorDetail{
-			Location: field("audio_devices"),
-			Message:  "canvas currently supports at most 1 audio device",
-			Value:    c.AudioDevices,
-		})
+	seenAudio := make(map[string]bool, len(c.AudioDevices))
+	for i, dev := range c.AudioDevices {
+		if dev == "" || seenAudio[dev] {
+			errs = append(errs, &huma.ErrorDetail{
+				Location: indexed("audio_devices", i),
+				Message:  "audio devices must be non-empty and unique",
+				Value:    dev,
+			})
+		}
+		seenAudio[dev] = true
 	}
 	return errs
 }

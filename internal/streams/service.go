@@ -253,10 +253,6 @@ func (s *service) validateCanvasConfig(canvas *CanvasConfig) error {
 		}
 	}
 
-	if len(canvas.AudioDevices) > 1 {
-		return fmt.Errorf("canvas currently supports at most 1 audio device, got %d",
-			len(canvas.AudioDevices))
-	}
 	return nil
 }
 
