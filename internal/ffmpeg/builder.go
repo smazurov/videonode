@@ -135,15 +135,21 @@ func BuildCommand(p *Params) string {
 
 	if hasRotation {
 		inputIsHW := !hasPerspective && hasHWOutputFormat(p.GlobalArgs)
-		if inputIsHW {
+		backend := backendForEncoder(p.Encoder)
+		if inputIsHW && p.HWCaps.HasTranspose(backend) {
 			if hwRot := hwTransposeFilter(p.Encoder, p.Rotation); hwRot != "" {
 				videoFilterChain = append(videoFilterChain, hwRot)
 			}
 		} else {
-			if !hasPerspective {
+			if inputIsHW {
+				videoFilterChain = append(videoFilterChain, "hwdownload", "format=nv12")
+			} else if !hasPerspective {
 				videoFilterChain = append(videoFilterChain, "format=yuv420p")
 			}
 			videoFilterChain = append(videoFilterChain, swTransposeFilter(p.Rotation))
+			if inputIsHW {
+				videoFilterChain = append(videoFilterChain, "format=nv12", "hwupload")
+			}
 		}
 	}
 
