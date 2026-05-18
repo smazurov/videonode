@@ -120,6 +120,10 @@ func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Param
 
 	ffmpegParams.Rotation = streamConfig.FFmpeg.Rotation
 
+	if vr := p.store.GetValidation(); vr != nil {
+		ffmpegParams.HWCaps = ffmpeg.CapabilitiesFromBackends(vr.Backends)
+	}
+
 	// Determine overlay text (if set, test source is used instead of device)
 	switch {
 	case noSignalReason == "crashed":
