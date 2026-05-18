@@ -1,0 +1,38 @@
+version = 1
+
+# smoke-pipeline is the stream the pipeline test ffprobes. It must remain
+# untouched throughout the run — do NOT reference it from the canvas CRUD
+# test, since canvas creation reassigns the source's producer.
+[streams.smoke-pipeline]
+id = "smoke-pipeline"
+name = "smoke-pipeline"
+device = "smoke-virtual-pipeline"
+test_mode = true
+
+[streams.smoke-pipeline.ffmpeg]
+codec = "h264"
+input_format = "yuv420p"
+resolution = "640x480"
+fps = "30"
+
+[streams.smoke-pipeline.ffmpeg.quality_params]
+Mode = "cbr"
+TargetBitrate = 2.0
+
+# smoke-source is a sacrificial second test_mode stream — the CRUD test
+# uses it as a canvas source.
+[streams.smoke-source]
+id = "smoke-source"
+name = "smoke-source"
+device = "smoke-virtual-source"
+test_mode = true
+
+[streams.smoke-source.ffmpeg]
+codec = "h264"
+input_format = "yuv420p"
+resolution = "640x480"
+fps = "30"
+
+[streams.smoke-source.ffmpeg.quality_params]
+Mode = "cbr"
+TargetBitrate = 2.0

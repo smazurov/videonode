@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2/humacli"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/smazurov/videonode/cmd"
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/auth"
@@ -24,6 +26,26 @@ import (
 	"github.com/smazurov/videonode/internal/streams/store"
 	"github.com/smazurov/videonode/internal/updater"
 )
+
+// subcommandNames is the central registry of subcommand names. Add each
+// subcommand here when registering it below; the lightweight-boot check
+// uses this list to short-circuit the heavy server init.
+var subcommandNames = []string{
+	"openapi",
+	"validate-encoders",
+	"stream",
+	"version",
+}
+
+// isSubcommandInvocation reports whether os.Args names one of the registered
+// subcommands. The default (no-subcommand) invocation falls through to the
+// full server boot path.
+func isSubcommandInvocation(args []string) bool {
+	if len(args) < 2 {
+		return false
+	}
+	return slices.Contains(subcommandNames, args[1])
+}
 
 // Options for the CLI - flat structure with toml mapping.
 type Options struct {
@@ -69,9 +91,12 @@ func main() {
 	// Create Huma CLI
 	var cli humacli.CLI
 	cli = humacli.New(func(hooks humacli.Hooks, opts *Options) {
-		// Lightweight subcommands (openapi, validate-encoders) don't need the full
-		// server setup. Skip heavy initialization when running them.
-		if len(os.Args) > 1 && os.Args[1] == "openapi" {
+		// Heavy server init (logging, MPP collector, stream service load,
+		// updater, API wiring, SSE exporter) only runs for the default
+		// (no-subcommand) server invocation. Every subcommand is lightweight
+		// by default — they each do their own minimal setup and shouldn't
+		// pay for, or interfere with, the running production server's state.
+		if isSubcommandInvocation(os.Args) {
 			return
 		}
 
@@ -313,8 +338,11 @@ func main() {
 		})
 	})
 
-	// Add validate-encoders command
-	validateCmd := cmd.CreateValidateEncodersCmd()
+	// Add validate-encoders command. The path resolver shares the same precedence
+	// the server uses (flag → env → default). We can't reuse opts.StreamsConfigFile
+	// here because the lightweight subcommand short-circuits the humacli init that
+	// populates it.
+	validateCmd := cmd.CreateValidateEncodersCmd(cmd.ResolveStreamsConfigPath)
 	cli.Root().AddCommand(validateCmd)
 
 	// Add stream command
@@ -324,6 +352,10 @@ func main() {
 	// Add openapi command
 	openapiCmd := cmd.CreateOpenAPICmd()
 	cli.Root().AddCommand(openapiCmd)
+
+	// Add version command
+	versionCmd := cmd.CreateVersionCmd()
+	cli.Root().AddCommand(versionCmd)
 
 	// Run the CLI
 	cli.Run()

@@ -10,6 +10,7 @@ import (
 	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/types"
 )
 
 // ServiceOptions contains optional configuration for the stream service.
@@ -22,15 +23,16 @@ type ServiceOptions struct {
 }
 
 type service struct {
-	store           Store
-	processor       *processor
-	canvasProcessor *canvasProcessor
-	streams         map[string]*Stream
-	streamsMutex    sync.RWMutex
-	processManager  StreamProcessManager
-	encoderSelector encoders.Selector
-	eventBus        *events.Bus
-	logger          logging.Logger
+	store              Store
+	processor          *processor
+	canvasProcessor    *canvasProcessor
+	streams            map[string]*Stream
+	streamsMutex       sync.RWMutex
+	processManager     StreamProcessManager
+	encoderSelector    encoders.Selector
+	validationProvider types.ValidationProvider
+	eventBus           *events.Bus
+	logger             logging.Logger
 }
 
 // NewStreamService creates a new stream service with options.
@@ -61,12 +63,13 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 	cp.defaultVisionFPS = opts.VisionDefaultFPS
 
 	svc := &service{
-		store:           repo,
-		processor:       processor,
-		canvasProcessor: cp,
-		streams:         make(map[string]*Stream),
-		encoderSelector: encoderSelector,
-		logger:          logger,
+		store:              repo,
+		processor:          processor,
+		canvasProcessor:    cp,
+		streams:            make(map[string]*Stream),
+		encoderSelector:    encoderSelector,
+		validationProvider: NewValidationService(repo),
+		logger:             logger,
 	}
 
 	// Wire up processor's access to runtime state
@@ -656,6 +659,11 @@ func (s *service) ListStreamsWithSpecs(_ context.Context) ([]StreamWithSpec, err
 // GetProcessManager returns the process manager for shutdown handling.
 func (s *service) GetProcessManager() StreamProcessManager {
 	return s.processManager
+}
+
+// ValidationProvider returns the shared validation accessor backed by the service's store.
+func (s *service) ValidationProvider() types.ValidationProvider {
+	return s.validationProvider
 }
 
 // GetFFmpegCommand returns (command, isCustom, err) for a stream.
