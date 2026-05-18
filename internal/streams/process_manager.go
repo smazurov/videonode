@@ -43,6 +43,8 @@ type StreamProcessManager interface {
 	Restart(streamID string) error
 	// RestartCanvas reconciles canvas ownership against the spec, then restarts the canvas.
 	RestartCanvas(canvasID string) error
+	// ReleaseCanvas stops the canvas, releases ownership of its sources, and starts each source standalone.
+	ReleaseCanvas(canvasID string) error
 	GetStatus(streamID string) (*ProcessInfo, error)
 	StartAll() error
 	StopAll()
@@ -390,6 +392,51 @@ func (m *streamProcessManager) RestartCanvas(canvasID string) error {
 	}
 
 	return m.pool.Start(canvasID)
+}
+
+// ReleaseCanvas stops the canvas process and starts each previously-owned source as a standalone stream.
+// The canvas spec is left in the store; only runtime processes change. The canvas Stop happens
+// synchronously before any source Start to avoid v4l2 EBUSY races, same rationale as RestartCanvas.
+func (m *streamProcessManager) ReleaseCanvas(canvasID string) error {
+	spec, exists := m.store.GetStream(canvasID)
+	if !exists {
+		return fmt.Errorf("stream %s not found", canvasID)
+	}
+	if spec.Canvas == nil {
+		return fmt.Errorf("stream %s is not a canvas", canvasID)
+	}
+
+	m.mu.Lock()
+	var released []string
+	for srcID, owner := range m.canvasOwnership {
+		if owner == canvasID {
+			released = append(released, srcID)
+		}
+	}
+	m.mu.Unlock()
+
+	if err := m.pool.Stop(canvasID); err != nil {
+		m.logger.Warn("Failed to stop canvas during release",
+			"canvas_id", canvasID, "error", err)
+	}
+
+	m.mu.Lock()
+	m.clearCanvasOwnershipLocked(canvasID)
+	m.clearVisionPipesByOwnerLocked(canvasID)
+	delete(m.crashedStreams, canvasID)
+	m.mu.Unlock()
+
+	for _, srcID := range released {
+		if _, ok := m.store.GetStream(srcID); !ok {
+			continue
+		}
+		if err := m.pool.Start(srcID); err != nil {
+			m.logger.Warn("Failed to start released source after canvas release",
+				"canvas_id", canvasID, "source_id", srcID, "error", err)
+		}
+	}
+
+	return nil
 }
 
 // clearCanvasOwnershipLocked drops every claim held by canvasID. Caller holds m.mu.

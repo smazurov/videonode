@@ -580,6 +580,101 @@ func (s *service) RestartStream(_ context.Context, streamID string) error {
 	return nil
 }
 
+// ReleaseCanvas stops a canvas and resumes its sources as standalone streams.
+// The canvas spec is preserved; the runtime Stream remains in s.streams with Enabled=false.
+func (s *service) ReleaseCanvas(_ context.Context, streamID string) error {
+	spec, exists := s.store.GetStream(streamID)
+	if !exists {
+		return NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("stream %s not found", streamID), nil)
+	}
+	if spec.Canvas == nil {
+		return NewStreamError(ErrCodeInvalidParams,
+			fmt.Sprintf("stream %s is not a canvas", streamID), nil)
+	}
+
+	if s.processManager != nil {
+		if err := s.processManager.ReleaseCanvas(streamID); err != nil {
+			return NewStreamError(ErrCodeProcessError,
+				"failed to release canvas", err)
+		}
+	}
+
+	s.streamsMutex.Lock()
+	if stream, ok := s.streams[streamID]; ok {
+		stream.Enabled = false
+	}
+	s.streamsMutex.Unlock()
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(events.StreamStateChangedEvent{
+			StreamID:  streamID,
+			Enabled:   false,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+	}
+
+	s.logger.Info("Canvas released", "stream_id", streamID)
+	return nil
+}
+
+// EngageCanvas starts a dormant canvas, claiming its source streams.
+// Idempotent: if the canvas is already running and owns all its sources, returns nil.
+func (s *service) EngageCanvas(_ context.Context, streamID string) error {
+	spec, exists := s.store.GetStream(streamID)
+	if !exists {
+		return NewStreamError(ErrCodeStreamNotFound,
+			fmt.Sprintf("stream %s not found", streamID), nil)
+	}
+	if spec.Canvas == nil {
+		return NewStreamError(ErrCodeInvalidParams,
+			fmt.Sprintf("stream %s is not a canvas", streamID), nil)
+	}
+
+	if s.processManager != nil && s.processManager.IsRunning(streamID) {
+		allOwned := true
+		for _, srcID := range spec.Canvas.SourceStreams {
+			if s.processManager.OwnedBy(srcID) != streamID {
+				allOwned = false
+				break
+			}
+		}
+		if allOwned {
+			s.streamsMutex.Lock()
+			if stream, ok := s.streams[streamID]; ok {
+				stream.Enabled = true
+			}
+			s.streamsMutex.Unlock()
+			return nil
+		}
+	}
+
+	if s.processManager != nil {
+		if err := s.processManager.Start(streamID); err != nil {
+			return NewStreamError(ErrCodeProcessError,
+				"failed to engage canvas", err)
+		}
+	}
+
+	s.streamsMutex.Lock()
+	if stream, ok := s.streams[streamID]; ok {
+		stream.Enabled = true
+		stream.StartTime = time.Now()
+	}
+	s.streamsMutex.Unlock()
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(events.StreamStateChangedEvent{
+			StreamID:  streamID,
+			Enabled:   true,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+	}
+
+	s.logger.Info("Canvas engaged", "stream_id", streamID)
+	return nil
+}
+
 // GetStream retrieves a specific stream.
 func (s *service) GetStream(_ context.Context, streamID string) (*Stream, error) {
 	stream, exists := s.getStreamSafe(streamID)
