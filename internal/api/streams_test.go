@@ -17,9 +17,10 @@ import (
 
 // mockStreamService is a test implementation of streams.StreamService.
 type mockStreamService struct {
-	streams     map[string]*streams.Stream
-	streamSpecs map[string]*streams.StreamSpec
-	lastUpdate  *streams.StreamUpdateParams
+	streams            map[string]*streams.Stream
+	streamSpecs        map[string]*streams.StreamSpec
+	lastUpdate         *streams.StreamUpdateParams
+	validationProvider types.ValidationProvider
 }
 
 func (m *mockStreamService) CreateStream(_ context.Context, _ streams.StreamCreateParams) (*streams.Stream, error) {
@@ -121,6 +122,10 @@ func (m *mockStreamService) LoadStreamsFromConfig() error {
 
 func (m *mockStreamService) GetProcessManager() streams.StreamProcessManager {
 	return nil
+}
+
+func (m *mockStreamService) ValidationProvider() types.ValidationProvider {
+	return m.validationProvider
 }
 
 func TestDomainToAPIStream_ReadsCodecFromConfig(t *testing.T) {

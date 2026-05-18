@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -26,6 +27,10 @@ type tomlStore struct {
 // NewTOML creates a new TOML-based store.
 func NewTOML(configPath string) streams.Store {
 	if configPath == "" {
+		// Silent fallback hid a real bug: callers that forgot to thread a path
+		// got a store pointing at a phantom file in $PWD, never reaching the
+		// server's real config. Warn so a future regression is visible in logs.
+		slog.Warn("streams store opened with empty path, defaulting to ./streams.toml; caller should pass an explicit path")
 		configPath = "streams.toml"
 	}
 

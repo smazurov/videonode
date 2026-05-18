@@ -7,8 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CreateValidateEncodersCmd creates the validate-encoders command.
-func CreateValidateEncodersCmd() *cobra.Command {
+// CreateValidateEncodersCmd creates the validate-encoders command. The streamsConfigPath
+// closure resolves the path at run time (after cobra has parsed flags), so callers can
+// thread the same flag/env precedence the server uses.
+func CreateValidateEncodersCmd(streamsConfigPath func(cmd *cobra.Command) string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate-encoders",
 		Short: "Validate hardware encoder availability",
@@ -16,13 +18,14 @@ func CreateValidateEncodersCmd() *cobra.Command {
 			`on the current system. Results are saved to streams.toml.`,
 		Run: func(cmd *cobra.Command, _ []string) {
 			quiet, _ := cmd.Flags().GetBool("quiet")
-			// Create validation service for encoder validation
-			streamStore := store.NewTOML("streams.toml")
+			path := streamsConfigPath(cmd)
+			streamStore := store.NewTOML(path)
 			validationService := streams.NewValidationService(streamStore)
 			encoders.RunValidateCommandWithOptions(validationService, quiet)
 		},
 	}
 
 	cmd.Flags().BoolP("quiet", "q", false, "Suppress detailed validation progress output")
+	cmd.Flags().String("streams-config", "", "Path to streams.toml (overrides STREAMS_CONFIG_FILE env)")
 	return cmd
 }

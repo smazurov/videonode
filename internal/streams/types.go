@@ -31,6 +31,9 @@ type StreamService interface {
 
 	// Device event handling
 	BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string)
+
+	// ValidationProvider returns the shared validation data accessor backed by the same store.
+	ValidationProvider() types.ValidationProvider
 }
 
 // StreamWithSpec pairs a runtime Stream with its persisted StreamSpec.
