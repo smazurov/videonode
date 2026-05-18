@@ -556,7 +556,7 @@ func (s *Server) domainToAPIStreamWithSpec(stream streams.Stream, config *stream
 			apiData.Framerate = config.Canvas.FPS
 			apiData.Canvas = domainCanvasToAPI(config.Canvas)
 			apiData.InputsEnabled = stream.InputsEnabled
-			apiData.Enabled = true
+			apiData.Enabled = stream.Enabled
 		} else {
 			apiData.InputFormat = config.FFmpeg.InputFormat
 			apiData.Resolution = config.FFmpeg.Resolution

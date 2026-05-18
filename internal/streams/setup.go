@@ -46,9 +46,15 @@ func (s *service) InitializeStream(streamConfig StreamSpec) error {
 		s.logger.Warn("Failed to start metrics collector for stream", "stream_id", streamConfig.ID, "error", err)
 	}
 
+	// Canvases default to engaged (Enabled=true) because they have no hardware
+	// device to wait on; dormant is a runtime-only state set by ReleaseCanvas.
+	// Single streams default to Enabled=false and are flipped true by either
+	// the create path (after device validation) or device discovery.
+	enabled := streamConfig.Canvas != nil
+
 	stream := &Stream{
 		ID:             streamConfig.ID,
-		Enabled:        false,
+		Enabled:        enabled,
 		StartTime:      time.Now(),
 		ProgressSocket: socketPath,
 		Collector:      ffmpegCollector,
