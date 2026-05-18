@@ -221,9 +221,10 @@ func (s *service) validateCanvasConfig(canvas *CanvasConfig) error {
 	}
 
 	validSize := (canvas.Width == 1920 && canvas.Height == 1080) ||
+		(canvas.Width == 2560 && canvas.Height == 1440) ||
 		(canvas.Width == 3840 && canvas.Height == 2160)
 	if !validSize {
-		return fmt.Errorf("canvas size must be 1920x1080 or 3840x2160, got %dx%d",
+		return fmt.Errorf("canvas size must be 1920x1080, 2560x1440, or 3840x2160, got %dx%d",
 			canvas.Width, canvas.Height)
 	}
 	if canvas.FPS == "" {
