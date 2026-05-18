@@ -287,3 +287,119 @@ func TestFFmpegCollectorHandleConnection(t *testing.T) {
 	conn.Close()
 	time.Sleep(30 * time.Millisecond)
 }
+
+func TestFPSTracker(t *testing.T) {
+	t.Run("first sample returns no value", func(t *testing.T) {
+		var tr fpsTracker
+		start := time.Unix(0, 0)
+		if v, ok := tr.update(100, start); ok {
+			t.Errorf("first sample should not yield a value, got %v", v)
+		}
+	})
+
+	t.Run("steady 30fps converges to 30", func(t *testing.T) {
+		var tr fpsTracker
+		start := time.Unix(0, 0)
+		tr.update(0, start)
+		// 0.5s blocks, 15 frames per block = 30 fps.
+		var last float64
+		for i := 1; i <= 8; i++ {
+			now := start.Add(time.Duration(i) * 500 * time.Millisecond)
+			v, ok := tr.update(uint64(i*15), now)
+			if !ok {
+				t.Fatalf("update %d returned ok=false", i)
+			}
+			last = v
+		}
+		if diff := last - 30.0; diff < -0.01 || diff > 0.01 {
+			t.Errorf("steady-state fps = %v, want ~30", last)
+		}
+	})
+
+	t.Run("first valid sample seeds without smoothing", func(t *testing.T) {
+		var tr fpsTracker
+		start := time.Unix(0, 0)
+		tr.update(0, start)
+		v, ok := tr.update(60, start.Add(time.Second))
+		if !ok || v != 60.0 {
+			t.Errorf("first seeded sample = %v ok=%v, want 60 true", v, ok)
+		}
+	})
+
+	t.Run("EMA reacts to drop within a few ticks", func(t *testing.T) {
+		var tr fpsTracker
+		start := time.Unix(0, 0)
+		tr.update(0, start)
+		// Warm up at 30 fps for 6 blocks.
+		for i := 1; i <= 6; i++ {
+			tr.update(uint64(i*15), start.Add(time.Duration(i)*500*time.Millisecond))
+		}
+		// Drop to 10 fps; check value after 3 more 0.5s blocks (~1.5s).
+		frame := uint64(6 * 15)
+		var v float64
+		var ok bool
+		for i := 1; i <= 3; i++ {
+			frame += 5 // 5 frames in 0.5s = 10 fps
+			now := start.Add(time.Duration(6+i) * 500 * time.Millisecond)
+			v, ok = tr.update(frame, now)
+			if !ok {
+				t.Fatalf("update returned ok=false")
+			}
+		}
+		// After 3 ticks the EMA should have moved well past the midpoint
+		// toward the new 10fps target — concretely below 18.
+		if v >= 18 {
+			t.Errorf("after 3 ticks at 10fps, smoothed = %v, want < 18", v)
+		}
+	})
+
+	t.Run("counter reset re-bases and skips bogus delta", func(t *testing.T) {
+		var tr fpsTracker
+		start := time.Unix(0, 0)
+		tr.update(10_000, start)
+		// FFmpeg restart: counter goes backwards.
+		v, ok := tr.update(5, start.Add(time.Second))
+		if ok {
+			t.Errorf("reset sample should yield ok=false, got v=%v", v)
+		}
+		// Next valid sample should seed cleanly (treated as first sample).
+		v, ok = tr.update(35, start.Add(2*time.Second))
+		if !ok || v != 30.0 {
+			t.Errorf("re-seeded sample = %v ok=%v, want 30 true", v, ok)
+		}
+	})
+
+	t.Run("ceiling discards bogus huge delta", func(t *testing.T) {
+		var tr fpsTracker
+		start := time.Unix(0, 0)
+		tr.update(0, start)
+		// 10 million frames in 1s — way past the sanity ceiling.
+		v, ok := tr.update(10_000_000, start.Add(time.Second))
+		if ok {
+			t.Errorf("bogus sample should yield ok=false, got v=%v", v)
+		}
+	})
+
+	t.Run("zero or negative dt is ignored", func(t *testing.T) {
+		var tr fpsTracker
+		start := time.Unix(0, 0)
+		tr.update(0, start)
+		if _, ok := tr.update(30, start); ok {
+			t.Error("dt=0 should yield ok=false")
+		}
+		if _, ok := tr.update(30, start.Add(-time.Second)); ok {
+			t.Error("negative dt should yield ok=false")
+		}
+	})
+
+	t.Run("reset clears state", func(t *testing.T) {
+		var tr fpsTracker
+		start := time.Unix(0, 0)
+		tr.update(0, start)
+		tr.update(30, start.Add(time.Second))
+		tr.reset()
+		if v, ok := tr.update(30, start.Add(time.Second)); ok {
+			t.Errorf("after reset, first update should yield ok=false, got %v", v)
+		}
+	})
+}
