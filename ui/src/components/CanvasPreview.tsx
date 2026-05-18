@@ -11,6 +11,7 @@ interface CanvasPreviewProps {
   onCycle?: () => void;
   chosenLayout?: string;
   availableCount?: number;
+  hideCaption?: boolean;
 }
 
 export function CanvasPreview({
@@ -22,6 +23,7 @@ export function CanvasPreview({
   onCycle,
   chosenLayout,
   availableCount,
+  hideCaption = false,
 }: Readonly<CanvasPreviewProps>) {
   const aspectRatio = canvasW / canvasH;
   const slots = layout?.slots ?? [];
@@ -114,11 +116,13 @@ export function CanvasPreview({
           </div>
         )}
       </div>
-      <p className="mt-2 text-xs text-fg-subtle text-center">
-        {canvasW}×{canvasH} canvas · {slots.length} source{slots.length === 1 ? '' : 's'}
-        {chosenLayout ? ` · ${chosenLayout}` : ''}
-        {cycleable ? ' · click to cycle' : ''}
-      </p>
+      {!hideCaption && (
+        <p className="mt-2 text-xs text-fg-subtle text-center">
+          {canvasW}×{canvasH} canvas · {slots.length} source{slots.length === 1 ? '' : 's'}
+          {chosenLayout ? ` · ${chosenLayout}` : ''}
+          {cycleable ? ' · click to cycle' : ''}
+        </p>
+      )}
     </div>
   );
 }
