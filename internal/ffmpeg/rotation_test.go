@@ -68,6 +68,7 @@ func TestBuildCommand_Rotation_VAAPI_HWInput(t *testing.T) {
 				VideoFilters: "scale_vaapi=format=nv12",
 				Rotation:     tt.rotation,
 				OutputURL:    "rtsp://127.0.0.1:8554/test",
+				HWCaps:       HWCapabilities{ScaleVAAPI: true, TransposeVAAPI: true},
 			}
 			cmd := BuildCommand(p)
 
@@ -181,6 +182,7 @@ func TestBuildCommand_Rotation_RKMPP_HWInput(t *testing.T) {
 				VideoFilters: "",
 				Rotation:     tt.rotation,
 				OutputURL:    "rtsp://127.0.0.1:8554/test",
+				HWCaps:       HWCapabilities{ScaleRKRGA: true, VppRKRGA: true},
 			}
 			cmd := BuildCommand(p)
 
@@ -237,6 +239,75 @@ func TestBuildCommand_Rotation_RKMPP_SWInput(t *testing.T) {
 	hwIdx := strings.Index(vf, "hwupload")
 	if tIdx == -1 || hwIdx == -1 || tIdx >= hwIdx {
 		t.Errorf("transpose must precede hwupload,scale_rkrga\n-vf: %s", vf)
+	}
+}
+
+// TestBuildCommand_Rotation_VAAPI_HWInput_NoTransposeCap repros the radeonsi
+// crash: HW input with rotation but caps.TransposeVAAPI=false must fall back to
+// a SW transpose round-trip (hwdownload → sw transpose → hwupload), not emit
+// transpose_vaapi.
+func TestBuildCommand_Rotation_VAAPI_HWInput_NoTransposeCap(t *testing.T) {
+	p := &Params{
+		DevicePath:   "/dev/video0",
+		InputFormat:  "mjpeg",
+		Resolution:   "1920x1080",
+		FPS:          "30",
+		Encoder:      "h264_vaapi",
+		Bitrate:      "2M",
+		GlobalArgs:   []string{"-vaapi_device", "/dev/dri/renderD128", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"},
+		VideoFilters: "scale_vaapi=format=nv12",
+		Rotation:     90,
+		OutputURL:    "rtsp://127.0.0.1:8554/test",
+		HWCaps:       HWCapabilities{ScaleVAAPI: true /* TransposeVAAPI: false */},
+	}
+	cmd := BuildCommand(p)
+
+	if strings.Contains(cmd, "transpose_vaapi") {
+		t.Errorf("transpose_vaapi must not be emitted when caps.TransposeVAAPI=false\ncmd: %s", cmd)
+	}
+	if !strings.Contains(cmd, "transpose=1") {
+		t.Errorf("expected sw transpose=1 fallback\ncmd: %s", cmd)
+	}
+
+	vf := vfSection(t, cmd)
+	dlIdx := strings.Index(vf, "hwdownload")
+	tIdx := strings.Index(vf, "transpose=1")
+	hwUpIdx := strings.Index(vf, "hwupload")
+	sIdx := strings.Index(vf, "scale_vaapi")
+	if dlIdx == -1 || tIdx == -1 || hwUpIdx == -1 || sIdx == -1 {
+		t.Fatalf("expected hwdownload, transpose=1, hwupload, scale_vaapi all present\n-vf: %s", vf)
+	}
+	if dlIdx >= tIdx || tIdx >= hwUpIdx || hwUpIdx >= sIdx {
+		t.Errorf("expected order hwdownload < transpose < hwupload < scale_vaapi; got %d,%d,%d,%d\n-vf: %s",
+			dlIdx, tIdx, hwUpIdx, sIdx, vf)
+	}
+}
+
+// TestBuildCommand_Rotation_RKMPP_HWInput_NoTransposeCap is the RKMPP parity case.
+func TestBuildCommand_Rotation_RKMPP_HWInput_NoTransposeCap(t *testing.T) {
+	p := &Params{
+		DevicePath:  "/dev/video0",
+		InputFormat: "h264",
+		Resolution:  "1920x1080",
+		FPS:         "30",
+		Encoder:     "h264_rkmpp",
+		Bitrate:     "2M",
+		GlobalArgs:  []string{"-hwaccel", "rkmpp", "-hwaccel_output_format", "drm_prime"},
+		Rotation:    90,
+		OutputURL:   "rtsp://127.0.0.1:8554/test",
+		HWCaps:      HWCapabilities{ScaleRKRGA: true /* VppRKRGA: false */},
+	}
+	cmd := BuildCommand(p)
+
+	if strings.Contains(cmd, "vpp_rkrga") {
+		t.Errorf("vpp_rkrga must not be emitted when caps.VppRKRGA=false\ncmd: %s", cmd)
+	}
+	if !strings.Contains(cmd, "transpose=1") {
+		t.Errorf("expected sw transpose=1 fallback\ncmd: %s", cmd)
+	}
+	vf := vfSection(t, cmd)
+	if !strings.Contains(vf, "hwdownload") || !strings.Contains(vf, "hwupload") {
+		t.Errorf("expected hwdownload/hwupload round-trip\n-vf: %s", vf)
 	}
 }
 

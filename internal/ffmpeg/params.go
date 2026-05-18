@@ -42,6 +42,8 @@ type Params struct {
 	Perspective *PerspectiveConfig
 
 	Rotation int // 0, 90, 180, 270
+
+	HWCaps HWCapabilities
 }
 
 // PerspectiveConfig stores 4 source corner points clockwise [TL, TR, BR, BL] in input pixels.
