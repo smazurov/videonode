@@ -609,6 +609,12 @@ func (s *service) ReleaseCanvas(_ context.Context, streamID string) error {
 	}
 	s.streamsMutex.Unlock()
 
+	dormant := false
+	spec.Canvas.Enabled = &dormant
+	if err := s.store.UpdateStream(streamID, spec); err != nil {
+		s.logger.Warn("failed to persist canvas dormant state", "stream_id", streamID, "error", err)
+	}
+
 	if s.eventBus != nil {
 		s.eventBus.Publish(events.StreamStateChangedEvent{
 			StreamID:  streamID,
@@ -648,6 +654,7 @@ func (s *service) EngageCanvas(_ context.Context, streamID string) error {
 				stream.Enabled = true
 			}
 			s.streamsMutex.Unlock()
+			s.persistCanvasEngaged(streamID, spec)
 			return nil
 		}
 	}
@@ -666,6 +673,8 @@ func (s *service) EngageCanvas(_ context.Context, streamID string) error {
 	}
 	s.streamsMutex.Unlock()
 
+	s.persistCanvasEngaged(streamID, spec)
+
 	if s.eventBus != nil {
 		s.eventBus.Publish(events.StreamStateChangedEvent{
 			StreamID:  streamID,
@@ -676,6 +685,16 @@ func (s *service) EngageCanvas(_ context.Context, streamID string) error {
 
 	s.logger.Info("Canvas engaged", "stream_id", streamID)
 	return nil
+}
+
+// persistCanvasEngaged writes Enabled=true to the canvas spec on disk; logs and
+// continues on failure since the runtime state is already correct.
+func (s *service) persistCanvasEngaged(streamID string, spec StreamSpec) {
+	engaged := true
+	spec.Canvas.Enabled = &engaged
+	if err := s.store.UpdateStream(streamID, spec); err != nil {
+		s.logger.Warn("failed to persist canvas engaged state", "stream_id", streamID, "error", err)
+	}
 }
 
 // GetStream retrieves a specific stream.
@@ -707,23 +726,27 @@ func (s *service) GetStreamSpec(_ context.Context, streamID string) (*StreamSpec
 	return &configCopy, nil
 }
 
-// ListStreams returns all active streams.
+// ListStreams returns all active streams. Canvases sort before non-canvases so
+// they always render first in client UIs; within each group, by ID.
 func (s *service) ListStreams(_ context.Context) ([]Stream, error) {
 	s.streamsMutex.RLock()
-	defer s.streamsMutex.RUnlock()
-
+	allSpecs := s.store.GetAllStreams()
 	streams := make([]Stream, 0, len(s.streams))
 	for id, stream := range s.streams {
-		// Return copies to avoid external mutation
 		streamCopy := *stream
 		if s.processManager != nil {
 			streamCopy.OwnedBy = s.processManager.OwnedBy(id)
 		}
 		streams = append(streams, streamCopy)
 	}
+	s.streamsMutex.RUnlock()
 
-	// Sort streams by ID for consistent ordering
 	sort.Slice(streams, func(i, j int) bool {
+		iCanvas := allSpecs[streams[i].ID].Canvas != nil
+		jCanvas := allSpecs[streams[j].ID].Canvas != nil
+		if iCanvas != jCanvas {
+			return iCanvas
+		}
 		return streams[i].ID < streams[j].ID
 	})
 
@@ -746,6 +769,11 @@ func (s *service) ListStreamsWithSpecs(_ context.Context) ([]StreamWithSpec, err
 	s.streamsMutex.RUnlock()
 
 	sort.Slice(out, func(i, j int) bool {
+		iCanvas := out[i].Spec.Canvas != nil
+		jCanvas := out[j].Spec.Canvas != nil
+		if iCanvas != jCanvas {
+			return iCanvas
+		}
 		return out[i].Stream.ID < out[j].Stream.ID
 	})
 	return out, nil

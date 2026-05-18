@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import toast from 'react-hot-toast';
@@ -62,10 +62,23 @@ export default function Streams() {
     updateStreamMetrics(event);
   }, [updateStreamMetrics]);
 
+  // SSE drops can hide release/engage and create/delete events that happen
+  // mid-disconnect; refetch on every transition into 'online' so the grid
+  // always reflects server truth. The mount effect below seeds the very first
+  // load, so we skip refetch until we've actually seen a non-online status.
+  const prevConnectionStatusRef = useRef<'online' | 'offline' | 'reconnecting'>('online');
+  const handleConnectionStatus = useCallback((status: 'online' | 'offline' | 'reconnecting') => {
+    if (status === 'online' && prevConnectionStatusRef.current !== 'online') {
+      fetchStreams();
+    }
+    prevConnectionStatusRef.current = status;
+  }, [fetchStreams]);
+
   // Setup SSE listener for stream lifecycle and metrics events
   useSSEManager({
     onStreamLifecycleEvent: handleStreamLifecycle,
     onStreamMetricsEvent: handleStreamMetrics,
+    onConnectionStatusChange: handleConnectionStatus,
   });
 
   // Load streams on mount

@@ -56,6 +56,16 @@ type CanvasConfig struct {
 
 	// LayoutName pins a candidate by name; unknown names are silently ignored and scorer runs.
 	LayoutName string `toml:"layout_name,omitempty" json:"layout_name,omitempty"`
+
+	// Enabled persists the engaged/dormant state across restarts. nil = engaged
+	// (the default for a fresh canvas), false = released (dormant).
+	Enabled *bool `toml:"enabled,omitempty" json:"enabled,omitempty"`
+}
+
+// IsEngaged reports whether the canvas should be running. A nil receiver or
+// nil Enabled both mean engaged; only an explicit false marks the canvas dormant.
+func (c *CanvasConfig) IsEngaged() bool {
+	return c == nil || c.Enabled == nil || *c.Enabled
 }
 
 // CanvasSourceOverride shadows a source stream's settings for one canvas-item placement.
