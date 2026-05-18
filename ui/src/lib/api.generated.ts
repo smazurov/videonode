@@ -316,6 +316,46 @@ export interface paths {
         patch: operations["update-stream"];
         trace?: never;
     };
+    "/api/streams/{stream_id}/canvas/engage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Engage Canvas
+         * @description Start a dormant canvas, claiming its sources from standalone playback.
+         */
+        post: operations["engage-canvas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/streams/{stream_id}/canvas/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release Canvas
+         * @description Stop a canvas and resume its sources as standalone streams. The canvas spec is preserved with Enabled=false.
+         */
+        post: operations["release-canvas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/streams/{stream_id}/ffmpeg": {
         parameters: {
             query?: never;
@@ -535,7 +575,7 @@ export interface components {
              * @example https://example.com/schemas/CanvasData.json
              */
             readonly $schema?: string;
-            /** @description Standalone ALSA audio devices (v1: max 1) */
+            /** @description Standalone ALSA audio devices — one output track per entry */
             audio_devices?: string[] | null;
             /**
              * @description Canvas output framerate
@@ -930,7 +970,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yv12" | "nv24" | "nv16" | "nv12" | "bgr24" | "rgb24" | "yuyv422" | "h264" | "mjpeg" | "yu12";
+            format_name: "yuyv422" | "nv12" | "yu12" | "nv16" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1601,7 +1641,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "nv12" | "bgr24" | "rgb24" | "yuyv422" | "h264" | "mjpeg" | "yu12" | "yv12" | "nv24" | "nv16";
+                format_name?: "yuyv422" | "nv12" | "yu12" | "nv16" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -1667,7 +1707,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yv12" | "nv24" | "nv16" | "nv12" | "bgr24" | "rgb24" | "yuyv422" | "h264" | "mjpeg" | "yu12";
+                format_name?: "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "yuyv422" | "nv12" | "yu12" | "nv16";
             };
             header?: never;
             path: {
@@ -2395,6 +2435,138 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["StreamData"];
                 };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "engage-canvas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Canvas stream identifier */
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "release-canvas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Canvas stream identifier */
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Bad Request */
             400: {
