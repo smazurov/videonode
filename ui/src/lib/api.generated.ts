@@ -584,11 +584,11 @@ export interface components {
             fps: string;
             /**
              * Format: int64
-             * @description Canvas height — 1080 (1080p) or 2160 (4k)
+             * @description Canvas height — 1080 (1080p), 1440 (1440p), or 2160 (4k)
              * @example 1080
              * @enum {integer}
              */
-            height: 1080 | 2160;
+            height: 1080 | 1440 | 2160;
             /**
              * @description Background color for dead space
              * @example 0x000000
@@ -602,11 +602,11 @@ export interface components {
             source_streams: string[] | null;
             /**
              * Format: int64
-             * @description Canvas width — 1920 (1080p) or 3840 (4k)
+             * @description Canvas width — 1920 (1080p), 2560 (1440p), or 3840 (4k)
              * @example 1920
              * @enum {integer}
              */
-            width: 1920 | 3840;
+            width: 1920 | 2560 | 3840;
         };
         CanvasLayoutData: {
             /**
@@ -970,7 +970,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yuyv422" | "nv12" | "yu12" | "nv16" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24";
+            format_name: "mjpeg" | "yu12" | "yv12" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "nv12" | "h264" | "bgr24";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1641,7 +1641,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "yu12" | "nv16" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24";
+                format_name?: "yv12" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "nv12" | "h264" | "bgr24" | "mjpeg" | "yu12";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -1707,7 +1707,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "yuyv422" | "nv12" | "yu12" | "nv16";
+                format_name?: "h264" | "bgr24" | "mjpeg" | "yu12" | "yv12" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "nv12";
             };
             header?: never;
             path: {

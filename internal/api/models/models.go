@@ -81,8 +81,8 @@ type StreamData struct {
 
 // CanvasData represents a composite canvas configuration for API requests and responses.
 type CanvasData struct {
-	Width           int                        `json:"width" enum:"1920,3840" example:"1920" doc:"Canvas width — 1920 (1080p) or 3840 (4k)"`
-	Height          int                        `json:"height" enum:"1080,2160" example:"1080" doc:"Canvas height — 1080 (1080p) or 2160 (4k)"`
+	Width           int                        `json:"width" enum:"1920,2560,3840" example:"1920" doc:"Canvas width — 1920 (1080p), 2560 (1440p), or 3840 (4k)"`
+	Height          int                        `json:"height" enum:"1080,1440,2160" example:"1080" doc:"Canvas height — 1080 (1080p), 1440 (1440p), or 2160 (4k)"`
 	FPS             string                     `json:"fps" example:"30" doc:"Canvas output framerate"`
 	KeyColor        string                     `json:"key_color,omitempty" example:"0x000000" doc:"Background color for dead space"`
 	SourceStreams   []string                   `json:"source_streams" minItems:"1" maxItems:"4" doc:"Ordered list of source stream IDs (1–4)"`
@@ -208,11 +208,13 @@ func (c *CanvasData) validate(prefix string) []error {
 		return fmt.Sprintf("%s[%d]", field(name), i)
 	}
 	var errs []error
-	validSize := (c.Width == 1920 && c.Height == 1080) || (c.Width == 3840 && c.Height == 2160)
+	validSize := (c.Width == 1920 && c.Height == 1080) ||
+		(c.Width == 2560 && c.Height == 1440) ||
+		(c.Width == 3840 && c.Height == 2160)
 	if !validSize {
 		errs = append(errs, &huma.ErrorDetail{
 			Location: prefix,
-			Message:  "canvas size must be 1920x1080 or 3840x2160",
+			Message:  "canvas size must be 1920x1080, 2560x1440, or 3840x2160",
 			Value:    c,
 		})
 	}

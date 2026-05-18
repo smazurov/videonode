@@ -11,17 +11,19 @@ type CanvasLayoutData = components['schemas']['CanvasLayoutData'];
 
 export type RotationOverride = null | 0 | 90 | 180 | 270;
 
-export type CanvasPreset = '1080p' | '4k';
+export type CanvasPreset = '1080p' | '1440p' | '4k';
 
-export const CANVAS_PRESETS: Record<CanvasPreset, { width: 1920 | 3840; height: 1080 | 2160; label: string }> = {
-  '1080p': { width: 1920, height: 1080, label: '1080p (1920×1080)' },
-  '4k': { width: 3840, height: 2160, label: '4k (3840×2160)' },
+export const CANVAS_PRESETS: Record<CanvasPreset, { width: 1920 | 2560 | 3840; height: 1080 | 1440 | 2160; label: string }> = {
+  '1080p': { width: 1920, height: 1080, label: '1080p' },
+  '1440p': { width: 2560, height: 1440, label: '1440p' },
+  '4k': { width: 3840, height: 2160, label: '4k' },
 };
 
 const FPS_OPTIONS = ['24', '25', '30', '50', '60'];
 
 function presetFromCanvas(canvas: CanvasData): CanvasPreset {
   if (canvas.width === 3840 && canvas.height === 2160) return '4k';
+  if (canvas.width === 2560 && canvas.height === 1440) return '1440p';
   return '1080p';
 }
 
@@ -170,8 +172,8 @@ export function useCanvasForm(initialData?: StreamData) {
     if (sourceIds.length < 1) e.sources = 'Select at least one source stream';
     if (sourceIds.length > 4) e.sources = 'At most 4 source streams';
     if (!fps) e.fps = 'FPS is required';
-    if (bitrate < 0.1 || bitrate > 100)
-      e.bitrate = 'Bitrate must be between 0.1 and 100 Mbps';
+    if (bitrate < 0.5 || bitrate > 100)
+      e.bitrate = 'Bitrate must be between 0.5 and 100 Mbps';
     return e;
   }, [mode, streamId, sourceIds, fps, bitrate]);
 
@@ -323,6 +325,7 @@ export function useCanvasForm(initialData?: StreamData) {
     layout,
     layoutLoading,
     layoutName,
+    setLayoutName,
     chosenLayout: layout?.chosen_layout ?? '',
     availableLayouts: layout?.available_layouts ?? [],
     cycleLayout,
