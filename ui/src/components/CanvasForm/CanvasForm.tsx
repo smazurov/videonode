@@ -1,8 +1,6 @@
 import { FormEvent } from 'react';
 import { Card } from '../Card';
 import { Button } from '../Button';
-import { InputField } from '../InputField';
-import { ReadOnlyField } from '../ReadOnlyField';
 import { AdvancedOptions } from '../StreamCreation/AdvancedOptions';
 import { CanvasPreview } from '../CanvasPreview';
 import { useCanvasForm, CANVAS_PRESETS, CanvasPreset } from '../../hooks/useCanvasForm';
@@ -44,54 +42,61 @@ export function CanvasForm({
   const canAddMore = form.sourceIds.length < 4;
   const defaultLabel = form.mode === 'edit' ? 'Save Changes' : 'Create Canvas';
   const submitLabel = form.saving ? 'Saving...' : defaultLabel;
-  const streamIdErrorProps = form.errors.streamId ? { error: form.errors.streamId } : {};
+
+  const activeLayout = form.layoutName || form.chosenLayout;
 
   return (
     <Card className={className}>
       <Card.Content>
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Stream ID */}
-          {form.mode === 'edit' ? (
-            <ReadOnlyField label="Stream ID" value={form.streamId} mono />
-          ) : (
-            <InputField
-              label="Stream ID"
-              type="text"
-              value={form.streamId}
-              onChange={(e) => form.setStreamId(e.target.value)}
-              placeholder="my-canvas-001"
-              required
-              disabled={form.saving}
-              {...streamIdErrorProps}
-            />
-          )}
-
-          {/* Canvas size preset */}
-          <div>
-            <label className="block text-sm font-medium text-fg mb-2">
-              Canvas Size <span className="text-danger">*</span>
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              {(Object.keys(CANVAS_PRESETS) as CanvasPreset[]).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => form.setPreset(key)}
-                  disabled={form.saving}
-                  className={`px-4 py-3 rounded-md border-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
-                    form.preset === key
-                      ? 'border-accent bg-accent-soft text-accent-soft-fg'
-                      : 'border-border text-fg-muted hover:border-border-strong'
-                  }`}
-                >
-                  {CANVAS_PRESETS[key].label}
-                </button>
-              ))}
+          {/* Header strip: identity & canvas-wide settings */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-fg mb-2">
+                Stream ID {form.mode === 'create' && <span className="text-danger">*</span>}
+              </label>
+              <input
+                type="text"
+                value={form.streamId}
+                onChange={(e) => form.setStreamId(e.target.value)}
+                placeholder="my-canvas-001"
+                required={form.mode === 'create'}
+                disabled={form.saving}
+                readOnly={form.mode === 'edit'}
+                tabIndex={form.mode === 'edit' ? -1 : undefined}
+                aria-readonly={form.mode === 'edit' || undefined}
+                className={
+                  form.mode === 'edit'
+                    ? `${selectClasses} font-mono opacity-60 cursor-not-allowed select-all`
+                    : `${selectClasses} font-mono`
+                }
+              />
+              {form.errors.streamId && (
+                <p className="mt-1 text-sm text-danger-soft-fg">{form.errors.streamId}</p>
+              )}
             </div>
-          </div>
-
-          {/* FPS + Key color */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-fg mb-2">
+                Canvas Size <span className="text-danger">*</span>
+              </label>
+              <div className="flex gap-2">
+                {(Object.keys(CANVAS_PRESETS) as CanvasPreset[]).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => form.setPreset(key)}
+                    disabled={form.saving}
+                    className={`flex-1 block px-3 py-2 border rounded-md shadow-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
+                      form.preset === key
+                        ? 'border-accent bg-accent-soft text-accent-soft-fg'
+                        : 'border-border bg-surface text-fg hover:border-border-strong'
+                    }`}
+                  >
+                    {CANVAS_PRESETS[key].label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <label className="block text-sm font-medium text-fg mb-2">
                 FPS <span className="text-danger">*</span>
@@ -113,18 +118,26 @@ export function CanvasForm({
                 <p className="mt-1 text-sm text-danger-soft-fg">{form.errors.fps}</p>
               )}
             </div>
-            <InputField
-              label="Background Color"
-              type="text"
-              value={form.keyColor}
-              onChange={(e) => form.setKeyColor(e.target.value)}
-              placeholder="0x000000"
-              disabled={form.saving}
-            />
+            <div>
+              <label className="block text-sm font-medium text-fg mb-2">
+                Background Color
+              </label>
+              <input
+                type="text"
+                value={form.keyColor}
+                onChange={(e) => form.setKeyColor(e.target.value)}
+                placeholder="0x000000"
+                disabled={form.saving}
+                className={selectClasses}
+              />
+            </div>
           </div>
 
-          {/* Source streams */}
-          <div>
+          {/* Body: sources/audio/advanced on left, preview + encode on right */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_44rem] gap-6">
+            <div className="space-y-6 min-w-0">
+              {/* Source streams */}
+              <div>
             <label className="block text-sm font-medium text-fg mb-2">
               Source Streams <span className="text-danger">*</span>{' '}
               <span className="text-xs text-fg-subtle">({form.sourceIds.length}/4)</span>
@@ -284,72 +297,101 @@ export function CanvasForm({
             </p>
           </div>
 
-          {/* Codec + Bitrate */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-fg mb-2">
-                Codec <span className="text-danger">*</span>
-              </label>
-              <select
-                value={form.codec}
-                onChange={(e) => form.setCodec(e.target.value as typeof form.codec)}
-                className={selectClasses}
+              {/* Advanced options */}
+              <AdvancedOptions
+                selectedOptions={form.options}
+                onOptionsChange={form.setOptions}
                 disabled={form.saving}
-                required
-              >
-                <option value="h264">H.264</option>
-                <option value="h265">H.265 (HEVC)</option>
-              </select>
+              />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-fg mb-2">
-                Bitrate
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={form.bitrate}
-                  onChange={(e) => {
-                    const n = parseFloat(e.target.value);
-                    if (!isNaN(n)) form.setBitrate(n);
-                  }}
-                  step="0.5"
-                  min="0.1"
-                  max="100"
-                  className="block w-full pl-3 pr-16 py-2 border border-border rounded-md shadow-sm bg-surface text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:border-accent"
-                  disabled={form.saving}
+
+            {/* Right column: preview + encode settings (sticky on lg+) */}
+            <div className="lg:sticky lg:top-4 self-start space-y-4 min-w-0">
+              <div>
+                <label className="block text-sm font-medium text-fg mb-2">
+                  Layout Preview
+                </label>
+                <CanvasPreview
+                  canvasW={form.canvasDimensions.width}
+                  canvasH={form.canvasDimensions.height}
+                  layout={form.layout}
+                  loading={form.layoutLoading}
+                  onCycle={form.cycleLayout}
+                  chosenLayout={form.chosenLayout}
+                  availableCount={form.availableLayouts.length}
+                  hideCaption
                 />
-                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                  <span className="text-fg-subtle sm:text-sm">Mbps</span>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-fg-subtle">
+                  <span>
+                    {form.canvasDimensions.width}×{form.canvasDimensions.height} ·{' '}
+                    {form.sourceIds.length} source{form.sourceIds.length === 1 ? '' : 's'}
+                  </span>
+                  {form.availableLayouts.length > 1 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {form.availableLayouts.map((name) => {
+                        const active = activeLayout === name;
+                        return (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => form.setLayoutName(name)}
+                            disabled={form.saving}
+                            className={`px-2 py-0.5 text-xs rounded border font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
+                              active
+                                ? 'border-accent bg-accent-soft text-accent-soft-fg'
+                                : 'border-border text-fg-muted hover:border-border-strong'
+                            }`}
+                          >
+                            {name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
-              {form.errors.bitrate && (
-                <p className="mt-1 text-sm text-danger-soft-fg">{form.errors.bitrate}</p>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-fg mb-2">
+                  Codec <span className="text-danger">*</span>
+                </label>
+                <select
+                  value={form.codec}
+                  onChange={(e) => form.setCodec(e.target.value as typeof form.codec)}
+                  className={selectClasses}
+                  disabled={form.saving}
+                  required
+                >
+                  <option value="h264">H.264</option>
+                  <option value="h265">H.265 (HEVC)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-fg mb-2">
+                  Bitrate
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={form.bitrate}
+                    onChange={(e) => {
+                      const n = parseFloat(e.target.value);
+                      if (!isNaN(n)) form.setBitrate(n);
+                    }}
+                    step="0.5"
+                    min="0.5"
+                    max="100"
+                    className="block w-full pl-3 pr-16 py-2 border border-border rounded-md shadow-sm bg-surface text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:border-accent"
+                    disabled={form.saving}
+                  />
+                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                    <span className="text-fg-subtle sm:text-sm">Mbps</span>
+                  </div>
+                </div>
+                {form.errors.bitrate && (
+                  <p className="mt-1 text-sm text-danger-soft-fg">{form.errors.bitrate}</p>
+                )}
+              </div>
             </div>
-          </div>
-
-          {/* Advanced options */}
-          <AdvancedOptions
-            selectedOptions={form.options}
-            onOptionsChange={form.setOptions}
-            disabled={form.saving}
-          />
-
-          {/* Preview */}
-          <div>
-            <label className="block text-sm font-medium text-fg mb-2">
-              Layout Preview
-            </label>
-            <CanvasPreview
-              canvasW={form.canvasDimensions.width}
-              canvasH={form.canvasDimensions.height}
-              layout={form.layout}
-              loading={form.layoutLoading}
-              onCycle={form.cycleLayout}
-              chosenLayout={form.chosenLayout}
-              availableCount={form.availableLayouts.length}
-            />
           </div>
 
           {/* Error message */}
