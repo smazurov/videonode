@@ -59,12 +59,6 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-fg truncate flex items-center gap-2 min-w-0">
             <span className="truncate">{stream.stream_id}</span>
-            {canvas && <Badge tone="canvas">Canvas</Badge>}
-            {canvas && !stream.enabled && (
-              <Badge tone="rtmp" title="Canvas is dormant; sources are running standalone">
-                Dormant
-              </Badge>
-            )}
             {stream.owned_by && (
               <Badge tone="rtmp" title={`Device captured by canvas ${stream.owned_by}`}>
                 In canvas: {stream.owned_by}

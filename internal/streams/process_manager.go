@@ -496,9 +496,13 @@ func (m *streamProcessManager) StartAll() error {
 
 	var canvasIDs, individualIDs []string
 	for id, spec := range allStreams {
-		if spec.Canvas != nil {
+		switch {
+		case spec.Canvas != nil && !spec.Canvas.IsEngaged():
+			// Dormant canvas: skip startup so its sources can run standalone.
+			m.logger.Info("Skipping dormant canvas on startup", "stream_id", id)
+		case spec.Canvas != nil:
 			canvasIDs = append(canvasIDs, id)
-		} else {
+		default:
 			individualIDs = append(individualIDs, id)
 		}
 	}

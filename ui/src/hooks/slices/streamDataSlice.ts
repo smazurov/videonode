@@ -26,6 +26,21 @@ export interface StreamDataSlice {
   getStreamById: (streamId: string) => StreamData | undefined;
 }
 
+// Canvas streams sort first; within each group, alphabetical by id. Keeps the
+// grid stable whether ordering came from a full refetch or a single addStream
+// from an SSE event.
+function sortStreamIds(
+  ids: string[],
+  byId: Record<string, StreamData>,
+): string[] {
+  return [...ids].sort((a, b) => {
+    const aCanvas = byId[a]?.canvas ? 0 : 1;
+    const bCanvas = byId[b]?.canvas ? 0 : 1;
+    if (aCanvas !== bCanvas) return aCanvas - bCanvas;
+    return a.localeCompare(b);
+  });
+}
+
 export const createStreamDataSlice: StateCreator<
   StreamStore,
   [],
@@ -38,12 +53,11 @@ export const createStreamDataSlice: StateCreator<
   streamRefreshKeys: {},
 
   setStreams: (streamData) => {
-    const ids: string[] = [];
     const byId: Record<string, StreamData> = {};
     for (const stream of streamData.streams ?? []) {
-      ids.push(stream.stream_id);
       byId[stream.stream_id] = stream;
     }
+    const ids = sortStreamIds(Object.keys(byId), byId);
     set((state) => {
       // Preserve metrics for streams that still exist; only drop metrics for
       // deleted streams. Wiping wholesale flashes empty stats on every
@@ -63,12 +77,14 @@ export const createStreamDataSlice: StateCreator<
 
   addStream: (stream) => {
     set((state) => {
-      const isNew = !state.streamsById[stream.stream_id];
+      const existed = !!state.streamsById[stream.stream_id];
+      const streamsById = { ...state.streamsById, [stream.stream_id]: stream };
+      const nextIds = existed
+        ? sortStreamIds(state.streamIds, streamsById)
+        : sortStreamIds([...state.streamIds, stream.stream_id], streamsById);
       return {
-        streamIds: isNew
-          ? [...state.streamIds, stream.stream_id]
-          : state.streamIds,
-        streamsById: { ...state.streamsById, [stream.stream_id]: stream },
+        streamIds: nextIds,
+        streamsById,
         lastUpdated: new Date(),
       };
     });
