@@ -60,6 +60,11 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
           <h3 className="text-lg font-semibold text-fg truncate flex items-center gap-2 min-w-0">
             <span className="truncate">{stream.stream_id}</span>
             {canvas && <Badge tone="canvas">Canvas</Badge>}
+            {canvas && !stream.enabled && (
+              <Badge tone="rtmp" title="Canvas is dormant; sources are running standalone">
+                Dormant
+              </Badge>
+            )}
             {stream.owned_by && (
               <Badge tone="rtmp" title={`Device captured by canvas ${stream.owned_by}`}>
                 In canvas: {stream.owned_by}
@@ -79,7 +84,7 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
 
       <Card.Content className="space-y-4">
         {/* WebRTC Preview Area */}
-        {showVideo && !stream.owned_by && (
+        {showVideo && !stream.owned_by && !(canvas && !stream.enabled) && (
           <div className="aspect-video bg-surface-muted rounded-lg overflow-hidden">
             <WebRTCPlayer
               key={refreshKey}
@@ -87,6 +92,11 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
               className="w-full h-full"
               showStats={false}
             />
+          </div>
+        )}
+        {canvas && !stream.enabled && (
+          <div className="aspect-video bg-surface-muted rounded-lg overflow-hidden flex items-center justify-center text-fg-muted text-sm">
+            Canvas dormant — sources are running individually
           </div>
         )}
 
