@@ -73,6 +73,14 @@ func (m *mockStreamService) RestartStream(_ context.Context, _ string) error {
 	return nil
 }
 
+func (m *mockStreamService) ReleaseCanvas(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockStreamService) EngageCanvas(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockStreamService) GetStream(_ context.Context, streamID string) (*streams.Stream, error) {
 	s, ok := m.streams[streamID]
 	if !ok {

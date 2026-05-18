@@ -353,3 +353,160 @@ func TestOnStateChange_StateErrorClearsStaleVisionPipe(t *testing.T) {
 	}
 	t.Errorf("stale vision pipe entry still present after StateError + failed restart")
 }
+
+// TestReleaseCanvas_StopsCanvasAndStartsSourcesStandalone asserts the disband
+// path: a running canvas is stopped, ownership is cleared for every source,
+// and each previously-owned source is started as a standalone stream. The
+// canvas spec is left in the store untouched.
+func TestReleaseCanvas_StopsCanvasAndStartsSourcesStandalone(t *testing.T) {
+	store := &mockStore{streams: map[string]StreamSpec{
+		"src1": {ID: "src1", FFmpeg: FFmpegConfig{Codec: "h264"}},
+		"src2": {ID: "src2", FFmpeg: FFmpegConfig{Codec: "h264"}},
+		"src3": {ID: "src3", FFmpeg: FFmpegConfig{Codec: "h264"}},
+		"cv1": {
+			ID: "cv1",
+			Canvas: &CanvasConfig{
+				Width: 1920, Height: 1080, FPS: "30",
+				SourceStreams: []string{"src1", "src2", "src3"},
+			},
+		},
+	}}
+	pool := &mockPool{runningIDs: map[string]bool{"cv1": true}}
+	m := newTestManager(pool)
+	m.store = store
+	m.canvasOwnership["src1"] = "cv1"
+	m.canvasOwnership["src2"] = "cv1"
+	m.canvasOwnership["src3"] = "cv1"
+
+	if err := m.ReleaseCanvas("cv1"); err != nil {
+		t.Fatalf("ReleaseCanvas: %v", err)
+	}
+
+	for _, srcID := range []string{"src1", "src2", "src3"} {
+		if owner, ok := m.canvasOwnership[srcID]; ok {
+			t.Errorf("after release: %s still owned by %q", srcID, owner)
+		}
+	}
+	if !slices.Contains(pool.stopCalls, "cv1") {
+		t.Errorf("after release: expected pool.Stop(cv1), got stopCalls=%v", pool.stopCalls)
+	}
+	for _, srcID := range []string{"src1", "src2", "src3"} {
+		if !slices.Contains(pool.startCalls, srcID) {
+			t.Errorf("after release: expected pool.Start(%s), got startCalls=%v", srcID, pool.startCalls)
+		}
+	}
+	if _, ok := store.streams["cv1"]; !ok {
+		t.Errorf("canvas spec should remain in store after release")
+	}
+}
+
+// TestReleaseCanvas_StopsCanvasBeforeStartingSources guards the v4l2 EBUSY race:
+// the canvas must release its v4l2 fds (pool.Stop) before any source's
+// standalone ffmpeg attempts to reopen the same device.
+func TestReleaseCanvas_StopsCanvasBeforeStartingSources(t *testing.T) {
+	store := &mockStore{streams: map[string]StreamSpec{
+		"src1": {ID: "src1", FFmpeg: FFmpegConfig{Codec: "h264"}},
+		"src2": {ID: "src2", FFmpeg: FFmpegConfig{Codec: "h264"}},
+		"cv1": {
+			ID: "cv1",
+			Canvas: &CanvasConfig{
+				Width: 1920, Height: 1080, FPS: "30",
+				SourceStreams: []string{"src1", "src2"},
+			},
+		},
+	}}
+	pool := &mockPool{runningIDs: map[string]bool{"cv1": true}}
+	m := newTestManager(pool)
+	m.store = store
+	m.canvasOwnership["src1"] = "cv1"
+	m.canvasOwnership["src2"] = "cv1"
+
+	if err := m.ReleaseCanvas("cv1"); err != nil {
+		t.Fatalf("ReleaseCanvas: %v", err)
+	}
+
+	stopCanvasIdx := slices.Index(pool.callOrder, "stop:cv1")
+	if stopCanvasIdx < 0 {
+		t.Fatalf("expected stop:cv1 in call order, got %v", pool.callOrder)
+	}
+	for _, srcID := range []string{"src1", "src2"} {
+		startIdx := slices.Index(pool.callOrder, "start:"+srcID)
+		if startIdx < 0 {
+			t.Fatalf("expected start:%s in call order, got %v", srcID, pool.callOrder)
+		}
+		if stopCanvasIdx > startIdx {
+			t.Errorf("canvas Stop must precede source Start; got order %v", pool.callOrder)
+		}
+	}
+}
+
+// TestReleaseCanvas_SkipsMissingSources verifies that a source removed from
+// the store between ownership claim and release does not cause an error or
+// panic — it is silently skipped.
+func TestReleaseCanvas_SkipsMissingSources(t *testing.T) {
+	store := &mockStore{streams: map[string]StreamSpec{
+		"src1": {ID: "src1", FFmpeg: FFmpegConfig{Codec: "h264"}},
+		"cv1": {
+			ID: "cv1",
+			Canvas: &CanvasConfig{
+				Width: 1920, Height: 1080, FPS: "30",
+				SourceStreams: []string{"src1", "ghost"},
+			},
+		},
+	}}
+	pool := &mockPool{runningIDs: map[string]bool{"cv1": true}}
+	m := newTestManager(pool)
+	m.store = store
+	m.canvasOwnership["src1"] = "cv1"
+	m.canvasOwnership["ghost"] = "cv1"
+
+	if err := m.ReleaseCanvas("cv1"); err != nil {
+		t.Fatalf("ReleaseCanvas: %v", err)
+	}
+
+	if !slices.Contains(pool.startCalls, "src1") {
+		t.Errorf("expected pool.Start(src1), got startCalls=%v", pool.startCalls)
+	}
+	if slices.Contains(pool.startCalls, "ghost") {
+		t.Errorf("ghost source not in store, must not be started; got startCalls=%v", pool.startCalls)
+	}
+}
+
+// TestReleaseCanvas_RejectsNonCanvas ensures the operation is canvas-only.
+func TestReleaseCanvas_RejectsNonCanvas(t *testing.T) {
+	store := &mockStore{streams: map[string]StreamSpec{
+		"src1": {ID: "src1", FFmpeg: FFmpegConfig{Codec: "h264"}},
+	}}
+	pool := &mockPool{}
+	m := newTestManager(pool)
+	m.store = store
+
+	if err := m.ReleaseCanvas("src1"); err == nil {
+		t.Fatalf("ReleaseCanvas on non-canvas: expected error, got nil")
+	}
+}
+
+// TestReleaseCanvas_IdempotentOnDormantCanvas asserts releasing an
+// already-released (or never-started) canvas is a no-op without error.
+func TestReleaseCanvas_IdempotentOnDormantCanvas(t *testing.T) {
+	store := &mockStore{streams: map[string]StreamSpec{
+		"src1": {ID: "src1", FFmpeg: FFmpegConfig{Codec: "h264"}},
+		"cv1": {
+			ID: "cv1",
+			Canvas: &CanvasConfig{
+				Width: 1920, Height: 1080, FPS: "30",
+				SourceStreams: []string{"src1"},
+			},
+		},
+	}}
+	pool := &mockPool{}
+	m := newTestManager(pool)
+	m.store = store
+
+	if err := m.ReleaseCanvas("cv1"); err != nil {
+		t.Fatalf("first ReleaseCanvas: %v", err)
+	}
+	if err := m.ReleaseCanvas("cv1"); err != nil {
+		t.Fatalf("second ReleaseCanvas (idempotent): %v", err)
+	}
+}
