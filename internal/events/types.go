@@ -13,7 +13,17 @@ const (
 	TypeLogEntry
 	TypeStreamCrashed
 	TypeCanvasRestarted
+	TypeHeartbeat
 )
+
+// HeartbeatEvent keeps SSE connections open through proxies and lets the
+// client confirm the stream is live even when no domain events fire.
+type HeartbeatEvent struct {
+	Timestamp string `json:"timestamp" doc:"Server time at heartbeat"`
+}
+
+// Type returns the event type identifier for HeartbeatEvent.
+func (e HeartbeatEvent) Type() uint32 { return TypeHeartbeat }
 
 // Event interface required by kelindar/event.
 type Event interface {

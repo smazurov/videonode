@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/sse"
@@ -31,6 +32,7 @@ func (s *Server) registerSSERoutes() {
 			"stream-deleted":       events.StreamDeletedEvent{},
 			"stream-state-changed": events.StreamStateChangedEvent{},
 			"canvas-restarted":     events.CanvasRestartedEvent{},
+			"heartbeat":            events.HeartbeatEvent{},
 		}
 
 		// Add OBS events for this endpoint
@@ -38,7 +40,6 @@ func (s *Server) registerSSERoutes() {
 
 		return eventTypes
 	}(), func(ctx context.Context, _ *struct{}, send sse.Sender) {
-		// Create event channel for this connection
 		eventCh := make(chan any, 10)
 
 		unsubscribers := []func(){
@@ -56,15 +57,24 @@ func (s *Server) registerSSERoutes() {
 			}
 		}()
 
-		// Keep connection alive and forward events
+		// Initial heartbeat flushes HTTP headers so the browser marks the
+		// connection as open; the ticker then keeps proxies + idle UIs alive.
+		if err := send.Data(events.HeartbeatEvent{Timestamp: time.Now().Format(time.RFC3339)}); err != nil {
+			return
+		}
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case <-ticker.C:
+				if err := send.Data(events.HeartbeatEvent{Timestamp: time.Now().Format(time.RFC3339)}); err != nil {
+					return
+				}
 			case event := <-eventCh:
-				// Send event using Huma's SSE sender with error handling
 				if err := send.Data(event); err != nil {
-					// Connection failed, clean up and exit
 					return
 				}
 			}

@@ -21,6 +21,11 @@ type RawSnapshotProvider interface {
 	CaptureRawSnapshot(streamID string) ([]byte, error)
 }
 
+// ErrSnapshotNotSupported is returned by RawSnapshotProvider.CaptureRawSnapshot
+// when the target stream isn't snapshottable (e.g. a canvas). The API maps this
+// to 400 without falling through to the RTSP keyframe path.
+var ErrSnapshotNotSupported = errors.New("snapshot not supported for this stream")
+
 // SnapshotInput is the request for capturing a stream snapshot.
 type SnapshotInput struct {
 	StreamID string `path:"stream_id" required:"true" doc:"Stream ID to capture snapshot from"`
@@ -52,9 +57,10 @@ func RegisterAPI(api huma.API, mux *http.ServeMux, streams streaming.StreamProvi
 		Security:    withAuth(),
 		Errors:      []int{400, 404, 500, 504},
 	}, func(_ context.Context, input *SnapshotInput) (*SnapshotOutput, error) {
-		// Try raw snapshot from vision pipe first (always unmolested)
+		// Try raw snapshot from native producer or vision pipe first.
 		if rawProvider != nil {
-			if jpeg, err := rawProvider.CaptureRawSnapshot(input.StreamID); err == nil {
+			jpeg, err := rawProvider.CaptureRawSnapshot(input.StreamID)
+			if err == nil {
 				relPath, writeErr := writeSnapshotJPEG(jpeg, input.StreamID, recordingDir)
 				if writeErr != nil {
 					return nil, huma.Error500InternalServerError("failed to write snapshot: " + writeErr.Error())
@@ -62,6 +68,9 @@ func RegisterAPI(api huma.API, mux *http.ServeMux, streams streaming.StreamProvi
 				resp := &SnapshotOutput{}
 				resp.Body.URL = snapshotsURLPrefix + relPath
 				return resp, nil
+			}
+			if errors.Is(err, ErrSnapshotNotSupported) {
+				return nil, huma.Error400BadRequest(err.Error())
 			}
 		}
 
