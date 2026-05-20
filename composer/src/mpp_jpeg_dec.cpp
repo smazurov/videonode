@@ -156,4 +156,24 @@ FrameRef MppJpegDec::decode(const uint8_t* jpeg_data, size_t jpeg_size) {
     return FrameRef(frame);
 }
 
+bool MppJpegDec::decode(const uint8_t* jpeg, std::size_t size, jpeg_dec::DecodedNv12& out) {
+    FrameRef f = decode(jpeg, size);
+    if (!f.valid())
+        return false;
+    const uint32_t hs = static_cast<uint32_t>(f.hor_stride());
+    const uint32_t vs = static_cast<uint32_t>(f.ver_stride());
+    out.fd = f.dmabuf_fd();
+    out.width = f.width();
+    out.height = f.height();
+    out.y_pitch = hs;
+    out.uv_pitch = hs;
+    out.y_offset = 0;
+    out.uv_offset = hs * vs;
+    // Stash the new frame; this drops the previous one (and returns its
+    // buffer to the MPP pool). The fd we just exposed in `out` therefore
+    // stays valid until the *next* call.
+    pending_ = std::move(f);
+    return true;
+}
+
 } // namespace mpp_jpeg_dec

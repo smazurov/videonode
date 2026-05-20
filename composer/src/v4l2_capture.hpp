@@ -20,8 +20,10 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 struct v4l2_event;
@@ -182,15 +184,25 @@ class Streamer {
     // valid until the next request_buffers() call or close().
     const std::vector<BufferRef>& buffers() const { return bufs_; }
 
+    // mmap_buffer maps one previously-QUERYBUF'd buffer for CPU read. Used
+    // by the MJPEG path to read variable-length JPEG bitstreams out of
+    // V4L2 capture buffers (dma-buf fds aren't useful for that — we want
+    // a normal pointer + bytesused). Single-plane only; UVC MJPEG is
+    // always single-plane. The mapping persists until the next
+    // request_buffers() call or close().
+    bool mmap_buffer(uint32_t index, void*& out_ptr, size_t& out_size);
+
   private:
     uint32_t buf_type_() const; // CAPTURE vs CAPTURE_MPLANE
     bool query_buffer_(uint32_t index, BufferRef& out);
+    void unmap_all_();
 
     int fd_ = -1;
     std::string device_path_;
     bool multiplanar_ = false;
     bool streaming_ = false;
     std::vector<BufferRef> bufs_;
+    std::vector<std::pair<void*, size_t>> in_maps_;
 };
 
 } // namespace v4l2

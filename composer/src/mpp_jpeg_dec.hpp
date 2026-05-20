@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include "jpeg_dec.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -68,13 +70,13 @@ class FrameRef {
     MppFrame frame_ = nullptr;
 };
 
-class MppJpegDec {
+class MppJpegDec : public jpeg_dec::JpegDec {
   public:
     // Initialize the decoder. width/height are hints to size the buffer pool;
     // MPP picks its own internal pool sizes but knowing the input dims up
     // front saves an info-change round-trip on the first frame.
     bool init(int max_width, int max_height);
-    ~MppJpegDec();
+    ~MppJpegDec() override;
 
     MppJpegDec() = default;
     MppJpegDec(const MppJpegDec&) = delete;
@@ -86,10 +88,17 @@ class MppJpegDec {
     // done. Returns an invalid FrameRef on failure.
     FrameRef decode(const uint8_t* jpeg_data, size_t jpeg_size);
 
+    // jpeg_dec::JpegDec conformance. Holds the previously-decoded frame
+    // internally (in pending_) so the dma-buf fd returned by the prior call
+    // stays valid through the next broadcast — matches the TurboJPEG
+    // backend's ping-pong semantics.
+    bool decode(const uint8_t* jpeg, std::size_t size, jpeg_dec::DecodedNv12& out) override;
+
   private:
     MppCtx ctx_ = nullptr;
     MppApi* mpi_ = nullptr;
     bool cfg_done_ = false;
+    FrameRef pending_;
 };
 
 } // namespace mpp_jpeg_dec

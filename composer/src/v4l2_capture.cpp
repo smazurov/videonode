@@ -7,6 +7,7 @@
 #include <linux/videodev2.h>
 #include <poll.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 namespace v4l2 {
@@ -62,9 +63,18 @@ bool Streamer::open(const std::string& device_path) {
     return true;
 }
 
+void Streamer::unmap_all_() {
+    for (auto& m : in_maps_) {
+        if (m.first && m.first != MAP_FAILED)
+            ::munmap(m.first, m.second);
+    }
+    in_maps_.clear();
+}
+
 void Streamer::close() {
     if (streaming_)
         (void)stream_off();
+    unmap_all_();
     for (auto& b : bufs_)
         close_planes(b);
     bufs_.clear();
@@ -148,7 +158,9 @@ bool Streamer::request_buffers(int count, std::vector<BufferRef>& out) {
         errno = EBADF;
         return false;
     }
-    // If we've allocated before, close the old fds before re-requesting.
+    // If we've allocated before, close the old fds and drop the old mmaps
+    // before re-requesting — the kernel reassigns offsets on each REQBUFS.
+    unmap_all_();
     for (auto& b : bufs_)
         close_planes(b);
     bufs_.clear();
@@ -461,6 +473,36 @@ bool Streamer::stream_off() {
         return false;
     }
     streaming_ = false;
+    return true;
+}
+
+bool Streamer::mmap_buffer(uint32_t index, void*& out_ptr, size_t& out_size) {
+    if (fd_ < 0) {
+        errno = EBADF;
+        return false;
+    }
+    if (multiplanar_) {
+        fprintf(stderr, "v4l2_capture: mmap_buffer not supported on multiplanar device\n");
+        errno = ENOTSUP;
+        return false;
+    }
+    if (index >= bufs_.size() || bufs_[index].planes.empty()) {
+        errno = EINVAL;
+        return false;
+    }
+    const PlaneRef& p = bufs_[index].planes[0];
+    if (p.length == 0) {
+        errno = EINVAL;
+        return false;
+    }
+    void* m = ::mmap(nullptr, p.length, PROT_READ, MAP_SHARED, fd_, p.mmap_offset);
+    if (m == MAP_FAILED) {
+        fprintf(stderr, "v4l2_capture: mmap index=%u: %s\n", index, strerror(errno));
+        return false;
+    }
+    in_maps_.emplace_back(m, p.length);
+    out_ptr = m;
+    out_size = p.length;
     return true;
 }
 
