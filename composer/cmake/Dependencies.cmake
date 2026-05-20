@@ -12,6 +12,12 @@ pkg_check_modules(EGL    REQUIRED IMPORTED_TARGET egl)
 pkg_check_modules(GLESV2 REQUIRED IMPORTED_TARGET glesv2)
 pkg_check_modules(DRM    REQUIRED IMPORTED_TARGET libdrm)
 
+# libjpeg-turbo's TurboJPEG API. The videonode-source MJPEG path uses it
+# as the software fallback when Rockchip MPP isn't available (i.e. host
+# builds). Required — no silent stub fallback. Fedora: turbojpeg-devel,
+# Debian/Ubuntu: libturbojpeg0-dev.
+pkg_check_modules(TURBOJPEG REQUIRED IMPORTED_TARGET libturbojpeg)
+
 # GBM ships separately on most distros. Without it the EGL platform GBM
 # path is unavailable, so the videonode-composer binary + GLES probes are
 # skipped. Tests + UAPI libs still build.
@@ -74,6 +80,7 @@ endif()
 
 message(STATUS "videonode-native deps:")
 message(STATUS "  GBM (libgbm-dev):           ${HAVE_GBM}")
+message(STATUS "  libturbojpeg (libjpeg-turbo): ${TURBOJPEG_VERSION}")
 if(USING_ROCKCHIP_STUBS)
     message(STATUS "  Rockchip libs (rga + mpp):  STUBBED (host build)")
     message(STATUS "    -> code compiles; runtime calls log + return failure")

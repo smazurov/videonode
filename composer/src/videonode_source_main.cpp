@@ -6,7 +6,10 @@
 // NoCable / NoLock / Gone / Probing). The broadcaster ticks at a fixed
 // rate and chooses what to send:
 //
-//   Live           → newest real-frame fd (RGA-CSC'd to NV12)
+//   Live           → newest real-frame fd
+//                    raw V4L2 formats: RGA-CSC'd to NV12 into out_ring
+//                    MJPEG: MPP-HW decode (rig) → MPP-pool fd, or
+//                           TurboJPEG SW decode (host) → out_ring fd
 //   Transitioning  → last-good real-frame fd, re-broadcast with new idx
 //                    (driver renegotiation gap — content didn't really
 //                     change, downstream sees no flicker)
@@ -22,6 +25,9 @@
 #include "scm_rights_producer.hpp"
 #include "dmabuf_msg.hpp"
 #include "dma_heap.hpp"
+#include "jpeg_dec.hpp"
+#include "jpeg_dec_turbo.hpp"
+#include "mpp_jpeg_dec.hpp"
 #include "version.hpp"
 
 #include <atomic>
@@ -32,6 +38,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <linux/videodev2.h>
+#include <memory>
 #include <poll.h>
 #include <string>
 #include <sys/mman.h>
@@ -81,6 +88,8 @@ uint32_t v4l2_pix_fmt_(const std::string& s) {
         return V4L2_PIX_FMT_YUYV;
     if (s == "UYVY")
         return V4L2_PIX_FMT_UYVY;
+    if (s == "MJPG" || s == "MJPEG")
+        return V4L2_PIX_FMT_MJPEG;
     return fourcc_(s);
 }
 bool v4l2_to_rga_(uint32_t v4l2_fmt, rga::PixelFormat& out, std::string& name) {
@@ -122,7 +131,18 @@ bool maybe_renegotiate_to_rga_friendly_(v4l2::Streamer& cap, v4l2::StreamFormat&
     return cap.get_format(cur);
 }
 
-// CaptureSession bundles V4L2 streamer + RGA output ring.
+enum class DecodeMode {
+    Rga,   // RGA color-space-convert raw V4L2 format → NV12 into out_ring
+    Mjpeg, // JPEG decode (MPP HW on rig, TurboJPEG SW on host) → NV12
+};
+
+// CaptureSession bundles V4L2 streamer + decoder + output buffers.
+//
+// RGA path: out_ring is filled by RGA on each DQBUF.
+// MJPEG / MPP backend: out_ring is unused (MPP owns its pool).
+// MJPEG / TurboJPEG backend: out_ring is mmap'd writable (out_maps) and
+//                            the decoder writes NV12 bytes directly into
+//                            the next slot.
 struct CaptureSession {
     bool active = false;
     v4l2::Streamer cap;
@@ -131,17 +151,41 @@ struct CaptureSession {
     std::string src_fmt_name;
     int width = 0;
     int height = 0;
+
+    DecodeMode mode = DecodeMode::Rga;
+
+    // MJPEG path:
+    std::unique_ptr<jpeg_dec::JpegDec> jpeg;
+    bool using_mpp = false;     // log-only
+    std::vector<void*> in_maps; // V4L2 capture buffer mmaps (JPEG bytes)
+    std::vector<size_t> in_map_sizes;
+    std::vector<void*> out_maps; // writable mmaps into out_ring (TurboJPEG)
+    std::vector<size_t> out_map_sizes;
 };
 
-bool try_open_capture(CaptureSession& s, const Args& a) {
-    if (s.active)
-        s.cap.close();
-    s.cap.close();
+void teardown_session_(CaptureSession& s) {
+    if (s.jpeg)
+        s.jpeg.reset();
+    for (size_t i = 0; i < s.out_maps.size(); ++i) {
+        if (s.out_maps[i] && s.out_maps[i] != MAP_FAILED)
+            ::munmap(s.out_maps[i], s.out_map_sizes[i]);
+    }
+    s.out_maps.clear();
+    s.out_map_sizes.clear();
+    s.in_maps.clear();
+    s.in_map_sizes.clear();
     s.out_ring.clear();
+    s.cap.close(); // unmaps V4L2 in_maps inside Streamer
     s.active = false;
     s.width = 0;
     s.height = 0;
     s.src_fmt_name.clear();
+    s.mode = DecodeMode::Rga;
+    s.using_mpp = false;
+}
+
+bool try_open_capture(CaptureSession& s, const Args& a) {
+    teardown_session_(s);
     if (!s.cap.open(a.device))
         return false;
 
@@ -166,9 +210,16 @@ bool try_open_capture(CaptureSession& s, const Args& a) {
             return false;
         }
     }
-    if (!v4l2_to_rga_(cur.pixel_format, s.src_fmt, s.src_fmt_name)) {
-        s.cap.close();
-        return false;
+
+    if (cur.pixel_format == V4L2_PIX_FMT_MJPEG) {
+        s.mode = DecodeMode::Mjpeg;
+        s.src_fmt_name = "MJPG";
+    } else {
+        s.mode = DecodeMode::Rga;
+        if (!v4l2_to_rga_(cur.pixel_format, s.src_fmt, s.src_fmt_name)) {
+            s.cap.close();
+            return false;
+        }
     }
     s.width = int(cur.width);
     s.height = int(cur.height);
@@ -198,19 +249,83 @@ bool try_open_capture(CaptureSession& s, const Args& a) {
     }
 
     const size_t out_size = size_t(s.width) * s.height * 3 / 2;
-    for (int i = 0; i < a.buffers; ++i) {
-        dmaheap::Buffer b = dmaheap::alloc("system-uncached", out_size);
-        if (!b.valid()) {
-            s.cap.close();
-            s.out_ring.clear();
-            return false;
+
+    if (s.mode == DecodeMode::Mjpeg) {
+        // mmap each V4L2 capture buffer for CPU read of variable-length
+        // JPEG payloads. MJPEG is single-plane only — mmap_buffer asserts.
+        for (const auto& b : s.cap.buffers()) {
+            void* ptr = nullptr;
+            size_t sz = 0;
+            if (!s.cap.mmap_buffer(b.index, ptr, sz)) {
+                s.cap.close();
+                return false;
+            }
+            s.in_maps.push_back(ptr);
+            s.in_map_sizes.push_back(sz);
         }
-        s.out_ring.push_back(std::move(b));
+
+        // Probe MPP first; on host the rockchip_stubs make mpp_create fail
+        // and we fall through to TurboJPEG.
+        auto mpp = std::make_unique<mpp_jpeg_dec::MppJpegDec>();
+        if (mpp->init(s.width, s.height)) {
+            s.jpeg = std::move(mpp);
+            s.using_mpp = true;
+            fprintf(stderr, "videonode-source: MJPEG backend = MPP (HW)\n");
+        } else {
+            // TurboJPEG fallback. Allocate out_ring + mmap each slot
+            // writable, hand the (fd, ptr) pairs to the decoder.
+            for (int i = 0; i < a.buffers; ++i) {
+                dmaheap::Buffer b = dmaheap::alloc("system-uncached", out_size);
+                if (!b.valid()) {
+                    s.cap.close();
+                    s.out_ring.clear();
+                    return false;
+                }
+                s.out_ring.push_back(std::move(b));
+            }
+            std::vector<jpeg_dec::TurboJpegDec::Slot> slots;
+            slots.reserve(s.out_ring.size());
+            for (auto& buf : s.out_ring) {
+                void* m = ::mmap(nullptr, out_size, PROT_READ | PROT_WRITE, MAP_SHARED, buf.fd, 0);
+                if (m == MAP_FAILED) {
+                    fprintf(stderr, "videonode-source: mmap out_ring fd=%d: %s\n", buf.fd,
+                            strerror(errno));
+                    s.cap.close();
+                    return false;
+                }
+                s.out_maps.push_back(m);
+                s.out_map_sizes.push_back(out_size);
+                slots.push_back({buf.fd, static_cast<uint8_t*>(m)});
+            }
+            auto tj = std::make_unique<jpeg_dec::TurboJpegDec>();
+            if (!tj->init(s.width, s.height, std::move(slots))) {
+                s.cap.close();
+                return false;
+            }
+            s.jpeg = std::move(tj);
+            s.using_mpp = false;
+            fprintf(stderr, "videonode-source: MJPEG backend = TurboJPEG (SW)\n");
+        }
+    } else {
+        // RGA path: out_ring holds NV12 dma-heap buffers RGA writes into.
+        for (int i = 0; i < a.buffers; ++i) {
+            dmaheap::Buffer b = dmaheap::alloc("system-uncached", out_size);
+            if (!b.valid()) {
+                s.cap.close();
+                s.out_ring.clear();
+                return false;
+            }
+            s.out_ring.push_back(std::move(b));
+        }
     }
+
     s.active = true;
-    fprintf(stderr, "videonode-source: capture ready — %dx%d %s, %d buffers (multiplanar=%d)\n",
-            s.width, s.height, s.src_fmt_name.c_str(), int(s.out_ring.size()),
-            int(s.cap.multiplanar()));
+    fprintf(
+        stderr,
+        "videonode-source: capture ready — %dx%d %s, %d v4l2 buffers (multiplanar=%d, mode=%s)\n",
+        s.width, s.height, s.src_fmt_name.c_str(), int(s.cap.buffers().size()),
+        int(s.cap.multiplanar()),
+        s.mode == DecodeMode::Mjpeg ? (s.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg") : "rga");
     return true;
 }
 
@@ -261,11 +376,11 @@ struct PlaceholderRing {
 };
 
 void print_help(const Args& d) {
-    printf("videonode-source — V4L2 capture → RGA CSC → NV12 dma-buf → SCM_RIGHTS\n"
+    printf("videonode-source — V4L2 capture → (RGA-CSC | JPEG-decode) → NV12 dma-buf → SCM_RIGHTS\n"
            "  with event-driven placeholder when the source is absent or in flux.\n"
            "\n"
            "  --device PATH                 /dev/videoN (default %s)\n"
-           "  --in-format FMT               NV24/NV16/NV12/BGR3/YUYV/UYVY (empty = auto)\n"
+           "  --in-format FMT               NV24/NV16/NV12/BGR3/YUYV/UYVY/MJPG (empty = auto)\n"
            "  --in-width W / --in-height H  geometry for explicit format\n"
            "  --in-fps N                    requested capture rate\n"
            "  --buffers N                   V4L2 ring size (default %d)\n"
@@ -366,17 +481,33 @@ uint64_t now_ms() {
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
-void broadcast_frame(scm_rights_producer::ScmRightsProducer& prod, int fd, int w, int h,
-                     uint64_t frame_idx) {
+void broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec::DecodedNv12& d,
+                    uint64_t frame_idx) {
     dmabuf_msg::Header h_;
     h_.slot_index = 0;
-    h_.width = uint32_t(w);
-    h_.height = uint32_t(h);
+    h_.width = uint32_t(d.width);
+    h_.height = uint32_t(d.height);
     h_.format = "NV12";
-    h_.plane_pitches = {uint32_t(w), uint32_t(w)};
-    h_.plane_offsets = {0, uint32_t(w * h)};
+    h_.plane_pitches = {d.y_pitch, d.uv_pitch};
+    h_.plane_offsets = {d.y_offset, d.uv_offset};
     h_.frame_idx = frame_idx;
-    prod.broadcast(h_, {fd, fd});
+    prod.broadcast(h_, {d.fd, d.fd});
+}
+
+// Thin shim for the RGA + placeholder paths that produce tight NV12 (no
+// stride padding). MJPEG-MPP can't use this because it returns padded
+// strides; it builds its own DecodedNv12.
+void broadcast_frame(scm_rights_producer::ScmRightsProducer& prod, int fd, int w, int h,
+                     uint64_t frame_idx) {
+    jpeg_dec::DecodedNv12 d;
+    d.fd = fd;
+    d.width = w;
+    d.height = h;
+    d.y_pitch = uint32_t(w);
+    d.uv_pitch = uint32_t(w);
+    d.y_offset = 0;
+    d.uv_offset = uint32_t(w) * uint32_t(h);
+    broadcast_nv12(prod, d, frame_idx);
 }
 
 } // namespace
@@ -477,9 +608,7 @@ int main(int argc, char** argv) {
                             if (cap.cap.restart_streaming()) {
                                 probe.note_streaming_restarted();
                             } else {
-                                cap.cap.close();
-                                cap.out_ring.clear();
-                                cap.active = false;
+                                teardown_session_(cap);
                                 need_reinit = true;
                             }
                         }
@@ -489,22 +618,42 @@ int main(int argc, char** argv) {
                     v4l2::DequeuedFrame df;
                     if (cap.cap.dequeue_buffer(0, df)) {
                         probe.note_dqbuf_success();
-                        rga::ConvertParams src_p, dst_p;
-                        src_p.fd = cap.cap.buffers()[df.index].primary_dma_buf();
-                        src_p.fmt = cap.src_fmt;
-                        src_p.width = cap.width;
-                        src_p.height = cap.height;
-                        int out_fd = cap.out_ring[df.index % cap.out_ring.size()].fd;
-                        dst_p.fd = out_fd;
-                        dst_p.fmt = rga::PixelFormat::Nv12;
-                        dst_p.width = cap.width;
-                        dst_p.height = cap.height;
-                        if (rga::convert(src_p, dst_p)) {
+                        bool ok = false;
+                        jpeg_dec::DecodedNv12 decoded;
+                        if (cap.mode == DecodeMode::Rga) {
+                            rga::ConvertParams src_p, dst_p;
+                            src_p.fd = cap.cap.buffers()[df.index].primary_dma_buf();
+                            src_p.fmt = cap.src_fmt;
+                            src_p.width = cap.width;
+                            src_p.height = cap.height;
+                            int out_fd = cap.out_ring[df.index % cap.out_ring.size()].fd;
+                            dst_p.fd = out_fd;
+                            dst_p.fmt = rga::PixelFormat::Nv12;
+                            dst_p.width = cap.width;
+                            dst_p.height = cap.height;
+                            if (rga::convert(src_p, dst_p)) {
+                                decoded.fd = out_fd;
+                                decoded.width = cap.width;
+                                decoded.height = cap.height;
+                                decoded.y_pitch = uint32_t(cap.width);
+                                decoded.uv_pitch = uint32_t(cap.width);
+                                decoded.y_offset = 0;
+                                decoded.uv_offset = uint32_t(cap.width) * uint32_t(cap.height);
+                                ok = true;
+                            }
+                        } else { // DecodeMode::Mjpeg
+                            if (df.index < cap.in_maps.size() && df.bytesused > 0) {
+                                const uint8_t* jpeg =
+                                    static_cast<const uint8_t*>(cap.in_maps[df.index]);
+                                ok = cap.jpeg->decode(jpeg, df.bytesused, decoded);
+                            }
+                        }
+                        if (ok) {
                             ++real_frame_idx;
-                            broadcast_frame(prod, out_fd, cap.width, cap.height, real_frame_idx);
-                            last_good_out_fd = out_fd;
-                            last_good_w = cap.width;
-                            last_good_h = cap.height;
+                            broadcast_nv12(prod, decoded, real_frame_idx);
+                            last_good_out_fd = decoded.fd;
+                            last_good_w = decoded.width;
+                            last_good_h = decoded.height;
                             // Push the next-broadcast forward so a real
                             // frame's broadcast counts as the tick.
                             next_broadcast = clock::now() + broadcast_period;
@@ -515,9 +664,7 @@ int main(int argc, char** argv) {
                         if (e != ETIMEDOUT && e != EAGAIN) {
                             probe.note_dqbuf_failure(e);
                             if (e == ENODEV) {
-                                cap.cap.close();
-                                cap.out_ring.clear();
-                                cap.active = false;
+                                teardown_session_(cap);
                                 last_good_out_fd = -1;
                                 need_reinit = true;
                             }
@@ -573,7 +720,7 @@ int main(int argc, char** argv) {
     prod.stop();
     if (cap.active) {
         cap.cap.stream_off();
-        cap.cap.close();
+        teardown_session_(cap);
     }
     ph.destroy();
     return 0;
