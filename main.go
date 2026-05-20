@@ -63,6 +63,15 @@ type Options struct {
 
 	// Vision settings
 	VisionDefaultFPS int `help:"Default FPS for vision raw-frame pipes" default:"10" toml:"vision.default_fps" env:"VISION_DEFAULT_FPS"`
+
+	// Native pipeline binaries. When present + executable, single V4L2
+	// streams and GPU canvases route through these instead of the legacy
+	// ffmpeg-direct path. Empty path == component unavailable; legacy
+	// pipeline kicks in. Defaults match the local-user CMake install
+	// (cmake --install --prefix $HOME/.local → ~/.local/bin/<name>).
+	NativeV4L2Source string `help:"Path to videonode-source binary"   default:"~/.local/bin/videonode-source"   toml:"native_pipeline.source"   env:"NATIVE_PIPELINE_SOURCE"`
+	NativeVNSink     string `help:"Path to videonode-sink binary"     default:"~/.local/bin/videonode-sink"     toml:"native_pipeline.sink"        env:"NATIVE_PIPELINE_SINK"`
+	NativeComposer   string `help:"Path to videonode-composer binary" default:"~/.local/bin/videonode-composer" toml:"native_pipeline.composer"    env:"NATIVE_PIPELINE_COMPOSER"`
 }
 
 func main() {
@@ -162,11 +171,21 @@ func main() {
 		// Create stream store
 		streamStore := store.NewTOML(opts.StreamsConfigFile)
 
+		// Resolve native-pipeline binary availability once. CanvasReady /
+		// SingleStreamReady decide whether GPU canvas + V4L2 single streams
+		// take the dma-buf path or fall back to legacy ffmpeg-direct.
+		native := (&streams.NativePipelineConfig{
+			V4L2Source: opts.NativeV4L2Source,
+			VNSink:     opts.NativeVNSink,
+			Composer:   opts.NativeComposer,
+		}).Resolve(logger)
+
 		// Create stream service
 		serviceOpts := &streams.ServiceOptions{
 			Store:            streamStore,
 			EventBus:         eventBus,
 			VisionDefaultFPS: opts.VisionDefaultFPS,
+			Native:           native,
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)

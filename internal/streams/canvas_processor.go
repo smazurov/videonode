@@ -17,6 +17,14 @@ type canvasProcessor struct {
 	isCrashed        func(streamID string) bool
 	defaultVisionFPS int // 0 = no throttle
 	logger           logging.Logger
+	// producerMgr is set by NewStreamProcessManager and is non-nil whenever
+	// the GPU compose path is reachable. processStreamGPU reads the sink-side
+	// SCM socket path from the manager (the producer process is launched
+	// independently by streamProcessManager.Start).
+	producerMgr *ProducerManager
+	// native is the resolved binary-availability config. When CanvasReady()
+	// returns true, canvases auto-route through the GPU compose path.
+	native *NativePipelineConfig
 }
 
 func newCanvasProcessor(store Store) *canvasProcessor {
@@ -62,6 +70,15 @@ func (cp *canvasProcessor) processStream(canvasID string) (*ProcessedStream, err
 			sourceSpecs[sourceID] = &spec
 		}
 	}
+
+	// GPU compose path: videonode-source sidecar + videonode-composer + ffmpeg
+	// pushed to the daemon's local RTSP. Auto-engaged when the native
+	// binaries are installed; falls back to the legacy filter graph
+	// otherwise.
+	if cp.native.CanvasReady() {
+		return cp.processStreamGPU(canvasID, canvas, sourceSpecs)
+	}
+
 	layout := ComputeCanvasLayout(canvas, sourceSpecs)
 	if len(layout.Slots) == 0 {
 		return nil, fmt.Errorf("canvas %s: no slots for %d sources at %dx%d",

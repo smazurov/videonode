@@ -12,6 +12,7 @@ import (
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
+	"github.com/smazurov/videonode/internal/recording"
 )
 
 // ProcessState represents the current state of a stream process.
@@ -70,6 +71,8 @@ type streamProcessManager struct {
 	store           Store
 	processor       *processor
 	canvasProcessor *canvasProcessor
+	producerMgr     *ProducerManager
+	native          *NativePipelineConfig
 	eventBus        *events.Bus
 	logger          logging.Logger
 	crashedStreams  map[string]bool
@@ -86,6 +89,7 @@ type ProcessManagerOptions struct {
 	Processor       *processor
 	CanvasProcessor *canvasProcessor
 	EventBus        *events.Bus
+	Native          *NativePipelineConfig
 }
 
 // NewStreamProcessManager creates a new StreamProcessManager.
@@ -96,6 +100,7 @@ func NewStreamProcessManager(opts *ProcessManagerOptions) StreamProcessManager {
 		store:           opts.Store,
 		processor:       opts.Processor,
 		canvasProcessor: opts.CanvasProcessor,
+		native:          opts.Native,
 		eventBus:        opts.EventBus,
 		logger:          logger,
 		crashedStreams:  make(map[string]bool),
@@ -110,11 +115,25 @@ func NewStreamProcessManager(opts *ProcessManagerOptions) StreamProcessManager {
 		ConfigureProcess: spm.configureProcess,
 	})
 
+	// Producer processes (keyed "producer:<deviceID>") live in the same pool
+	// but are owned by the ProducerManager. The canvasProcessor reads back
+	// the per-device socket path from the manager when building sink cmds.
+	spm.producerMgr = NewProducerManager(spm.pool)
+	if spm.canvasProcessor != nil {
+		spm.canvasProcessor.producerMgr = spm.producerMgr
+	}
+
 	return spm
 }
 
-// generateCommand generates FFmpeg command for a stream.
+// generateCommand generates the shell command for a pool process. Producer
+// keys (producer:<deviceID>) delegate to ProducerManager; everything else is
+// either a canvas stream or a single-camera stream.
 func (m *streamProcessManager) generateCommand(streamID string) (string, error) {
+	if IsProducerKey(streamID) {
+		return m.producerMgr.Command(streamID)
+	}
+
 	config, exists := m.store.GetStream(streamID)
 	if !exists {
 		return "", fmt.Errorf("stream %s not found", streamID)
@@ -177,9 +196,16 @@ func (m *streamProcessManager) onStateChange(id string, _, newState process.Stat
 	}
 }
 
-// configureProcess sets up FFmpeg log parsing and vision pipe(s); pipes are keyed by source ID.
+// configureProcess sets up log parsing + vision pipe(s).
+// Log channel is named after the kind of process so journald entries are
+// filterable: producer:* → "videonode-source", canvas spec → "videonode-composer",
+// single-stream native sink → "videonode-sink", everything else legacy
+// → "ffmpeg".
 func (m *streamProcessManager) configureProcess(streamID string, proc *process.Process) {
-	proc.SetLogParser(logging.GetLogger("ffmpeg").With("stream_id", streamID), ffmpeg.ParseLogLevel)
+	proc.SetLogParser(
+		logging.GetLogger(processLoggerName(streamID, m)).With("stream_id", streamID),
+		ffmpeg.ParseLogLevel,
+	)
 
 	spec, exists := m.store.GetStream(streamID)
 	if !exists {
@@ -278,11 +304,16 @@ func (m *streamProcessManager) Start(streamID string) error {
 	}
 
 	if spec.Canvas != nil {
+		// Native path shares the producer via SCM_RIGHTS fanout — only stop
+		// a running individual stream when it's on the legacy /dev/videoN path.
+		nativeForCanvas := m.native.CanvasReady()
 		for _, srcID := range spec.Canvas.SourceStreams {
-			if _, ok := m.store.GetStream(srcID); !ok {
+			srcSpec, ok := m.store.GetStream(srcID)
+			if !ok {
 				continue
 			}
-			if m.pool.IsRunning(srcID) {
+			sourceShared := nativeForCanvas && m.shouldUseNativeForSingleStream(&srcSpec)
+			if m.pool.IsRunning(srcID) && !sourceShared {
 				if err := m.pool.Stop(srcID); err != nil {
 					m.logger.Warn("Failed to stop source for canvas takeover",
 						"canvas_id", streamID, "source_id", srcID, "error", err)
@@ -292,21 +323,174 @@ func (m *streamProcessManager) Start(streamID string) error {
 			m.canvasOwnership[srcID] = streamID
 			m.mu.Unlock()
 		}
+		// GPU canvases need an independently-supervised producer for each
+		// source before the sink (composer | ffmpeg) starts. Legacy
+		// (filter-graph) canvases don't use producers — they still spawn
+		// ffmpeg with -i /dev/... directly via processor.processStream.
+		// The choice is implicit: presence of the videonode-native binaries.
+		if m.native.CanvasReady() {
+			if err := m.acquireCanvasProducers(streamID, spec.Canvas); err != nil {
+				// Roll back any partial acquires so refcounts don't leak.
+				m.releaseCanvasProducers(streamID, spec.Canvas)
+				return fmt.Errorf("canvas %s: producer acquire failed: %w", streamID, err)
+			}
+		}
 		return m.pool.Start(streamID)
 	}
 
 	m.mu.Lock()
 	owner, owned := m.canvasOwnership[streamID]
 	m.mu.Unlock()
-	if owned {
+	if owned && !m.shouldUseNativeForSingleStream(&spec) {
 		return fmt.Errorf("stream %s is owned by canvas %s — stop the canvas first", streamID, owner)
+	}
+
+	// Single V4L2 stream on the native path: acquire a producer for the
+	// underlying device (refcounted; shared with any canvas pointing at
+	// the same source). The legacy path (no native binaries / test mode /
+	// custom command) skips this and ffmpeg opens /dev/videoN directly.
+	if m.shouldUseNativeForSingleStream(&spec) {
+		if err := m.acquireSingleStreamProducer(streamID, &spec); err != nil {
+			return fmt.Errorf("stream %s: producer acquire failed: %w", streamID, err)
+		}
 	}
 	return m.pool.Start(streamID)
 }
 
-// Stop gracefully stops the process; canvas Stop also clears source ownership.
+// shouldUseNativeForSingleStream returns true when a non-canvas stream
+// will route through processor.processStreamNative — i.e. binaries are
+// installed, it's not a test stream, no custom command, and the device
+// resolves to a real path.
+func (m *streamProcessManager) shouldUseNativeForSingleStream(spec *StreamSpec) bool {
+	if !m.native.SingleStreamReady() {
+		return false
+	}
+	if spec.TestMode || spec.CustomFFmpegCommand != "" || spec.Device == "" {
+		return false
+	}
+	resolver := m.deviceResolver()
+	return resolver != nil && resolver(spec.Device) != ""
+}
+
+// acquireSingleStreamProducer wraps producerMgr.Acquire for the
+// streamID-as-deviceID convention used by single streams.
+func (m *streamProcessManager) acquireSingleStreamProducer(streamID string, spec *StreamSpec) error {
+	if m.producerMgr == nil {
+		return fmt.Errorf("no ProducerManager configured")
+	}
+	resolver := m.deviceResolver()
+	devicePath := resolver(spec.Device)
+	if devicePath == "" {
+		return fmt.Errorf("device %q did not resolve to a path", spec.Device)
+	}
+	pspec := ProducerSpec{
+		DeviceID:   streamID,
+		DevicePath: devicePath,
+		BinaryPath: m.native.V4L2Source,
+	}
+	if _, err := m.producerMgr.Acquire(pspec); err != nil {
+		return err
+	}
+	m.logger.Info("Single-stream producer acquired",
+		"stream_id", streamID, "device_path", devicePath)
+	return nil
+}
+
+// acquireCanvasProducers Acquires one producer per source on the canvas.
+// Caller is responsible for invoking releaseCanvasProducers on failure or
+// teardown so refcounts stay balanced.
+func (m *streamProcessManager) acquireCanvasProducers(canvasID string, canvas *CanvasConfig) error {
+	if m.producerMgr == nil {
+		return fmt.Errorf("no ProducerManager configured")
+	}
+	if m.native == nil || m.native.V4L2Source == "" {
+		return fmt.Errorf("no videonode-source binary path configured")
+	}
+	resolver := m.deviceResolver()
+	if resolver == nil {
+		return fmt.Errorf("no deviceResolver configured")
+	}
+	for _, srcID := range canvas.SourceStreams {
+		src, ok := m.store.GetStream(srcID)
+		if !ok {
+			return fmt.Errorf("source %q not found", srcID)
+		}
+		devicePath := resolver(src.Device)
+		if devicePath == "" {
+			return fmt.Errorf("source %q (%q) did not resolve to a device path", srcID, src.Device)
+		}
+		spec := ProducerSpec{
+			DeviceID:   srcID,
+			DevicePath: devicePath,
+			BinaryPath: m.native.V4L2Source,
+		}
+		if _, err := m.producerMgr.Acquire(spec); err != nil {
+			return fmt.Errorf("acquire producer for source %q: %w", srcID, err)
+		}
+	}
+	m.logger.Info("Canvas producers acquired", "canvas_id", canvasID,
+		"sources", canvas.SourceStreams)
+	return nil
+}
+
+// releaseCanvasProducers releases the producer refcount for each source the
+// canvas referenced. Safe to call multiple times — Release of an unknown
+// device is a no-op.
+func (m *streamProcessManager) releaseCanvasProducers(canvasID string, canvas *CanvasConfig) {
+	if m.producerMgr == nil || canvas == nil {
+		return
+	}
+	for _, srcID := range canvas.SourceStreams {
+		m.producerMgr.Release(srcID)
+	}
+	m.logger.Info("Canvas producers released", "canvas_id", canvasID,
+		"sources", canvas.SourceStreams)
+}
+
+// processLoggerName picks the journald log channel for a process based on
+// its pool key and the stream spec it belongs to.
+func processLoggerName(streamID string, m *streamProcessManager) string {
+	if IsProducerKey(streamID) {
+		return "videonode-source"
+	}
+	if m.store != nil {
+		if spec, ok := m.store.GetStream(streamID); ok {
+			if spec.Canvas != nil && m.native.CanvasReady() {
+				return "videonode-composer"
+			}
+			if spec.Canvas == nil && spec.Device != "" && m.native.SingleStreamReady() {
+				return "videonode-sink"
+			}
+		}
+	}
+	return "ffmpeg"
+}
+
+// deviceResolver pulls the resolver function from whichever processor is
+// configured. Returned func may be nil if neither is wired (test harness).
+func (m *streamProcessManager) deviceResolver() func(string) string {
+	if m.canvasProcessor != nil && m.canvasProcessor.deviceResolver != nil {
+		return m.canvasProcessor.deviceResolver
+	}
+	if m.processor != nil && m.processor.deviceResolver != nil {
+		return m.processor.deviceResolver
+	}
+	return nil
+}
+
+// Stop gracefully stops the process; canvas Stop also clears source ownership
+// and releases any per-source producers (GPU path only).
 func (m *streamProcessManager) Stop(streamID string) error {
+	// Read spec BEFORE pool.Stop so we know whether to release producers.
+	spec, hadSpec := m.store.GetStream(streamID)
+
 	err := m.pool.Stop(streamID)
+
+	if hadSpec && spec.Canvas != nil && m.native.CanvasReady() {
+		m.releaseCanvasProducers(streamID, spec.Canvas)
+	} else if hadSpec && spec.Canvas == nil && m.shouldUseNativeForSingleStream(&spec) && m.producerMgr != nil {
+		m.producerMgr.Release(streamID)
+	}
 
 	m.mu.Lock()
 	m.clearVisionPipesByOwnerLocked(streamID)
@@ -318,17 +502,31 @@ func (m *streamProcessManager) Stop(streamID string) error {
 
 // Restart stops and restarts; no-op when canvas-owned (use RestartCanvas instead).
 func (m *streamProcessManager) Restart(streamID string) error {
+	var spec StreamSpec
+	var hasSpec bool
+	if m.store != nil {
+		spec, hasSpec = m.store.GetStream(streamID)
+	}
 	m.mu.Lock()
 	if owner, owned := m.canvasOwnership[streamID]; owned {
-		m.mu.Unlock()
-		m.logger.Debug("Restart skipped — stream owned by canvas",
-			"stream_id", streamID, "canvas_id", owner)
-		return nil
+		// Native path allows shared producers — only block when on legacy.
+		if !hasSpec || !m.shouldUseNativeForSingleStream(&spec) {
+			m.mu.Unlock()
+			m.logger.Debug("Restart skipped — stream owned by canvas",
+				"stream_id", streamID, "canvas_id", owner)
+			return nil
+		}
 	}
 	delete(m.crashedStreams, streamID)
 	m.clearVisionPipesByOwnerLocked(streamID)
 	m.mu.Unlock()
-	return m.pool.Restart(streamID)
+	if !hasSpec {
+		return m.pool.Restart(streamID)
+	}
+	if err := m.pool.Stop(streamID); err != nil {
+		m.logger.Warn("Restart: pool.Stop failed", "stream_id", streamID, "error", err)
+	}
+	return m.Start(streamID)
 }
 
 // RestartCanvas reconciles ownership then restarts the canvas.
@@ -347,12 +545,16 @@ func (m *streamProcessManager) RestartCanvas(canvasID string) error {
 		wanted[srcID] = true
 	}
 
-	var released []string
+	var released, alreadyOwned []string
 	m.mu.Lock()
 	for srcID, owner := range m.canvasOwnership {
-		if owner == canvasID && !wanted[srcID] {
-			delete(m.canvasOwnership, srcID)
-			released = append(released, srcID)
+		if owner == canvasID {
+			if !wanted[srcID] {
+				delete(m.canvasOwnership, srcID)
+				released = append(released, srcID)
+			} else {
+				alreadyOwned = append(alreadyOwned, srcID)
+			}
 		}
 	}
 	m.clearVisionPipesByOwnerLocked(canvasID)
@@ -362,6 +564,32 @@ func (m *streamProcessManager) RestartCanvas(canvasID string) error {
 	if err := m.pool.Stop(canvasID); err != nil {
 		m.logger.Warn("Failed to stop canvas before reconfigure",
 			"canvas_id", canvasID, "error", err)
+	}
+
+	// For GPU canvases: release producers for dropped sources; acquire for
+	// newly-added sources. Sources still in the new spec keep their refcount
+	// (no producer churn).
+	if m.native.CanvasReady() && m.producerMgr != nil {
+		for _, srcID := range released {
+			m.producerMgr.Release(srcID)
+		}
+		needAcquire := make([]string, 0, len(spec.Canvas.SourceStreams))
+		owned := make(map[string]bool, len(alreadyOwned))
+		for _, srcID := range alreadyOwned {
+			owned[srcID] = true
+		}
+		for _, srcID := range spec.Canvas.SourceStreams {
+			if !owned[srcID] {
+				needAcquire = append(needAcquire, srcID)
+			}
+		}
+		if len(needAcquire) > 0 {
+			subset := &CanvasConfig{SourceStreams: needAcquire}
+			if err := m.acquireCanvasProducers(canvasID, subset); err != nil {
+				m.releaseCanvasProducers(canvasID, subset)
+				return fmt.Errorf("canvas %s: producer acquire failed during restart: %w", canvasID, err)
+			}
+		}
 	}
 
 	for _, srcID := range released {
@@ -420,8 +648,17 @@ func (m *streamProcessManager) IsCrashed(streamID string) bool {
 // OwnedBy returns the canvas ID owning the source, or "" if unowned.
 func (m *streamProcessManager) OwnedBy(sourceStreamID string) string {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.canvasOwnership[sourceStreamID]
+	owner := m.canvasOwnership[sourceStreamID]
+	m.mu.Unlock()
+	if owner == "" {
+		return ""
+	}
+	// Native fanout: if the source is independently running, it's not
+	// "owned" — it shares the producer with the canvas.
+	if m.pool.IsRunning(sourceStreamID) {
+		return ""
+	}
+	return owner
 }
 
 // GetStatus returns the current state of a stream's process.
@@ -536,6 +773,25 @@ func (m *streamProcessManager) readVisionFrames(sourceID string, vp *visionPipe)
 
 // CaptureRawSnapshot returns a JPEG snapshot from the raw vision pipe.
 func (m *streamProcessManager) CaptureRawSnapshot(streamID string) ([]byte, error) {
+	// Snapshots are a source-level concept; canvases compose multiple sources.
+	if spec, ok := m.store.GetStream(streamID); ok && spec.Canvas != nil {
+		return nil, fmt.Errorf("%w: canvas %s — snapshot a source stream instead",
+			recording.ErrSnapshotNotSupported, streamID)
+	}
+
+	// Native path: dial the producer's SCM_RIGHTS socket directly.
+	if m.producerMgr != nil {
+		if sock, ok := m.producerMgr.SocketPath(streamID); ok {
+			if jpeg, err := captureNativeSnapshot(sock, 3*time.Second); err == nil {
+				return jpeg, nil
+			} else {
+				m.logger.Debug("Native snapshot failed, falling back",
+					"stream_id", streamID, "error", err)
+			}
+		}
+	}
+
+	// Legacy vision-pipe path (daemon-spawned ffmpeg with -filter_complex tap).
 	m.mu.Lock()
 	vp, ok := m.visionPipes[streamID]
 	m.mu.Unlock()
@@ -548,7 +804,6 @@ func (m *streamProcessManager) CaptureRawSnapshot(streamID string) ([]byte, erro
 		vp.mu.RUnlock()
 		return nil, fmt.Errorf("no frame available yet for stream %s", streamID)
 	}
-	// Copy under lock; writer reuses the buffer after we release.
 	frame := make([]byte, len(vp.latest))
 	copy(frame, vp.latest)
 	vp.mu.RUnlock()
