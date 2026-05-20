@@ -19,7 +19,8 @@ type ServiceOptions struct {
 	EncoderSelector  encoders.Selector
 	EventBus         *events.Bus
 	ProcessManager   StreamProcessManager
-	VisionDefaultFPS int // default FPS for vision pipes; 0 = no throttle
+	VisionDefaultFPS int                   // default FPS for vision pipes; 0 = no throttle
+	Native           *NativePipelineConfig // optional; when binaries are present, single V4L2 streams + canvases route through the native dma-buf pipeline
 }
 
 type service struct {
@@ -61,6 +62,9 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 	cp.encoderSelector = encoderSelectorFunc
 	cp.deviceResolver = deviceResolverFunc
 	cp.defaultVisionFPS = opts.VisionDefaultFPS
+	cp.native = opts.Native
+
+	processor.native = opts.Native
 
 	svc := &service{
 		store:              repo,
@@ -88,6 +92,7 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 			Processor:       processor,
 			CanvasProcessor: cp,
 			EventBus:        opts.EventBus,
+			Native:          opts.Native,
 		})
 	}
 

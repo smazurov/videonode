@@ -5,7 +5,10 @@ vendor/
 tmp/
 .env
 build/
+bin/
 
 streams.toml
 dist/
 data/
+composer/build-host/
+composer/build/

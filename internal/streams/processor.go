@@ -32,6 +32,7 @@ type processor struct {
 	deviceResolver  deviceResolver
 	getStreamState  func(streamID string) (*Stream, bool) // Get runtime state
 	isCrashed       func(streamID string) bool            // Check if stream crashed
+	native          *NativePipelineConfig                 // set by service; nil → legacy-only
 	logger          logging.Logger
 }
 
@@ -172,17 +173,17 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 	// Determine if we should use test source (either TestMode or device not enabled)
 	useTestSource := streamConfig.TestMode || !enabled
 
-	// Resolve device path (skip if using test source)
+	// Resolve device path. Always try when a device is configured — the
+	// native path uses it even when !enabled (producer paints placeholder).
 	var devicePath string
-	if !useTestSource {
+	if streamConfig.Device != "" {
 		devicePath = p.deviceResolver(streamConfig.Device)
-		if devicePath == "" {
-			// Device not found - treat as offline
-			noSignalReason = "device_not_found"
-			enabled = false
-			useTestSource = true
-		}
-	} else if !enabled && noSignalReason == "" {
+	}
+	if !useTestSource && devicePath == "" {
+		noSignalReason = "device_not_found"
+		enabled = false
+		useTestSource = true
+	} else if useTestSource && !enabled && noSignalReason == "" {
 		noSignalReason = "device_not_ready"
 	}
 
@@ -198,6 +199,13 @@ func (p *processor) processStreamWithEncoder(streamID string, encoderOverride st
 				"device_id", streamConfig.Device,
 				"reason", noSignalReason)
 		}
+	}
+
+	// Native path engages whenever the device resolves and binaries are
+	// installed. Producer handles no-signal natively; TestMode keeps the
+	// legacy testsrc path.
+	if devicePath != "" && !streamConfig.TestMode && p.native.SingleStreamReady() {
+		return p.processStreamNative(streamID, &streamConfig, devicePath)
 	}
 
 	// Create socket path
