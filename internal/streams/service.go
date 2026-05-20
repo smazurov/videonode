@@ -466,6 +466,7 @@ func (s *service) UpdatePartial(_ context.Context, streamID string, patch func(*
 
 	if streamConfig.Canvas != nil {
 		s.syncCanvasInputsEnabledLocked(stream, streamConfig.Canvas.SourceStreams)
+		stream.Enabled = streamConfig.Canvas.IsEngaged()
 	}
 
 	stream.StartTime = time.Now()
@@ -474,6 +475,10 @@ func (s *service) UpdatePartial(_ context.Context, streamID string, patch func(*
 
 	if s.processManager != nil {
 		switch {
+		case streamConfig.Canvas != nil && !streamConfig.Canvas.IsEngaged():
+			if err := s.processManager.ReleaseCanvas(streamID); err != nil {
+				s.logger.Warn("Failed to release dormant canvas", "stream_id", streamID, "error", err)
+			}
 		case streamConfig.Canvas != nil:
 			if err := s.processManager.RestartCanvas(streamID); err != nil {
 				s.logger.Warn("Failed to restart canvas process", "stream_id", streamID, "error", err)
