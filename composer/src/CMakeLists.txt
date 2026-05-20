@@ -52,6 +52,13 @@ vn_add_library(rga_csc
     SOURCES rga_csc.cpp
     PUBLIC_DEPS rga_iface)
 
+# jpeg_dec_turbo: libjpeg-turbo (TurboJPEG API) software MJPEG → NV12
+# decoder. Software fallback for videonode-source when MPP HW decode is
+# unavailable (host builds). Real frames on x86_64, no Rockchip deps.
+vn_add_library(jpeg_dec_turbo
+    SOURCES jpeg_dec_turbo.cpp
+    PUBLIC_DEPS PkgConfig::TURBOJPEG)
+
 # ───────────────────────────────────────────────── GLES libs (need GBM)
 if(HAVE_GBM)
     vn_add_library(egl_ctx
@@ -79,11 +86,14 @@ endif()
 # NO_INSTALL to opt out (used for none of the three production binaries).
 
 # videonode-source — V4L2 capture sidecar. Reads frames from a V4L2 device,
-# RGA-converts to NV12, fans out dma-buf fds via SCM_RIGHTS to N consumers.
+# converts them to NV12 (RGA CSC for raw formats, MPP-HW or TurboJPEG SW
+# decode for MJPEG), fans out dma-buf fds via SCM_RIGHTS to N consumers.
 vn_add_executable(videonode-source
     SOURCES videonode_source_main.cpp
     DEPS    v4l2_capture rga_csc placeholder_painter source_probe
-            scm_rights_producer dmabuf_msg dma_heap Threads::Threads
+            scm_rights_producer dmabuf_msg dma_heap
+            jpeg_dec_turbo mpp_jpeg_dec
+            Threads::Threads
     STUBS)
 
 # videonode-sink — single-stream NV12 carrier. Dials a videonode-source SCM socket,

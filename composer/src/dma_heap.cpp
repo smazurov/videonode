@@ -51,6 +51,19 @@ Buffer alloc(std::string_view heap_name, size_t size) {
     path.append(heap_name);
 
     int heap_fd = ::open(path.c_str(), O_RDWR | O_CLOEXEC);
+    if (heap_fd < 0 && errno == ENOENT && heap_name != "system") {
+        // Host kernels (mainline x86) only expose /dev/dma_heap/system; the
+        // -uncached / -reserved variants are Rockchip/Android extensions.
+        // Fall back to "system" so the binary runs on plain Fedora/Debian.
+        static bool warned = false;
+        if (!warned) {
+            fprintf(stderr, "dmaheap: %s not present, falling back to /dev/dma_heap/system\n",
+                    path.c_str());
+            warned = true;
+        }
+        path = "/dev/dma_heap/system";
+        heap_fd = ::open(path.c_str(), O_RDWR | O_CLOEXEC);
+    }
     if (heap_fd < 0) {
         fprintf(stderr, "dmaheap: open(%s): %s\n", path.c_str(), strerror(errno));
         return {};
