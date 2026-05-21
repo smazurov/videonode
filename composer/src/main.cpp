@@ -48,6 +48,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <span>
 #include <string>
 #include <sys/mman.h>
 #include <sys/prctl.h>
@@ -219,10 +220,9 @@ bool start_ffmpeg_source_(ffmpeg_pipe_source::FfmpegPipeSource& s, const SourceA
     return wait_first_frame_(s, 10, tag);
 }
 
-bool write_full_(int fd, const void* buf, size_t n) {
-    const auto* p = static_cast<const uint8_t*>(buf);
-    while (n > 0) {
-        ssize_t w = ::write(fd, p, n);
+bool write_full_(int fd, std::span<const uint8_t> buf) {
+    while (!buf.empty()) {
+        ssize_t w = ::write(fd, buf.data(), buf.size());
         if (w < 0) {
             if (errno == EINTR)
                 continue;
@@ -231,8 +231,7 @@ bool write_full_(int fd, const void* buf, size_t n) {
             fprintf(stderr, "write stdout: %s\n", strerror(errno));
             return false;
         }
-        p += w;
-        n -= static_cast<size_t>(w);
+        buf = buf.subspan(static_cast<size_t>(w));
     }
     return true;
 }
@@ -503,11 +502,14 @@ int main(int argc, char** argv) {
         }
         bool write_ok = true;
         if (map_stride == static_cast<uint32_t>(a.canvas_w) * 4) {
-            write_ok = write_full_(STDOUT_FILENO, canvas_map, bytes_per_frame);
+            write_ok = write_full_(
+                STDOUT_FILENO,
+                std::span(static_cast<const uint8_t*>(canvas_map), bytes_per_frame));
         } else {
             for (int y = 0; y < a.canvas_h; ++y) {
                 const uint8_t* row = static_cast<const uint8_t*>(canvas_map) + y * map_stride;
-                if (!write_full_(STDOUT_FILENO, row, static_cast<size_t>(a.canvas_w) * 4)) {
+                if (!write_full_(STDOUT_FILENO,
+                                 std::span(row, static_cast<size_t>(a.canvas_w) * 4))) {
                     write_ok = false;
                     break;
                 }
