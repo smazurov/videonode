@@ -35,6 +35,10 @@ func (b *Bus) Publish(ev Event) {
 		event.Publish(b.dispatcher, e)
 	case StreamCrashedEvent:
 		event.Publish(b.dispatcher, e)
+	case CanvasRestartedEvent:
+		event.Publish(b.dispatcher, e)
+	case HeartbeatEvent:
+		event.Publish(b.dispatcher, e)
 	}
 }
 
