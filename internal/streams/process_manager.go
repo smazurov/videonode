@@ -92,6 +92,12 @@ type ProcessManagerOptions struct {
 	CanvasProcessor *canvasProcessor
 	EventBus        *events.Bus
 	Native          *NativePipelineConfig
+	// ControlSocketPath is the daemon-wide sourcectl UDS path. When set,
+	// videonode-source sidecars are spawned with --ctl-connect pointing
+	// at this socket so the daemon can issue commands (set_format) and
+	// receive status notifications. Empty string disables the control
+	// plane.
+	ControlSocketPath string
 }
 
 // NewStreamProcessManager creates a new StreamProcessManager.
@@ -121,6 +127,9 @@ func NewStreamProcessManager(opts *ProcessManagerOptions) StreamProcessManager {
 	// but are owned by the ProducerManager. The canvasProcessor reads back
 	// the per-device socket path from the manager when building sink cmds.
 	spm.producerMgr = NewProducerManager(spm.pool)
+	if opts.ControlSocketPath != "" {
+		spm.producerMgr.SetControlSocketPath(opts.ControlSocketPath)
+	}
 	if spm.canvasProcessor != nil {
 		spm.canvasProcessor.producerMgr = spm.producerMgr
 	}

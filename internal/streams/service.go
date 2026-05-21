@@ -20,7 +20,11 @@ type ServiceOptions struct {
 	EventBus         *events.Bus
 	ProcessManager   StreamProcessManager
 	VisionDefaultFPS int                   // default FPS for vision pipes; 0 = no throttle
-	Native           *NativePipelineConfig // optional; when binaries are present, single V4L2 streams + canvases route through the native dma-buf pipeline
+	Native           *NativePipelineConfig // optional; when binaries are present, single V4L2 streams + canvases take the dma-buf path
+	// ControlSocketPath is the daemon-wide sourcectl UDS path. When set,
+	// native-pipeline sidecars are launched with the control plane
+	// enabled. main.go owns the sourcectl.Server lifecycle.
+	ControlSocketPath string
 }
 
 type service struct {
@@ -88,11 +92,12 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		svc.processManager = opts.ProcessManager
 	} else {
 		svc.processManager = NewStreamProcessManager(&ProcessManagerOptions{
-			Store:           repo,
-			Processor:       processor,
-			CanvasProcessor: cp,
-			EventBus:        opts.EventBus,
-			Native:          opts.Native,
+			Store:             repo,
+			Processor:         processor,
+			CanvasProcessor:   cp,
+			EventBus:          opts.EventBus,
+			Native:            opts.Native,
+			ControlSocketPath: opts.ControlSocketPath,
 		})
 	}
 
