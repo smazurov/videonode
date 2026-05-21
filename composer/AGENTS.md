@@ -76,12 +76,13 @@ split-first reflex when something gets too thick.
 - **Per-function:** `.clang-tidy` `readability-function-size` —
   120 lines, 100 statements, 12 branches, 6 parameters, 5 nesting.
 - **When a file approaches the cap:** split rather than thicken. See
-  `composer/docs/large-file-split-plan.md` for the playbook (file
-  may live on `wave2-phase-b` until that branch merges).
+  `composer/docs/large-file-split-plan.md` for the rationale behind
+  the four extractions (`src/source/`, `rpc/jsonrpc_parse|serialize`,
+  `render/canvas_loop`, `capture/v4l2_format`).
 
-## Architecture (one paragraph)
+## Architecture
 
-Three binaries supervised by the Go daemon:
+Three binaries (see `src/bin/`) supervised by the Go daemon:
 - **`videonode-source`** (one per V4L2 device) — captures frames, converts
   to NV12 via RGA or GLES CSC backend, fans dma-buf fds out to ≤16
   consumers over a Unix socket using SCM_RIGHTS.
@@ -90,6 +91,15 @@ Three binaries supervised by the Go daemon:
 - **`videonode-composer`** — GPU compositor on Mali-G610 (Panthor on rig,
   radeonsi on Fedora dev box). Reads up to two source sockets, composes
   BGRA via EGL/GLES, writes to stdout.
+
+Library layout under `src/`:
+- `ipc/` — SCM_RIGHTS Unix-socket fd passing, dma_heap allocator
+- `rpc/` — JSON-RPC envelope codec (parse + serialize TUs), dma-buf frame messages, bidirectional control channel
+- `capture/` — V4L2 ioctl wrapper (capture + format-negotiation TUs), MJPEG decoders (MPP HW + libjpeg-turbo SW), source health probe
+- `render/` — CSC dispatch + GLES/RGA backends, GBM/dma_heap NV12 allocators, GPU compositor, EGL context, canvas loop, NO-SIGNAL placeholder painter
+- `process/` — child-process supervision, ffmpeg-pipe wrapper
+- `source/` — `videonode-source`'s orchestrator + capture session + broadcast helpers (extracted from the thin `bin/videonode_source_main.cpp` entry point)
+- `bin/` — the three binary entry points
 
 Vendored Rockchip stubs are gone — host builds either link real librga /
 librockchip_mpp or skip those code paths via `HAVE_RGA` / `HAVE_MPP`.

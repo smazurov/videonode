@@ -1,6 +1,20 @@
-# Phase E reorg mapping
+# `composer/src/` domain organization (historical playbook)
 
-Concrete file-by-file mapping for the upcoming `composer/src/` flat → domain
+**Status: executed in commit `2b5a8dd` (Wave 4).** Current layout matches
+the destinations below; the include-rewrite plan ran via the script in the
+"Include rewrites" section. This document is preserved as the rationale
+trail — the table below doubles as the canonical domain reference if you
+need to know *why* a particular file lives where it does.
+
+For a short present-tense summary of what's in each subdir, see
+`composer/AGENTS.md` → "Architecture" → "Library layout under `src/`",
+or the `README.md` inside each subdir.
+
+---
+
+## Original Phase E plan (now executed)
+
+Concrete file-by-file mapping for the `composer/src/` flat → domain
 reorg. Authored from worktree `wave2-phase-b` at HEAD `8339ef6`, after Phase A
 and Phase B landed. File inventory is exactly what's on disk now (Phase 1 + Phase A).
 

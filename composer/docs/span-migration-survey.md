@@ -167,3 +167,16 @@ and the four current copies collapse into one.
 - `composer/tools/` and `composer/tests/` — non-shipping code; they
   auto-fix once their dependencies migrate, and changes there don't
   affect the public surface.
+
+## Status
+
+Executed during Wave 3 (additive `std::span` overloads + accessors) and
+Wave 3.5 (dead raw-ptr surfaces dropped, callers migrated). The "ipc",
+"capture", "render", "process", and cross-domain hot-spot punch lists
+above were the working basis for the per-file commits in
+`da7b735..dc7e16f` and the dead-surface drops in `cacd24f`/`1b5cf3c`/`91f0534`.
+
+The single deferred item — collapsing the three duplicate
+`read_full`/`write_full` helpers (`ipc/scm_socket.cpp`, `bin/main.cpp`,
+`bin/videonode_sink_main.cpp`) into one shared `io::` helper — remains
+open. Tracked as a Wave-4 follow-up cleanup; not yet landed.
