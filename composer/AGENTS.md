@@ -62,9 +62,22 @@ cmake --build build/dev --target tidy-all   # clang-tidy whole tree (slow)
   Prefer `std::make_unique` or stack allocation.
 - Template error walls: fix the call site. Do not refactor templates to
   silence diagnostics.
-- File size: soft target 500 lines, hard cap 700 lines. CI enforces via
-  `scripts/check-file-size.sh`. Per-function limits set in `.clang-tidy`
-  (`readability-function-size`).
+
+## Size limits
+
+Hard limits keep individual files reviewable and incentivize the
+split-first reflex when something gets too thick.
+
+- **Per-file:** soft target 500 lines, hard cap 700. CI fails over the
+  hard cap.
+- **Enforced by:** `composer/scripts/check-file-size.sh`. Globs
+  `composer/src/**/*.{cpp,hpp}`, `composer/tools/*.cpp`,
+  `composer/tests/*.cpp`. Exits non-zero on FAIL; WARN is advisory.
+- **Per-function:** `.clang-tidy` `readability-function-size` —
+  120 lines, 100 statements, 12 branches, 6 parameters, 5 nesting.
+- **When a file approaches the cap:** split rather than thicken. See
+  `composer/docs/large-file-split-plan.md` for the playbook (file
+  may live on `wave2-phase-b` until that branch merges).
 
 ## Architecture (one paragraph)
 
@@ -83,10 +96,16 @@ librockchip_mpp or skip those code paths via `HAVE_RGA` / `HAVE_MPP`.
 
 ## Known gaps (don't re-propose)
 
+All three of these have a fuller writeup (rationale + sketch of the
+fix) in the `## Follow-ups` section of `composer/README.md` — read
+that before proposing work on any of them.
+
 - **Fuzzing**: `rpc/jsonrpc_msg::DecodeFrameNotification` and
   `rpc/dmabuf_msg::DecodeFrameNotification` are prime targets. Preset
-  `fuzz` exists; harness not written. See `composer/README.md` follow-ups.
+  `fuzz` exists; harness not written. See `composer/README.md`
+  Follow-ups → Fuzzing.
 - **C++ modules**: deferred until clangd module-navigation support
-  stabilizes. Spike candidate: `rpc/jsonrpc_msg`. See README follow-ups.
+  stabilizes. Spike candidate: `rpc/jsonrpc_msg`. See
+  `composer/README.md` Follow-ups → C++20 modules experiment.
 - **Hardened libstdc++**: enable `_GLIBCXX_ASSERTIONS` in `dev` preset
-  only. See README follow-ups.
+  only. See `composer/README.md` Follow-ups → Hardened libstdc++.
