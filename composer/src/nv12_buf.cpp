@@ -45,6 +45,20 @@ struct DmaImpl {
 
 } // namespace
 
+// ── Mapping span accessors ─────────────────────────────────────────────
+
+std::span<uint8_t> Mapping::y_bytes() const {
+    if (!y)
+        return {};
+    return {static_cast<uint8_t*>(y), size_t(height) * y_pitch};
+}
+
+std::span<uint8_t> Mapping::uv_bytes() const {
+    if (!uv)
+        return {};
+    return {static_cast<uint8_t*>(uv), size_t(height) / 2 * uv_pitch};
+}
+
 // ── Buffer lifetime ────────────────────────────────────────────────────
 
 Buffer& Buffer::operator=(Buffer&& o) noexcept {
@@ -135,6 +149,9 @@ Mapping map_rw(Buffer& b) {
     auto m = gbm_alloc::map_rw(impl->nv);
     out.y = m.y;
     out.uv = m.uv;
+    out.height = b.height;
+    out.y_pitch = b.y_pitch;
+    out.uv_pitch = b.uv_pitch;
     return out;
 }
 
@@ -187,6 +204,9 @@ Mapping map_rw(Buffer& b) {
     auto* base = static_cast<uint8_t*>(impl->mapped);
     out.y = base + b.y_offset;
     out.uv = base + b.uv_offset;
+    out.height = b.height;
+    out.y_pitch = b.y_pitch;
+    out.uv_pitch = b.uv_pitch;
     return out;
 }
 

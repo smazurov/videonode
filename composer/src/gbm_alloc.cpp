@@ -91,7 +91,22 @@ Mapped map_rw(Nv12Buf& b) {
     if (uvs)
         m.uv = gbm_bo_map(b.uv_bo, 0, 0, b.width / 2, b.height / 2, GBM_BO_TRANSFER_READ_WRITE, &s,
                           &uvs->map_data);
+    m.height = b.height;
+    m.y_stride = b.y_stride;
+    m.uv_stride = b.uv_stride;
     return m;
+}
+
+std::span<uint8_t> Mapped::y_bytes() const {
+    if (!y)
+        return {};
+    return {static_cast<uint8_t*>(y), size_t(height) * y_stride};
+}
+
+std::span<uint8_t> Mapped::uv_bytes() const {
+    if (!uv)
+        return {};
+    return {static_cast<uint8_t*>(uv), size_t(height) / 2 * uv_stride};
 }
 
 void unmap(Nv12Buf& b) {

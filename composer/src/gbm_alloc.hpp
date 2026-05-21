@@ -20,6 +20,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 struct gbm_device;
 struct gbm_bo;
@@ -56,6 +57,12 @@ Nv12Buf alloc(gbm_device* gbm, int width, int height);
 struct Mapped {
     void* y = nullptr;
     void* uv = nullptr;
+    int height = 0;
+    uint32_t y_stride = 0;
+    uint32_t uv_stride = 0;
+
+    std::span<uint8_t> y_bytes() const;
+    std::span<uint8_t> uv_bytes() const;
 };
 Mapped map_rw(Nv12Buf& b);
 void unmap(Nv12Buf& b);
