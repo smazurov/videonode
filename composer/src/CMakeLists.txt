@@ -11,7 +11,13 @@
 # ───────────────────────────────────────────────── libraries (always built)
 vn_add_library(dma_heap      SOURCES dma_heap.cpp)
 vn_add_library(child_process SOURCES child_process.cpp)
-vn_add_library(dmabuf_msg    SOURCES dmabuf_msg.cpp)
+vn_add_library(jsonrpc_msg   SOURCES jsonrpc_msg.cpp)
+vn_add_library(control_channel
+    SOURCES control_channel.cpp
+    PUBLIC_DEPS jsonrpc_msg)
+vn_add_library(dmabuf_msg
+    SOURCES dmabuf_msg.cpp
+    PUBLIC_DEPS jsonrpc_msg)
 
 vn_add_library(scm_socket
     SOURCES scm_socket.cpp
@@ -93,6 +99,7 @@ vn_add_executable(videonode-source
     DEPS    v4l2_capture rga_csc placeholder_painter source_probe
             scm_rights_producer dmabuf_msg dma_heap
             jpeg_dec_turbo mpp_jpeg_dec
+            jsonrpc_msg control_channel
             Threads::Threads
     STUBS)
 

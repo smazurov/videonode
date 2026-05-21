@@ -51,16 +51,20 @@ func TestCaptureNativeSnapshot_RoundTrip(t *testing.T) {
 			return
 		}
 		defer c.Close()
-		hdr := dmabufHeader{
-			SlotIndex:    0,
-			Width:        w,
-			Height:       h,
-			Format:       "NV12",
-			PlanePitches: []uint32{w, w},
-			PlaneOffsets: []uint32{0, uint32(w * h)},
-			FrameIdx:     1,
+		env := frameNotification{
+			JSONRPC: "2.0",
+			Method:  "frame",
+			Params: dmabufHeader{
+				SlotIndex:    0,
+				Width:        w,
+				Height:       h,
+				Format:       "NV12",
+				PlanePitches: []uint32{w, w},
+				PlaneOffsets: []uint32{0, uint32(w * h)},
+				FrameIdx:     1,
+			},
 		}
-		body, _ := json.Marshal(hdr)
+		body, _ := json.Marshal(env)
 		var buf bytes.Buffer
 		_ = binary.Write(&buf, binary.BigEndian, uint32(len(body)))
 		buf.Write(body)
