@@ -1,5 +1,8 @@
 #include "src/render/canvas_loop.hpp"
 
+#include "src/ipc/scm_rights_source.hpp"
+#include "src/process/ffmpeg_pipe_source.hpp"
+
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 #include <drm_fourcc.h>

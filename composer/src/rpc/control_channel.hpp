@@ -68,10 +68,10 @@ class ControlChannel {
     // frames and dispatch. On hangup/error, disconnect.
     void handle_events(short revents);
 
-    // Send a `status` notification. Non-blocking — drops on EAGAIN
-    // (heartbeat will catch up). Returns true if the bytes were handed
-    // to the kernel.
-    bool push_status(const std::string& params_json);
+    // Send a `status` notification. Non-blocking and fire-and-forget —
+    // drops on EAGAIN (heartbeat will catch up), disconnects on any
+    // other write error. Diagnostics via status_pushes() / status_drops().
+    void push_status(const std::string& params_json);
 
     // Diagnostics for logging.
     bool connected() const { return fd_ >= 0; }

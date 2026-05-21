@@ -79,6 +79,13 @@ struct Header {
     uint32_t width = 0;
     uint32_t height = 0;
     std::string format; // DRM fourcc (e.g. "NV12")
+    // plane_pitches[i] / plane_offsets[i] describe plane i as bytes-per-row
+    // and byte offset into the dma-buf identified by fds[i]. For
+    // single-fd backends (rig dma_heap NV12: both planes alias plane 0's
+    // fd) the producer MUST still report the correct plane_offsets — the
+    // composer uses these verbatim when constructing EGLImage descriptors,
+    // so passing 0 for both lands on Y data interpreted as CbCr. Split-fd
+    // backends (host gbm) pass 0 / 0 because each plane is its own bo.
     std::vector<uint32_t> plane_pitches;
     std::vector<uint32_t> plane_offsets;
     ColorMatrix color_matrix = ColorMatrix::Unspecified;
