@@ -186,17 +186,13 @@ class Streamer {
     // valid until the next request_buffers() call or close().
     const std::vector<BufferRef>& buffers() const { return bufs_; }
 
-    // mmap_buffer maps one previously-QUERYBUF'd buffer for CPU read. Used
-    // by the MJPEG path to read variable-length JPEG bitstreams out of
+    // mmap_buffer_span maps one previously-QUERYBUF'd buffer for CPU read.
+    // Used by the MJPEG path to read variable-length JPEG bitstreams out of
     // V4L2 capture buffers (dma-buf fds aren't useful for that — we want
     // a normal pointer + bytesused). Single-plane only; UVC MJPEG is
-    // always single-plane. The mapping persists until the next
-    // request_buffers() call or close().
-    bool mmap_buffer(uint32_t index, void*& out_ptr, size_t& out_size);
-
-    // mmap_buffer_span is the span-returning variant of mmap_buffer. Returns
-    // std::nullopt on failure (errno set as for mmap_buffer). The returned
-    // span is valid for the same lifetime as the void*/size_t version.
+    // always single-plane. The returned span is valid until the next
+    // request_buffers() call or close(). Returns std::nullopt on failure
+    // (errno set).
     std::optional<std::span<std::byte>> mmap_buffer_span(uint32_t index);
 
   private:

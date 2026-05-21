@@ -272,14 +272,13 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
         // mmap each V4L2 capture buffer for CPU read of variable-length
         // JPEG payloads. MJPEG is single-plane only — mmap_buffer asserts.
         for (const auto& b : s.cap.buffers()) {
-            void* ptr = nullptr;
-            size_t sz = 0;
-            if (!s.cap.mmap_buffer(b.index, ptr, sz)) {
+            auto mapped = s.cap.mmap_buffer_span(b.index);
+            if (!mapped) {
                 s.cap.close();
                 return false;
             }
-            s.in_maps.push_back(ptr);
-            s.in_map_sizes.push_back(sz);
+            s.in_maps.push_back(mapped->data());
+            s.in_map_sizes.push_back(mapped->size());
         }
 
         // Probe MPP first; if librockchip_mpp isn't compiled in, skip it

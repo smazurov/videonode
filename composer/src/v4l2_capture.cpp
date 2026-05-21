@@ -476,42 +476,32 @@ bool Streamer::stream_off() {
     return true;
 }
 
-bool Streamer::mmap_buffer(uint32_t index, void*& out_ptr, size_t& out_size) {
+std::optional<std::span<std::byte>> Streamer::mmap_buffer_span(uint32_t index) {
     if (fd_ < 0) {
         errno = EBADF;
-        return false;
+        return std::nullopt;
     }
     if (multiplanar_) {
-        fprintf(stderr, "v4l2_capture: mmap_buffer not supported on multiplanar device\n");
+        fprintf(stderr, "v4l2_capture: mmap_buffer_span not supported on multiplanar device\n");
         errno = ENOTSUP;
-        return false;
+        return std::nullopt;
     }
     if (index >= bufs_.size() || bufs_[index].planes.empty()) {
         errno = EINVAL;
-        return false;
+        return std::nullopt;
     }
     const PlaneRef& p = bufs_[index].planes[0];
     if (p.length == 0) {
         errno = EINVAL;
-        return false;
+        return std::nullopt;
     }
     void* m = ::mmap(nullptr, p.length, PROT_READ, MAP_SHARED, fd_, p.mmap_offset);
     if (m == MAP_FAILED) {
         fprintf(stderr, "v4l2_capture: mmap index=%u: %s\n", index, strerror(errno));
-        return false;
+        return std::nullopt;
     }
     in_maps_.emplace_back(m, p.length);
-    out_ptr = m;
-    out_size = p.length;
-    return true;
-}
-
-std::optional<std::span<std::byte>> Streamer::mmap_buffer_span(uint32_t index) {
-    void* ptr = nullptr;
-    size_t size = 0;
-    if (!mmap_buffer(index, ptr, size))
-        return std::nullopt;
-    return std::span<std::byte>(static_cast<std::byte*>(ptr), size);
+    return std::span<std::byte>(static_cast<std::byte*>(m), p.length);
 }
 
 } // namespace v4l2
