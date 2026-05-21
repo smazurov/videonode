@@ -1,6 +1,9 @@
 package events
 
-import "github.com/smazurov/videonode/internal/api/models"
+import (
+	"github.com/smazurov/videonode/internal/api/models"
+	"github.com/smazurov/videonode/internal/streams/sourcectl"
+)
 
 // Event type constants for kelindar/event.
 const (
@@ -14,7 +17,20 @@ const (
 	TypeStreamCrashed
 	TypeCanvasRestarted
 	TypeHeartbeat
+	TypeSourceStatus
 )
+
+// SourceStatusEvent carries a status snapshot published by a
+// videonode-source sidecar over the control plane. Emitted on health
+// changes, consumer-count changes, and ~1 Hz heartbeat.
+type SourceStatusEvent struct {
+	DeviceID  string                 `json:"device_id" doc:"Stable device identifier the snapshot describes"`
+	Status    sourcectl.StatusParams `json:"status" doc:"Full status snapshot from the sidecar"`
+	Timestamp string                 `json:"timestamp" doc:"Server time when received"`
+}
+
+// Type returns the event type identifier for SourceStatusEvent.
+func (e SourceStatusEvent) Type() uint32 { return TypeSourceStatus }
 
 // HeartbeatEvent keeps SSE connections open through proxies and lets the
 // client confirm the stream is live even when no domain events fire.

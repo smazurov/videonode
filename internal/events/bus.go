@@ -39,6 +39,8 @@ func (b *Bus) Publish(ev Event) {
 		event.Publish(b.dispatcher, e)
 	case HeartbeatEvent:
 		event.Publish(b.dispatcher, e)
+	case SourceStatusEvent:
+		event.Publish(b.dispatcher, e)
 	}
 }
 

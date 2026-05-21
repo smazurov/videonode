@@ -23,6 +23,7 @@ import (
 	"github.com/smazurov/videonode/internal/metrics/exporters"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
+	"github.com/smazurov/videonode/internal/streams/sourcectl"
 	"github.com/smazurov/videonode/internal/streams/store"
 	"github.com/smazurov/videonode/internal/updater"
 )
@@ -205,12 +206,40 @@ func main() {
 			Composer:   opts.NativeComposer,
 		}).Resolve(logger)
 
+		// Daemon-side control plane for native sidecars. Must bind
+		// BEFORE the stream service spawns any sidecars so they can
+		// dial in on startup. Only enable when the native pipeline is
+		// available — without a sidecar binary, no clients connect.
+		var ctlServer *sourcectl.Server
+		if native.V4L2Source != "" {
+			ctlServer = sourcectl.New("", nil)
+			if err := ctlServer.Start(context.Background()); err != nil {
+				logger.Warn("control plane disabled (start failed)",
+					"error", err)
+				ctlServer = nil
+			} else {
+				// Pump status notifications into the event bus.
+				go func() {
+					for st := range ctlServer.StatusFeed() {
+						eventBus.Publish(events.SourceStatusEvent{
+							DeviceID:  st.DeviceID,
+							Status:    st,
+							Timestamp: time.Now().Format(time.RFC3339),
+						})
+					}
+				}()
+			}
+		}
+
 		// Create stream service
 		serviceOpts := &streams.ServiceOptions{
 			Store:            streamStore,
 			EventBus:         eventBus,
 			VisionDefaultFPS: opts.VisionDefaultFPS,
 			Native:           native,
+		}
+		if ctlServer != nil {
+			serviceOpts.ControlSocketPath = ctlServer.SocketPath()
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)
@@ -256,6 +285,7 @@ func main() {
 			RecordingDir:        opts.RecordingDataDir,
 			PrometheusHandler:   promhttp.Handler(), // Prometheus metrics via promauto
 			UpdateService:       updateService,
+			ControlServer:       ctlServer,
 		}
 
 		// Add LED controller if available
