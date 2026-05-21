@@ -6,7 +6,8 @@
 # select a domain (ipc, rpc, capture, render, process).
 
 vn_add_test(ffmpeg_pipe_source_argv
-    DEPS ffmpeg_pipe_source dma_heap child_process Threads::Threads
+    DEPS ffmpeg_pipe_source dma_heap child_process egl_ctx gles_bundle
+         Threads::Threads
     LABELS process)
 
 vn_add_test(child_process       DEPS child_process                LABELS process)
