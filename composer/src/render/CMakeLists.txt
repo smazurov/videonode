@@ -65,4 +65,10 @@ if(HAVE_GBM)
     vn_add_library(gl_compose
         SOURCES gl_compose.cpp
         PUBLIC_DEPS egl_ctx gles_bundle)
+
+    # canvas_loop: composer compose-render-stdout loop, extracted from
+    # videonode_composer_main.cpp so the binary stays argv-only.
+    vn_add_library(canvas_loop
+        SOURCES canvas_loop.cpp
+        PUBLIC_DEPS gl_compose egl_ctx scm_rights_source ffmpeg_pipe_source)
 endif()
