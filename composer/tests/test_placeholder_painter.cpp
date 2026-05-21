@@ -2,7 +2,8 @@
 // on host without devices.
 
 #include "../src/placeholder_painter.hpp"
-#include "test_runner.hpp"
+
+#include <gtest/gtest.h>
 
 #include <cstdint>
 #include <cstring>
@@ -18,37 +19,28 @@ std::vector<uint8_t> make_buf() {
     return std::vector<uint8_t>(kNV12Size, 0);
 }
 
-// count_nonzero returns how many bytes in [a, b) differ from `expected`.
-size_t count_diff(const uint8_t* data, size_t a, size_t b, uint8_t expected) {
-    size_t n = 0;
-    for (size_t i = a; i < b; ++i)
-        if (data[i] != expected)
-            ++n;
-    return n;
-}
-
 } // namespace
 
-static void test_paint_base_fills_background() {
+TEST(PlaceholderPainter, PaintBaseFillsBackground) {
     auto buf = make_buf();
     placeholder_painter::paint_base(buf.data(), kW, kH, "");
 
     // Luma plane: mostly background (32), with a small handful of bright
     // pixels where the title text is rendered. Check that the top-left
     // corner is the bg color (no text there).
-    CHECK_EQ(uint8_t(32), buf[0]);
-    CHECK_EQ(uint8_t(32), buf[100 * kW + 100]);
+    EXPECT_EQ(uint8_t(32), buf[0]);
+    EXPECT_EQ(uint8_t(32), buf[100 * kW + 100]);
 
     // Chroma plane starts at kW*kH. Both Cb and Cr should be filled
     // (140, 120) throughout.
     size_t uv_start = size_t(kW) * kH;
-    CHECK_EQ(uint8_t(140), buf[uv_start + 0]);   // Cb
-    CHECK_EQ(uint8_t(120), buf[uv_start + 1]);   // Cr
-    CHECK_EQ(uint8_t(140), buf[uv_start + 200]); // arbitrary later Cb
-    CHECK_EQ(uint8_t(120), buf[uv_start + 201]); // arbitrary later Cr
+    EXPECT_EQ(uint8_t(140), buf[uv_start + 0]);   // Cb
+    EXPECT_EQ(uint8_t(120), buf[uv_start + 1]);   // Cr
+    EXPECT_EQ(uint8_t(140), buf[uv_start + 200]); // arbitrary later Cb
+    EXPECT_EQ(uint8_t(120), buf[uv_start + 201]); // arbitrary later Cr
 }
 
-static void test_paint_base_writes_title_text() {
+TEST(PlaceholderPainter, PaintBaseWritesTitleText) {
     auto buf = make_buf();
     placeholder_painter::paint_base(buf.data(), kW, kH, "");
 
@@ -66,10 +58,10 @@ static void test_paint_base_writes_title_text() {
     }
     // Expect well over 500 bright pixels (every "on" font pixel is a 4x4
     // block = 16 px each, ~18 chars × ~10 strokes per char × 16 ≈ 2880).
-    CHECK_TRUE(bright > 500);
+    EXPECT_TRUE(bright > 500);
 }
 
-static void test_paint_base_with_device_path() {
+TEST(PlaceholderPainter, PaintBaseWithDevicePath) {
     auto buf = make_buf();
     placeholder_painter::paint_base(buf.data(), kW, kH,
                                     "/dev/v4l/by-path/platform-fdee0000.hdmirx");
@@ -86,10 +78,10 @@ static void test_paint_base_with_device_path() {
                 ++bright;
         }
     }
-    CHECK_TRUE(bright > 50);
+    EXPECT_TRUE(bright > 50);
 }
 
-static void test_paint_tick_only_touches_anim_region() {
+TEST(PlaceholderPainter, PaintTickOnlyTouchesAnimRegion) {
     auto buf = make_buf();
     placeholder_painter::paint_base(buf.data(), kW, kH, "");
 
@@ -106,12 +98,12 @@ static void test_paint_tick_only_touches_anim_region() {
 
     placeholder_painter::paint_tick(buf.data(), kW, kH, 42, 12345, "TESTING");
 
-    CHECK_EQ(0, int(std::memcmp(snapshot_above.data(), buf.data(), snapshot_above.size())));
-    CHECK_EQ(0, int(std::memcmp(snapshot_below.data(), buf.data() + size_t(region.y_end) * kW,
-                                snapshot_below.size())));
+    EXPECT_EQ(0, int(std::memcmp(snapshot_above.data(), buf.data(), snapshot_above.size())));
+    EXPECT_EQ(0, int(std::memcmp(snapshot_below.data(), buf.data() + size_t(region.y_end) * kW,
+                                 snapshot_below.size())));
 }
 
-static void test_paint_tick_changes_with_tick_idx() {
+TEST(PlaceholderPainter, PaintTickChangesWithTickIdx) {
     auto buf_a = make_buf();
     auto buf_b = make_buf();
     placeholder_painter::paint_base(buf_a.data(), kW, kH, "");
@@ -128,10 +120,10 @@ static void test_paint_tick_changes_with_tick_idx() {
             break;
         }
     }
-    CHECK_TRUE(different);
+    EXPECT_TRUE(different);
 }
 
-static void test_paint_tick_bounds_safety_small_canvas() {
+TEST(PlaceholderPainter, PaintTickBoundsSafetySmallCanvas) {
     // A small but-valid canvas. The painter must not crash or write
     // out-of-bounds. Lower bound 256 is documented in the header.
     const int sw = 256, sh = 256;
@@ -142,21 +134,5 @@ static void test_paint_tick_bounds_safety_small_canvas() {
     // can't check that without a guard page, but we can check the LAST
     // byte: chroma plane ends at end of buffer; should be either bg or
     // touched-by-fill. Just check no out-of-range crash got us here.
-    CHECK_TRUE(sbuf.size() == size_t(sw) * sh * 3 / 2);
-}
-
-int main() {
-    test_runner::start_case("paint_base_fills_background");
-    test_paint_base_fills_background();
-    test_runner::start_case("paint_base_writes_title_text");
-    test_paint_base_writes_title_text();
-    test_runner::start_case("paint_base_with_device_path");
-    test_paint_base_with_device_path();
-    test_runner::start_case("paint_tick_only_touches_anim_region");
-    test_paint_tick_only_touches_anim_region();
-    test_runner::start_case("paint_tick_changes_with_tick_idx");
-    test_paint_tick_changes_with_tick_idx();
-    test_runner::start_case("paint_tick_bounds_safety_small_canvas");
-    test_paint_tick_bounds_safety_small_canvas();
-    return test_runner::report_and_exit_code();
+    EXPECT_TRUE(sbuf.size() == size_t(sw) * sh * 3 / 2);
 }

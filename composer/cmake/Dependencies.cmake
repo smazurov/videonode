@@ -72,3 +72,18 @@ if(NOT HAVE_RGA AND NOT HAVE_GLES_CSC)
         "be dropped at runtime. Install librga (RK3588) or libgbm-dev "
         "(generic Linux) to enable a real backend.")
 endif()
+
+# GoogleTest — fetched + built in-tree so the dev box doesn't need a system
+# install and every CI lane sees the same version. SHA-pinned to v1.15.2
+# (release-1.15.2 commit on google/googletest). Bump deliberately, not by
+# tag-following.
+if(BUILD_TESTS)
+    include(FetchContent)
+    FetchContent_Declare(googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG b514bdc898e2951020cbdca1304b75f5950d1f59) # v1.15.2
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+    include(GoogleTest)
+endif()
