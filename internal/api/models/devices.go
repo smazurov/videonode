@@ -171,4 +171,28 @@ type DeviceFrameratesResponse struct {
 	Body DeviceFrameratesData
 }
 
+// DeviceSetFormatBody is the JSON body of a POST /api/devices/{id}/format request.
+type DeviceSetFormatBody struct {
+	FourCC string `json:"fourcc" example:"YUYV" doc:"4-character V4L2 pixel format code"`
+	Width  uint32 `json:"width" example:"1920" doc:"Capture width in pixels"`
+	Height uint32 `json:"height" example:"1080" doc:"Capture height in pixels"`
+	FPS    uint32 `json:"fps,omitempty" example:"30" doc:"Capture framerate; 0 = driver default"`
+}
+
+// DeviceSetFormatInput is the HTTP request input for set_format.
+type DeviceSetFormatInput struct {
+	DeviceID string              `path:"device_id" doc:"Stable device identifier"`
+	Body     DeviceSetFormatBody `body:"body"`
+}
+
+// DeviceSetFormatData is the success payload of set_format.
+type DeviceSetFormatData struct {
+	Applied bool `json:"applied" doc:"True if the sidecar accepted and applied the new format"`
+}
+
+// DeviceSetFormatResponse is the HTTP response wrapper for DeviceSetFormatData.
+type DeviceSetFormatResponse struct {
+	Body DeviceSetFormatData
+}
+
 // Note: V4L2 conversion functions were removed - conversion now happens in devices package

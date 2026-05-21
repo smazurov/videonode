@@ -51,6 +51,11 @@ type ProducerManager struct {
 	mu     sync.Mutex
 	// keyed by deviceID
 	entries map[string]*producerEntry
+	// Optional. When set, sidecars are spawned with --ctl-connect and
+	// --device-id pointing at this server so the daemon can issue commands
+	// (set_format) and receive status notifications. nil = control plane
+	// disabled (test / standalone harnesses).
+	ctlSocketPath string
 }
 
 type producerEntry struct {
@@ -68,6 +73,15 @@ func NewProducerManager(pool process.Pool) *ProducerManager {
 		logger:  logging.GetLogger("producer_manager"),
 		entries: make(map[string]*producerEntry),
 	}
+}
+
+// SetControlSocketPath attaches the daemon-wide sourcectl socket path so
+// future sidecar spawns dial it for control + status. Must be called
+// before Acquire to take effect for that sidecar. Idempotent.
+func (pm *ProducerManager) SetControlSocketPath(path string) {
+	pm.mu.Lock()
+	pm.ctlSocketPath = path
+	pm.mu.Unlock()
 }
 
 // ProducerProcessID returns the pool key for a producer of the given device.
@@ -184,6 +198,7 @@ func (pm *ProducerManager) Command(processID string) (string, error) {
 
 	pm.mu.Lock()
 	entry, ok := pm.entries[deviceID]
+	ctlPath := pm.ctlSocketPath
 	pm.mu.Unlock()
 	if !ok {
 		return "", fmt.Errorf("producer Command: no entry for device %s", deviceID)
@@ -198,6 +213,12 @@ func (pm *ProducerManager) Command(processID string) (string, error) {
 		entry.spec.BinaryPath,
 		"--device", entry.spec.DevicePath,
 		"--out-socket", entry.socketPath,
+	}
+	if ctlPath != "" {
+		argv = append(argv,
+			"--ctl-connect", ctlPath,
+			"--device-id", entry.spec.DeviceID,
+		)
 	}
 	return shellJoin(argv), nil
 }

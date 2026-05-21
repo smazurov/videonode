@@ -32,6 +32,7 @@ func (s *Server) registerSSERoutes() {
 			"stream-deleted":       events.StreamDeletedEvent{},
 			"stream-state-changed": events.StreamStateChangedEvent{},
 			"canvas-restarted":     events.CanvasRestartedEvent{},
+			"source-status":        events.SourceStatusEvent{},
 			"heartbeat":            events.HeartbeatEvent{},
 		}
 
@@ -50,6 +51,7 @@ func (s *Server) registerSSERoutes() {
 			events.SubscribeToChannel[events.StreamStateChangedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.StreamMetricsEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.CanvasRestartedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.SourceStatusEvent](s.eventBus, eventCh),
 		}
 		defer func() {
 			for _, unsub := range unsubscribers {

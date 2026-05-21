@@ -16,6 +16,7 @@ import (
 	"github.com/smazurov/videonode/internal/recording"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
+	"github.com/smazurov/videonode/internal/streams/sourcectl"
 	"github.com/smazurov/videonode/internal/updater"
 	"github.com/smazurov/videonode/ui"
 )
@@ -29,6 +30,7 @@ type Server struct {
 	options        *Options
 	deviceDetector devices.DeviceDetector
 	eventBus       *events.Bus
+	controlServer  *sourcectl.Server
 	logger         logging.Logger
 }
 
@@ -128,6 +130,7 @@ type Options struct {
 	StreamProvider      streaming.StreamProvider      // Stream access for snapshots/recording
 	RawSnapshotProvider recording.RawSnapshotProvider // Raw vision pipe snapshot provider
 	RecordingDir        string                        // Directory for snapshot images
+	ControlServer       *sourcectl.Server             // Optional control plane for native sidecars
 }
 
 // NewServer creates a new API server with Huma v2 using Go 1.22+ native routing.
@@ -162,6 +165,7 @@ func NewServer(opts *Options) *Server {
 		streamService: opts.StreamService,
 		options:       opts,
 		eventBus:      opts.EventBus,
+		controlServer: opts.ControlServer,
 		logger:        logging.GetLogger("api"),
 	}
 

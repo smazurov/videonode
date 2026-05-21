@@ -136,6 +136,17 @@ void SourceProbe::note_streaming_restarted() {
     consecutive_failures_ = 0;
 }
 
+void SourceProbe::note_format_change() {
+    // Treat a control-plane set_format the same as a driver-originated
+    // SOURCE_CHANGE: force Transitioning until the first DQBUF on the
+    // reopened device succeeds.
+    source_change_pending_ = true;
+}
+
+const char* SourceProbe::dv_timings_label_public(v4l2::Streamer::DvTimingsState s) {
+    return dv_timings_label(s);
+}
+
 Health SourceProbe::health() const {
     if (device_gone_)
         return Health::Gone;
