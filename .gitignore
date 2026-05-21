@@ -12,3 +12,4 @@ dist/
 data/
 composer/build-host/
 composer/build/
+composer/compile_commands.json
