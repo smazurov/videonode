@@ -8,9 +8,9 @@
 //
 // Usage: ./live-compose-probe [seconds] [out.ppm]
 
-#include "../src/egl_ctx.hpp"
-#include "../src/ffmpeg_pipe_source.hpp"
-#include "../src/gl_compose.hpp"
+#include "src/render/egl_ctx.hpp"
+#include "src/process/ffmpeg_pipe_source.hpp"
+#include "src/render/gl_compose.hpp"
 
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>

@@ -9,6 +9,7 @@ tmp/
 .env
 build/
 bin/
+!composer/src/bin/
 
 streams.toml
 dist/

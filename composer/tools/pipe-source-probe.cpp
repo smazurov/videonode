@@ -9,8 +9,8 @@
 //   - HDMI NV12 @4K30 for 3s:
 //       ./pipe-source-probe /dev/video0 nv12 3840 2160 30 3 /tmp/hdmi.y4m
 
-#include "../src/ffmpeg_pipe_source.hpp"
-#include "../src/dma_heap.hpp"
+#include "src/process/ffmpeg_pipe_source.hpp"
+#include "src/ipc/dma_heap.hpp"
 
 #include <chrono>
 #include <cstdint>

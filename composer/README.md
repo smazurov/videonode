@@ -217,7 +217,7 @@ written. Pattern for a new harness:
 
 ```cpp
 // tests/fuzz/fuzz_jsonrpc_msg.cpp
-#include "jsonrpc_msg.hpp"
+#include "src/rpc/jsonrpc_msg.hpp"
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     jsonrpc::FrameNotification out;
     (void)jsonrpc::DecodeFrameNotification({data, size}, out);

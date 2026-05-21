@@ -1,7 +1,7 @@
 // Tests for format_dispatch. Pure logic, no EGL/GBM/dma-buf — runs on host.
 
-#include "../src/format_dispatch.hpp"
-#include "../src/egl_ctx.hpp"
+#include "src/render/format_dispatch.hpp"
+#include "src/render/egl_ctx.hpp"
 
 #include <gtest/gtest.h>
 

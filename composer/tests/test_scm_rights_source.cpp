@@ -3,9 +3,9 @@
 // the "daemon" by directly using scm_socket::SendMessage on the client
 // side; the receiver under test is ScmRightsSource on the server side.
 
-#include "../src/scm_rights_source.hpp"
-#include "../src/scm_socket.hpp"
-#include "../src/dmabuf_msg.hpp"
+#include "src/ipc/scm_rights_source.hpp"
+#include "src/ipc/scm_socket.hpp"
+#include "src/rpc/dmabuf_msg.hpp"
 
 #include <gtest/gtest.h>
 

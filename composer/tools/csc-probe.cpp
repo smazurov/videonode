@@ -31,7 +31,7 @@
 // Usage:
 //   ./csc-probe [device=/dev/dri/renderD128] [W=640] [H=480]
 
-#include "../src/egl_ctx.hpp"
+#include "src/render/egl_ctx.hpp"
 
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>

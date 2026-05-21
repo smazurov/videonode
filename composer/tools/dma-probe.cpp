@@ -6,7 +6,7 @@
 //
 // Usage: ./dma-probe [size_bytes] [heap_name]
 
-#include "../src/dma_heap.hpp"
+#include "src/ipc/dma_heap.hpp"
 
 #include <cstdint>
 #include <cstdio>
