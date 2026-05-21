@@ -206,4 +206,21 @@ void paint_tick(uint8_t* nv12, int w, int h, uint64_t tick_idx, uint64_t wallclo
     }
 }
 
+bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path) {
+    const std::size_t need = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3 / 2;
+    if (w <= 0 || h <= 0 || nv12.size() < need)
+        return false;
+    paint_base(nv12.data(), w, h, device_path);
+    return true;
+}
+
+bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64_t wallclock_ms,
+                const char* status) {
+    const std::size_t need = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3 / 2;
+    if (w <= 0 || h <= 0 || nv12.size() < need)
+        return false;
+    paint_tick(nv12.data(), w, h, tick_idx, wallclock_ms, status);
+    return true;
+}
+
 } // namespace placeholder_painter
