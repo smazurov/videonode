@@ -43,21 +43,6 @@ bool read_full(int fd, std::span<uint8_t> buf) {
     return true;
 }
 
-bool write_full(int fd, std::span<const uint8_t> buf) {
-    while (!buf.empty()) {
-        // send() with MSG_NOSIGNAL so a dead peer returns EPIPE instead of
-        // killing the process with SIGPIPE. Equivalent to write() for our
-        // already-connected stream sockets.
-        ssize_t w = ::send(fd, buf.data(), buf.size(), MSG_NOSIGNAL);
-        if (w < 0) {
-            if (errno == EINTR)
-                continue;
-            return false;
-        }
-        buf = buf.subspan(static_cast<size_t>(w));
-    }
-    return true;
-}
 
 } // namespace
 
