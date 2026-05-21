@@ -20,6 +20,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <utility>
 
 struct gbm_device;
@@ -77,6 +78,12 @@ class Allocator {
 struct Mapping {
     void* y = nullptr;
     void* uv = nullptr;
+    int height = 0;
+    uint32_t y_pitch = 0;
+    uint32_t uv_pitch = 0;
+
+    std::span<uint8_t> y_bytes() const;
+    std::span<uint8_t> uv_bytes() const;
 };
 Mapping map_rw(Buffer& b);
 void unmap(Buffer& b);
