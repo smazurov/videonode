@@ -1,13 +1,14 @@
 // videonode-composer — capture + GPU-compose, write BGRA canvas frames to stdout.
 //
 // The encoder is NOT part of this binary. We're a frame producer; consumers
-// pipe our stdout into ffmpeg (or anything else):
-//
-//   videonode-composer --canvas-w 1920 --canvas-h 1080 --fps 60 \
-//     | ffmpeg -f rawvideo -pix_fmt bgra -s 1920x1080 -framerate 30 -i pipe:0 \
-//              -c:v h264_rkmpp -profile:v high -level:v 5.2 -rc_mode VBR \
-//              -b:v 6M -g 60 -bf 0 -bsf:v dump_extra=freq=keyframe \
-//              -rtsp_transport tcp -f rtsp rtsp://127.0.0.1:8554/spike
+// pipe our stdout into ffmpeg (or anything else). Example pipeline:
+/*
+    videonode-composer --canvas-w 1920 --canvas-h 1080 --fps 60 \
+      | ffmpeg -f rawvideo -pix_fmt bgra -s 1920x1080 -framerate 30 -i pipe:0 \
+               -c:v h264_rkmpp -profile:v high -level:v 5.2 -rc_mode VBR \
+               -b:v 6M -g 60 -bf 0 -bsf:v dump_extra=freq=keyframe \
+               -rtsp_transport tcp -f rtsp rtsp://127.0.0.1:8554/spike
+*/
 //
 // Why no encoder here:
 //   - Cross-egress isolation is the architecture's main selling point.

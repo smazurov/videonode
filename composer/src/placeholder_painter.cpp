@@ -42,33 +42,17 @@ void fill_luma(uint8_t* y_plane, int w, int h, int x0, int y0, int x1, int y1, u
     }
 }
 
-// fill_chroma fills the interleaved CbCr plane (half W, half H for NV12)
-// at the chroma pixel position derived from the luma rectangle.
-void fill_chroma(uint8_t* uv_plane, int w, int h_y, int x0, int y0, int x1, int y1, uint8_t cb,
-                 uint8_t cr) {
-    // NV12 chroma: one CbCr pair per 2x2 luma block. uv stride = w bytes
-    // (w/2 pairs * 2 bytes each), uv height = h_y/2.
-    int cx0 = std::max(0, x0 / 2);
-    int cx1 = std::min(w / 2, (x1 + 1) / 2);
-    int cy0 = std::max(0, y0 / 2);
-    int cy1 = std::min(h_y / 2, (y1 + 1) / 2);
-    for (int cy = cy0; cy < cy1; ++cy) {
-        uint8_t* row = uv_plane + cy * w + cx0 * 2;
-        for (int cx = cx0; cx < cx1; ++cx) {
-            *row++ = cb;
-            *row++ = cr;
-        }
-    }
-}
-
 // draw_glyph_luma stamps one font8x8 glyph at (px, py), scaled by `scale`
 // (integer pixel replication). Bits with MSB=left convention.
+//
+// `ch` is `int` (not `char`) so the 0/0x7F bounds check is well-defined
+// regardless of whether plain `char` is signed or unsigned on the target.
 void draw_glyph_luma(uint8_t* y_plane, int w, int h, int px, int py, int scale, uint8_t value,
-                     char ch) {
+                     int ch) {
     if (ch < 0 || ch > 0x7F)
         ch = ' ';
     for (int row = 0; row < font8x8::kCharH; ++row) {
-        uint8_t bits = font8x8::kData[(int)ch][row];
+        uint8_t bits = font8x8::kData[ch][row];
         for (int col = 0; col < font8x8::kCharW; ++col) {
             if (bits & (0x80 >> col)) {
                 int x0 = px + col * scale;
@@ -105,11 +89,13 @@ AnimRegion derive_anim_region(int w, int h) {
     return AnimRegion{anim_y_start, anim_y_end};
 }
 
-namespace {
+bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path) {
+    const std::size_t need = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3 / 2;
+    if (w <= 0 || h <= 0 || nv12.size() < need)
+        return false;
 
-void paint_base_impl(uint8_t* nv12, int w, int h, const char* device_path) {
-    uint8_t* y_plane = nv12;
-    uint8_t* uv_plane = nv12 + (w * h);
+    uint8_t* y_plane = nv12.data();
+    uint8_t* uv_plane = nv12.data() + (w * h);
 
     std::memset(y_plane, kBgY, size_t(w) * h);
     {
@@ -146,11 +132,16 @@ void paint_base_impl(uint8_t* nv12, int w, int h, const char* device_path) {
         int sub_y = title_y + font8x8::kCharH * kTitleScale + 24;
         draw_text_luma(y_plane, w, h, w / 2, sub_y, sub_scale, kFgY, sub, n);
     }
+    return true;
 }
 
-void paint_tick_impl(uint8_t* nv12, int w, int h, uint64_t tick_idx, uint64_t wallclock_ms,
-                     const char* status) {
-    uint8_t* y_plane = nv12;
+bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64_t wallclock_ms,
+                const char* status) {
+    const std::size_t need = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3 / 2;
+    if (w <= 0 || h <= 0 || nv12.size() < need)
+        return false;
+
+    uint8_t* y_plane = nv12.data();
     AnimRegion r = derive_anim_region(w, h);
 
     // Clear a strip extending a bit above r.y_start to include the
@@ -206,24 +197,6 @@ void paint_tick_impl(uint8_t* nv12, int w, int h, uint64_t tick_idx, uint64_t wa
         uint8_t v = (i == active_dot) ? kFgY : (kBgY + 24);
         fill_luma(y_plane, w, h, dot_x - 3, dot_y - 3, dot_x + 3, dot_y + 3, v);
     }
-}
-
-} // namespace
-
-bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path) {
-    const std::size_t need = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3 / 2;
-    if (w <= 0 || h <= 0 || nv12.size() < need)
-        return false;
-    paint_base_impl(nv12.data(), w, h, device_path);
-    return true;
-}
-
-bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64_t wallclock_ms,
-                const char* status) {
-    const std::size_t need = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3 / 2;
-    if (w <= 0 || h <= 0 || nv12.size() < need)
-        return false;
-    paint_tick_impl(nv12.data(), w, h, tick_idx, wallclock_ms, status);
     return true;
 }
 
