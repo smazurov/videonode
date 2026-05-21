@@ -31,7 +31,7 @@ void close_all(std::vector<int>& fds) {
 int wait_and_accept(int listen_fd, std::atomic<bool>& stop, int total_seconds) {
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(total_seconds);
     while (!stop.load() && std::chrono::steady_clock::now() < deadline) {
-        pollfd pfd{listen_fd, POLLIN, 0};
+        pollfd pfd{.fd=listen_fd, .events=POLLIN, .revents=0};
         int r = ::poll(&pfd, 1, 250);
         if (r < 0) {
             if (errno == EINTR)

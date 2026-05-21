@@ -285,7 +285,7 @@ bool Streamer::dequeue_buffer(int timeout_ms, DequeuedFrame& out) {
         errno = EBADF;
         return false;
     }
-    pollfd pfd{fd_, short(POLLIN | POLLPRI), 0};
+    pollfd pfd{.fd=fd_, .events=short(POLLIN | POLLPRI), .revents=0};
     int pr = ::poll(&pfd, 1, timeout_ms);
     if (pr <= 0) {
         if (pr == 0)
