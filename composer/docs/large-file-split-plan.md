@@ -1,4 +1,21 @@
-# Phase F large-file split plan
+# Library boundaries for `composer/src/` (historical split rationale)
+
+**Status: executed in commits `5d083a9` (jsonrpc parse/serialize split),
+`3a4a547` (canvas_loop extract), `f5bff45` (v4l2_format extract), and
+`fff36a3` (SourceOrchestrator → `src/source/`, with a 3-TU sub-split since
+the single extraction landed at 1123 lines).** Current library boundaries
+match the design below; the per-TU line counts in each section reflect the
+*target*, not necessarily the as-landed counts (orchestrator landed at 672,
+still over soft 500, with `set_format_parser` + `loop` sub-splits as
+documented follow-ups).
+
+This document is preserved as the rationale trail for *why* each library
+was split the way it was — useful when adding code to one of these
+domains and wondering which TU it belongs in.
+
+---
+
+## Original Phase F plan (now executed)
 
 Concrete split points for the four `composer/src/` files that exceed the
 500-line soft target. Targets and starting line counts measured on
