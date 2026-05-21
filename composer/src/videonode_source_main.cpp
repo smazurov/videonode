@@ -380,7 +380,7 @@ struct PlaceholderRing {
         height = h;
         const size_t tight = size_t(w) * h * 3 / 2;
         stage_.assign(tight, 0);
-        placeholder_painter::paint_base(stage_.data(), w, h, device_path.c_str());
+        placeholder_painter::paint_base(stage_, w, h, device_path.c_str());
         for (int i = 0; i < 2; ++i) {
             nv12_buf::Buffer b = alloc.alloc(w, h);
             if (!b.valid())
@@ -406,8 +406,7 @@ struct PlaceholderRing {
         ++tick_idx;
         int idx = next;
         next = (next + 1) % int(bufs.size());
-        placeholder_painter::paint_tick(stage_.data(), width, height, tick_idx, wallclock_ms,
-                                        status);
+        placeholder_painter::paint_tick(stage_, width, height, tick_idx, wallclock_ms, status);
         nv12_buf::Buffer& b = bufs[idx];
         auto m = nv12_buf::map_rw(b);
         if (m.y) {
