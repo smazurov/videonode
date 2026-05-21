@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <span>
 
 namespace fake_source {
 
@@ -40,13 +41,14 @@ FakeSource::~FakeSource() {
 namespace {
 
 // Fill a rectangle in the Y plane with a given luma value. Clipped to image.
-void fill_y(uint8_t* y_plane, int stride, int img_h, int x, int y, int w, int h, uint8_t value) {
+void fill_y(std::span<uint8_t> y_plane, int stride, int img_h, int x, int y, int w, int h,
+            uint8_t value) {
     x = std::clamp(x, 0, stride);
     y = std::clamp(y, 0, img_h);
     int x2 = std::clamp(x + w, 0, stride);
     int y2 = std::clamp(y + h, 0, img_h);
     for (int row = y; row < y2; ++row) {
-        std::memset(y_plane + row * stride + x, value, static_cast<size_t>(x2 - x));
+        std::memset(y_plane.data() + row * stride + x, value, static_cast<size_t>(x2 - x));
     }
 }
 
@@ -54,8 +56,8 @@ void fill_y(uint8_t* y_plane, int stride, int img_h, int x, int y, int w, int h,
 // UV is half-resolution in both dimensions; one UV row covers two Y rows,
 // and one UV pair (2 bytes) covers two Y columns. We just compute the
 // half-coords and write in 2-byte pairs.
-void fill_uv(uint8_t* uv_plane, int stride_y, int img_h_y, int x, int y, int w, int h, uint8_t u,
-             uint8_t v) {
+void fill_uv(std::span<uint8_t> uv_plane, int stride_y, int img_h_y, int x, int y, int w, int h,
+             uint8_t u, uint8_t v) {
     int uv_stride = stride_y; // NV12 UV row stride matches Y row stride
     int uv_h = img_h_y / 2;
     int uvx = std::clamp(x / 2 * 2, 0, uv_stride);
@@ -63,7 +65,7 @@ void fill_uv(uint8_t* uv_plane, int stride_y, int img_h_y, int x, int y, int w, 
     int uvx2 = std::clamp((x + w) / 2 * 2, 0, uv_stride);
     int uvy2 = std::clamp((y + h) / 2, 0, uv_h);
     for (int row = uvy; row < uvy2; ++row) {
-        uint8_t* p = uv_plane + row * uv_stride + uvx;
+        uint8_t* p = uv_plane.data() + row * uv_stride + uvx;
         for (int col = uvx; col < uvx2; col += 2) {
             *p++ = u;
             *p++ = v;
@@ -76,14 +78,16 @@ void fill_uv(uint8_t* uv_plane, int stride_y, int img_h_y, int x, int y, int w, 
 void FakeSource::tick(int frame_idx) {
     if (!map_)
         return;
-    uint8_t* y_plane = map_;
-    uint8_t* uv_plane = map_ + static_cast<size_t>(w_) * h_;
+    const size_t y_size = static_cast<size_t>(w_) * h_;
+    const size_t uv_size = y_size / 2;
+    std::span<uint8_t> y_plane(map_, y_size);
+    std::span<uint8_t> uv_plane(map_ + y_size, uv_size);
 
     dmaheap::sync_start(buf_.fd, dmaheap::SyncDir::Write);
 
     // Reset to black background.
-    std::memset(y_plane, 16, static_cast<size_t>(w_) * h_);
-    std::memset(uv_plane, 128, static_cast<size_t>(w_) * h_ / 2);
+    std::memset(y_plane.data(), 16, y_plane.size());
+    std::memset(uv_plane.data(), 128, uv_plane.size());
 
     // Sweep a 200x200 colored square horizontally across the image, wrapping.
     // Period: w_ pixels at 4 px/frame -> w_/4 frames per sweep.
