@@ -45,7 +45,22 @@ class SourceProbe {
     // can transition out of Transitioning on the next successful DQBUF.
     void note_streaming_restarted();
 
+    // note_format_change is called by the control-plane handler before
+    // tearing down + reopening the capture device with new args. Puts
+    // the probe into Transitioning so the main loop knows we're in flux;
+    // cleared by the next note_dqbuf_success().
+    void note_format_change();
+
     Health health() const;
+
+    // dv_timings_state exposes the cached DV timings probe result so the
+    // control-plane status snapshot can include the label without
+    // re-querying the ioctl.
+    v4l2::Streamer::DvTimingsState dv_timings_state() const { return dv_timings_state_; }
+
+    // dv_timings_label_for is the public form of the private label
+    // helper, exposed so the status builder can render the enum.
+    static const char* dv_timings_label_public(v4l2::Streamer::DvTimingsState s);
 
     // diagnostic accessors for logging
     bool has_dv_timings() const { return has_dv_timings_; }
