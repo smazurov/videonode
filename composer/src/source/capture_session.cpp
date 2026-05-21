@@ -181,12 +181,14 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
         }
 
         // Probe MPP first; if librockchip_mpp isn't compiled in, skip it
-        // entirely and use TurboJPEG.
+        // entirely and use TurboJPEG. The concrete-typed local is needed
+        // because MppJpegDec::init lives on the concrete class, not the
+        // base interface.
         std::unique_ptr<jpeg_dec::JpegDec> mpp;
 #if defined(HAVE_MPP)
-        mpp = std::make_unique<mpp_jpeg_dec::MppJpegDec>();
-        if (!mpp->init(s.width, s.height))
-            mpp.reset();
+        auto mpp_concrete = std::make_unique<mpp_jpeg_dec::MppJpegDec>();
+        if (mpp_concrete->init(s.width, s.height))
+            mpp = std::move(mpp_concrete);
 #endif
         if (mpp) {
             s.jpeg = std::move(mpp);
