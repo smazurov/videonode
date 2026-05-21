@@ -87,19 +87,13 @@ class MppJpegDec : public jpeg_dec::JpegDec {
     // The returned FrameRef holds an MPP-owned dma-buf fd suitable for EGL
     // import / RGA / encoder input. Caller drops it (or assigns over) when
     // done. Returns an invalid FrameRef on failure.
-    FrameRef decode(const uint8_t* jpeg_data, size_t jpeg_size);
-
-    FrameRef decode(std::span<const uint8_t> jpeg) {
-        return decode(jpeg.data(), jpeg.size());
-    }
+    FrameRef decode(std::span<const uint8_t> jpeg);
 
     // jpeg_dec::JpegDec conformance. Holds the previously-decoded frame
     // internally (in pending_) so the dma-buf fd returned by the prior call
     // stays valid through the next broadcast — matches the TurboJPEG
     // backend's ping-pong semantics.
-    bool decode(const uint8_t* jpeg, std::size_t size, jpeg_dec::DecodedNv12& out) override;
-
-    using jpeg_dec::JpegDec::decode;
+    bool decode(std::span<const uint8_t> jpeg, jpeg_dec::DecodedNv12& out) override;
 
   private:
     MppCtx ctx_ = nullptr;

@@ -98,14 +98,14 @@ MppJpegDec::~MppJpegDec() {
     }
 }
 
-FrameRef MppJpegDec::decode(const uint8_t* jpeg_data, size_t jpeg_size) {
+FrameRef MppJpegDec::decode(std::span<const uint8_t> jpeg) {
     if (!ctx_ || !mpi_)
         return {};
     MppCtx c = ctx_;
     MppApi* m = mpi_;
 
     MppPacket pkt = nullptr;
-    MPP_RET ret = mpp_packet_init(&pkt, const_cast<uint8_t*>(jpeg_data), jpeg_size);
+    MPP_RET ret = mpp_packet_init(&pkt, const_cast<uint8_t*>(jpeg.data()), jpeg.size());
     if (ret != MPP_OK || !pkt) {
         fprintf(stderr, "mpp_jpeg_dec: packet_init=%d\n", ret);
         return {};
@@ -156,8 +156,8 @@ FrameRef MppJpegDec::decode(const uint8_t* jpeg_data, size_t jpeg_size) {
     return FrameRef(frame);
 }
 
-bool MppJpegDec::decode(const uint8_t* jpeg, std::size_t size, jpeg_dec::DecodedNv12& out) {
-    FrameRef f = decode(jpeg, size);
+bool MppJpegDec::decode(std::span<const uint8_t> jpeg, jpeg_dec::DecodedNv12& out) {
+    FrameRef f = decode(jpeg);
     if (!f.valid())
         return false;
     const uint32_t hs = static_cast<uint32_t>(f.hor_stride());
