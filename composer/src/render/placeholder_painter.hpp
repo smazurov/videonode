@@ -47,7 +47,7 @@ AnimRegion derive_anim_region(int w, int h);
 //
 // Returns false (no-op) if the span is too small to hold an NV12 frame
 // of the given dimensions.
-bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path);
+[[nodiscard]] bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path);
 
 // paint_tick repaints the animated region with a fresh spinner frame, the
 // current wall-clock timestamp + frame counter, and a status line
@@ -56,7 +56,7 @@ bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path);
 //
 // Returns false (no-op) if the span is too small to hold an NV12 frame
 // of the given dimensions.
-bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64_t wallclock_ms,
-                const char* status);
+[[nodiscard]] bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx,
+                              uint64_t wallclock_ms, const char* status);
 
 } // namespace placeholder_painter

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include "src/process/ffmpeg_pipe_source.hpp"
-#include "src/ipc/scm_rights_source.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/render/gl_compose.hpp"
 
@@ -26,6 +24,17 @@
 #include <string>
 
 struct gbm_device;
+
+// Forward-declare the source types. Callers that actually construct
+// ScmRightsSource / FfmpegPipeSource and pass them in already pull
+// the full headers; declaring them here keeps render/ from depending
+// on ipc/ and process/ for the function signatures alone.
+namespace scm_rights_source {
+class ScmRightsSource;
+}
+namespace ffmpeg_pipe_source {
+class FfmpegPipeSource;
+}
 
 namespace render {
 

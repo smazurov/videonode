@@ -23,7 +23,7 @@ std::vector<uint8_t> make_buf() {
 
 TEST(PlaceholderPainter, PaintBaseFillsBackground) {
     auto buf = make_buf();
-    placeholder_painter::paint_base(buf, kW, kH, "");
+    ASSERT_TRUE(placeholder_painter::paint_base(buf, kW, kH, ""));
 
     // Luma plane: mostly background (32), with a small handful of bright
     // pixels where the title text is rendered. Check that the top-left
@@ -42,7 +42,7 @@ TEST(PlaceholderPainter, PaintBaseFillsBackground) {
 
 TEST(PlaceholderPainter, PaintBaseWritesTitleText) {
     auto buf = make_buf();
-    placeholder_painter::paint_base(buf, kW, kH, "");
+    ASSERT_TRUE(placeholder_painter::paint_base(buf, kW, kH, ""));
 
     // Title baseline is ~1/3 down. Pull the row range that contains it
     // and count "bright" (>200) luma pixels. With 18 chars at 4x scale
@@ -63,7 +63,7 @@ TEST(PlaceholderPainter, PaintBaseWritesTitleText) {
 
 TEST(PlaceholderPainter, PaintBaseWithDevicePath) {
     auto buf = make_buf();
-    placeholder_painter::paint_base(buf, kW, kH, "/dev/v4l/by-path/platform-fdee0000.hdmirx");
+    ASSERT_TRUE(placeholder_painter::paint_base(buf, kW, kH, "/dev/v4l/by-path/platform-fdee0000.hdmirx"));
 
     // Subtitle sits below the title baseline. Count bright pixels in a
     // strip a bit below the title — must be > 0 (proves subtitle painted)
@@ -82,7 +82,7 @@ TEST(PlaceholderPainter, PaintBaseWithDevicePath) {
 
 TEST(PlaceholderPainter, PaintTickOnlyTouchesAnimRegion) {
     auto buf = make_buf();
-    placeholder_painter::paint_base(buf, kW, kH, "");
+    ASSERT_TRUE(placeholder_painter::paint_base(buf, kW, kH, ""));
 
     // paint_tick now writes the status line slightly above the spinner
     // region; compute the actual region it clears.
@@ -95,7 +95,7 @@ TEST(PlaceholderPainter, PaintTickOnlyTouchesAnimRegion) {
     std::vector<uint8_t> snapshot_below(buf.begin() + size_t(region.y_end) * kW,
                                         buf.begin() + size_t(kW) * kH);
 
-    placeholder_painter::paint_tick(buf, kW, kH, 42, 12345, "TESTING");
+    ASSERT_TRUE(placeholder_painter::paint_tick(buf, kW, kH, 42, 12345, "TESTING"));
 
     EXPECT_EQ(0, int(std::memcmp(snapshot_above.data(), buf.data(), snapshot_above.size())));
     EXPECT_EQ(0, int(std::memcmp(snapshot_below.data(), buf.data() + size_t(region.y_end) * kW,
@@ -105,11 +105,11 @@ TEST(PlaceholderPainter, PaintTickOnlyTouchesAnimRegion) {
 TEST(PlaceholderPainter, PaintTickChangesWithTickIdx) {
     auto buf_a = make_buf();
     auto buf_b = make_buf();
-    placeholder_painter::paint_base(buf_a, kW, kH, "");
-    placeholder_painter::paint_base(buf_b, kW, kH, "");
+    ASSERT_TRUE(placeholder_painter::paint_base(buf_a, kW, kH, ""));
+    ASSERT_TRUE(placeholder_painter::paint_base(buf_b, kW, kH, ""));
 
-    placeholder_painter::paint_tick(buf_a, kW, kH, 1, 100, "LIVE");
-    placeholder_painter::paint_tick(buf_b, kW, kH, 2, 200, "LIVE");
+    ASSERT_TRUE(placeholder_painter::paint_tick(buf_a, kW, kH, 1, 100, "LIVE"));
+    ASSERT_TRUE(placeholder_painter::paint_tick(buf_b, kW, kH, 2, 200, "LIVE"));
 
     auto region = placeholder_painter::derive_anim_region(kW, kH);
     bool different = false;
@@ -127,8 +127,8 @@ TEST(PlaceholderPainter, PaintTickBoundsSafetySmallCanvas) {
     // out-of-bounds. Lower bound 256 is documented in the header.
     const int sw = 256, sh = 256;
     std::vector<uint8_t> sbuf(size_t(sw) * sh * 3 / 2, 0xAA);
-    placeholder_painter::paint_base(sbuf, sw, sh, "");
-    placeholder_painter::paint_tick(sbuf, sw, sh, 7, 0, "BOUNDS");
+    ASSERT_TRUE(placeholder_painter::paint_base(sbuf, sw, sh, ""));
+    ASSERT_TRUE(placeholder_painter::paint_tick(sbuf, sw, sh, 7, 0, "BOUNDS"));
     // Sentinel: the byte before the buffer should not be touched — we
     // can't check that without a guard page, but we can check the LAST
     // byte: chroma plane ends at end of buffer; should be either bg or

@@ -25,6 +25,7 @@
 #include "src/render/placeholder_painter.hpp"
 #include "src/rpc/control_channel.hpp"
 #include "src/rpc/jsonrpc_msg.hpp"
+#include "src/source/set_format_parser.hpp"
 #include "src/source/broadcast.hpp"
 #include "src/source/capture_session.hpp"
 #include "version.hpp"
@@ -64,7 +65,11 @@ struct PlaceholderRing {
         height = h;
         const size_t tight = size_t(w) * h * 3 / 2;
         stage_.assign(tight, 0);
-        placeholder_painter::paint_base(stage_, w, h, device_path.c_str());
+        // stage_ is sized exactly to NV12 of (w, h); the guard inside
+        // paint_base can only trip on w/h <= 0 (caller bug). Treat it as
+        // an init failure to surface that.
+        if (!placeholder_painter::paint_base(stage_, w, h, device_path.c_str()))
+            return false;
         for (int i = 0; i < 2; ++i) {
             nv12_buf::Buffer b = alloc.alloc(w, h);
             if (!b.valid())
@@ -90,7 +95,10 @@ struct PlaceholderRing {
         ++tick_idx;
         int idx = next;
         next = (next + 1) % int(bufs.size());
-        placeholder_painter::paint_tick(stage_, width, height, tick_idx, wallclock_ms, status);
+        // stage_ was sized in init() to fit NV12 of (width, height); the
+        // false branch can't reach here unless init() also returned false.
+        (void)placeholder_painter::paint_tick(stage_, width, height, tick_idx, wallclock_ms,
+                                              status);
         nv12_buf::Buffer& b = bufs[idx];
         auto m = nv12_buf::map_rw(b);
         if (m.y) {
@@ -299,126 +307,29 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                     return resp;
                 }
                 if (req.method == "set_format") {
-                    // Parse params: {"fourcc":"YUYV","w":1920,"h":1080,"fps":30}
-                    // Hand-roll the parse using jsonrpc_msg helpers.
-                    using namespace jsonrpc_msg::parse;
-                    std::string_view s = req.params_json;
-                    size_t p = skip_ws(s, 0);
-                    if (p >= s.size() || s[p] != '{') {
+                    SetFormatRequest sfr;
+                    SetFormatError sfe;
+                    if (!parse_set_format(req.params_json, sfr, sfe)) {
                         resp.ok = false;
-                        resp.error_code = -32602;
-                        resp.error_message = "params must be object";
+                        resp.error_code = sfe.code;
+                        resp.error_message = std::move(sfe.message);
                         return resp;
                     }
-                    ++p;
-                    std::string fourcc;
-                    uint64_t w = 0, h = 0, fps = 0;
-                    bool got_fourcc = false, got_w = false, got_h = false;
-                    while (true) {
-                        p = skip_ws(s, p);
-                        if (p >= s.size()) {
-                            resp.ok = false;
-                            resp.error_code = -32602;
-                            resp.error_message = "truncated params";
-                            return resp;
-                        }
-                        if (s[p] == '}') {
-                            ++p;
-                            break;
-                        }
-                        std::string key;
-                        size_t np = parse_string(s, p, key);
-                        if (np == std::string::npos) {
-                            resp.ok = false;
-                            resp.error_code = -32602;
-                            resp.error_message = "bad key";
-                            return resp;
-                        }
-                        p = np;
-                        p = skip_ws(s, p);
-                        if (p >= s.size() || s[p] != ':') {
-                            resp.ok = false;
-                            resp.error_code = -32602;
-                            resp.error_message = "expected ':'";
-                            return resp;
-                        }
-                        ++p;
-                        p = skip_ws(s, p);
-                        if (key == "fourcc") {
-                            np = parse_string(s, p, fourcc);
-                            if (np == std::string::npos) {
-                                resp.ok = false;
-                                resp.error_code = -32602;
-                                resp.error_message = "bad fourcc";
-                                return resp;
-                            }
-                            got_fourcc = true;
-                            p = np;
-                        } else if (key == "w" || key == "h" || key == "fps") {
-                            uint64_t v = 0;
-                            np = parse_uint(s, p, v);
-                            if (np == std::string::npos) {
-                                resp.ok = false;
-                                resp.error_code = -32602;
-                                resp.error_message = "bad numeric field";
-                                return resp;
-                            }
-                            if (key == "w") {
-                                w = v;
-                                got_w = true;
-                            } else if (key == "h") {
-                                h = v;
-                                got_h = true;
-                            } else {
-                                fps = v;
-                            }
-                            p = np;
-                        } else {
-                            np = skip_value(s, p);
-                            if (np == std::string::npos) {
-                                resp.ok = false;
-                                resp.error_code = -32602;
-                                resp.error_message = "bad value";
-                                return resp;
-                            }
-                            p = np;
-                        }
-                        p = skip_ws(s, p);
-                        if (p < s.size() && s[p] == ',') {
-                            ++p;
-                            continue;
-                        }
-                        if (p < s.size() && s[p] == '}') {
-                            ++p;
-                            break;
-                        }
-                        resp.ok = false;
-                        resp.error_code = -32602;
-                        resp.error_message = "expected ',' or '}'";
-                        return resp;
-                    }
-                    if (!got_fourcc || !got_w || !got_h) {
-                        resp.ok = false;
-                        resp.error_code = -32602;
-                        resp.error_message = "missing required field (fourcc, w, h)";
-                        return resp;
-                    }
-                    if (v4l2_pix_fmt_(fourcc) == 0) {
+                    if (v4l2_pix_fmt_(sfr.fourcc) == 0) {
                         resp.ok = false;
                         resp.error_code = -32000;
                         resp.error_message = "unsupported fourcc";
                         return resp;
                     }
                     // Apply: stash new args, notify probe, mark for reinit.
-                    a.in_format = fourcc;
-                    a.in_width = int(w);
-                    a.in_height = int(h);
-                    a.in_fps = int(fps);
+                    a.in_format = sfr.fourcc;
+                    a.in_width = int(sfr.w);
+                    a.in_height = int(sfr.h);
+                    a.in_fps = int(sfr.fps);
                     probe.note_format_change();
                     need_reinit_for_format_change = true;
-                    fprintf(stderr,
-                            "videonode-source: set_format requested: %s %ux%u@%u\n",
-                            fourcc.c_str(), unsigned(w), unsigned(h), unsigned(fps));
+                    fprintf(stderr, "videonode-source: set_format requested: %s %ux%u@%u\n",
+                            sfr.fourcc.c_str(), sfr.w, sfr.h, sfr.fps);
                     resp.ok = true;
                     resp.result_json = "{\"applied\":true}";
                     return resp;

@@ -6,8 +6,8 @@
 #include "src/capture/source_probe.hpp"
 #include "src/ipc/scm_rights_producer.hpp"
 #include "src/render/nv12_buf.hpp"
+#include "src/source/args.hpp"
 #include "src/source/capture_session.hpp"
-#include "src/source/orchestrator.hpp"
 
 #include <cstdint>
 #include <string>

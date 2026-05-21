@@ -274,13 +274,12 @@ bool ControlChannel::write_line(const std::string& line, bool nonblocking) {
     return true;
 }
 
-bool ControlChannel::push_status(const std::string& params_json) {
+void ControlChannel::push_status(const std::string& params_json) {
     if (fd_ < 0)
-        return false;
+        return;
     std::string line = jsonrpc_msg::EncodeNotification("status", params_json);
     line += '\n';
-    bool ok = write_line(line, /*nonblocking=*/true);
-    if (ok) {
+    if (write_line(line, /*nonblocking=*/true)) {
         ++status_pushes_;
     } else {
         ++status_drops_;
@@ -289,7 +288,6 @@ bool ControlChannel::push_status(const std::string& params_json) {
         if (errno != EAGAIN && errno != EWOULDBLOCK)
             disconnect("status push fatal write error");
     }
-    return ok;
 }
 
 } // namespace control_channel
