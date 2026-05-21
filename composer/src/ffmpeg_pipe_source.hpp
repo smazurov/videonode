@@ -37,6 +37,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <span>
 #include <string>
 #include <sys/types.h>
 #include <thread>
@@ -115,7 +116,7 @@ class FfmpegPipeSource {
     bool spawn_ffmpeg_();
     std::vector<std::string> build_argv_() const;
     void thread_main_();
-    bool read_full_(uint8_t* dst, size_t n);
+    bool read_full_(std::span<uint8_t> dst);
 
     InitParams params_;
     int width_ = 0;
