@@ -70,12 +70,12 @@ class ScmRightsSource {
     // init binds + listens on InitParams.socket_path. start() then accepts
     // one client and begins the reader thread. Both must run before
     // latest_frame() returns a non-default value.
-    bool init(const InitParams& p);
+    [[nodiscard]] bool init(const InitParams& p);
 
     // start accepts the daemon's connection (blocking until it arrives,
     // up to ~30 s) and spawns the reader thread. Returns true once the
     // thread is running.
-    bool start();
+    [[nodiscard]] bool start();
 
     // stop terminates the reader thread, closes the socket and any held
     // dma-buf fds. Idempotent.

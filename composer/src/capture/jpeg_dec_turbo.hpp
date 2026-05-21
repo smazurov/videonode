@@ -38,9 +38,9 @@ class TurboJpegDec : public JpegDec {
     // the practical minimum — one slot for the broadcast, one for the
     // next decode). Returns false on tjInitDecompress() failure or empty
     // ring.
-    bool init(int width, int height, std::vector<Slot> ring);
+    [[nodiscard]] bool init(int width, int height, std::vector<Slot> ring);
 
-    bool decode(std::span<const uint8_t> jpeg, DecodedNv12& out) override;
+    [[nodiscard]] bool decode(std::span<const uint8_t> jpeg, DecodedNv12& out) override;
 
   private:
     void* handle_ = nullptr; // tjhandle (kept across frames)

@@ -24,11 +24,11 @@ namespace csc_gles {
 // One-time backend initialization. Returns false if the EGL/GLES stack
 // can't be brought up (no /dev/dri/renderD128, missing extensions, etc.).
 // Idempotent — re-calling after success is a no-op and returns true.
-bool init();
+[[nodiscard]] bool init();
 
 // Run one src→dst conversion. Caller passes already-allocated dma-buf
 // fds. Returns false on backend error or unsupported format.
-bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst);
+[[nodiscard]] bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst);
 
 // Tear down. Idempotent. Not strictly required (process exit cleans up).
 void shutdown();

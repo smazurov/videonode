@@ -23,17 +23,17 @@ namespace scm_socket {
 // Bind a Unix STREAM socket at `path`, listen for one connection. Returns
 // the listening fd on success (>= 0) or -1 on error with errno set. The
 // path is unlinked first if it exists (we own it).
-int ListenAndAccept(const std::string& path);
+[[nodiscard]] int ListenAndAccept(const std::string& path);
 
 // AcceptOne accepts a single client on `listen_fd` and returns the client
 // fd. -1 on error with errno set. ListenAndAccept handles both already;
 // this is for callers that hold the listen fd and want to accept multiple
 // clients over its lifetime.
-int AcceptOne(int listen_fd);
+[[nodiscard]] int AcceptOne(int listen_fd);
 
 // Connect to a Unix STREAM socket at `path`. Used by the testing/probe
 // senders. Returns the connected fd or -1 on error.
-int ConnectClient(const std::string& path);
+[[nodiscard]] int ConnectClient(const std::string& path);
 
 // Receive one length-prefixed JSON header + accompanying SCM_RIGHTS fds.
 // On success `header_out` and `fds_out` are populated and returns true.
@@ -42,12 +42,12 @@ int ConnectClient(const std::string& path);
 // syscall failed) or leaves it untouched (parser failure).
 //
 // Caller owns the fds returned in fds_out and must close them when done.
-bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out, std::vector<int>& fds_out,
-                 bool* eof_out = nullptr);
+[[nodiscard]] bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out, std::vector<int>& fds_out,
+                               bool* eof_out = nullptr);
 
 // SendMessage sends a length-prefixed JSON header + SCM_RIGHTS fds. Used
 // by tests and by any future host-side sender that wants to talk the same
 // protocol from C++ (the production sender is Go).
-bool SendMessage(int sock_fd, const dmabuf_msg::Header& header, const std::vector<int>& fds);
+[[nodiscard]] bool SendMessage(int sock_fd, const dmabuf_msg::Header& header, const std::vector<int>& fds);
 
 } // namespace scm_socket

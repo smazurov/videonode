@@ -54,7 +54,7 @@ class GlCompose {
   public:
     // Initialize: allocate canvas (GBM_FORMAT_ARGB8888), compile shaders,
     // build the attribute buffers. Requires an already-initialized EglCtx.
-    bool init(egl_ctx::EglCtx& ctx, int canvas_w, int canvas_h);
+    [[nodiscard]] bool init(egl_ctx::EglCtx& ctx, int canvas_w, int canvas_h);
     ~GlCompose();
 
     GlCompose() = default;
@@ -63,7 +63,7 @@ class GlCompose {
 
     // Render one canvas frame from the given slots. Returns true on success.
     // Caller is responsible for src_image lifetime; we sample but don't own.
-    bool render(const std::vector<SourceSlot>& slots);
+    [[nodiscard]] bool render(const std::vector<SourceSlot>& slots);
 
     // Wait for the GPU to finish the last render. Use before the
     // downstream consumer (RGA / mmap) reads the canvas.

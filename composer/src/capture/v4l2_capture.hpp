@@ -83,7 +83,7 @@ class Streamer {
   public:
     // open() opens the device, QUERYCAPs it, fills multiplanar(). Returns
     // false on error with an internal error message logged to stderr.
-    bool open(const std::string& device_path);
+    [[nodiscard]] bool open(const std::string& device_path);
 
     // close() releases all dma-buf fds and the device fd. Idempotent.
     void close();
@@ -99,66 +99,66 @@ class Streamer {
 
     // set_format() calls VIDIOC_S_FMT (and S_PARM if fps != 0). Returns
     // false on error.
-    bool set_format(const StreamFormat& f);
+    [[nodiscard]] bool set_format(const StreamFormat& f);
 
     // get_format() calls VIDIOC_G_FMT and reads back the driver's current
     // settings. Useful for devices like rk_hdmirx that auto-negotiate the
     // capture format from the incoming HDMI source; the sidecar can take
     // "whatever HDMI is producing" without hardcoding.
-    bool get_format(StreamFormat& out) const;
+    [[nodiscard]] bool get_format(StreamFormat& out) const;
 
     // request_buffers() calls VIDIOC_REQBUFS for `count` mmap buffers and
     // queries each one via QUERYBUF to populate plane lengths/offsets.
     // Fills the returned vector; also caches it internally so close() can
     // free the fds. Subsequent calls re-request — the old set is cleaned.
-    bool request_buffers(int count, std::vector<BufferRef>& out);
+    [[nodiscard]] bool request_buffers(int count, std::vector<BufferRef>& out);
 
     // export_buffer() calls VIDIOC_EXPBUF for one (buffer index, plane).
     // Mutates the cached BufferRef so subsequent calls to buffers() see
     // the populated fd.
-    bool export_buffer(uint32_t index, uint32_t plane, int& out_fd);
+    [[nodiscard]] bool export_buffer(uint32_t index, uint32_t plane, int& out_fd);
 
     // export_all_planes() loops over the cached buffer set, exporting
     // every plane. Convenience for the common case where the producer
     // wants every fd up front.
-    bool export_all_planes();
+    [[nodiscard]] bool export_all_planes();
 
     // queue_buffer() returns one buffer to the kernel ring (QBUF).
-    bool queue_buffer(uint32_t index);
+    [[nodiscard]] bool queue_buffer(uint32_t index);
 
     // dequeue_buffer() waits up to timeout_ms for a ready frame, then
     // DQBUF. Returns false on timeout or error.
-    bool dequeue_buffer(int timeout_ms, DequeuedFrame& out);
+    [[nodiscard]] bool dequeue_buffer(int timeout_ms, DequeuedFrame& out);
 
-    bool stream_on();
-    bool stream_off();
+    [[nodiscard]] bool stream_on();
+    [[nodiscard]] bool stream_off();
 
     // V4L2 source-change handling. Must subscribe BEFORE stream_on or
     // the kernel buffers events without notifying. drain_events()
     // returns true if any events were drained — caller should treat that
     // as "stream is stale, do a STREAMOFF/QBUF*/STREAMON cycle."
-    bool subscribe_source_change();
-    bool drain_events(bool* drained = nullptr);
+    [[nodiscard]] bool subscribe_source_change();
+    [[nodiscard]] bool drain_events(bool* drained = nullptr);
 
     // subscribe_ctrl_event subscribes to V4L2_EVENT_CTRL for one control.
     // The kernel wakes poll(POLLPRI) when the control's value changes.
     // Returns false on error (e.g. EINVAL if the device doesn't expose that
     // control). Caller should typically tolerate failure here.
-    bool subscribe_ctrl_event(uint32_t cid);
+    [[nodiscard]] bool subscribe_ctrl_event(uint32_t cid);
 
     // drain_events_typed reads all pending events and returns their raw
     // v4l2_event records so callers can inspect type + payload. Same
     // semantics as drain_events() — call when poll() reports POLLPRI.
-    bool drain_events_typed(std::vector<struct v4l2_event>& out);
+    [[nodiscard]] bool drain_events_typed(std::vector<struct v4l2_event>& out);
 
     // read_ctrl reads one control via VIDIOC_G_CTRL.
-    bool read_ctrl(uint32_t cid, int32_t& out_value) const;
+    [[nodiscard]] bool read_ctrl(uint32_t cid, int32_t& out_value) const;
 
     // query_dv_timings_valid returns true if VIDIOC_QUERY_DV_TIMINGS
     // succeeds AND reports non-zero active dimensions. Used for HDMI
     // receivers as a "the source is producing a recognized signal" check.
     // Returns false on devices that don't implement DV timings (e.g. UVC).
-    bool query_dv_timings_valid() const;
+    [[nodiscard]] bool query_dv_timings_valid() const;
 
     // DV-timings probe states. Mirrors the Go pkg/linuxav/v4l2.SignalState
     // semantics; see pkg/linuxav/v4l2/signal.go for the proven mapping.
@@ -175,12 +175,12 @@ class Streamer {
     // caller needs to distinguish "no cable" from "cable in, no lock".
     // The driver-truth for cable presence is QUERY_DV_TIMINGS, not the
     // DV_RX_POWER_PRESENT control (rk_hdmirx lies about that one).
-    DvTimingsState query_dv_timings_state() const;
+    [[nodiscard]] DvTimingsState query_dv_timings_state() const;
 
     // Full restart cycle after a source-change: STREAMOFF, re-queue all
     // cached buffers, STREAMON. The kernel's ring is reset; existing
     // dma-buf fds remain valid (we re-queue the same buffers).
-    bool restart_streaming();
+    [[nodiscard]] bool restart_streaming();
 
     // Buffer access (after request_buffers() succeeded). The vector is
     // valid until the next request_buffers() call or close().

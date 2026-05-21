@@ -41,7 +41,7 @@ class FakeSource {
   public:
     // Allocate the dma-buf and mmap it. Returns false on failure.
     // width and height must be even (NV12 chroma subsampling).
-    bool init(int width, int height, Color square_color, std::string_view heap_name = "system");
+    [[nodiscard]] bool init(int width, int height, Color square_color, std::string_view heap_name = "system");
 
     // Update the buffer contents for the given frame index. Cheap: writes
     // a black background and a 200x200 colored square at a position that

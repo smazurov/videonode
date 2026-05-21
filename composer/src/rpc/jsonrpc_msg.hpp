@@ -57,7 +57,7 @@ struct Frame {
 
 // DecodeFrame parses one JSON object into `out`. Returns true on success.
 // `err` (if non-null) is set to a short diagnostic on failure.
-bool DecodeFrame(std::string_view bytes, Frame& out, std::string* err = nullptr);
+[[nodiscard]] bool DecodeFrame(std::string_view bytes, Frame& out, std::string* err = nullptr);
 
 // Encoders. `params_json` / `result_json` / `data_json` must be a valid
 // JSON value when non-empty (the encoder injects them verbatim, no
