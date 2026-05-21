@@ -42,6 +42,8 @@ class TurboJpegDec : public JpegDec {
 
     bool decode(const uint8_t* jpeg, std::size_t size, DecodedNv12& out) override;
 
+    using JpegDec::decode;
+
   private:
     void* handle_ = nullptr; // tjhandle (kept across frames)
     int width_ = 0;
