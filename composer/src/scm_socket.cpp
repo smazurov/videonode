@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+#include <span>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/un.h>
@@ -25,10 +26,9 @@ bool set_addr(sockaddr_un& addr, const std::string& path) {
     return true;
 }
 
-bool read_full(int fd, void* buf, size_t n) {
-    auto* p = static_cast<uint8_t*>(buf);
-    while (n > 0) {
-        ssize_t r = ::read(fd, p, n);
+bool read_full(int fd, std::span<uint8_t> buf) {
+    while (!buf.empty()) {
+        ssize_t r = ::read(fd, buf.data(), buf.size());
         if (r == 0) {
             errno = 0;
             return false;
@@ -38,26 +38,23 @@ bool read_full(int fd, void* buf, size_t n) {
                 continue;
             return false;
         }
-        p += r;
-        n -= static_cast<size_t>(r);
+        buf = buf.subspan(static_cast<size_t>(r));
     }
     return true;
 }
 
-bool write_full(int fd, const void* buf, size_t n) {
-    auto* p = static_cast<const uint8_t*>(buf);
-    while (n > 0) {
+bool write_full(int fd, std::span<const uint8_t> buf) {
+    while (!buf.empty()) {
         // send() with MSG_NOSIGNAL so a dead peer returns EPIPE instead of
         // killing the process with SIGPIPE. Equivalent to write() for our
         // already-connected stream sockets.
-        ssize_t w = ::send(fd, p, n, MSG_NOSIGNAL);
+        ssize_t w = ::send(fd, buf.data(), buf.size(), MSG_NOSIGNAL);
         if (w < 0) {
             if (errno == EINTR)
                 continue;
             return false;
         }
-        p += w;
-        n -= static_cast<size_t>(w);
+        buf = buf.subspan(static_cast<size_t>(w));
     }
     return true;
 }
@@ -167,7 +164,7 @@ bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out, std::vector<int>& 
 
     // Now read the JSON body. It's a regular byte stream (no more cmsg).
     std::string body(body_len, '\0');
-    if (!read_full(sock_fd, body.data(), body_len)) {
+    if (!read_full(sock_fd, std::span(reinterpret_cast<uint8_t*>(body.data()), body_len))) {
         for (int fd : fds_out)
             ::close(fd);
         fds_out.clear();
