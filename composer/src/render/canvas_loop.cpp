@@ -51,9 +51,13 @@ template <typename FV> FrameView to_canonical_(const FV& v) {
     return c;
 }
 
-// Two single-plane EGLImages per NV12 frame: Y as R8, UV as GR88. Each
-// plane has its own dma-buf fd at PLANE0_OFFSET=0 — the only pattern
-// that reliably samples on radeonsi (per minigbm/Chromium AMD path).
+// Two single-plane EGLImages per NV12 frame: Y as R8, UV as GR88. Both
+// planes use the offset the producer supplied on the wire — for the
+// host gbm split-buffer path the UV fd is distinct from the Y fd and
+// both offsets are 0; for the rig dma_heap single-buffer path the UV
+// fd aliases the Y fd and the UV offset is non-zero (typically
+// y_pitch * height). Trusting the wire offsets covers both cleanly,
+// and matches what csc-probe / minigbm do on radeonsi.
 struct SourceImagePair {
     EGLImage y = EGL_NO_IMAGE;
     EGLImage uv = EGL_NO_IMAGE;
@@ -76,7 +80,7 @@ SourceImagePair import_frame_(const egl_ctx::EglCtx& ctx, const FrameView& v) {
     dy.modifier = kModInvalid;
     dy.width = v.width;
     dy.height = v.height;
-    dy.plane0_offset = 0;
+    dy.plane0_offset = v.plane0_offset;
     dy.plane0_pitch = v.plane0_pitch ? v.plane0_pitch : uint32_t(v.width);
     p.y = ctx.import_dmabuf(dy);
     if (p.y == EGL_NO_IMAGE)
@@ -88,7 +92,7 @@ SourceImagePair import_frame_(const egl_ctx::EglCtx& ctx, const FrameView& v) {
     duv.modifier = kModInvalid;
     duv.width = v.width / 2;
     duv.height = v.height / 2;
-    duv.plane0_offset = 0;
+    duv.plane0_offset = v.plane1_offset;
     duv.plane0_pitch = v.plane1_pitch ? v.plane1_pitch : uint32_t(v.width);
     p.uv = ctx.import_dmabuf(duv);
     if (p.uv == EGL_NO_IMAGE) {
