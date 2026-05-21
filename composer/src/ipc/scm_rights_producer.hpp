@@ -54,11 +54,11 @@ struct ConsumerStats {
 
 class ScmRightsProducer {
   public:
-    bool init(const InitParams& p);
+    [[nodiscard]] bool init(const InitParams& p);
 
     // start() spawns the accept thread. Non-blocking; returns once the
     // thread is running. Consumers may dial in any time after init().
-    bool start();
+    [[nodiscard]] bool start();
 
     // stop() shuts down accept + closes all consumer fds. Idempotent.
     void stop();

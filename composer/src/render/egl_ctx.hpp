@@ -30,7 +30,7 @@ class EglCtx {
   public:
     // Open the render node, init EGL, bind a surfaceless GLES2 context.
     // Returns false on any failure; check before use.
-    bool init(std::string_view device_path = "/dev/dri/renderD130");
+    [[nodiscard]] bool init(std::string_view device_path = "/dev/dri/renderD130");
     ~EglCtx();
 
     EglCtx() = default;
@@ -43,7 +43,7 @@ class EglCtx {
     int drm_fd() const { return drm_fd_; }
 
     // Convenience: bind the context to the calling thread (no surfaces).
-    bool make_current() const;
+    [[nodiscard]] bool make_current() const;
 
     // Build an EGLImage from a dma-buf fd. Supports two layouts the spike
     // uses today:
@@ -67,7 +67,7 @@ class EglCtx {
         int plane1_offset = 0; // for NV12; 0 for single-plane
         int plane1_pitch = 0;  // for NV12; 0 for single-plane
     };
-    EGLImage import_dmabuf(const ImageDesc& d) const;
+    [[nodiscard]] EGLImage import_dmabuf(const ImageDesc& d) const;
 
   private:
     int drm_fd_ = -1;

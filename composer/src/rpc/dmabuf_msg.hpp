@@ -91,8 +91,8 @@ struct Header {
 // after the 4-byte length prefix) and populates `out`. The envelope MUST
 // be a notification with `method == "frame"`. Returns true on success.
 // On failure `err` (if non-null) is set to a short diagnostic.
-bool DecodeFrameNotification(std::string_view envelope_bytes, Header& out,
-                             std::string* err = nullptr);
+[[nodiscard]] bool DecodeFrameNotification(std::string_view envelope_bytes, Header& out,
+                                           std::string* err = nullptr);
 
 // EncodeFrameNotification produces the full JSON-RPC envelope ready to be
 // length-prefixed and sent. Returns the raw bytes without a length prefix.

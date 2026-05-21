@@ -62,7 +62,7 @@ class Allocator {
     // Bring up the backend. On the gbm backend, `gbm` must be non-null
     // (borrow EglCtx::gbm()). On the dma_heap backend, `gbm` is ignored
     // and may be null.
-    bool init(gbm_device* gbm = nullptr);
+    [[nodiscard]] bool init(gbm_device* gbm = nullptr);
 
     // Allocate one NV12 frame. Width and height must be even.
     Buffer alloc(int width, int height);

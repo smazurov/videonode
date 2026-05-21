@@ -65,7 +65,7 @@ TEST(ScmRightsSource, EndToEndSinglePlane) {
         h.frame_idx = 42;
 
         int payload = make_tempfile(0xAB);
-        scm_socket::SendMessage(c, h, {payload});
+        EXPECT_TRUE(scm_socket::SendMessage(c, h, {payload}));
 
         // Hold the connection open briefly so the receiver has time
         // to read; then close. The receiver's thread will see EOF
@@ -121,12 +121,14 @@ TEST(ScmRightsSource, StopUnblocksPendingAccept) {
     // start() in a thread because it blocks for ~30s waiting for
     // accept.
     bool start_returned = false;
-    std::thread st([&src, &start_returned]() {
-        src.start(); // returns false because we'll stop it
+    bool start_result = true;
+    std::thread st([&src, &start_returned, &start_result]() {
+        start_result = src.start(); // expected false because we'll stop it
         start_returned = true;
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     src.stop();
     st.join();
     EXPECT_TRUE(start_returned);
+    EXPECT_FALSE(start_result);
 }

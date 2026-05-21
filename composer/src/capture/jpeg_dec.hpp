@@ -41,7 +41,7 @@ class JpegDec {
 
     // Decode one full JPEG. Returns false on header mismatch, unsupported
     // subsampling, or decode error (each backend logs to stderr).
-    virtual bool decode(std::span<const uint8_t> jpeg, DecodedNv12& out) = 0;
+    [[nodiscard]] virtual bool decode(std::span<const uint8_t> jpeg, DecodedNv12& out) = 0;
 };
 
 } // namespace jpeg_dec

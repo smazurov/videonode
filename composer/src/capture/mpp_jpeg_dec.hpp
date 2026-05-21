@@ -76,7 +76,7 @@ class MppJpegDec : public jpeg_dec::JpegDec {
     // Initialize the decoder. width/height are hints to size the buffer pool;
     // MPP picks its own internal pool sizes but knowing the input dims up
     // front saves an info-change round-trip on the first frame.
-    bool init(int max_width, int max_height);
+    [[nodiscard]] bool init(int max_width, int max_height);
     ~MppJpegDec() override;
 
     MppJpegDec() = default;
@@ -93,7 +93,7 @@ class MppJpegDec : public jpeg_dec::JpegDec {
     // internally (in pending_) so the dma-buf fd returned by the prior call
     // stays valid through the next broadcast — matches the TurboJPEG
     // backend's ping-pong semantics.
-    bool decode(std::span<const uint8_t> jpeg, jpeg_dec::DecodedNv12& out) override;
+    [[nodiscard]] bool decode(std::span<const uint8_t> jpeg, jpeg_dec::DecodedNv12& out) override;
 
   private:
     MppCtx ctx_ = nullptr;

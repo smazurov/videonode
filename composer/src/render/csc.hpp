@@ -42,6 +42,6 @@ struct ConvertParams {
 
 // convert runs one src→dst conversion using the active backend. Returns
 // false on backend error or when no backend is compiled in.
-bool convert(const ConvertParams& src, const ConvertParams& dst);
+[[nodiscard]] bool convert(const ConvertParams& src, const ConvertParams& dst);
 
 } // namespace csc

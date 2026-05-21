@@ -1072,7 +1072,12 @@ int main(int argc, char** argv) {
                             // frame's broadcast counts as the tick.
                             next_broadcast = clock::now() + broadcast_period;
                         }
-                        cap.cap.queue_buffer(df.index);
+                        if (!cap.cap.queue_buffer(df.index)) {
+                            fprintf(stderr,
+                                    "videonode-source: QBUF failed (idx=%u errno=%d); "
+                                    "kernel ring depth reduced, continuing\n",
+                                    df.index, errno);
+                        }
                     } else {
                         int e = errno;
                         if (e != ETIMEDOUT && e != EAGAIN) {
@@ -1151,7 +1156,10 @@ int main(int argc, char** argv) {
             static_cast<unsigned long long>(ph.tick_idx));
     prod.stop();
     if (cap.active) {
-        cap.cap.stream_off();
+        if (!cap.cap.stream_off()) {
+            fprintf(stderr, "videonode-source: STREAMOFF failed during shutdown (errno=%d)\n",
+                    errno);
+        }
         teardown_session_(cap);
     }
     ph.destroy();

@@ -95,8 +95,8 @@ struct FrameView {
 
 class FfmpegPipeSource {
   public:
-    bool init(const InitParams& p);
-    bool start();
+    [[nodiscard]] bool init(const InitParams& p);
+    [[nodiscard]] bool start();
     void stop(); // signal stop, SIGTERM ffmpeg, join thread
     ~FfmpegPipeSource();
 

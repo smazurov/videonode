@@ -35,8 +35,8 @@ struct SpawnResult {
 // Spawn `program` with `argv` (argv[0] is conventionally program name).
 // Sets up a single pipe per `direction`; returns the parent's end.
 // Returns {-1, -1} on failure (stderr line printed with detail).
-SpawnResult spawn(const std::string& program, const std::vector<std::string>& argv,
-                  Direction direction);
+[[nodiscard]] SpawnResult spawn(const std::string& program, const std::vector<std::string>& argv,
+                                Direction direction);
 
 // Wait up to `graceful_ms` for `pid` to exit; if still alive send SIGTERM
 // and wait another `graceful_ms`; if STILL alive SIGKILL. Closes the pipe

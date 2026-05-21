@@ -43,6 +43,6 @@ struct ConvertParams {
 // convert() runs one imcvtcolor pass: src dma-buf -> dst dma-buf. Returns
 // false on librga error. Caller passes already-allocated buffers; this
 // does not allocate.
-bool convert(const ConvertParams& src, const ConvertParams& dst);
+[[nodiscard]] bool convert(const ConvertParams& src, const ConvertParams& dst);
 
 } // namespace rga
