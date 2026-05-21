@@ -1,0 +1,27 @@
+# src/source/CMakeLists.txt — videonode-source orchestrator library.
+#
+# Extracted from bin/videonode_source_main.cpp (Phase F.4a). Owns the
+# capture-session lifecycle, the broadcast loop, the placeholder ring,
+# and the control-plane handler. The bin/ target only wires signals and
+# calls source::Run.
+
+vn_add_library(orchestrator
+    SOURCES orchestrator.cpp capture_session.cpp broadcast.cpp
+    PUBLIC_DEPS v4l2_capture csc nv12_buf placeholder_painter source_probe
+                scm_rights_producer dmabuf_msg dma_heap
+                jpeg_dec_turbo
+                jsonrpc_msg control_channel
+                Threads::Threads)
+if(HAVE_RGA)
+    target_compile_definitions(orchestrator PRIVATE HAVE_RGA=1)
+endif()
+if(HAVE_MPP)
+    target_link_libraries(orchestrator PUBLIC mpp_jpeg_dec)
+    target_compile_definitions(orchestrator PRIVATE HAVE_MPP=1)
+endif()
+if(HAVE_GBM AND NOT HAVE_RGA)
+    # nv12_buf::Allocator::init needs a gbm_device on this backend;
+    # source::Run opens it via EglCtx at startup.
+    target_compile_definitions(orchestrator PRIVATE HAVE_GBM=1)
+    target_link_libraries(orchestrator PUBLIC egl_ctx gles_bundle)
+endif()

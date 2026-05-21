@@ -1,0 +1,268 @@
+// CaptureSession implementation. See capture_session.hpp.
+
+#include "src/source/capture_session.hpp"
+
+#include "src/capture/jpeg_dec_turbo.hpp"
+#if defined(HAVE_MPP)
+#include "src/capture/mpp_jpeg_dec.hpp"
+#endif
+
+#include <cstdio>
+#include <cstdint>
+#include <linux/videodev2.h>
+#include <memory>
+#include <vector>
+
+namespace source {
+
+namespace {
+
+uint32_t fourcc_(const std::string& s) {
+    if (s.size() != 4)
+        return 0;
+    return uint32_t(uint8_t(s[0])) | (uint32_t(uint8_t(s[1])) << 8) |
+           (uint32_t(uint8_t(s[2])) << 16) | (uint32_t(uint8_t(s[3])) << 24);
+}
+
+bool v4l2_to_csc_(uint32_t v4l2_fmt, csc::PixelFormat& out, std::string& name) {
+    switch (v4l2_fmt) {
+    case V4L2_PIX_FMT_NV12:
+        out = csc::PixelFormat::Nv12;
+        name = "NV12";
+        return true;
+    case V4L2_PIX_FMT_NV16:
+        out = csc::PixelFormat::Nv16;
+        name = "NV16";
+        return true;
+    case V4L2_PIX_FMT_NV24:
+        out = csc::PixelFormat::Nv24;
+        name = "NV24";
+        return true;
+    case V4L2_PIX_FMT_BGR24:
+        out = csc::PixelFormat::Bgr3;
+        name = "BGR3";
+        return true;
+    case V4L2_PIX_FMT_YUYV:
+        out = csc::PixelFormat::Yuyv;
+        name = "YUYV";
+        return true;
+    case V4L2_PIX_FMT_UYVY:
+        out = csc::PixelFormat::Uyvy;
+        name = "UYVY";
+        return true;
+    }
+    return false;
+}
+
+bool maybe_renegotiate_to_rga_friendly_(v4l2::Streamer& cap, v4l2::StreamFormat& cur) {
+    if (cur.pixel_format != V4L2_PIX_FMT_NV24)
+        return false;
+    v4l2::StreamFormat want = cur;
+    want.pixel_format = V4L2_PIX_FMT_NV16;
+    if (!cap.set_format(want))
+        return false;
+    return cap.get_format(cur);
+}
+
+} // namespace
+
+uint32_t v4l2_pix_fmt_(const std::string& s) {
+    if (s == "NV12")
+        return V4L2_PIX_FMT_NV12;
+    if (s == "NV16")
+        return V4L2_PIX_FMT_NV16;
+    if (s == "NV24")
+        return V4L2_PIX_FMT_NV24;
+    if (s == "BGR3" || s == "BG24")
+        return V4L2_PIX_FMT_BGR24;
+    if (s == "YUYV")
+        return V4L2_PIX_FMT_YUYV;
+    if (s == "UYVY")
+        return V4L2_PIX_FMT_UYVY;
+    if (s == "MJPG" || s == "MJPEG")
+        return V4L2_PIX_FMT_MJPEG;
+    return fourcc_(s);
+}
+
+void teardown_session_(CaptureSession& s) {
+    if (s.jpeg)
+        s.jpeg.reset();
+    for (auto& b : s.out_ring)
+        nv12_buf::unmap(b);
+    s.out_y.clear();
+    s.out_uv.clear();
+    s.in_maps.clear();
+    s.in_map_sizes.clear();
+    s.out_ring.clear();
+    s.cap.close(); // unmaps V4L2 in_maps inside Streamer
+    s.active = false;
+    s.width = 0;
+    s.height = 0;
+    s.src_fmt_name.clear();
+    s.mode = DecodeMode::Rga;
+    s.using_mpp = false;
+}
+
+bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator) {
+    teardown_session_(s);
+    if (!s.cap.open(a.device))
+        return false;
+
+    v4l2::StreamFormat cur;
+    if (a.in_format.empty()) {
+        if (!s.cap.get_format(cur)) {
+            s.cap.close();
+            return false;
+        }
+        maybe_renegotiate_to_rga_friendly_(s.cap, cur);
+    } else {
+        cur.pixel_format = v4l2_pix_fmt_(a.in_format);
+        cur.width = a.in_width > 0 ? a.in_width : a.placeholder_w;
+        cur.height = a.in_height > 0 ? a.in_height : a.placeholder_h;
+        cur.fps = a.in_fps;
+        if (!s.cap.set_format(cur)) {
+            s.cap.close();
+            return false;
+        }
+        if (!s.cap.get_format(cur)) {
+            s.cap.close();
+            return false;
+        }
+    }
+
+    if (cur.pixel_format == V4L2_PIX_FMT_MJPEG) {
+        s.mode = DecodeMode::Mjpeg;
+        s.src_fmt_name = "MJPG";
+    } else {
+        s.mode = DecodeMode::Rga;
+        if (!v4l2_to_csc_(cur.pixel_format, s.src_fmt, s.src_fmt_name)) {
+            s.cap.close();
+            return false;
+        }
+    }
+    s.width = int(cur.width);
+    s.height = int(cur.height);
+    if (s.width <= 0 || s.height <= 0) {
+        s.cap.close();
+        return false;
+    }
+
+    std::vector<v4l2::BufferRef> _ignored;
+    if (!s.cap.request_buffers(a.buffers, _ignored)) {
+        s.cap.close();
+        return false;
+    }
+    if (!s.cap.export_all_planes()) {
+        s.cap.close();
+        return false;
+    }
+    for (const auto& b : s.cap.buffers()) {
+        if (!s.cap.queue_buffer(b.index)) {
+            s.cap.close();
+            return false;
+        }
+    }
+    if (!s.cap.stream_on()) {
+        s.cap.close();
+        return false;
+    }
+
+    if (s.mode == DecodeMode::Mjpeg) {
+        // mmap each V4L2 capture buffer for CPU read of variable-length
+        // JPEG payloads. MJPEG is single-plane only — mmap_buffer asserts.
+        for (const auto& b : s.cap.buffers()) {
+            auto mapped = s.cap.mmap_buffer_span(b.index);
+            if (!mapped) {
+                s.cap.close();
+                return false;
+            }
+            s.in_maps.push_back(mapped->data());
+            s.in_map_sizes.push_back(mapped->size());
+        }
+
+        // Probe MPP first; if librockchip_mpp isn't compiled in, skip it
+        // entirely and use TurboJPEG.
+        std::unique_ptr<jpeg_dec::JpegDec> mpp;
+#if defined(HAVE_MPP)
+        mpp = std::make_unique<mpp_jpeg_dec::MppJpegDec>();
+        if (!mpp->init(s.width, s.height))
+            mpp.reset();
+#endif
+        if (mpp) {
+            s.jpeg = std::move(mpp);
+            s.using_mpp = true;
+            fprintf(stderr, "videonode-source: MJPEG backend = MPP (HW)\n");
+        } else {
+            // TurboJPEG fallback. Allocate out_ring via nv12_buf + map
+            // each slot for CPU writes; hand (y_fd, y_ptr) pairs to the
+            // decoder. On split-buffer backends (Fedora GBM) the
+            // TurboJPEG NV12 output assumes contiguous Y+UV, which the
+            // GBM split layout doesn't satisfy — skipped on that backend
+            // until the TurboJPEG path is split-aware.
+#if defined(HAVE_GBM) && !defined(HAVE_RGA)
+            fprintf(stderr, "videonode-source: TurboJPEG MJPEG decode not yet wired for "
+                            "GBM split-buffer backend; aborting capture\n");
+            s.cap.close();
+            return false;
+#else
+            for (int i = 0; i < a.buffers; ++i) {
+                nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
+                if (!b.valid()) {
+                    s.cap.close();
+                    s.out_ring.clear();
+                    return false;
+                }
+                s.out_ring.push_back(std::move(b));
+            }
+            std::vector<jpeg_dec::TurboJpegDec::Slot> slots;
+            slots.reserve(s.out_ring.size());
+            for (auto& buf : s.out_ring) {
+                auto m = nv12_buf::map_rw(buf);
+                if (!m.y) {
+                    fprintf(stderr, "videonode-source: map_rw out_ring fd=%d failed\n", buf.y_fd);
+                    s.cap.close();
+                    return false;
+                }
+                s.out_y.push_back(m.y);
+                s.out_uv.push_back(m.uv);
+                // Single-buffer backend: Y and UV are contiguous in one
+                // mapped region. TurboJPEG decodes NV12 into that
+                // contiguous layout via the y_fd + y pointer.
+                slots.push_back({buf.y_fd, static_cast<uint8_t*>(m.y)});
+            }
+            auto tj = std::make_unique<jpeg_dec::TurboJpegDec>();
+            if (!tj->init(s.width, s.height, std::move(slots))) {
+                s.cap.close();
+                return false;
+            }
+            s.jpeg = std::move(tj);
+            s.using_mpp = false;
+            fprintf(stderr, "videonode-source: MJPEG backend = TurboJPEG (SW)\n");
+#endif
+        }
+    } else {
+        // RGA / GLES CSC path: out_ring holds NV12 buffers the CSC writes
+        // into. Allocator is dma_heap (single bo) on rig, GBM (split
+        // bos) on Fedora — see nv12_buf.hpp.
+        for (int i = 0; i < a.buffers; ++i) {
+            nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
+            if (!b.valid()) {
+                s.cap.close();
+                s.out_ring.clear();
+                return false;
+            }
+            s.out_ring.push_back(std::move(b));
+        }
+    }
+
+    s.active = true;
+    fprintf(
+        stderr,
+        "videonode-source: capture ready — %dx%d %s, %d v4l2 buffers (multiplanar=%d, mode=%s)\n",
+        s.width, s.height, s.src_fmt_name.c_str(), int(s.cap.buffers().size()),
+        int(s.cap.multiplanar()),
+        s.mode == DecodeMode::Mjpeg ? (s.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg") : "rga");
+    return true;
+}
+
+} // namespace source
