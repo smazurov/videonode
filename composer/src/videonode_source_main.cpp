@@ -18,6 +18,8 @@
 // There are no time-based "stale" thresholds anywhere. State is whatever
 // the driver tells us via V4L2 events and ctrl reads.
 
+#include "control_channel.hpp"
+#include "jsonrpc_msg.hpp"
 #include "v4l2_capture.hpp"
 #include "rga_csc.hpp"
 #include "placeholder_painter.hpp"
@@ -40,7 +42,9 @@
 #include <linux/videodev2.h>
 #include <memory>
 #include <poll.h>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <thread>
@@ -67,6 +71,11 @@ struct Args {
     int broadcast_fps = 60;
     int placeholder_w = 1920;
     int placeholder_h = 1080;
+    // Control plane: if both set, sidecar dials the daemon and identifies
+    // itself; otherwise control-plane is disabled (back-compat for
+    // standalone runs from the smoke script / dev shell).
+    std::string ctl_connect;
+    std::string device_id;
 };
 
 uint32_t fourcc_(const std::string& s) {
@@ -389,7 +398,9 @@ void print_help(const Args& d) {
            "  --seconds N                   stop after N seconds (default %d = until SIGINT)\n"
            "  --broadcast-fps N             publish rate (default %d)\n"
            "  --placeholder-w W             placeholder canvas width  (default %d)\n"
-           "  --placeholder-h H             placeholder canvas height (default %d)\n",
+           "  --placeholder-h H             placeholder canvas height (default %d)\n"
+           "  --ctl-connect PATH            daemon control UDS to dial (omit to disable)\n"
+           "  --device-id ID                stable device ID for control-plane identify\n",
            d.device.c_str(), d.buffers, d.out_socket.c_str(), d.max_consumers, d.run_seconds,
            d.broadcast_fps, d.placeholder_w, d.placeholder_h);
 }
@@ -462,6 +473,16 @@ bool parse_args(int argc, char** argv, Args& a) {
             if (!v)
                 return false;
             a.placeholder_h = atoi(v);
+        } else if (s == "--ctl-connect") {
+            const char* v = eat(i);
+            if (!v)
+                return false;
+            a.ctl_connect = v;
+        } else if (s == "--device-id") {
+            const char* v = eat(i);
+            if (!v)
+                return false;
+            a.device_id = v;
         } else if (s == "-h" || s == "--help") {
             print_help(a);
             exit(0);
@@ -492,6 +513,127 @@ void broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec
     h_.plane_offsets = {d.y_offset, d.uv_offset};
     h_.frame_idx = frame_idx;
     prod.broadcast(h_, {d.fd, d.fd});
+}
+
+// json_quote escapes a string for safe injection into a JSON object as
+// a literal value. Mirrors control_channel.cpp's helper but kept local
+// to avoid leaking that one outside the channel.
+std::string json_quote(const std::string& s) {
+    std::string o;
+    o.reserve(s.size() + 2);
+    o += '"';
+    for (char c : s) {
+        switch (c) {
+        case '"':
+            o += "\\\"";
+            break;
+        case '\\':
+            o += "\\\\";
+            break;
+        case '\n':
+            o += "\\n";
+            break;
+        case '\t':
+            o += "\\t";
+            break;
+        case '\r':
+            o += "\\r";
+            break;
+        default:
+            if (static_cast<unsigned char>(c) < 0x20) {
+                char buf[8];
+                std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(c));
+                o += buf;
+            } else {
+                o += c;
+            }
+            break;
+        }
+    }
+    o += '"';
+    return o;
+}
+
+// build_status_params serializes the full status snapshot as a JSON
+// object suitable for use as the `params` of a JSON-RPC `status`
+// notification. No allocation hotspot; called at most a few times per
+// second.
+std::string build_status_params(const std::string& device_id, source_probe::SourceProbe& probe,
+                                source_probe::Health h, const CaptureSession& cap, const Args& a,
+                                uint64_t real_frame_idx, uint64_t placeholder_frames,
+                                uint32_t last_seq, scm_rights_producer::ScmRightsProducer& prod) {
+    std::ostringstream o;
+    o << "{";
+    o << "\"device_id\":" << json_quote(device_id);
+    o << ",\"ts_ms\":" << now_ms();
+    o << ",\"health\":" << json_quote(source_probe::status_text(h));
+
+    o << ",\"device\":{";
+    o << "\"path\":" << json_quote(a.device);
+    o << ",\"multiplanar\":" << (cap.active && cap.cap.multiplanar() ? "true" : "false");
+    o << "}";
+
+    o << ",\"signal\":{";
+    o << "\"has_dv_timings\":" << (probe.has_dv_timings() ? "true" : "false");
+    o << ",\"cable_present\":" << (probe.cable_present() ? "true" : "false");
+    o << ",\"signal_locked\":" << (probe.signal_locked() ? "true" : "false");
+    o << ",\"dv_timings\":"
+      << json_quote(source_probe::SourceProbe::dv_timings_label_public(probe.dv_timings_state()));
+    o << "}";
+
+    o << ",\"format\":{";
+    if (cap.active) {
+        o << "\"fourcc\":" << json_quote(cap.src_fmt_name);
+        o << ",\"w\":" << cap.width;
+        o << ",\"h\":" << cap.height;
+        o << ",\"fps\":" << a.in_fps;
+        o << ",\"buffers\":" << cap.cap.buffers().size();
+        const char* mode_name = (cap.mode == DecodeMode::Mjpeg)
+                                    ? (cap.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg")
+                                    : "rga";
+        o << ",\"mode\":" << json_quote(mode_name);
+    } else {
+        o << "\"fourcc\":\"\",\"w\":0,\"h\":0,\"fps\":0,\"buffers\":0,\"mode\":\"\"";
+    }
+    o << "}";
+
+    o << ",\"broadcast\":{";
+    o << "\"target_fps\":" << a.broadcast_fps;
+    o << ",\"real_frames\":" << real_frame_idx;
+    o << ",\"placeholder_frames\":" << placeholder_frames;
+    o << ",\"last_seq\":" << last_seq;
+    o << "}";
+
+    auto stats = prod.stats();
+    o << ",\"consumers\":{";
+    o << "\"count\":" << prod.consumer_count();
+    o << ",\"live\":[";
+    bool first = true;
+    for (const auto& cs : stats) {
+        if (cs.evicted_at_frame != 0)
+            continue;
+        if (!first)
+            o << ",";
+        first = false;
+        o << "{\"fd\":" << cs.fd << ",\"frames_sent\":" << cs.frames_sent
+          << ",\"frames_dropped\":" << cs.frames_dropped << "}";
+    }
+    o << "],\"evicted\":[";
+    first = true;
+    for (const auto& cs : stats) {
+        if (cs.evicted_at_frame == 0)
+            continue;
+        if (!first)
+            o << ",";
+        first = false;
+        o << "{\"fd\":" << cs.fd << ",\"frames_sent\":" << cs.frames_sent
+          << ",\"frames_dropped\":" << cs.frames_dropped
+          << ",\"evicted_at_frame\":" << cs.evicted_at_frame << "}";
+    }
+    o << "]}";
+
+    o << "}";
+    return o.str();
 }
 
 // Thin shim for the RGA + placeholder paths that produce tight NV12 (no
@@ -552,6 +694,164 @@ int main(int argc, char** argv) {
         fprintf(stderr, "videonode-source: capture not ready at startup\n");
     }
 
+    // Control plane: dial the daemon if --ctl-connect was provided.
+    // Without it, the sidecar runs standalone (e.g. from smoke scripts)
+    // with no command/status channel.
+    control_channel::ControlChannel ctl;
+    bool ctl_enabled = !a.ctl_connect.empty() && !a.device_id.empty();
+    bool need_reinit_for_format_change = false;
+    if (ctl_enabled) {
+        ctl.init(a.ctl_connect, a.device_id, vn::kVersion);
+        ctl.set_command_handler(
+            [&](const control_channel::IncomingRequest& req) -> control_channel::HandlerResponse {
+                control_channel::HandlerResponse resp;
+                if (req.method == "shutdown") {
+                    g_running.store(false);
+                    resp.ok = true;
+                    return resp;
+                }
+                if (req.method == "get_status") {
+                    // Caller fills in the snapshot below when it sends it
+                    // back over the wire — we can't reach all the state
+                    // we'd need here without yet more captures. Simpler:
+                    // schedule a push and reply with an empty ack.
+                    resp.ok = true;
+                    return resp;
+                }
+                if (req.method == "set_format") {
+                    // Parse params: {"fourcc":"YUYV","w":1920,"h":1080,"fps":30}
+                    // Hand-roll the parse using jsonrpc_msg helpers.
+                    using namespace jsonrpc_msg::parse;
+                    std::string_view s = req.params_json;
+                    size_t p = skip_ws(s, 0);
+                    if (p >= s.size() || s[p] != '{') {
+                        resp.ok = false;
+                        resp.error_code = -32602;
+                        resp.error_message = "params must be object";
+                        return resp;
+                    }
+                    ++p;
+                    std::string fourcc;
+                    uint64_t w = 0, h = 0, fps = 0;
+                    bool got_fourcc = false, got_w = false, got_h = false;
+                    while (true) {
+                        p = skip_ws(s, p);
+                        if (p >= s.size()) {
+                            resp.ok = false;
+                            resp.error_code = -32602;
+                            resp.error_message = "truncated params";
+                            return resp;
+                        }
+                        if (s[p] == '}') {
+                            ++p;
+                            break;
+                        }
+                        std::string key;
+                        size_t np = parse_string(s, p, key);
+                        if (np == std::string::npos) {
+                            resp.ok = false;
+                            resp.error_code = -32602;
+                            resp.error_message = "bad key";
+                            return resp;
+                        }
+                        p = np;
+                        p = skip_ws(s, p);
+                        if (p >= s.size() || s[p] != ':') {
+                            resp.ok = false;
+                            resp.error_code = -32602;
+                            resp.error_message = "expected ':'";
+                            return resp;
+                        }
+                        ++p;
+                        p = skip_ws(s, p);
+                        if (key == "fourcc") {
+                            np = parse_string(s, p, fourcc);
+                            if (np == std::string::npos) {
+                                resp.ok = false;
+                                resp.error_code = -32602;
+                                resp.error_message = "bad fourcc";
+                                return resp;
+                            }
+                            got_fourcc = true;
+                            p = np;
+                        } else if (key == "w" || key == "h" || key == "fps") {
+                            uint64_t v = 0;
+                            np = parse_uint(s, p, v);
+                            if (np == std::string::npos) {
+                                resp.ok = false;
+                                resp.error_code = -32602;
+                                resp.error_message = "bad numeric field";
+                                return resp;
+                            }
+                            if (key == "w") {
+                                w = v;
+                                got_w = true;
+                            } else if (key == "h") {
+                                h = v;
+                                got_h = true;
+                            } else {
+                                fps = v;
+                            }
+                            p = np;
+                        } else {
+                            np = skip_value(s, p);
+                            if (np == std::string::npos) {
+                                resp.ok = false;
+                                resp.error_code = -32602;
+                                resp.error_message = "bad value";
+                                return resp;
+                            }
+                            p = np;
+                        }
+                        p = skip_ws(s, p);
+                        if (p < s.size() && s[p] == ',') {
+                            ++p;
+                            continue;
+                        }
+                        if (p < s.size() && s[p] == '}') {
+                            ++p;
+                            break;
+                        }
+                        resp.ok = false;
+                        resp.error_code = -32602;
+                        resp.error_message = "expected ',' or '}'";
+                        return resp;
+                    }
+                    if (!got_fourcc || !got_w || !got_h) {
+                        resp.ok = false;
+                        resp.error_code = -32602;
+                        resp.error_message = "missing required field (fourcc, w, h)";
+                        return resp;
+                    }
+                    if (v4l2_pix_fmt_(fourcc) == 0) {
+                        resp.ok = false;
+                        resp.error_code = -32000;
+                        resp.error_message = "unsupported fourcc";
+                        return resp;
+                    }
+                    // Apply: stash new args, notify probe, mark for reinit.
+                    a.in_format = fourcc;
+                    a.in_width = int(w);
+                    a.in_height = int(h);
+                    a.in_fps = int(fps);
+                    probe.note_format_change();
+                    need_reinit_for_format_change = true;
+                    fprintf(stderr,
+                            "videonode-source: set_format requested: %s %ux%u@%u\n",
+                            fourcc.c_str(), unsigned(w), unsigned(h), unsigned(fps));
+                    resp.ok = true;
+                    resp.result_json = "{\"applied\":true}";
+                    return resp;
+                }
+                resp.ok = false;
+                resp.error_code = -32601;
+                resp.error_message = "method not found";
+                return resp;
+            });
+        fprintf(stderr, "videonode-source: control plane → %s (id=%s)\n",
+                a.ctl_connect.c_str(), a.device_id.c_str());
+    }
+
     using clock = std::chrono::steady_clock;
     const auto broadcast_period =
         std::chrono::nanoseconds(1'000'000'000LL / std::max(1, a.broadcast_fps));
@@ -559,6 +859,7 @@ int main(int argc, char** argv) {
     auto next_broadcast = clock::now();
 
     uint64_t real_frame_idx = 0;
+    uint32_t last_dqbuf_seq = 0;
     int last_good_out_fd = -1;
     int last_good_w = 0, last_good_h = 0;
     source_probe::Health prev_health = source_probe::Health::Probing;
@@ -567,10 +868,32 @@ int main(int argc, char** argv) {
     // case the driver doesn't fire SOURCE_CHANGE on cable unplug. Cheap
     // (one VIDIOC_G_CTRL ioctl); guards against event-only blindspots.
     auto next_power_poll = clock::now();
+    auto next_status_heartbeat = clock::now();
+    int prev_consumer_count = -1;
 
     while (g_running.load()) {
         if (a.run_seconds > 0 && clock::now() - loop_start > std::chrono::seconds(a.run_seconds))
             break;
+
+        if (ctl_enabled) {
+            ctl.maintain();
+        }
+
+        // Format-change reinit: synchronous teardown + reopen with the
+        // new args. The probe was already marked Transitioning; the
+        // last_good fd is invalidated because out_ring is reallocated.
+        if (need_reinit_for_format_change) {
+            last_good_out_fd = -1;
+            last_good_w = 0;
+            last_good_h = 0;
+            if (try_open_capture(cap, a)) {
+                probe.attach();
+                need_reinit = false;
+            } else {
+                need_reinit = true;
+            }
+            need_reinit_for_format_change = false;
+        }
 
         // Reinit capture if we lost it.
         if (need_reinit) {
@@ -591,10 +914,30 @@ int main(int argc, char** argv) {
         if (poll_timeout_ms > 100)
             poll_timeout_ms = 100;
 
+        // Build pollset: capture fd (if active) + control-channel fd (if
+        // connected). We keep slots stable so revents land where expected.
+        std::vector<pollfd> pset;
+        int cap_idx = -1;
+        int ctl_idx = -1;
         if (cap.active) {
-            pollfd pfd{cap.cap.fd(), short(POLLIN | POLLPRI), 0};
-            int pr = ::poll(&pfd, 1, poll_timeout_ms);
-            if (pr > 0) {
+            pollfd pfd{};
+            pfd.fd = cap.cap.fd();
+            pfd.events = POLLIN | POLLPRI;
+            cap_idx = int(pset.size());
+            pset.push_back(pfd);
+        }
+        if (ctl_enabled && ctl.connected()) {
+            ctl_idx = int(pset.size());
+            ctl.add_to_poll(pset);
+        }
+
+        if (!pset.empty()) {
+            int pr = ::poll(pset.data(), pset.size(), poll_timeout_ms);
+            if (pr > 0 && ctl_idx >= 0) {
+                ctl.handle_events(pset[ctl_idx].revents);
+            }
+            if (pr > 0 && cap_idx >= 0) {
+                pollfd pfd = pset[cap_idx];
                 if (pfd.revents & POLLPRI) {
                     std::vector<v4l2_event> evs;
                     if (cap.cap.drain_events_typed(evs)) {
@@ -618,6 +961,7 @@ int main(int argc, char** argv) {
                     v4l2::DequeuedFrame df;
                     if (cap.cap.dequeue_buffer(0, df)) {
                         probe.note_dqbuf_success();
+                        last_dqbuf_seq = df.sequence;
                         bool ok = false;
                         jpeg_dec::DecodedNv12 decoded;
                         if (cap.mode == DecodeMode::Rga) {
@@ -685,9 +1029,27 @@ int main(int argc, char** argv) {
             next_power_poll = clock::now() + std::chrono::seconds(1);
         }
         source_probe::Health h = probe.health();
-        if (h != prev_health) {
+        bool health_changed = (h != prev_health);
+        if (health_changed) {
             fprintf(stderr, "videonode-source: state -> %s\n", source_probe::status_text(h));
             prev_health = h;
+        }
+
+        // Control-plane status push: on health change, on consumer-count
+        // change, or every ~1s as a heartbeat. Drop-on-EAGAIN so a slow
+        // daemon can't deadlock the broadcast loop.
+        if (ctl_enabled && ctl.connected()) {
+            int cur_consumers = prod.consumer_count();
+            bool consumers_changed = (cur_consumers != prev_consumer_count);
+            bool heartbeat_due = clock::now() >= next_status_heartbeat;
+            if (health_changed || consumers_changed || heartbeat_due) {
+                std::string params = build_status_params(
+                    a.device_id, probe, h, cap, a, real_frame_idx, ph.tick_idx, last_dqbuf_seq,
+                    prod);
+                ctl.push_status(params);
+                prev_consumer_count = cur_consumers;
+                next_status_heartbeat = clock::now() + std::chrono::seconds(1);
+            }
         }
 
         // Time to broadcast a tick?
