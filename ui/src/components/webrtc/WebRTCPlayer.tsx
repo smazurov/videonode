@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { PlayIcon } from '@heroicons/react/24/outline';
+import { PlayIcon, SignalSlashIcon } from '@heroicons/react/24/outline';
 import { webrtcSignaling } from '../../lib/api';
 import { StatsOverlay } from './StatsOverlay';
 
@@ -226,8 +226,9 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         className="w-full h-full object-contain"
       />
       {isOffline && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-fg-subtle text-sm">Stream offline</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 text-fg-inverse">
+          <SignalSlashIcon className="w-14 h-14 text-danger" />
+          <span className="text-lg font-semibold uppercase tracking-wider">Stream offline</span>
         </div>
       )}
       {isConnecting && (
