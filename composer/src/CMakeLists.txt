@@ -11,6 +11,7 @@
 # ───────────────────────────────────────────────── libraries (always built)
 vn_add_library(dma_heap      SOURCES dma_heap.cpp)
 vn_add_library(child_process SOURCES child_process.cpp)
+vn_add_library(jsonrpc_msg   SOURCES jsonrpc_msg.cpp)
 vn_add_library(dmabuf_msg    SOURCES dmabuf_msg.cpp)
 
 vn_add_library(scm_socket

@@ -8,6 +8,7 @@ vn_add_test(ffmpeg_pipe_source_argv
     DEPS ffmpeg_pipe_source dma_heap child_process Threads::Threads)
 
 vn_add_test(child_process       DEPS child_process)
+vn_add_test(jsonrpc_msg         DEPS jsonrpc_msg)
 vn_add_test(dmabuf_msg          DEPS dmabuf_msg)
 vn_add_test(scm_socket          DEPS scm_socket)
 
