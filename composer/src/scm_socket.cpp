@@ -175,11 +175,11 @@ bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out, std::vector<int>& 
     }
 
     std::string err;
-    if (!dmabuf_msg::DecodeHeader(body, header_out, &err)) {
+    if (!dmabuf_msg::DecodeFrameNotification(body, header_out, &err)) {
         for (int fd : fds_out)
             ::close(fd);
         fds_out.clear();
-        fprintf(stderr, "scm_socket: DecodeHeader: %s\n", err.c_str());
+        fprintf(stderr, "scm_socket: DecodeFrameNotification: %s\n", err.c_str());
         errno = EPROTO;
         return false;
     }
@@ -203,7 +203,7 @@ bool SendMessage(int sock_fd, const dmabuf_msg::Header& header, const std::vecto
         errno = EINVAL;
         return false;
     }
-    std::string body = dmabuf_msg::EncodeHeader(header);
+    std::string body = dmabuf_msg::EncodeFrameNotification(header);
     if (body.empty() || body.size() > 65536) {
         errno = EINVAL;
         return false;

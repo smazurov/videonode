@@ -12,7 +12,8 @@ import (
 	"github.com/smazurov/videonode/internal/ffmpeg"
 )
 
-// dmabufHeader mirrors the JSON shape composer/src/dmabuf_msg.hpp encodes.
+// dmabufHeader mirrors the inner `params` shape of the JSON-RPC 2.0
+// `frame` notification encoded by composer/src/dmabuf_msg.cpp.
 type dmabufHeader struct {
 	SlotIndex    uint32   `json:"slot_index"`
 	Width        uint32   `json:"width"`
@@ -21,6 +22,15 @@ type dmabufHeader struct {
 	PlanePitches []uint32 `json:"plane_pitches"`
 	PlaneOffsets []uint32 `json:"plane_offsets"`
 	FrameIdx     uint64   `json:"frame_idx"`
+}
+
+// frameNotification is the JSON-RPC 2.0 envelope around dmabufHeader. The
+// videonode-source producer sends it length-prefixed (4-byte big-endian)
+// alongside SCM_RIGHTS ancillary fds.
+type frameNotification struct {
+	JSONRPC string       `json:"jsonrpc"`
+	Method  string       `json:"method"`
+	Params  dmabufHeader `json:"params"`
 }
 
 // captureNativeSnapshot dials a videonode-source SCM_RIGHTS socket, reads
@@ -73,10 +83,17 @@ func captureNativeSnapshot(socketPath string, timeout time.Duration) ([]byte, er
 	planeFDs = append(planeFDs, moreFDs...)
 	defer closeFDs(planeFDs)
 
-	var hdr dmabufHeader
-	if err := json.Unmarshal(body, &hdr); err != nil {
-		return nil, fmt.Errorf("snapshot: decode header: %w", err)
+	var env frameNotification
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("snapshot: decode envelope: %w", err)
 	}
+	if env.JSONRPC != "2.0" {
+		return nil, fmt.Errorf("snapshot: bad jsonrpc version %q", env.JSONRPC)
+	}
+	if env.Method != "frame" {
+		return nil, fmt.Errorf("snapshot: unexpected method %q", env.Method)
+	}
+	hdr := env.Params
 	if len(planeFDs) == 0 {
 		return nil, fmt.Errorf("snapshot: no fds received with frame")
 	}

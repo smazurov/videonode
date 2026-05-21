@@ -1,124 +1,27 @@
 #include "dmabuf_msg.hpp"
 
-#include <cctype>
-#include <cstdio>
-#include <cstdlib>
+#include "jsonrpc_msg.hpp"
+
 #include <sstream>
 
 namespace dmabuf_msg {
 
 namespace {
 
-// Skip JSON whitespace at p; return new position.
-size_t skip_ws(std::string_view s, size_t p) {
-    while (p < s.size() && (s[p] == ' ' || s[p] == '\t' || s[p] == '\n' || s[p] == '\r'))
-        ++p;
-    return p;
-}
-
-// Parse a JSON string starting at s[p] (which should be '"'). On success
-// returns the next position after the closing quote and writes the
-// decoded value to `out`. Returns std::string::npos on malformed input.
-size_t parse_string(std::string_view s, size_t p, std::string& out) {
-    if (p >= s.size() || s[p] != '"')
-        return std::string::npos;
-    ++p;
-    out.clear();
-    while (p < s.size() && s[p] != '"') {
-        if (s[p] == '\\' && p + 1 < s.size()) {
-            // Handle the JSON escapes we'd ever see from Go's encoding/json.
-            char c = s[p + 1];
-            switch (c) {
-            case '"':
-                out += '"';
-                break;
-            case '\\':
-                out += '\\';
-                break;
-            case '/':
-                out += '/';
-                break;
-            case 'n':
-                out += '\n';
-                break;
-            case 't':
-                out += '\t';
-                break;
-            case 'r':
-                out += '\r';
-                break;
-            default:
-                // We don't expect \u escapes in our specific schema.
-                out += c;
-                break;
-            }
-            p += 2;
-        } else {
-            out += s[p++];
-        }
-    }
-    if (p >= s.size())
-        return std::string::npos;
-    return p + 1; // skip closing "
-}
-
-// Parse a JSON unsigned integer starting at s[p]. Returns npos on
-// malformed input.
-size_t parse_uint(std::string_view s, size_t p, uint64_t& out) {
-    if (p >= s.size() || !std::isdigit(static_cast<unsigned char>(s[p]))) {
-        return std::string::npos;
-    }
-    out = 0;
-    while (p < s.size() && std::isdigit(static_cast<unsigned char>(s[p]))) {
-        out = out * 10 + static_cast<uint64_t>(s[p] - '0');
-        ++p;
-    }
-    return p;
-}
-
-// Parse a JSON array of unsigned integers ("[1, 2, 3]") into `out`.
-size_t parse_uint_array(std::string_view s, size_t p, std::vector<uint32_t>& out) {
-    p = skip_ws(s, p);
-    if (p >= s.size() || s[p] != '[')
-        return std::string::npos;
-    ++p;
-    out.clear();
-    p = skip_ws(s, p);
-    if (p < s.size() && s[p] == ']')
-        return p + 1; // empty array
-    while (p < s.size()) {
-        p = skip_ws(s, p);
-        uint64_t v = 0;
-        p = parse_uint(s, p, v);
-        if (p == std::string::npos)
-            return std::string::npos;
-        out.push_back(static_cast<uint32_t>(v));
-        p = skip_ws(s, p);
-        if (p >= s.size())
-            return std::string::npos;
-        if (s[p] == ',') {
-            ++p;
-            continue;
-        }
-        if (s[p] == ']')
-            return p + 1;
-        return std::string::npos;
-    }
-    return std::string::npos;
-}
-
 void set_err(std::string* err, const char* msg) {
     if (err)
         *err = msg;
 }
 
-} // namespace
-
-bool DecodeHeader(std::string_view s, Header& out, std::string* err) {
+// Parse the inner params object into a Header. Caller guarantees that
+// `s` is the raw substring of `"params"` (a JSON object).
+bool decode_params(std::string_view s, Header& out, std::string* err) {
+    using namespace jsonrpc_msg::parse;
     out = Header{};
+
     size_t p = skip_ws(s, 0);
     if (p >= s.size() || s[p] != '{') {
-        set_err(err, "expected '{'");
+        set_err(err, "params: expected '{'");
         return false;
     }
     ++p;
@@ -126,7 +29,7 @@ bool DecodeHeader(std::string_view s, Header& out, std::string* err) {
     while (true) {
         p = skip_ws(s, p);
         if (p >= s.size()) {
-            set_err(err, "unexpected end inside object");
+            set_err(err, "params: unexpected end");
             return false;
         }
         if (s[p] == '}') {
@@ -135,14 +38,15 @@ bool DecodeHeader(std::string_view s, Header& out, std::string* err) {
         }
 
         std::string key;
-        p = parse_string(s, p, key);
-        if (p == std::string::npos) {
-            set_err(err, "bad key");
+        size_t np = parse_string(s, p, key);
+        if (np == std::string::npos) {
+            set_err(err, "params: bad key");
             return false;
         }
+        p = np;
         p = skip_ws(s, p);
         if (p >= s.size() || s[p] != ':') {
-            set_err(err, "expected ':'");
+            set_err(err, "params: expected ':'");
             return false;
         }
         ++p;
@@ -150,9 +54,9 @@ bool DecodeHeader(std::string_view s, Header& out, std::string* err) {
 
         if (key == "slot_index" || key == "width" || key == "height" || key == "frame_idx") {
             uint64_t v = 0;
-            size_t np = parse_uint(s, p, v);
+            np = parse_uint(s, p, v);
             if (np == std::string::npos) {
-                set_err(err, "bad number for key");
+                set_err(err, "params: bad number for key");
                 return false;
             }
             if (key == "slot_index")
@@ -165,91 +69,48 @@ bool DecodeHeader(std::string_view s, Header& out, std::string* err) {
                 out.frame_idx = v;
             p = np;
         } else if (key == "format") {
-            std::string v;
-            size_t np = parse_string(s, p, v);
+            np = parse_string(s, p, out.format);
             if (np == std::string::npos) {
-                set_err(err, "bad string for format");
+                set_err(err, "params: bad format");
                 return false;
             }
-            out.format = std::move(v);
             p = np;
         } else if (key == "plane_pitches") {
-            size_t np = parse_uint_array(s, p, out.plane_pitches);
+            np = parse_uint_array(s, p, out.plane_pitches);
             if (np == std::string::npos) {
-                set_err(err, "bad plane_pitches array");
+                set_err(err, "params: bad plane_pitches");
                 return false;
             }
             p = np;
         } else if (key == "plane_offsets") {
-            size_t np = parse_uint_array(s, p, out.plane_offsets);
+            np = parse_uint_array(s, p, out.plane_offsets);
             if (np == std::string::npos) {
-                set_err(err, "bad plane_offsets array");
+                set_err(err, "params: bad plane_offsets");
                 return false;
             }
             p = np;
         } else {
-            // Forward-compat: ignore unknown keys, but skip their value
-            // safely. Supported value types: number, string, array, true/false/null.
-            // For simplicity we just scan to the next comma or closing brace at
-            // brace/bracket depth 0.
-            int depth = 0;
-            bool in_string = false;
-            while (p < s.size()) {
-                char c = s[p];
-                if (in_string) {
-                    if (c == '\\') {
-                        p += 2;
-                        continue;
-                    }
-                    if (c == '"') {
-                        in_string = false;
-                        ++p;
-                        continue;
-                    }
-                    ++p;
-                    continue;
-                }
-                if (c == '"') {
-                    in_string = true;
-                    ++p;
-                    continue;
-                }
-                if (c == '[' || c == '{') {
-                    ++depth;
-                    ++p;
-                    continue;
-                }
-                if (c == ']' || c == '}') {
-                    if (depth == 0)
-                        break;
-                    --depth;
-                    ++p;
-                    continue;
-                }
-                if (c == ',' && depth == 0)
-                    break;
-                ++p;
+            np = skip_value(s, p);
+            if (np == std::string::npos) {
+                set_err(err, "params: bad value");
+                return false;
             }
+            p = np;
         }
 
         p = skip_ws(s, p);
-        if (p >= s.size()) {
-            set_err(err, "unexpected end after value");
-            return false;
-        }
-        if (s[p] == ',') {
+        if (p < s.size() && s[p] == ',') {
             ++p;
             continue;
         }
-        if (s[p] == '}') {
+        if (p < s.size() && s[p] == '}') {
             ++p;
             break;
         }
-        set_err(err, "expected ',' or '}'");
+        set_err(err, "params: expected ',' or '}'");
         return false;
     }
 
-    // Sanity: pitches and offsets must agree in length.
     if (out.plane_pitches.size() != out.plane_offsets.size()) {
         set_err(err, "plane_pitches and plane_offsets length mismatch");
         return false;
@@ -261,30 +122,51 @@ bool DecodeHeader(std::string_view s, Header& out, std::string* err) {
     return true;
 }
 
-std::string EncodeHeader(const Header& h) {
-    std::ostringstream o;
-    o << "{";
-    o << R"("slot_index":)" << h.slot_index;
-    o << R"(,"width":)" << h.width;
-    o << R"(,"height":)" << h.height;
-    o << R"(,"format":")" << h.format << "\"";
-    o << R"(,"plane_pitches":[)";
+} // namespace
+
+bool DecodeFrameNotification(std::string_view envelope_bytes, Header& out, std::string* err) {
+    jsonrpc_msg::Frame frame;
+    if (!jsonrpc_msg::DecodeFrame(envelope_bytes, frame, err))
+        return false;
+    if (frame.kind != jsonrpc_msg::FrameKind::Notification) {
+        set_err(err, "expected JSON-RPC notification");
+        return false;
+    }
+    if (frame.method != "frame") {
+        set_err(err, "expected method == \"frame\"");
+        return false;
+    }
+    if (frame.params_json.empty()) {
+        set_err(err, "missing params");
+        return false;
+    }
+    return decode_params(frame.params_json, out, err);
+}
+
+std::string EncodeFrameNotification(const Header& h) {
+    std::ostringstream params;
+    params << "{";
+    params << R"("slot_index":)" << h.slot_index;
+    params << R"(,"width":)" << h.width;
+    params << R"(,"height":)" << h.height;
+    params << R"(,"format":")" << h.format << "\"";
+    params << R"(,"plane_pitches":[)";
     for (size_t i = 0; i < h.plane_pitches.size(); ++i) {
         if (i)
-            o << ",";
-        o << h.plane_pitches[i];
+            params << ",";
+        params << h.plane_pitches[i];
     }
-    o << "]";
-    o << R"(,"plane_offsets":[)";
+    params << "]";
+    params << R"(,"plane_offsets":[)";
     for (size_t i = 0; i < h.plane_offsets.size(); ++i) {
         if (i)
-            o << ",";
-        o << h.plane_offsets[i];
+            params << ",";
+        params << h.plane_offsets[i];
     }
-    o << "]";
-    o << R"(,"frame_idx":)" << h.frame_idx;
-    o << "}";
-    return o.str();
+    params << "]";
+    params << R"(,"frame_idx":)" << h.frame_idx;
+    params << "}";
+    return jsonrpc_msg::EncodeNotification("frame", params.str());
 }
 
 } // namespace dmabuf_msg

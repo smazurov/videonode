@@ -1,31 +1,36 @@
-// dmabuf_msg — wire format for dma-buf fd handoff from the Go daemon to
-// composer-spike over a Unix socket with SCM_RIGHTS ancillary data.
+// dmabuf_msg — wire format for dma-buf fd handoff from a videonode-source
+// producer to its consumers (videonode-sink, composer-spike, snapshot, AI,
+// recording) over a Unix socket with SCM_RIGHTS ancillary data.
 //
-// Layout (mirror of internal/composer/dmabuf.go):
+// Layout:
 //
-//   [4 bytes big-endian: length of JSON header] [JSON bytes...]
+//   [4 bytes big-endian: length of JSON envelope] [JSON bytes...]
 //   + ancillary data carrying SCM_RIGHTS file descriptors
 //
-// JSON shape:
+// The envelope is a JSON-RPC 2.0 *notification* (no `id`, no reply
+// expected) with method `"frame"`:
 //
 //   {
-//     "slot_index": 0,
-//     "width": 1920,
-//     "height": 1080,
-//     "format": "NV12",
-//     "plane_pitches": [1920],
-//     "plane_offsets": [0],
-//     "frame_idx": 42
+//     "jsonrpc": "2.0",
+//     "method": "frame",
+//     "params": {
+//       "slot_index": 0,
+//       "width": 1920,
+//       "height": 1080,
+//       "format": "NV12",
+//       "plane_pitches": [1920],
+//       "plane_offsets": [0],
+//       "frame_idx": 42
+//     }
 //   }
 //
 // The plane arrays have length == number of fds in the ancillary data.
 // One fd = chroma packed in the same dma-buf (typical NV12 from
 // rk_hdmirx or UVC); two fds = NV12M split-chroma.
 //
-// We hand-roll the JSON decoder because (a) we control the producer so
-// the format is fixed, (b) every C++ JSON dep we'd reach for adds
-// thousands of header lines we don't want compiling per .cpp file. The
-// decoder is ~80 LOC and unit-tested.
+// The codec is layered on top of jsonrpc_msg (shared envelope parser) so
+// the control plane and data plane share one mental model and one parser
+// implementation.
 
 #pragma once
 
@@ -46,19 +51,15 @@ struct Header {
     uint64_t frame_idx = 0;
 };
 
-// DecodeHeader parses a JSON header from `json_bytes` and populates `out`.
-// Returns true on success. On failure `err` (if non-null) is set to a
-// short diagnostic string.
-//
-// The decoder is strict: it rejects unexpected keys with a warning logged
-// to stderr (but still continues — forward-compat in case the daemon
-// gains a field we don't care about), and rejects malformed JSON
-// outright.
-bool DecodeHeader(std::string_view json_bytes, Header& out, std::string* err = nullptr);
+// DecodeFrameNotification parses a full JSON-RPC 2.0 envelope (the bytes
+// after the 4-byte length prefix) and populates `out`. The envelope MUST
+// be a notification with `method == "frame"`. Returns true on success.
+// On failure `err` (if non-null) is set to a short diagnostic.
+bool DecodeFrameNotification(std::string_view envelope_bytes, Header& out,
+                             std::string* err = nullptr);
 
-// EncodeHeader produces the JSON for `h`. Used by tests + by any future
-// composer-side tool that wants to drive the receiving end. Returns the
-// raw bytes without a length prefix.
-std::string EncodeHeader(const Header& h);
+// EncodeFrameNotification produces the full JSON-RPC envelope ready to be
+// length-prefixed and sent. Returns the raw bytes without a length prefix.
+std::string EncodeFrameNotification(const Header& h);
 
 } // namespace dmabuf_msg
