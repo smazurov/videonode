@@ -434,13 +434,13 @@ int main(int argc, char** argv) {
     // (2x, 2y), (2x+1, 2y), (2x, 2y+1), (2x+1, 2y+1).
     for (int y = 0; y < H / 2 && errors_uv < 4; ++y) {
         for (int x = 0; x < W / 2 && errors_uv < 4; ++x) {
-            int sx = 2 * x, sy = 2 * y;
-            int eu = (((sx ^ sy) & 0xFF) + (((sx + 1) ^ sy) & 0xFF) +
-                      ((sx ^ (sy + 1)) & 0xFF) + (((sx + 1) ^ (sy + 1)) & 0xFF) + 2) /
+            int srcx = 2 * x, srcy = 2 * y;
+            int eu = (((srcx ^ srcy) & 0xFF) + (((srcx + 1) ^ srcy) & 0xFF) +
+                      ((srcx ^ (srcy + 1)) & 0xFF) + (((srcx + 1) ^ (srcy + 1)) & 0xFF) + 2) /
                      4;
-            int ev = ((sx * 7 + sy * 11) & 0xFF) + (((sx + 1) * 7 + sy * 11) & 0xFF) +
-                     ((sx * 7 + (sy + 1) * 11) & 0xFF) +
-                     (((sx + 1) * 7 + (sy + 1) * 11) & 0xFF);
+            int ev = ((srcx * 7 + srcy * 11) & 0xFF) + (((srcx + 1) * 7 + srcy * 11) & 0xFF) +
+                     ((srcx * 7 + (srcy + 1) * 11) & 0xFF) +
+                     (((srcx + 1) * 7 + (srcy + 1) * 11) & 0xFF);
             ev = (ev + 2) / 4;
             uint8_t got_u = duv[y * dst_uv.stride + 2 * x + 0];
             uint8_t got_v = duv[y * dst_uv.stride + 2 * x + 1];
