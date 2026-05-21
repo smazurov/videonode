@@ -22,6 +22,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -191,6 +193,11 @@ class Streamer {
     // always single-plane. The mapping persists until the next
     // request_buffers() call or close().
     bool mmap_buffer(uint32_t index, void*& out_ptr, size_t& out_size);
+
+    // mmap_buffer_span is the span-returning variant of mmap_buffer. Returns
+    // std::nullopt on failure (errno set as for mmap_buffer). The returned
+    // span is valid for the same lifetime as the void*/size_t version.
+    std::optional<std::span<std::byte>> mmap_buffer_span(uint32_t index);
 
   private:
     uint32_t buf_type_() const; // CAPTURE vs CAPTURE_MPLANE
