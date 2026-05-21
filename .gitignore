@@ -16,4 +16,6 @@ dist/
 data/
 composer/build-host/
 composer/build/
+composer/build-deb-arm64/
 composer/compile_commands.json
+build-deb-arm64/

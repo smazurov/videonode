@@ -32,15 +32,18 @@ jobs:
 
   deb-arm64:
     runs-on: ubuntu-26.04-arm
-    container: arm64v8/ubuntu:26.04
+    container: arm64v8/debian:trixie
     steps:
       - uses: actions/checkout@v4
       - name: Install build deps
         run: |
           apt-get update -qq
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            cmake ninja-build pkg-config g++ ca-certificates \
-            libegl-dev libgles-dev libgbm-dev libdrm-dev dpkg-dev
+            cmake ninja-build pkg-config g++ ca-certificates curl git \
+            libegl-dev libgles-dev libgbm-dev libdrm-dev \
+            libturbojpeg0-dev dpkg-dev
+      - name: Install Rockchip librga + librockchip-mpp (tsukumijima)
+        run: composer/scripts/install-rockchip-libs.sh
       - name: Build
         run: |
           cmake -B build -S composer -G Ninja -DCMAKE_BUILD_TYPE=Release
