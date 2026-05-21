@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.30)
 
 project(videonode-native
     LANGUAGES CXX
@@ -10,6 +10,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Mirror the build-tree compile_commands.json to the source tree so tools
+# that don't read .clangd (some IDEs, MCP servers, scripts) find it at the
+# expected root location.
+if(CMAKE_EXPORT_COMPILE_COMMANDS)
+    add_custom_target(vn_compile_commands_symlink ALL
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+            ${CMAKE_BINARY_DIR}/compile_commands.json
+            ${CMAKE_SOURCE_DIR}/compile_commands.json
+        BYPRODUCTS ${CMAKE_SOURCE_DIR}/compile_commands.json
+        COMMENT "Symlinking compile_commands.json into source tree"
+        VERBATIM)
+endif()
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)

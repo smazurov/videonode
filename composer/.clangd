@@ -1,0 +1,23 @@
+# .clangd config for composer/
+#
+# Pins clangd to the dev preset's compile_commands.json so symbol resolution
+# is deterministic even with multiple build dirs (build/dev, build/dev-asan,
+# build/dev-tsan) present. The build/dev directory is also symlinked to
+# composer/compile_commands.json by the top-level CMakeLists.txt for tools
+# that don't read this file.
+
+CompileFlags:
+  CompilationDatabase: build/dev
+
+Diagnostics:
+  ClangTidy:
+    # Skip slow checks during interactive editing; CI runs the full set.
+    FastCheckFilter: Strict
+
+Index:
+  Background: Build
+
+InlayHints:
+  Enabled: Yes
+  ParameterNames: Yes
+  DeducedTypes: Yes

@@ -1,0 +1,41 @@
+# .clang-tidy for composer/
+#
+# Checkset targets the C++ mistakes LLM agents make most often, plus the
+# bug classes specific to this codebase (fd handling, dma-buf lifetime,
+# untrusted-byte parsers). Enforcement is diff-aware (see CI's
+# `clang-tidy-diff` job + the `tidy-diff` cmake target): existing legacy
+# violations don't block builds, but any line a refactor touches must
+# comply.
+
+Checks: >
+  -*,
+  bugprone-use-after-move,
+  bugprone-dangling-handle,
+  bugprone-narrowing-conversions,
+  bugprone-return-const-ref-from-parameter,
+  bugprone-move-forwarding-reference,
+  performance-unnecessary-copy-initialization,
+  performance-unnecessary-value-param,
+  performance-move-const-arg,
+  performance-noexcept-move-constructor,
+  cppcoreguidelines-owning-memory,
+  cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  cppcoreguidelines-rvalue-reference-param-not-moved,
+  modernize-use-nodiscard,
+  modernize-use-designated-initializers,
+  readability-function-size
+
+WarningsAsErrors: '*'
+
+# Only diagnose headers inside composer/, never system or build-tree headers.
+HeaderFilterRegex: '.*composer/(src|tests|tools)/.*\.(hpp|h)$'
+
+CheckOptions:
+  # Per-function size guard. Pairs with composer/scripts/check-file-size.sh
+  # (whole-file guard). Thresholds chosen to flag obvious "this is doing
+  # too much" without nitpicking small helpers.
+  readability-function-size.LineThreshold: 120
+  readability-function-size.StatementThreshold: 100
+  readability-function-size.BranchThreshold: 12
+  readability-function-size.ParameterThreshold: 6
+  readability-function-size.NestingThreshold: 5
