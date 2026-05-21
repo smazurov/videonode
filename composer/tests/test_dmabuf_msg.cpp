@@ -1,4 +1,4 @@
-#include "../src/dmabuf_msg.hpp"
+#include "src/rpc/dmabuf_msg.hpp"
 
 #include <gtest/gtest.h>
 

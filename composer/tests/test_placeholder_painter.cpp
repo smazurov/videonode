@@ -1,7 +1,7 @@
 // Unit tests for placeholder_painter. Pure CPU, no V4L2/RGA/EGL — runs
 // on host without devices.
 
-#include "../src/placeholder_painter.hpp"
+#include "src/render/placeholder_painter.hpp"
 
 #include <gtest/gtest.h>
 

@@ -13,7 +13,7 @@
 // which determines whether HDMI-IN native formats (NV24/NV16/BGR3) can be
 // fed to the composer without an RGA CSC step.
 
-#include "../src/egl_ctx.hpp"
+#include "src/render/egl_ctx.hpp"
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>

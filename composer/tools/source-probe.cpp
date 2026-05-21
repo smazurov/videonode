@@ -6,8 +6,8 @@
 //
 // Usage:  ./source-probe [W] [H] [frames] [source_index] [out.y4m]
 
-#include "../src/fake_source.hpp"
-#include "../src/dma_heap.hpp"
+#include "src/render/fake_source.hpp"
+#include "src/ipc/dma_heap.hpp"
 
 #include <cstdint>
 #include <cstdio>

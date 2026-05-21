@@ -1,7 +1,7 @@
 // Tests for child_process — uses small `cat`/`echo` subprocesses so we can
 // run on any Linux host (no rig needed).
 
-#include "../src/child_process.hpp"
+#include "src/process/child_process.hpp"
 
 #include <gtest/gtest.h>
 

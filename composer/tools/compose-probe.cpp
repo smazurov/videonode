@@ -9,10 +9,10 @@
 //    creates a slight keystone — the perspective-unlock demonstration).
 // 7. tick() all 4 sources, render frame, dump RGBA canvas to PPM.
 
-#include "../src/egl_ctx.hpp"
-#include "../src/fake_source.hpp"
-#include "../src/gl_compose.hpp"
-#include "../src/dma_heap.hpp"
+#include "src/render/egl_ctx.hpp"
+#include "src/render/fake_source.hpp"
+#include "src/render/gl_compose.hpp"
+#include "src/ipc/dma_heap.hpp"
 
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>

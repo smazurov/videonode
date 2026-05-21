@@ -2,8 +2,8 @@
 // paths or root-y permissions. SendMessage and RecvMessage round-trip the
 // SCM_RIGHTS + length-prefixed JSON on the same process for verification.
 
-#include "../src/scm_socket.hpp"
-#include "../src/dmabuf_msg.hpp"
+#include "src/ipc/scm_socket.hpp"
+#include "src/rpc/dmabuf_msg.hpp"
 
 #include <gtest/gtest.h>
 

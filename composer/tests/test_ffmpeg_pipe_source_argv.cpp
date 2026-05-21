@@ -3,8 +3,8 @@
 // matching what we know to be correct. The encoder argv test is the load-
 // bearing one; this one is a sanity check.
 
-#include "../src/dma_heap.hpp"
-#include "../src/ffmpeg_pipe_source.hpp"
+#include "src/ipc/dma_heap.hpp"
+#include "src/process/ffmpeg_pipe_source.hpp"
 
 #include <gtest/gtest.h>
 

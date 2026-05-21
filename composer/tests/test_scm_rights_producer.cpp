@@ -1,10 +1,10 @@
 // Tests for scm_rights_producer. End-to-end with real Unix sockets +
 // dup'd memfd fds standing in for dma-bufs. Host-runnable.
 
-#include "../src/scm_rights_producer.hpp"
-#include "../src/scm_rights_source.hpp"
-#include "../src/scm_socket.hpp"
-#include "../src/dmabuf_msg.hpp"
+#include "src/ipc/scm_rights_producer.hpp"
+#include "src/ipc/scm_rights_source.hpp"
+#include "src/ipc/scm_socket.hpp"
+#include "src/rpc/dmabuf_msg.hpp"
 
 #include <gtest/gtest.h>
 

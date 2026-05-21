@@ -1,0 +1,47 @@
+# src/bin/CMakeLists.txt — production binaries.
+#
+# Each gets installed into ${CMAKE_INSTALL_BINDIR} by default. Pass
+# NO_INSTALL to opt out (used for none of the three production binaries).
+
+# videonode-source — V4L2 capture sidecar. Reads frames from a V4L2 device,
+# converts them to NV12 (RGA or GLES CSC for raw formats; MPP-HW or
+# TurboJPEG SW decode for MJPEG), fans out dma-buf fds via SCM_RIGHTS to
+# N consumers. nv12_buf hides the output allocator (dma_heap on rig, GBM
+# on Fedora).
+vn_add_executable(videonode-source
+    SOURCES videonode_source_main.cpp
+    DEPS    v4l2_capture csc nv12_buf placeholder_painter source_probe
+            scm_rights_producer dmabuf_msg dma_heap
+            jpeg_dec_turbo
+            jsonrpc_msg control_channel
+            Threads::Threads)
+if(HAVE_RGA)
+    target_compile_definitions(videonode-source PRIVATE HAVE_RGA=1)
+endif()
+if(HAVE_MPP)
+    target_link_libraries(videonode-source PRIVATE mpp_jpeg_dec)
+    target_compile_definitions(videonode-source PRIVATE HAVE_MPP=1)
+endif()
+if(HAVE_GBM AND NOT HAVE_RGA)
+    # nv12_buf::Allocator::init needs a gbm_device on this backend;
+    # videonode-source opens it via EglCtx at startup.
+    target_compile_definitions(videonode-source PRIVATE HAVE_GBM=1)
+    target_link_libraries(videonode-source PRIVATE egl_ctx gles_bundle)
+endif()
+
+# videonode-sink — single-stream NV12 carrier. Dials a videonode-source SCM
+# socket, mmaps each incoming dma-buf and writes the NV12 bytes to stdout.
+# Pipe into ffmpeg for transcoding to RTSP.
+vn_add_executable(videonode-sink
+    SOURCES videonode_sink_main.cpp
+    DEPS    scm_rights_source)
+
+# videonode-composer — Mali-GPU canvas compositor. Reads NV12 dma-bufs
+# from N videonode-source sockets, composes BGRA via EGL/GLES, writes the
+# canvas frames to stdout. Needs libgbm.
+if(HAVE_GBM)
+    vn_add_executable(videonode-composer
+        SOURCES videonode_composer_main.cpp
+        DEPS    dma_heap ffmpeg_pipe_source scm_rights_source
+                format_dispatch egl_ctx gl_compose gles_bundle)
+endif()

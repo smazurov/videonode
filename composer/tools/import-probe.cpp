@@ -12,9 +12,9 @@
 //
 // Usage: ./import-probe [device] [src_w] [src_h]
 
-#include "../src/egl_ctx.hpp"
-#include "../src/fake_source.hpp"
-#include "../src/dma_heap.hpp"
+#include "src/render/egl_ctx.hpp"
+#include "src/render/fake_source.hpp"
+#include "src/ipc/dma_heap.hpp"
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>

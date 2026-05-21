@@ -12,8 +12,8 @@
 //
 // Only built when HAVE_RGA is set (on the rig).
 
-#include "../src/dma_heap.hpp"
-#include "../src/rga_csc.hpp"
+#include "src/ipc/dma_heap.hpp"
+#include "src/render/rga_csc.hpp"
 
 #include <cstdint>
 #include <cstdio>

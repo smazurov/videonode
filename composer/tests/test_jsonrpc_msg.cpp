@@ -1,4 +1,4 @@
-#include "../src/jsonrpc_msg.hpp"
+#include "src/rpc/jsonrpc_msg.hpp"
 
 #include <gtest/gtest.h>
 

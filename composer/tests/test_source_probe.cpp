@@ -3,8 +3,8 @@
 // note_event / note_dqbuf_* paths; only attach() touches Streamer, and
 // we don't test attach() here (needs a real device).
 
-#include "../src/source_probe.hpp"
-#include "../src/v4l2_capture.hpp"
+#include "src/capture/source_probe.hpp"
+#include "src/capture/v4l2_capture.hpp"
 
 #include <gtest/gtest.h>
 
