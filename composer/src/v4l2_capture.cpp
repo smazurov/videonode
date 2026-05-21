@@ -506,4 +506,12 @@ bool Streamer::mmap_buffer(uint32_t index, void*& out_ptr, size_t& out_size) {
     return true;
 }
 
+std::optional<std::span<std::byte>> Streamer::mmap_buffer_span(uint32_t index) {
+    void* ptr = nullptr;
+    size_t size = 0;
+    if (!mmap_buffer(index, ptr, size))
+        return std::nullopt;
+    return std::span<std::byte>(static_cast<std::byte*>(ptr), size);
+}
+
 } // namespace v4l2
