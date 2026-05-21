@@ -188,3 +188,65 @@ Concrete, named, and prioritized — pick one off the top and ship it.
   Acquire the same device with different format / dimensions, the
   ProducerManager logs a warning and keeps the first-acquired args. A
   proper negotiation pass is future work.
+
+## Follow-ups
+
+Scoped engineering work that's been deferred deliberately. Each entry
+names the why, the rough shape of the fix, and what would unblock it.
+
+### Fuzzing
+
+Parsers that would benefit from `libFuzzer` coverage:
+
+- `rpc/jsonrpc_msg::DecodeFrameNotification` — JSON envelope decoder
+  shared by the control channel and producer/consumer handshake.
+- `rpc/dmabuf_msg::DecodeFrameNotification` — NV12 plane offset / pitch
+  decoder applied to every dma-buf message before we trust the values.
+- Future V4L2 input validation — once the capture domain starts
+  consuming externally-supplied format descriptors instead of probing
+  for them.
+
+Bug classes targeted: malformed envelopes (truncated, mis-typed,
+missing required fields), integer overflow when computing `pitch * h`
+or `offset + size`, OOB reads on truncated input where the header
+length disagrees with the body, and stack/heap reads past the end of
+the receive buffer.
+
+The `fuzz` CMake preset already exists (Phase B); no harness has been
+written. Pattern for a new harness:
+
+```cpp
+// tests/fuzz/fuzz_jsonrpc_msg.cpp
+#include "jsonrpc_msg.hpp"
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+    jsonrpc::FrameNotification out;
+    (void)jsonrpc::DecodeFrameNotification({data, size}, out);
+    return 0;
+}
+```
+
+Gated on `-DENABLE_FUZZING=ON`. CI runs each harness for
+`-max_total_time=60` per change.
+
+### C++20 modules experiment
+
+Convert `rpc/jsonrpc_msg` as a single-library spike — it's a leaf with
+one external dependency (`nlohmann/json`) and clean header surface.
+Measure rebuild time on a typical edit cycle (touch the implementation
+of one decoder, time `ninja`). Verify clangd jump-to-definition,
+find-references, and the `mpsm/mcp-cpp` MCP navigation still work on
+the consumer side.
+
+If clean, expand leaf-by-leaf. Revert is a single commit (CMake target
+flag + `.cppm` rename). Deferred because clangd modules support is the
+soft spot for our agent workflow — broken navigation costs more than
+the rebuild speedup currently buys.
+
+### Hardened libstdc++
+
+Enable `_GLIBCXX_ASSERTIONS` in the `dev` preset only (not Release).
+Catches bounds violations on `std::vector`, `std::span`, `std::string`,
+and friends at runtime with roughly 6% overhead in some workloads —
+only acceptable in Debug. Add as a `-D_GLIBCXX_ASSERTIONS` entry in the
+`dev` preset's `cacheVariables` (`CMAKE_CXX_FLAGS_DEBUG` append) so
+sanitizer presets inherit it transparently.
