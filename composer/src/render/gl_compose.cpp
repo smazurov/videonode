@@ -38,8 +38,8 @@ void main() {
 // Two single-plane sampler2D + manual BT.601 limited YUV→RGB. Each plane
 // is its own dma-buf at PLANE0_OFFSET=0 (canonical AMD/minigbm pattern).
 // samplerExternalOES isn't used because radeonsi returns zero for NV12
-// dma-buf imports through it. The csc-probe spike validated this exact
-// shader math (Y byte-exact, UV ±1 LSB) on this GPU.
+// dma-buf imports through it. csc-probe validated this exact shader math
+// (Y byte-exact, UV ±1 LSB) on this GPU.
 const char* kFS = R"(
 precision mediump float;
 uniform sampler2D u_src_y;   // R8: Y in .r

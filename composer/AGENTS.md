@@ -115,7 +115,7 @@ that before proposing work on any of them.
   `fuzz` exists; harness not written. See `composer/README.md`
   Follow-ups → Fuzzing.
 - **C++ modules**: deferred until clangd module-navigation support
-  stabilizes. Spike candidate: `rpc/jsonrpc_msg`. See
+  stabilizes. Experiment candidate: `rpc/jsonrpc_msg`. See
   `composer/README.md` Follow-ups → C++20 modules experiment.
 - **Hardened libstdc++**: enable `_GLIBCXX_ASSERTIONS` in `dev` preset
   only. See `composer/README.md` Follow-ups → Hardened libstdc++.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Host-side smoke for the multi-fourcc EGL import path. Loops over
-# NV12 / NV16 / NV24 / BG24, runs composer-spike + scm-feeder for each,
+# NV12 / NV16 / NV24 / BG24, runs videonode-composer + scm-feeder for each,
 # converts the first canvas frame to PNG. No rig involved.
 #
 # Outputs:
@@ -9,28 +9,28 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SPIKE="${ROOT}/composer-spike/build/host/composer-spike"
+COMPOSER="${ROOT}/composer/build/host/videonode-composer"
 FEEDER="${ROOT}/bin/scm-feeder"
 W=320 H=240 FPS=10 SECS=4
 
-[ -x "$SPIKE" ]  || { echo "missing $SPIKE — run 'make spike-test' first"; exit 1; }
-[ -x "$FEEDER" ] || { echo "missing $FEEDER — run 'make scm-feeder' first"; exit 1; }
+[ -x "$COMPOSER" ] || { echo "missing $COMPOSER — build composer first"; exit 1; }
+[ -x "$FEEDER" ]   || { echo "missing $FEEDER — run 'make scm-feeder' first"; exit 1; }
 
 results=()
 for FMT in NV12 NV16 NV24 BG24; do
   SOCK="/tmp/srcA-${FMT}.sock"
   BGRA="/tmp/canvas-${FMT}.bgra"
   PNG="/tmp/canvas-${FMT}.png"
-  LOG_SPIKE="/tmp/spike-${FMT}.log"
+  LOG_COMPOSER="/tmp/composer-${FMT}.log"
   LOG_FEED="/tmp/feeder-${FMT}.log"
 
-  rm -f "$SOCK" "$BGRA" "$PNG" "$LOG_SPIKE" "$LOG_FEED"
+  rm -f "$SOCK" "$BGRA" "$PNG" "$LOG_COMPOSER" "$LOG_FEED"
 
-  # Spike in background; redirect BGRA to file, stderr to log.
-  nohup "$SPIKE" --canvas-w $W --canvas-h $H --fps $FPS --seconds $SECS \
+  # Composer in background; redirect BGRA to file, stderr to log.
+  nohup "$COMPOSER" --canvas-w $W --canvas-h $H --fps $FPS --seconds $SECS \
       --no-source-b --source-a-scm-path "$SOCK" \
-      > "$BGRA" 2> "$LOG_SPIKE" &
-  SPIKE_PID=$!
+      > "$BGRA" 2> "$LOG_COMPOSER" &
+  COMPOSER_PID=$!
 
   # Wait for socket up
   for i in $(seq 1 30); do
@@ -42,10 +42,10 @@ for FMT in NV12 NV16 NV24 BG24; do
   "$FEEDER" -synthetic -format-out "$FMT" -w $W -h $H -fps $FPS \
       -socket "$SOCK" -duration 3s > "$LOG_FEED" 2>&1 || true
 
-  wait "$SPIKE_PID" 2>/dev/null || true
+  wait "$COMPOSER_PID" 2>/dev/null || true
 
   if [ ! -s "$BGRA" ]; then
-    echo "$FMT FAIL: empty canvas (see $LOG_SPIKE)"
+    echo "$FMT FAIL: empty canvas (see $LOG_COMPOSER)"
     results+=("$FMT FAIL")
     continue
   fi

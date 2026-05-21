@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Build composer-spike on the rig via ssh using cmake + ninja.
+# Build the composer on the rig via ssh using cmake + ninja.
 # First time: configures cmake. Subsequent runs: incremental ninja build.
 # If the build dir contains a stale meson configuration (the project used
 # to be meson), we wipe it before reconfiguring.
 set -euo pipefail
 
 RIG="${RIG:-orangepi@orangepi5-ultra.lan}"
-DST_DIR="${DST_DIR:-/home/orangepi/composer-spike}"
+DST_DIR="${DST_DIR:-/home/orangepi/composer}"
 
 ssh "${RIG}" "bash -lc 'set -euo pipefail
   cd ${DST_DIR}

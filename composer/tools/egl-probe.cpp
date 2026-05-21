@@ -1,4 +1,4 @@
-// egl-probe — Phase A success gate for the GPU composer spike.
+// egl-probe — success gate for the GPU composer's EGL/GBM setup.
 //
 // What it proves:
 //  1. We can open a DRM render node, create a GBM device, initialize EGL,
@@ -6,7 +6,7 @@
 //  2. We can allocate a GBM buffer object, export it as a dma-buf fd,
 //     import that fd back as an EGLImage, attach it to an FBO renderbuffer,
 //     render to it, and read the result back via mmap.
-//  3. The full dma-buf round-trip the composer spike depends on works.
+//  3. The full dma-buf round-trip the composer depends on works.
 //
 // Usage:  ./egl-probe [/dev/dri/renderD130] [out.ppm]
 //   - Default device: /dev/dri/renderD130 (panthor on this rig)
@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
         DIE("gbm_bo_get_fd");
     LOG("gbm_bo %dx%d stride=%u dmabuf_fd=%d", W, H, stride, dmabuf_fd);
 
-    // 5. Import the dma-buf back as an EGLImage (the round-trip the spike depends on).
+    // 5. Import the dma-buf back as an EGLImage (the round-trip the composer depends on).
     EGLAttrib img_attribs[] = {
         EGL_WIDTH,
         W,

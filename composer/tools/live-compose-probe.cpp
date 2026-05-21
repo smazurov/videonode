@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
         compose.render(slots);
         ++frames_rendered;
 
-        // Tick at ~30Hz for the spike. Real composer would use a proper timer.
+        // Tick at ~30Hz for the probe; a real composer would use a proper timer.
         next_tick_ms += 33;
         auto next_tick = start + std::chrono::milliseconds(next_tick_ms);
         std::this_thread::sleep_until(next_tick);

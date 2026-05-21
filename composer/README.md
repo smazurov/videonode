@@ -230,7 +230,7 @@ Gated on `-DENABLE_FUZZING=ON`. CI runs each harness for
 
 ### C++20 modules experiment
 
-Convert `rpc/jsonrpc_msg` as a single-library spike — it's a leaf with
+Convert `rpc/jsonrpc_msg` as a single-library experiment — it's a leaf with
 one external dependency (`nlohmann/json`) and clean header surface.
 Measure rebuild time on a typical edit cycle (touch the implementation
 of one decoder, time `ninja`). Verify clangd jump-to-definition,

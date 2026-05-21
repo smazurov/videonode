@@ -7,7 +7,7 @@
       | ffmpeg -f rawvideo -pix_fmt bgra -s 1920x1080 -framerate 30 -i pipe:0 \
                -c:v h264_rkmpp -profile:v high -level:v 5.2 -rc_mode VBR \
                -b:v 6M -g 60 -bf 0 -bsf:v dump_extra=freq=keyframe \
-               -rtsp_transport tcp -f rtsp rtsp://127.0.0.1:8554/spike
+               -rtsp_transport tcp -f rtsp rtsp://127.0.0.1:8554/composer
 */
 //
 // Why no encoder here:
@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
     std::signal(SIGPIPE, SIG_IGN); // we handle EPIPE explicitly
-    // Note: not using PR_SET_PDEATHSIG here. Composer-spike sits inside
+    // Note: not using PR_SET_PDEATHSIG here. videonode-composer sits inside
     // a `composer | ffmpeg` shell pipeline; bash forks a transient
     // subshell that exits right after exec, so PDEATHSIG would fire
     // immediately. Composer dies naturally via stdout EPIPE when ffmpeg

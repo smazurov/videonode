@@ -30,7 +30,7 @@ session and produced multiple wrong answers before the right one.
   lost its `STUBS` keyword, `HAVE_RGA` became honest, the dispatcher
   compiles on both Fedora and the rig. No surprises.
 
-- `composer/tools/csc-probe.cpp` — a standalone Phase 0 spike that
+- `composer/tools/csc-probe.cpp` — a standalone probe that
   allocates GBM R8/GR88 source + destination buffers, fills sources with
   a synthetic pattern, runs the two-pass GLES2 shader, mmaps the
   destination, and checksums it byte-by-byte against the expected

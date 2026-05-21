@@ -229,7 +229,7 @@ func IsProducerKey(id string) bool {
 }
 
 // socketReadyTimeout caps how long Acquire waits for the producer to bind its
-// socket. The composer-spike scm_rights_source has its own 30 s dial-retry,
+// socket. The composer's scm_rights_source has its own 30 s dial-retry,
 // so a sink will recover even if we time out here — this is just a UX nicety
 // for early dial avoidance. Tests override via SetSocketReadyTimeout.
 var socketReadyTimeout = 3 * time.Second
