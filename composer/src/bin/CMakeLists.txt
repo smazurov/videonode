@@ -42,6 +42,6 @@ vn_add_executable(videonode-sink
 if(HAVE_GBM)
     vn_add_executable(videonode-composer
         SOURCES videonode_composer_main.cpp
-        DEPS    dma_heap ffmpeg_pipe_source scm_rights_source
-                format_dispatch egl_ctx gl_compose gles_bundle)
+        DEPS    canvas_loop ffmpeg_pipe_source scm_rights_source
+                egl_ctx gl_compose gles_bundle)
 endif()
