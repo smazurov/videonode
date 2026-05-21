@@ -5,7 +5,8 @@
 
 #include "../src/source_probe.hpp"
 #include "../src/v4l2_capture.hpp"
-#include "test_runner.hpp"
+
+#include <gtest/gtest.h>
 
 #include <linux/v4l2-controls.h>
 #include <linux/videodev2.h>
@@ -30,20 +31,20 @@ v4l2_event make_source_change_event() {
 
 } // namespace
 
-static void test_initial_state_probing() {
+TEST(SourceProbe, InitialStateProbing) {
     v4l2::Streamer cap;
     SourceProbe p(cap);
-    CHECK_EQ(int(Health::Probing), int(p.health()));
+    EXPECT_EQ(int(Health::Probing), int(p.health()));
 }
 
-static void test_first_dqbuf_becomes_live() {
+TEST(SourceProbe, FirstDqbufBecomesLive) {
     v4l2::Streamer cap;
     SourceProbe p(cap);
     p.note_dqbuf_success();
-    CHECK_EQ(int(Health::Live), int(p.health()));
+    EXPECT_EQ(int(Health::Live), int(p.health()));
 }
 
-static void test_repeated_failures_after_live_go_to_nolock() {
+TEST(SourceProbe, RepeatedFailuresAfterLiveGoToNoLock) {
     v4l2::Streamer cap;
     SourceProbe p(cap);
     p.note_dqbuf_success();
@@ -52,57 +53,39 @@ static void test_repeated_failures_after_live_go_to_nolock() {
     p.note_dqbuf_failure(ETIMEDOUT);
     // Three failures (>= threshold). HDMI mode would say Transitioning;
     // non-HDMI says NoLock. Probe in this test is non-HDMI.
-    CHECK_EQ(int(Health::NoLock), int(p.health()));
+    EXPECT_EQ(int(Health::NoLock), int(p.health()));
 }
 
-static void test_source_change_event_marks_transitioning() {
+TEST(SourceProbe, SourceChangeEventMarksTransitioning) {
     v4l2::Streamer cap;
     SourceProbe p(cap);
     p.note_dqbuf_success();
     p.note_event(make_source_change_event());
-    CHECK_EQ(int(Health::Transitioning), int(p.health()));
+    EXPECT_EQ(int(Health::Transitioning), int(p.health()));
 }
 
-static void test_streaming_restarted_clears_transitioning() {
+TEST(SourceProbe, StreamingRestartedClearsTransitioning) {
     v4l2::Streamer cap;
     SourceProbe p(cap);
     p.note_dqbuf_success();
     p.note_event(make_source_change_event());
     p.note_streaming_restarted();
-    CHECK_EQ(int(Health::Live), int(p.health()));
+    EXPECT_EQ(int(Health::Live), int(p.health()));
 }
 
-static void test_enodev_goes_gone() {
+TEST(SourceProbe, EnodevGoesGone) {
     v4l2::Streamer cap;
     SourceProbe p(cap);
     p.note_dqbuf_success();
     p.note_dqbuf_failure(ENODEV);
-    CHECK_EQ(int(Health::Gone), int(p.health()));
+    EXPECT_EQ(int(Health::Gone), int(p.health()));
 }
 
-static void test_status_text_covers_all_states() {
-    CHECK_TRUE(source_probe::status_text(Health::Probing));
-    CHECK_TRUE(source_probe::status_text(Health::Live));
-    CHECK_TRUE(source_probe::status_text(Health::Transitioning));
-    CHECK_TRUE(source_probe::status_text(Health::NoCable));
-    CHECK_TRUE(source_probe::status_text(Health::NoLock));
-    CHECK_TRUE(source_probe::status_text(Health::Gone));
-}
-
-int main() {
-    test_runner::start_case("initial_state_probing");
-    test_initial_state_probing();
-    test_runner::start_case("first_dqbuf_becomes_live");
-    test_first_dqbuf_becomes_live();
-    test_runner::start_case("repeated_failures_to_nolock");
-    test_repeated_failures_after_live_go_to_nolock();
-    test_runner::start_case("source_change_marks_transitioning");
-    test_source_change_event_marks_transitioning();
-    test_runner::start_case("streaming_restarted_clears");
-    test_streaming_restarted_clears_transitioning();
-    test_runner::start_case("enodev_goes_gone");
-    test_enodev_goes_gone();
-    test_runner::start_case("status_text_all");
-    test_status_text_covers_all_states();
-    return test_runner::report_and_exit_code();
+TEST(SourceProbe, StatusTextCoversAllStates) {
+    EXPECT_TRUE(source_probe::status_text(Health::Probing));
+    EXPECT_TRUE(source_probe::status_text(Health::Live));
+    EXPECT_TRUE(source_probe::status_text(Health::Transitioning));
+    EXPECT_TRUE(source_probe::status_text(Health::NoCable));
+    EXPECT_TRUE(source_probe::status_text(Health::NoLock));
+    EXPECT_TRUE(source_probe::status_text(Health::Gone));
 }

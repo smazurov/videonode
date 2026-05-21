@@ -21,7 +21,8 @@
 #
 #   vn_add_test(<short_name>
 #       [SOURCES <src.cpp>]              # defaults to tests/test_<short>.cpp
-#       [DEPS <t> ...])                  # registers ctest case
+#       [DEPS <t> ...]                   # extra libs to link
+#       [LABELS <l> ...])                # ctest LABELS forwarded to discovered cases
 
 include(GNUInstallDirs)
 
@@ -82,7 +83,7 @@ endfunction()
 function(vn_add_test short_name)
     set(opts)
     set(one_value)
-    set(multi_value SOURCES DEPS)
+    set(multi_value SOURCES DEPS LABELS)
     cmake_parse_arguments(ARG "${opts}" "${one_value}" "${multi_value}" ${ARGN})
 
     if(NOT BUILD_TESTS)
@@ -95,8 +96,15 @@ function(vn_add_test short_name)
 
     set(target "test_${short_name}")
     add_executable(${target} ${ARG_SOURCES})
+    target_link_libraries(${target} PRIVATE GTest::gtest_main GTest::gmock)
     if(ARG_DEPS)
         target_link_libraries(${target} PRIVATE ${ARG_DEPS})
     endif()
-    add_test(NAME ${short_name} COMMAND ${target})
+
+    if(ARG_LABELS)
+        gtest_discover_tests(${target}
+            PROPERTIES LABELS "${ARG_LABELS}")
+    else()
+        gtest_discover_tests(${target})
+    endif()
 endfunction()
