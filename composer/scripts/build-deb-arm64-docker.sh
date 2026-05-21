@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # build-deb-arm64-docker.sh — reproduce the deb-arm64 CI lane locally inside
 # arm64v8/debian:trixie. No rig required (qemu emulates aarch64 on x86_64).
-# Produces composer/build-deb-arm64/*.deb on the host.
+# Produces composer/build/deb-arm64/*.deb on the host.
 #
 # Env:
 #   ENGINE=docker|podman      Container engine (autodetected).
 #   IMAGE=arm64v8/debian:trixie
-#   BUILD_DIR=build-deb-arm64
+#   BUILD_DIR=build/deb-arm64  (relative to composer/)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 IMAGE="${IMAGE:-arm64v8/debian:trixie}"
-BUILD_DIR="${BUILD_DIR:-build-deb-arm64}"
+BUILD_DIR="${BUILD_DIR:-build/deb-arm64}"
 
 ENGINE="${ENGINE:-}"
 if [[ -z "$ENGINE" ]]; then

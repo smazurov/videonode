@@ -10,7 +10,7 @@ CH="${CANVAS_H:-720}"
 FPS="${CANVAS_FPS:-30}"
 URL="${RTSP_URL:-rtsp://127.0.0.1:8554/spike}"
 
-SPIKE_BIN="${SPIKE_BIN:-$(dirname "$0")/../build-host/composer-spike}"
+SPIKE_BIN="${SPIKE_BIN:-$(dirname "$0")/../build/host/composer-spike}"
 DRM_DEVICE="${DRM_DEVICE:-/dev/dri/renderD128}"
 
 if [ ! -x "${SPIKE_BIN}" ]; then
