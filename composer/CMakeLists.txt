@@ -11,6 +11,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# We do not use C++20 modules (see composer/README.md → Follow-ups). Turning
+# off module dependency scanning keeps clang-tidy happy: cmake otherwise
+# injects -fdeps-format=p1689r5 / -fmodule-mapper into compile_commands.json,
+# which clang-tidy rejects as unknown arguments.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
 # Mirror the build-tree compile_commands.json to the source tree so tools
 # that don't read .clangd (some IDEs, MCP servers, scripts) find it at the
 # expected root location.
