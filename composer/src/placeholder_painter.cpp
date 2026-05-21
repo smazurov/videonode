@@ -105,7 +105,9 @@ AnimRegion derive_anim_region(int w, int h) {
     return AnimRegion{anim_y_start, anim_y_end};
 }
 
-void paint_base(uint8_t* nv12, int w, int h, const char* device_path) {
+namespace {
+
+void paint_base_impl(uint8_t* nv12, int w, int h, const char* device_path) {
     uint8_t* y_plane = nv12;
     uint8_t* uv_plane = nv12 + (w * h);
 
@@ -146,8 +148,8 @@ void paint_base(uint8_t* nv12, int w, int h, const char* device_path) {
     }
 }
 
-void paint_tick(uint8_t* nv12, int w, int h, uint64_t tick_idx, uint64_t wallclock_ms,
-                const char* status) {
+void paint_tick_impl(uint8_t* nv12, int w, int h, uint64_t tick_idx, uint64_t wallclock_ms,
+                     const char* status) {
     uint8_t* y_plane = nv12;
     AnimRegion r = derive_anim_region(w, h);
 
@@ -206,11 +208,13 @@ void paint_tick(uint8_t* nv12, int w, int h, uint64_t tick_idx, uint64_t wallclo
     }
 }
 
+} // namespace
+
 bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path) {
     const std::size_t need = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3 / 2;
     if (w <= 0 || h <= 0 || nv12.size() < need)
         return false;
-    paint_base(nv12.data(), w, h, device_path);
+    paint_base_impl(nv12.data(), w, h, device_path);
     return true;
 }
 
@@ -219,7 +223,7 @@ bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64
     const std::size_t need = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3 / 2;
     if (w <= 0 || h <= 0 || nv12.size() < need)
         return false;
-    paint_tick(nv12.data(), w, h, tick_idx, wallclock_ms, status);
+    paint_tick_impl(nv12.data(), w, h, tick_idx, wallclock_ms, status);
     return true;
 }
 

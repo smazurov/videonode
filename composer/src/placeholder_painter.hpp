@@ -42,23 +42,20 @@ AnimRegion derive_anim_region(int w, int h);
 // width gets truncated.
 //
 // Requires:
-//   nv12_size >= w * h * 3 / 2
+//   nv12.size() >= w * h * 3 / 2
 //   w, h even and >= 256 (we don't bother scaling text below that)
-void paint_base(uint8_t* nv12, int w, int h, const char* device_path);
-
-// Span overload of paint_base. Returns false (no-op) if the span is too
-// small to hold an NV12 frame of the given dimensions.
+//
+// Returns false (no-op) if the span is too small to hold an NV12 frame
+// of the given dimensions.
 bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path);
 
 // paint_tick repaints the animated region with a fresh spinner frame, the
 // current wall-clock timestamp + frame counter, and a status line
 // (e.g. "NO CABLE DETECTED" or "WAITING FOR SIGNAL"). tick_idx drives
 // spinner rotation; wallclock_ms is the timestamp value.
-void paint_tick(uint8_t* nv12, int w, int h, uint64_t tick_idx, uint64_t wallclock_ms,
-                const char* status);
-
-// Span overload of paint_tick. Returns false (no-op) if the span is too
-// small to hold an NV12 frame of the given dimensions.
+//
+// Returns false (no-op) if the span is too small to hold an NV12 frame
+// of the given dimensions.
 bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64_t wallclock_ms,
                 const char* status);
 
