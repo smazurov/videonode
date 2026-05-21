@@ -10,24 +10,7 @@
 # on Fedora).
 vn_add_executable(videonode-source
     SOURCES videonode_source_main.cpp
-    DEPS    v4l2_capture csc nv12_buf placeholder_painter source_probe
-            scm_rights_producer dmabuf_msg dma_heap
-            jpeg_dec_turbo
-            jsonrpc_msg control_channel
-            Threads::Threads)
-if(HAVE_RGA)
-    target_compile_definitions(videonode-source PRIVATE HAVE_RGA=1)
-endif()
-if(HAVE_MPP)
-    target_link_libraries(videonode-source PRIVATE mpp_jpeg_dec)
-    target_compile_definitions(videonode-source PRIVATE HAVE_MPP=1)
-endif()
-if(HAVE_GBM AND NOT HAVE_RGA)
-    # nv12_buf::Allocator::init needs a gbm_device on this backend;
-    # videonode-source opens it via EglCtx at startup.
-    target_compile_definitions(videonode-source PRIVATE HAVE_GBM=1)
-    target_link_libraries(videonode-source PRIVATE egl_ctx gles_bundle)
-endif()
+    DEPS    orchestrator)
 
 # videonode-sink — single-stream NV12 carrier. Dials a videonode-source SCM
 # socket, mmaps each incoming dma-buf and writes the NV12 bytes to stdout.
