@@ -40,9 +40,7 @@ class TurboJpegDec : public JpegDec {
     // ring.
     bool init(int width, int height, std::vector<Slot> ring);
 
-    bool decode(const uint8_t* jpeg, std::size_t size, DecodedNv12& out) override;
-
-    using JpegDec::decode;
+    bool decode(std::span<const uint8_t> jpeg, DecodedNv12& out) override;
 
   private:
     void* handle_ = nullptr; // tjhandle (kept across frames)

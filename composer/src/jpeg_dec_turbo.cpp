@@ -46,14 +46,14 @@ bool TurboJpegDec::init(int width, int height, std::vector<Slot> ring) {
     return true;
 }
 
-bool TurboJpegDec::decode(const uint8_t* jpeg, std::size_t size, DecodedNv12& out) {
+bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
     if (!handle_ || ring_.empty())
         return false;
     tjhandle h = static_cast<tjhandle>(handle_);
 
     int jw = 0, jh = 0, jsubsamp = 0, jcs = 0;
-    if (tjDecompressHeader3(h, jpeg, static_cast<unsigned long>(size), &jw, &jh, &jsubsamp, &jcs) !=
-        0) {
+    if (tjDecompressHeader3(h, jpeg.data(), static_cast<unsigned long>(jpeg.size()), &jw, &jh,
+                            &jsubsamp, &jcs) != 0) {
         fprintf(stderr, "jpeg_dec_turbo: tjDecompressHeader3: %s\n", tjGetErrorStr2(h));
         return false;
     }
@@ -86,8 +86,8 @@ bool TurboJpegDec::decode(const uint8_t* jpeg, std::size_t size, DecodedNv12& ou
 
     unsigned char* planes[3] = {s.mapped, u_scratch_.data(), v_scratch_.data()};
     int strides[3] = {width_, chroma_pw, chroma_pw};
-    if (tjDecompressToYUVPlanes(h, jpeg, static_cast<unsigned long>(size), planes, width_, strides,
-                                height_, 0) != 0) {
+    if (tjDecompressToYUVPlanes(h, jpeg.data(), static_cast<unsigned long>(jpeg.size()), planes,
+                                width_, strides, height_, 0) != 0) {
         fprintf(stderr, "jpeg_dec_turbo: tjDecompressToYUVPlanes: %s\n", tjGetErrorStr2(h));
         return false;
     }

@@ -48,6 +48,7 @@
 #include <linux/videodev2.h>
 #include <memory>
 #include <poll.h>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -1059,9 +1060,10 @@ int main(int argc, char** argv) {
                             }
                         } else { // DecodeMode::Mjpeg
                             if (df.index < cap.in_maps.size() && df.bytesused > 0) {
-                                const uint8_t* jpeg =
+                                const auto* jpeg =
                                     static_cast<const uint8_t*>(cap.in_maps[df.index]);
-                                ok = cap.jpeg->decode(jpeg, df.bytesused, decoded);
+                                ok = cap.jpeg->decode(std::span<const uint8_t>(jpeg, df.bytesused),
+                                                      decoded);
                             }
                         }
                         if (ok) {
