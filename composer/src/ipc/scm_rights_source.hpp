@@ -15,7 +15,7 @@
 // other end. One ScmRightsSource per canvas slot; the daemon connects to
 // each socket path the composer is listening on.
 //
-// FrameView shape matches FfmpegPipeSource::FrameView so composer-spike's
+// FrameView shape matches FfmpegPipeSource::FrameView so videonode-composer's
 // gl_compose code (which already imports NV12 dma-bufs as EGLImages) can
 // work against either producer without branching.
 

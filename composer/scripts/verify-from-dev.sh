@@ -9,7 +9,7 @@
 set -euo pipefail
 
 RIG_HOST="${RIG_HOST:-orangepi5-ultra.lan}"
-STREAM="${STREAM:-spike}"
+STREAM="${STREAM:-composer}"
 URL="rtsp://${RIG_HOST}:8554/${STREAM}"
 EXPECT_W="${EXPECT_W:-1920}"
 EXPECT_H="${EXPECT_H:-1080}"

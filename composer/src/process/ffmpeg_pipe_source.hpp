@@ -17,13 +17,13 @@
 //     an MPP wrapper here. (mpp_jpeg_dec.hpp exists in the tree for when we
 //     do want to bypass ffmpeg for tighter latency control.)
 //   - The capture side becomes a one-line command string instead of a few
-//     hundred lines of ioctl plumbing. The spike validates the GPU compose
+//     hundred lines of ioctl plumbing. This source validates the GPU compose
 //     path, not the V4L2 plumbing path.
 //
 // Cost: one memcpy per frame from pipe -> dma-heap buffer. At 1080p30 that's
 // ~93 MB/s of CPU bandwidth per source; at 4K30 ~373 MB/s. Tolerable for the
-// spike. For production we'd swap this for direct V4L2 EXPBUF + (optional)
-// in-process MPP decode.
+// host-dev path. For production we'd swap this for direct V4L2 EXPBUF +
+// (optional) in-process MPP decode.
 //
 // Threading: each source owns one capture thread that DQBUFs from the pipe
 // and ping-pongs between two dma-heap buffers. Public methods are

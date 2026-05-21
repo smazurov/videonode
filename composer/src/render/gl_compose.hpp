@@ -1,4 +1,4 @@
-// gl_compose — multi-source GPU compositor for the spike.
+// gl_compose — multi-source GPU compositor.
 //
 // Owns a canvas RGBA dma-buf (allocated via GBM, exported for downstream RGA
 // CSC + encoder consumption), a GLES2 shader program, and per-source textures

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Watch composer-spike/ for file changes and rsync to the rig.
+# Watch composer/ for file changes and rsync to the rig.
 # Debounced: coalesces bursts of writes (e.g., editor save -> save) within 200ms.
 # Stop with Ctrl-C or by killing the inotifywait process.
 set -euo pipefail
 
 RIG="${RIG:-orangepi@orangepi5-ultra.lan}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DST_DIR="${DST_DIR:-/home/orangepi/composer-spike}"
+DST_DIR="${DST_DIR:-/home/orangepi/composer}"
 DEBOUNCE_MS="${DEBOUNCE_MS:-200}"
 
 sync_once() {

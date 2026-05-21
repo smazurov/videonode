@@ -45,7 +45,7 @@ class EglCtx {
     // Convenience: bind the context to the calling thread (no surfaces).
     [[nodiscard]] bool make_current() const;
 
-    // Build an EGLImage from a dma-buf fd. Supports two layouts the spike
+    // Build an EGLImage from a dma-buf fd. Supports two layouts the composer
     // uses today:
     //   - NV12 (two planes; plane 1 is interleaved CbCr at half resolution).
     //     Pass fourcc = DRM_FORMAT_NV12, the same fd for both planes,

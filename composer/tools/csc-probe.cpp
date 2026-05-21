@@ -1,7 +1,7 @@
-// csc-probe — Phase 0 spike: GLES2 two-pass NV24 → NV12 color-space
-// conversion validator. Runs on any Linux box with Mesa + libgbm + a DRM
-// render node (no Rockchip / dma_heap dependency). Validates the path the
-// production csc_gles backend will use.
+// csc-probe — GLES2 two-pass NV24 → NV12 color-space conversion validator.
+// Runs on any Linux box with Mesa + libgbm + a DRM render node (no Rockchip /
+// dma_heap dependency). Validates the path the production csc_gles backend
+// will use.
 //
 // Pipeline:
 //   1. Open EGL/GBM/GLES2 on /dev/dri/renderD128 (Fedora) or /dev/dri/renderD130 (rig).

@@ -12,12 +12,12 @@
 // fall behind doesn't affect the rest.
 //
 // Wire format is identical to scm_rights_source's: dmabuf_msg::Header
-// (length-prefixed JSON) + SCM_RIGHTS ancillary fds. So composer-spike's
+// (length-prefixed JSON) + SCM_RIGHTS ancillary fds. So videonode-composer's
 // existing consumer code dials a Producer's socket and reads frames
 // unchanged.
 //
 // Used by the videonode-source sidecar to publish NV12 dma-bufs to any
-// number of consumers (composer-spike instances, snapshot, AI, recording).
+// number of consumers (videonode-composer instances, snapshot, AI, recording).
 
 #pragma once
 

@@ -1,6 +1,6 @@
 // dma_heap — userspace allocator for DMA-BUF backing memory via /dev/dma_heap/.
 //
-// Why this exists: every dma-buf the spike passes between subsystems (GBM
+// Why this exists: every dma-buf the composer passes between subsystems (GBM
 // canvas, RGA scratch, vision tap, ffmpeg encoder input) ultimately needs a
 // kernel-side allocation. dma_heap is the modern (post-ION) interface. On
 // this rig /dev/dma_heap/system is the cacheable virtually-contiguous heap;
@@ -8,7 +8,7 @@
 // physically-contiguous heap (typically CMA-backed).
 //
 // Allocations return a DMA-BUF fd that can be:
-//   - mmap'd into the spike process for CPU read/write (fake_source uses this)
+//   - mmap'd into the composer process for CPU read/write (fake_source uses this)
 //   - imported by librga via importbuffer_fd
 //   - imported by EGL via EGL_LINUX_DMA_BUF_EXT
 //   - passed to ffmpeg over SCM_RIGHTS

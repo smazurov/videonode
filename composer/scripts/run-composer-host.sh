@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Run composer-spike on the local Fedora dev machine: lavfi sources for both
-# slots (no real V4L2 needed), composer writes BGRA to stdout, ffmpeg encodes
-# with libx264 and pushes RTSP to a local mediamtx. View from another terminal
-# with `ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/spike`.
+# Run videonode-composer on the local Fedora dev machine: lavfi sources for
+# both slots (no real V4L2 needed), composer writes BGRA to stdout, ffmpeg
+# encodes with libx264 and pushes RTSP to a local mediamtx. View from another
+# terminal with `ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/composer`.
 set -euo pipefail
 
 CW="${CANVAS_W:-1280}"
 CH="${CANVAS_H:-720}"
 FPS="${CANVAS_FPS:-30}"
-URL="${RTSP_URL:-rtsp://127.0.0.1:8554/spike}"
+URL="${RTSP_URL:-rtsp://127.0.0.1:8554/composer}"
 
-SPIKE_BIN="${SPIKE_BIN:-$(dirname "$0")/../build/host/composer-spike}"
+COMPOSER_BIN="${COMPOSER_BIN:-$(dirname "$0")/../build/host/videonode-composer}"
 DRM_DEVICE="${DRM_DEVICE:-/dev/dri/renderD128}"
 
-if [ ! -x "${SPIKE_BIN}" ]; then
-  echo "composer-spike not built at ${SPIKE_BIN}" >&2
-  echo "build with: make spike-test  (from worktree root)" >&2
+if [ ! -x "${COMPOSER_BIN}" ]; then
+  echo "videonode-composer not built at ${COMPOSER_BIN}" >&2
+  echo "build composer first (cmake --preset dev && cmake --build --preset dev)" >&2
   exit 1
 fi
 
@@ -37,7 +37,7 @@ fi
 
 echo "composer pipeline: ${CW}x${CH}@${FPS} -> ${URL}"
 
-"${SPIKE_BIN}" \
+"${COMPOSER_BIN}" \
     --drm-device "${DRM_DEVICE}" \
     --canvas-w "${CW}" --canvas-h "${CH}" --fps "${FPS}" \
     --source-a-testsrc --source-a-width "${CW}" --source-a-height "${CH}" --source-a-fps "${FPS}" \

@@ -1,5 +1,5 @@
 // dmabuf_msg — wire format for dma-buf fd handoff from a videonode-source
-// producer to its consumers (videonode-sink, composer-spike, snapshot, AI,
+// producer to its consumers (videonode-sink, videonode-composer, snapshot, AI,
 // recording) over a Unix socket with SCM_RIGHTS ancillary data.
 //
 // Layout:

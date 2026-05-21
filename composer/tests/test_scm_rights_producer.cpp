@@ -232,7 +232,7 @@ TEST(ScmRightsProducer, MaxConsumersCapEnforced) {
 }
 
 // End-to-end: ScmRightsProducer + ScmRightsSource (in dial mode) talk to
-// each other. Proves the dial path used by composer-spike + videonode-source
+// each other. Proves the dial path used by videonode-composer + videonode-source
 // works without a manually-managed socket pair.
 TEST(ScmRightsProducer, SourceDialModeConsumesProducer) {
     auto path = tmp_sock("dial");

@@ -8,7 +8,7 @@
 // Use case: a failing rga::convert is invisible from the live HDMI
 // pipeline (you just get black/no frames downstream). This probe makes
 // the failure surface as a clear pass/fail with format/stride/rect
-// numbers logged. Run via `make spike-test-on-rig`.
+// numbers logged.
 //
 // Only built when HAVE_RGA is set (on the rig).
 
