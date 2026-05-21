@@ -13,6 +13,9 @@ int main() {
         h.format = "NV12";
         h.plane_pitches = {1920};
         h.plane_offsets = {0};
+        h.color_matrix = ColorMatrix::Bt601;
+        h.color_range = ColorRange::Limited;
+        h.chroma_siting = ChromaSiting::Mpeg2;
         h.frame_idx = 42;
 
         std::string s = EncodeFrameNotification(h);
@@ -25,6 +28,9 @@ int main() {
         CHECK_TRUE(s.find("\"slot_index\":1") != std::string::npos);
         CHECK_TRUE(s.find("\"format\":\"NV12\"") != std::string::npos);
         CHECK_TRUE(s.find("\"plane_pitches\":[1920]") != std::string::npos);
+        CHECK_TRUE(s.find("\"color_matrix\":1") != std::string::npos);
+        CHECK_TRUE(s.find("\"color_range\":1") != std::string::npos);
+        CHECK_TRUE(s.find("\"chroma_siting\":1") != std::string::npos);
 
         Header back;
         std::string err;
@@ -37,7 +43,25 @@ int main() {
         CHECK_EQ(back.plane_pitches[0], 1920u);
         CHECK_EQ(back.plane_offsets.size(), 1u);
         CHECK_EQ(back.plane_offsets[0], 0u);
+        CHECK_TRUE(back.color_matrix == ColorMatrix::Bt601);
+        CHECK_TRUE(back.color_range == ColorRange::Limited);
+        CHECK_TRUE(back.chroma_siting == ChromaSiting::Mpeg2);
         CHECK_EQ(back.frame_idx, 42u);
+    }
+
+    test_runner::start_case("decode_missing_color_metadata_defaults_to_unspecified");
+    {
+        // Forward-compat: older producers (or hand-rolled tests) may
+        // omit the color metadata fields. Decoder must accept and leave
+        // them at Unspecified so the consumer can apply its fallback.
+        const char* old_style =
+            R"({"jsonrpc":"2.0","method":"frame","params":{"slot_index":0,"width":640,"height":480,"format":"NV12","plane_pitches":[640],"plane_offsets":[0],"frame_idx":1}})";
+        Header h;
+        std::string err;
+        CHECK_TRUE(DecodeFrameNotification(old_style, h, &err));
+        CHECK_TRUE(h.color_matrix == ColorMatrix::Unspecified);
+        CHECK_TRUE(h.color_range == ColorRange::Unspecified);
+        CHECK_TRUE(h.chroma_siting == ChromaSiting::Unspecified);
     }
 
     test_runner::start_case("encode_decode_roundtrip_multi_plane");

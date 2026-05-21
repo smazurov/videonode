@@ -13,7 +13,6 @@
 #   vn_add_executable(<name>
 #       SOURCES <main.cpp> ...
 #       [DEPS <t> ...]
-#       [STUBS]                          # link rockchip stubs when used
 #       [NO_INSTALL])                    # default: installed to bin/
 #
 #   vn_add_probe(<name>
@@ -46,7 +45,7 @@ function(vn_add_library name)
 endfunction()
 
 function(vn_add_executable name)
-    set(opts STUBS NO_INSTALL)
+    set(opts NO_INSTALL)
     set(one_value)
     set(multi_value SOURCES DEPS)
     cmake_parse_arguments(ARG "${opts}" "${one_value}" "${multi_value}" ${ARGN})
@@ -58,11 +57,6 @@ function(vn_add_executable name)
     add_executable(${name} ${ARG_SOURCES})
     if(ARG_DEPS)
         target_link_libraries(${name} PRIVATE ${ARG_DEPS})
-    endif()
-    if(ARG_STUBS AND USING_ROCKCHIP_STUBS)
-        # The rockchip-stub OBJECT lib doesn't propagate transitively through
-        # static libs reliably; pull it into each consumer that needs it.
-        target_sources(${name} PRIVATE $<TARGET_OBJECTS:rockchip_stubs>)
     endif()
     if(NOT ARG_NO_INSTALL)
         install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

@@ -5,8 +5,7 @@
 # PUBLIC_DEPS.
 #
 # Adding a new production binary: `vn_add_executable(<name> SOURCES ...
-# DEPS ...)`. Pass STUBS if it touches the rockchip libs; pass NO_INSTALL
-# if it shouldn't end up in the .deb/.rpm.
+# DEPS ...)`. Pass NO_INSTALL to keep it out of the .deb/.rpm.
 
 # ───────────────────────────────────────────────── libraries (always built)
 vn_add_library(dma_heap      SOURCES dma_heap.cpp)
@@ -35,11 +34,6 @@ vn_add_library(fake_source
     SOURCES fake_source.cpp
     PUBLIC_DEPS dma_heap)
 
-vn_add_library(ffmpeg_pipe_source
-    SOURCES ffmpeg_pipe_source.cpp
-    PUBLIC_DEPS dma_heap
-    PRIVATE_DEPS child_process Threads::Threads)
-
 # v4l2_capture: pure UAPI ioctl wrapper for V4L2 capture devices.
 vn_add_library(v4l2_capture SOURCES v4l2_capture.cpp)
 
@@ -52,11 +46,45 @@ vn_add_library(source_probe
     SOURCES source_probe.cpp
     PUBLIC_DEPS v4l2_capture)
 
+# nv12_buf: backend-agnostic NV12 output buffer abstraction used by
+# videonode-source. dma_heap single-buffer when HAVE_RGA (rig path); GBM
+# split-buffer when HAVE_GBM and not HAVE_RGA (Fedora / Mesa hosts).
+vn_add_library(nv12_buf
+    SOURCES nv12_buf.cpp
+    PUBLIC_DEPS dma_heap)
+if(HAVE_RGA)
+    target_compile_definitions(nv12_buf PRIVATE HAVE_RGA=1)
+endif()
+if(HAVE_GBM AND NOT HAVE_RGA)
+    target_compile_definitions(nv12_buf PRIVATE HAVE_GBM=1)
+    # gbm_alloc target is added below in the HAVE_GBM block.
+endif()
+
+# csc: backend-agnostic dispatcher exposed to videonode-source. Always
+# built. With HAVE_RGA on the rig it forwards to rga_csc; on a Fedora /
+# Mesa host with HAVE_GLES_CSC it forwards to csc_gles (two-pass MRT
+# NV12 producer, validated by tools/csc-probe).
+vn_add_library(csc SOURCES csc.cpp)
+
 # rga_csc: librga imcvtcolor wrapper for dma-buf NV24/NV16/BGR3/YUYV/UYVY
-# → NV12 conversion. Links real librga on rig; rockchip-stubs on host.
-vn_add_library(rga_csc
-    SOURCES rga_csc.cpp
-    PUBLIC_DEPS rga_iface)
+# → NV12 conversion. Only built when real librga is present.
+if(HAVE_RGA)
+    vn_add_library(rga_csc
+        SOURCES rga_csc.cpp
+        PUBLIC_DEPS rga_iface)
+    target_link_libraries(csc PUBLIC rga_csc)
+    target_compile_definitions(csc PRIVATE HAVE_RGA=1)
+endif()
+
+# csc_gles: GLES2 two-pass NV24→NV12 backend. Validated by
+# tools/csc-probe. NV16/YUYV/UYVY/BGR3 are TODO follow-ups.
+if(HAVE_GLES_CSC)
+    vn_add_library(csc_gles
+        SOURCES csc_gles.cpp
+        PUBLIC_DEPS egl_ctx gles_bundle)
+    target_link_libraries(csc PUBLIC csc_gles)
+    target_compile_definitions(csc PRIVATE HAVE_GLES_CSC=1)
+endif()
 
 # jpeg_dec_turbo: libjpeg-turbo (TurboJPEG API) software MJPEG → NV12
 # decoder. Software fallback for videonode-source when MPP HW decode is
@@ -67,6 +95,13 @@ vn_add_library(jpeg_dec_turbo
 
 # ───────────────────────────────────────────────── GLES libs (need GBM)
 if(HAVE_GBM)
+    vn_add_library(gbm_alloc
+        SOURCES gbm_alloc.cpp
+        PUBLIC_DEPS gles_bundle)
+    if(NOT HAVE_RGA)
+        target_link_libraries(nv12_buf PUBLIC gbm_alloc)
+    endif()
+
     vn_add_library(egl_ctx
         SOURCES egl_ctx.cpp
         PUBLIC_DEPS gles_bundle)
@@ -92,16 +127,30 @@ endif()
 # NO_INSTALL to opt out (used for none of the three production binaries).
 
 # videonode-source — V4L2 capture sidecar. Reads frames from a V4L2 device,
-# converts them to NV12 (RGA CSC for raw formats, MPP-HW or TurboJPEG SW
-# decode for MJPEG), fans out dma-buf fds via SCM_RIGHTS to N consumers.
+# converts them to NV12 (RGA or GLES CSC for raw formats; MPP-HW or
+# TurboJPEG SW decode for MJPEG), fans out dma-buf fds via SCM_RIGHTS to
+# N consumers. nv12_buf hides the output allocator (dma_heap on rig, GBM
+# on Fedora).
 vn_add_executable(videonode-source
     SOURCES videonode_source_main.cpp
-    DEPS    v4l2_capture rga_csc placeholder_painter source_probe
+    DEPS    v4l2_capture csc nv12_buf placeholder_painter source_probe
             scm_rights_producer dmabuf_msg dma_heap
-            jpeg_dec_turbo mpp_jpeg_dec
+            jpeg_dec_turbo
             jsonrpc_msg control_channel
-            Threads::Threads
-    STUBS)
+            Threads::Threads)
+if(HAVE_RGA)
+    target_compile_definitions(videonode-source PRIVATE HAVE_RGA=1)
+endif()
+if(HAVE_MPP)
+    target_link_libraries(videonode-source PRIVATE mpp_jpeg_dec)
+    target_compile_definitions(videonode-source PRIVATE HAVE_MPP=1)
+endif()
+if(HAVE_GBM AND NOT HAVE_RGA)
+    # nv12_buf::Allocator::init needs a gbm_device on this backend;
+    # videonode-source opens it via EglCtx at startup.
+    target_compile_definitions(videonode-source PRIVATE HAVE_GBM=1)
+    target_link_libraries(videonode-source PRIVATE egl_ctx gles_bundle)
+endif()
 
 # videonode-sink — single-stream NV12 carrier. Dials a videonode-source SCM socket,
 # mmaps each incoming dma-buf and writes the NV12 bytes to stdout. Pipe
@@ -114,6 +163,10 @@ vn_add_executable(videonode-sink
 # from N videonode-source sockets, composes BGRA via EGL/GLES, writes the
 # canvas frames to stdout. Needs libgbm.
 if(HAVE_GBM)
+    vn_add_library(ffmpeg_pipe_source
+        SOURCES ffmpeg_pipe_source.cpp
+        PUBLIC_DEPS gbm_alloc dma_heap
+        PRIVATE_DEPS child_process Threads::Threads)
     vn_add_executable(videonode-composer
         SOURCES main.cpp
         DEPS    dma_heap ffmpeg_pipe_source scm_rights_source

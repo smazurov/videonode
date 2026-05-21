@@ -1,20 +1,9 @@
 // rga_csc — thin librga wrapper for dma-buf-to-dma-buf color-space
-// conversion. The videonode-source sidecar uses it to turn HDMI-IN's
-// native pixel formats (NV24 / NV16 / BGR3 / YUYV / UYVY) into the only
-// format Mali-Panfrost will actually render: NV12.
-//
-// One Csc instance is reusable across frames — it imports src/dst handles
-// per call (librga's importbuffer_fd dups the fd into its own ref).
-//
-// Cross-compat: builds against the rockchip-stubs on the dev host so the
-// sidecar compiles everywhere. At runtime on the host the stub im* calls
-// return non-success and convert() returns false — caller logs and exits.
+// conversion. videonode-source uses it to turn HDMI-IN's native pixel
+// formats (NV24 / NV16 / BGR3 / YUYV / UYVY) into NV12.
 
 #pragma once
 
-// System path on rig (/usr/include/rga/im2d.h); resolved via
-// third_party/rockchip-stubs/rga/ on host (rga_iface adds the include
-// path only when stubs are in use, so real librga wins on rig).
 // <cstddef> first: real /usr/include/rga/im2d_single.h uses NULL without
 // including its definition itself.
 #include <cstddef>
@@ -52,8 +41,8 @@ struct ConvertParams {
 };
 
 // convert() runs one imcvtcolor pass: src dma-buf -> dst dma-buf. Returns
-// false on librga error (or on the host stub at runtime). Caller passes
-// already-allocated buffers; this does not allocate.
+// false on librga error. Caller passes already-allocated buffers; this
+// does not allocate.
 bool convert(const ConvertParams& src, const ConvertParams& dst);
 
 } // namespace rga

@@ -1,9 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
-# C is enabled for the host-side Rockchip stubs (third_party/rockchip-stubs/
-# stubs.c). On the rig nothing C is compiled.
 project(videonode-native
-    LANGUAGES C CXX
+    LANGUAGES CXX
     VERSION 0.1.0
     DESCRIPTION "Native dma-buf video pipeline for RK3588")
 

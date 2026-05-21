@@ -1,0 +1,72 @@
+name: composer-release
+
+on:
+  push:
+    tags:
+      - 'native-v*'
+
+jobs:
+  rpm-x86_64:
+    runs-on: ubuntu-26.04
+    container: fedora:43
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            cmake ninja-build pkgconf-pkg-config gcc-c++ \
+            mesa-libEGL-devel mesa-libGLES-devel mesa-libgbm-devel \
+            libdrm-devel rpm-build
+      - name: Build
+        run: |
+          cmake -B build -S composer -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+      - name: Pack RPM
+        working-directory: build
+        run: cpack -G RPM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-x86_64
+          path: build/*.rpm
+
+  deb-arm64:
+    runs-on: ubuntu-26.04-arm
+    container: arm64v8/ubuntu:26.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config g++ ca-certificates \
+            libegl-dev libgles-dev libgbm-dev libdrm-dev dpkg-dev
+      - name: Build
+        run: |
+          cmake -B build -S composer -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+      - name: Pack DEB
+        working-directory: build
+        run: cpack -G DEB
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-arm64
+          path: build/*.deb
+
+  release:
+    needs: [rpm-x86_64, deb-arm64]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/rpm-x86_64/*.rpm
+            artifacts/deb-arm64/*.deb
+          generate_release_notes: true

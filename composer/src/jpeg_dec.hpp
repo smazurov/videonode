@@ -25,6 +25,7 @@ namespace jpeg_dec {
 // previous-tick stability).
 struct DecodedNv12 {
     int fd = -1;
+    int plane1_fd = -1; // optional: separate UV fd (Fedora GBM split-buffer); -1 means reuse fd
     int width = 0;
     int height = 0;
     uint32_t y_pitch = 0;

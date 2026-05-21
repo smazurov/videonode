@@ -1,5 +1,6 @@
 #include "ffmpeg_pipe_source.hpp"
 #include "child_process.hpp"
+#include "dma_heap.hpp" // for sync_start/sync_end on dma-buf fds (works on any dma-buf, not just dma_heap-allocated)
 
 #include <cerrno>
 #include <csignal>
@@ -40,19 +41,24 @@ bool FfmpegPipeSource::init(const InitParams& p) {
         fprintf(stderr, "ffmpeg_pipe_source: dims %dx%d must be even (NV12)\n", width_, height_);
         return false;
     }
+    if (!p.gbm) {
+        fprintf(stderr, "ffmpeg_pipe_source: InitParams.gbm is required (pass EglCtx::gbm())\n");
+        return false;
+    }
     frame_bytes_ = static_cast<size_t>(width_) * height_ * 3 / 2;
 
     int ring_n = std::max(2, p.ring_size);
     ring_.resize(ring_n);
     for (int i = 0; i < ring_n; ++i) {
-        ring_[i].buf = dmaheap::alloc(p.heap_name, frame_bytes_);
+        ring_[i].buf = gbm_alloc::alloc(p.gbm, width_, height_);
         if (!ring_[i].buf.valid()) {
-            fprintf(stderr, "ffmpeg_pipe_source: dma_heap alloc[%d]\n", i);
+            fprintf(stderr, "ffmpeg_pipe_source: gbm_alloc[%d]\n", i);
             return false;
         }
-        ring_[i].mapped = dmaheap::mmap_rw(ring_[i].buf);
-        if (!ring_[i].mapped)
-            return false;
+        // Don't map at init. Per-frame map/unmap is required for radeonsi:
+        // a persistent CPU mapping keeps the bo in the CPU-coherent state
+        // and subsequent GPU samples read stale/zero. csc-probe's
+        // map → write → unmap → sample pattern is the working reference.
     }
     return true;
 }
@@ -127,26 +133,51 @@ void FfmpegPipeSource::thread_main_() {
     int next_slot = 0;
     while (running_.load()) {
         Buf& slot = ring_[next_slot];
-        dmaheap::sync_start(slot.buf.fd, dmaheap::SyncDir::Write);
-        if (!read_exact(ffmpeg_stdout_fd_, slot.mapped, frame_bytes_)) {
-            dmaheap::sync_end(slot.buf.fd, dmaheap::SyncDir::Write);
+
+        // Map for write, fill, unmap. Per-frame because radeonsi treats
+        // the mapping as a CPU-coherent state — only after unmap can the
+        // GPU sample the bytes we wrote.
+        gbm_alloc::Mapped m = gbm_alloc::map_rw(slot.buf);
+        if (!m.y || !m.uv) {
+            fprintf(stderr, "ffmpeg_pipe_source: per-frame map failed\n");
+            break;
+        }
+        bool ok = true;
+        uint8_t* y_base = static_cast<uint8_t*>(m.y);
+        if (slot.buf.y_stride == uint32_t(width_)) {
+            ok = read_exact(ffmpeg_stdout_fd_, y_base, size_t(width_) * height_);
+        } else {
+            for (int y = 0; y < height_ && ok; ++y)
+                ok = read_exact(ffmpeg_stdout_fd_, y_base + y * slot.buf.y_stride, width_);
+        }
+        if (ok) {
+            uint8_t* uv_base = static_cast<uint8_t*>(m.uv);
+            if (slot.buf.uv_stride == uint32_t(width_)) {
+                ok = read_exact(ffmpeg_stdout_fd_, uv_base, size_t(width_) * (height_ / 2));
+            } else {
+                for (int y = 0; y < height_ / 2 && ok; ++y)
+                    ok = read_exact(ffmpeg_stdout_fd_, uv_base + y * slot.buf.uv_stride, width_);
+            }
+        }
+        gbm_alloc::unmap(slot.buf);
+        if (!ok) {
             if (running_.load()) {
                 fprintf(stderr, "ffmpeg_pipe_source: read_exact EOF/err; ffmpeg died?\n");
             }
             break;
         }
-        dmaheap::sync_end(slot.buf.fd, dmaheap::SyncDir::Write);
 
         ++idx;
         {
             std::lock_guard<std::mutex> g(latest_mu_);
-            latest_.fd = slot.buf.fd;
+            latest_.fd = slot.buf.y_fd;
+            latest_.plane1_fd = slot.buf.uv_fd;
             latest_.width = width_;
             latest_.height = height_;
-            latest_.plane0_pitch = static_cast<uint32_t>(width_);
+            latest_.plane0_pitch = slot.buf.y_stride;
             latest_.plane0_offset = 0;
-            latest_.plane1_pitch = static_cast<uint32_t>(width_);
-            latest_.plane1_offset = static_cast<uint32_t>(width_) * height_;
+            latest_.plane1_pitch = slot.buf.uv_stride;
+            latest_.plane1_offset = 0;
             latest_.frame_idx = idx;
         }
         next_slot = (next_slot + 1) % static_cast<int>(ring_.size());
@@ -170,8 +201,8 @@ void FfmpegPipeSource::stop() {
 FfmpegPipeSource::~FfmpegPipeSource() {
     stop();
     for (auto& s : ring_) {
-        if (s.mapped)
-            dmaheap::munmap_rw(s.mapped, s.buf.size);
+        s.mapped_y = s.mapped_uv = nullptr;
+        gbm_alloc::free(s.buf);
     }
 }
 
