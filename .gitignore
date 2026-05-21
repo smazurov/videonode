@@ -1,6 +1,9 @@
 videonode
 .vscode/
 .claude/
+# Skills and shared infrastructure are committed; only session/runtime state is ignored.
+!.claude/skills/
+!.claude/skills/**
 vendor/
 tmp/
 .env
