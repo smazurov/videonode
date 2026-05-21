@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -14,10 +15,9 @@ namespace ffmpeg_pipe_source {
 
 namespace {
 
-bool read_exact(int fd, void* dst, size_t n) {
-    auto* p = static_cast<uint8_t*>(dst);
-    while (n > 0) {
-        ssize_t r = ::read(fd, p, n);
+bool read_exact(int fd, std::span<uint8_t> dst) {
+    while (!dst.empty()) {
+        ssize_t r = ::read(fd, dst.data(), dst.size());
         if (r == 0)
             return false; // EOF
         if (r < 0) {
@@ -25,8 +25,7 @@ bool read_exact(int fd, void* dst, size_t n) {
                 continue;
             return false;
         }
-        p += r;
-        n -= r;
+        dst = dst.subspan(static_cast<size_t>(r));
     }
     return true;
 }
@@ -145,18 +144,21 @@ void FfmpegPipeSource::thread_main_() {
         bool ok = true;
         uint8_t* y_base = static_cast<uint8_t*>(m.y);
         if (slot.buf.y_stride == uint32_t(width_)) {
-            ok = read_exact(ffmpeg_stdout_fd_, y_base, size_t(width_) * height_);
+            ok = read_exact(ffmpeg_stdout_fd_, std::span(y_base, size_t(width_) * height_));
         } else {
             for (int y = 0; y < height_ && ok; ++y)
-                ok = read_exact(ffmpeg_stdout_fd_, y_base + y * slot.buf.y_stride, width_);
+                ok = read_exact(ffmpeg_stdout_fd_,
+                                std::span(y_base + y * slot.buf.y_stride, size_t(width_)));
         }
         if (ok) {
             uint8_t* uv_base = static_cast<uint8_t*>(m.uv);
             if (slot.buf.uv_stride == uint32_t(width_)) {
-                ok = read_exact(ffmpeg_stdout_fd_, uv_base, size_t(width_) * (height_ / 2));
+                ok = read_exact(ffmpeg_stdout_fd_,
+                                std::span(uv_base, size_t(width_) * (height_ / 2)));
             } else {
                 for (int y = 0; y < height_ / 2 && ok; ++y)
-                    ok = read_exact(ffmpeg_stdout_fd_, uv_base + y * slot.buf.uv_stride, width_);
+                    ok = read_exact(ffmpeg_stdout_fd_,
+                                    std::span(uv_base + y * slot.buf.uv_stride, size_t(width_)));
             }
         }
         gbm_alloc::unmap(slot.buf);
