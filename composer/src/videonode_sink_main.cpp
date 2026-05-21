@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <string>
 #include <sys/mman.h>
 #include <thread>
@@ -34,10 +35,9 @@ void on_sig(int) {
 }
 
 // write_full retries until all bytes are flushed or the consumer closes.
-bool write_full(int fd, const void* buf, size_t n) {
-    const auto* p = static_cast<const uint8_t*>(buf);
-    while (n > 0) {
-        ssize_t w = ::write(fd, p, n);
+bool write_full(int fd, std::span<const uint8_t> buf) {
+    while (!buf.empty()) {
+        ssize_t w = ::write(fd, buf.data(), buf.size());
         if (w < 0) {
             if (errno == EINTR)
                 continue;
@@ -45,8 +45,7 @@ bool write_full(int fd, const void* buf, size_t n) {
         }
         if (w == 0)
             return false;
-        p += w;
-        n -= size_t(w);
+        buf = buf.subspan(static_cast<size_t>(w));
     }
     return true;
 }
@@ -75,10 +74,11 @@ bool emit_frame(const scm_rights_source::FrameView& v,
         uplane[j] = uv[i];
         vplane[j] = uv[i + 1];
     }
-    bool ok = write_full(STDOUT_FILENO, "FRAME\n", 6) &&
-              write_full(STDOUT_FILENO, y, y_size) &&
-              write_full(STDOUT_FILENO, uplane.data(), uplane.size()) &&
-              write_full(STDOUT_FILENO, vplane.data(), vplane.size());
+    static constexpr uint8_t kFrameTag[] = {'F', 'R', 'A', 'M', 'E', '\n'};
+    bool ok = write_full(STDOUT_FILENO, std::span<const uint8_t>(kFrameTag)) &&
+              write_full(STDOUT_FILENO, std::span(y, y_size)) &&
+              write_full(STDOUT_FILENO, std::span<const uint8_t>(uplane)) &&
+              write_full(STDOUT_FILENO, std::span<const uint8_t>(vplane));
     ::munmap(m, y_size + uv_size);
     if (!ok) {
         fprintf(stderr, "videonode-sink: stdout closed, exiting\n");
@@ -92,7 +92,8 @@ bool emit_y4m_header(int w, int h, int fps_num, int fps_den) {
     int n = std::snprintf(hdr, sizeof(hdr),
                           "YUV4MPEG2 W%d H%d F%d:%d Ip A1:1 C420\n",
                           w, h, fps_num, fps_den);
-    return write_full(STDOUT_FILENO, hdr, size_t(n));
+    return write_full(STDOUT_FILENO,
+                      std::span(reinterpret_cast<const uint8_t*>(hdr), static_cast<size_t>(n)));
 }
 
 } // namespace
