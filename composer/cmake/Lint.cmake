@@ -15,8 +15,6 @@ file(GLOB_RECURSE _vn_lint_sources CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/tools/*.hpp"
     "${CMAKE_SOURCE_DIR}/tests/*.cpp"
     "${CMAKE_SOURCE_DIR}/tests/*.hpp")
-# Exclude vendored stubs and build trees.
-list(FILTER _vn_lint_sources EXCLUDE REGEX "/third_party/")
 list(FILTER _vn_lint_sources EXCLUDE REGEX "/build[^/]*/")
 
 if(CLANG_FORMAT)

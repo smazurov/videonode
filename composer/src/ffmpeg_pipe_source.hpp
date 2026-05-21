@@ -32,7 +32,7 @@
 
 #pragma once
 
-#include "dma_heap.hpp"
+#include "gbm_alloc.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -60,10 +60,13 @@ struct InitParams {
     int width = 1920;
     int height = 1080;
     int fps = 60;
-    int ring_size = 3; // number of dma-heap buffers; 3 lets one consumer
+    int ring_size = 3; // number of GBM buffers; 3 lets one consumer
                        //   hold a frame while capture writes the next
                        //   without blocking the third for the kernel.
-    std::string heap_name = "system";
+    // GBM device used to allocate the frame ring. Required. Mesa's GBM
+    // gives us NV12-compatible dma-bufs that radeonsi / panthor / anv
+    // all accept on import — dma_heap-backed NV12 fails on radeonsi.
+    struct gbm_device* gbm = nullptr;
 
     // If non-empty, extra args spliced in front of the input URL. Useful for
     // raw-bytes input variants we might want later (e.g. "-thread_queue_size 1024").
@@ -123,8 +126,9 @@ class FfmpegPipeSource {
     int ffmpeg_stdout_fd_ = -1;
 
     struct Buf {
-        dmaheap::Buffer buf;
-        void* mapped = nullptr;
+        gbm_alloc::Nv12Buf buf;
+        void* mapped_y = nullptr;
+        void* mapped_uv = nullptr;
     };
     std::vector<Buf> ring_;
 

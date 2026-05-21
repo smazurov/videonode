@@ -118,19 +118,51 @@ template <typename FV> FrameView to_canonical_(const FV& v) {
     return c;
 }
 
-EGLImage import_frame_(const egl_ctx::EglCtx& ctx, const FrameView& v) {
-    egl_ctx::EglCtx::ImageDesc d;
-    d.fd = v.fd;
-    d.modifier = DRM_FORMAT_MOD_LINEAR;
-    d.width = v.width;
-    d.height = v.height;
-    d.plane0_offset = v.plane0_offset;
-    d.plane0_pitch = v.plane0_pitch;
-    d.plane1_offset = v.plane1_offset;
-    d.plane1_pitch = v.plane1_pitch;
-    format_dispatch::fill_image_desc(d, v.format, static_cast<uint32_t>(v.width),
-                                     static_cast<uint32_t>(v.height));
-    return ctx.import_dmabuf(d);
+// Two single-plane EGLImages per NV12 frame: Y as R8, UV as GR88. Each
+// plane has its own dma-buf fd at PLANE0_OFFSET=0 — the only pattern
+// that reliably samples on radeonsi (per minigbm/Chromium AMD path).
+struct SourceImagePair {
+    EGLImage y = EGL_NO_IMAGE;
+    EGLImage uv = EGL_NO_IMAGE;
+};
+
+SourceImagePair import_frame_(const egl_ctx::EglCtx& ctx, const FrameView& v) {
+    SourceImagePair p;
+    if (v.fd < 0 || v.plane1_fd < 0 || v.width <= 0 || v.height <= 0)
+        return p;
+
+    // MOD_INVALID = omit MODIFIER_* attribs entirely. dri2_create_image_dma_buf
+    // rejects MOD_LINEAR explicitly because gbm_bo_get_modifier() returns
+    // MOD_INVALID for GBM_BO_USE_LINEAR bos and the values don't match.
+    // csc-probe takes this same path.
+    constexpr uint64_t kModInvalid = (uint64_t{1} << 56) - 1;
+
+    egl_ctx::EglCtx::ImageDesc dy;
+    dy.fd = v.fd;
+    dy.fourcc = DRM_FORMAT_R8;
+    dy.modifier = kModInvalid;
+    dy.width = v.width;
+    dy.height = v.height;
+    dy.plane0_offset = 0;
+    dy.plane0_pitch = v.plane0_pitch ? v.plane0_pitch : uint32_t(v.width);
+    p.y = ctx.import_dmabuf(dy);
+    if (p.y == EGL_NO_IMAGE)
+        return p;
+
+    egl_ctx::EglCtx::ImageDesc duv;
+    duv.fd = v.plane1_fd;
+    duv.fourcc = DRM_FORMAT_GR88;
+    duv.modifier = kModInvalid;
+    duv.width = v.width / 2;
+    duv.height = v.height / 2;
+    duv.plane0_offset = 0;
+    duv.plane0_pitch = v.plane1_pitch ? v.plane1_pitch : uint32_t(v.width);
+    p.uv = ctx.import_dmabuf(duv);
+    if (p.uv == EGL_NO_IMAGE) {
+        eglDestroyImage(ctx.display(), p.y);
+        p.y = EGL_NO_IMAGE;
+    }
+    return p;
 }
 
 template <typename Src> bool wait_first_frame_(Src& s, int timeout_seconds, const char* tag) {
@@ -163,11 +195,12 @@ bool start_scm_source_(scm_rights_source::ScmRightsSource& s, const SourceArgs& 
 }
 
 bool start_ffmpeg_source_(ffmpeg_pipe_source::FfmpegPipeSource& s, const SourceArgs& a,
-                          const char* tag) {
+                          const char* tag, gbm_device* gbm) {
     ffmpeg_pipe_source::InitParams p{};
     p.width = a.width;
     p.height = a.height;
     p.fps = a.fps;
+    p.gbm = gbm;
     if (a.testsrc) {
         p.kind = ffmpeg_pipe_source::SourceKind::Lavfi;
         char expr[160];
@@ -341,6 +374,15 @@ int main(int argc, char** argv) {
     // is active per slot.
     using ffmpeg_pipe_source::FfmpegPipeSource;
     using scm_rights_source::ScmRightsSource;
+
+    // ---------- 1. EGL first. Declared BEFORE the source objects so the
+    // destruction order is correct: sources hold gbm_bo handles owned by
+    // the gbm_device inside ctx; ff_a / ff_b destructors run before
+    // ~EglCtx and can still call gbm_bo_destroy. ----------
+    egl_ctx::EglCtx ctx;
+    if (!ctx.init(a.drm_device))
+        return 1;
+
     FfmpegPipeSource ff_a, ff_b;
     ScmRightsSource scm_a, scm_b;
     const bool a_is_scm = a.source_a.enabled && !a.source_a.scm_socket_path.empty();
@@ -348,52 +390,43 @@ int main(int argc, char** argv) {
 
     if (a.source_a.enabled) {
         bool ok = a_is_scm ? start_scm_source_(scm_a, a.source_a, "source-a")
-                           : start_ffmpeg_source_(ff_a, a.source_a, "source-a");
+                           : start_ffmpeg_source_(ff_a, a.source_a, "source-a", ctx.gbm());
         if (!ok)
             return 1;
     }
     if (a.source_b.enabled) {
         bool ok = b_is_scm ? start_scm_source_(scm_b, a.source_b, "source-b")
-                           : start_ffmpeg_source_(ff_b, a.source_b, "source-b");
+                           : start_ffmpeg_source_(ff_b, a.source_b, "source-b", ctx.gbm());
         if (!ok)
             return 1;
     }
 
-    // ---------- 2. EGL + compose. ----------
-    egl_ctx::EglCtx ctx;
-    if (!ctx.init(a.drm_device))
-        return 1;
+    // ---------- 2. compose. ----------
     gl_compose::GlCompose compose;
     if (!compose.init(ctx, a.canvas_w, a.canvas_h))
         return 1;
     fprintf(stderr, "ok: GLES canvas %dx%d via %s\n", a.canvas_w, a.canvas_h, a.drm_device.c_str());
 
-    // ---------- 3. mmap canvas dma-buf for CPU read-out to stdout. ----------
+    // ---------- 3. CPU read-out plan. We gbm_bo_map per frame after
+    // rendering; some Mesa drivers (radeonsi) treat the mapping as a
+    // single-shot snapshot, so reusing a one-time map returns stale data.
+    // egl-probe.cpp uses the same per-frame pattern. ----------
     const size_t bytes_per_frame = static_cast<size_t>(a.canvas_w) * a.canvas_h * 4;
-    uint32_t map_stride = 0;
-    void* map_data = nullptr;
-    void* canvas_map = gbm_bo_map(compose.canvas_bo(), 0, 0, a.canvas_w, a.canvas_h,
-                                  GBM_BO_TRANSFER_READ, &map_stride, &map_data);
-    if (!canvas_map) {
-        fprintf(stderr, "FAIL gbm_bo_map canvas\n");
-        return 1;
-    }
-
-    fprintf(stderr, "ok: canvas mapped (stride=%u; expect %d bytes per row)\n", map_stride,
-            a.canvas_w * 4);
+    fprintf(stderr, "ok: canvas %dx%d ready, %zu bytes/frame\n", a.canvas_w, a.canvas_h,
+            bytes_per_frame);
 
     // ---------- 4. Render loop. ----------
-    std::map<int, EGLImage> img_cache;
-    auto get_img = [&](const FrameView& v) -> EGLImage {
+    std::map<int, SourceImagePair> img_cache;
+    auto get_img = [&](const FrameView& v) -> SourceImagePair {
         if (v.fd < 0)
-            return EGL_NO_IMAGE;
+            return {};
         auto it = img_cache.find(v.fd);
         if (it != img_cache.end())
             return it->second;
-        EGLImage im = import_frame_(ctx, v);
-        if (im != EGL_NO_IMAGE)
-            img_cache[v.fd] = im;
-        return im;
+        SourceImagePair p = import_frame_(ctx, v);
+        if (p.y != EGL_NO_IMAGE && p.uv != EGL_NO_IMAGE)
+            img_cache[v.fd] = p;
+        return p;
     };
 
     auto start = std::chrono::steady_clock::now();
@@ -417,9 +450,11 @@ int main(int argc, char** argv) {
         }
 
         if (a.source_a.enabled && a.source_b.enabled) {
-            // 2-up: A on the left (with perspective warp), B on the right.
+            SourceImagePair pa = get_img(fv_a);
+            SourceImagePair pb = get_img(fv_b);
             gl_compose::SourceSlot s0{};
-            s0.src_image = get_img(fv_a);
+            s0.src_y_image = pa.y;
+            s0.src_uv_image = pa.uv;
             s0.x = 0;
             s0.y = 0;
             s0.w = a.canvas_w / 2;
@@ -427,15 +462,18 @@ int main(int argc, char** argv) {
             s0.warp = {{1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, -0.3f, 1.0f}};
             slots.push_back(s0);
             gl_compose::SourceSlot s1{};
-            s1.src_image = get_img(fv_b);
+            s1.src_y_image = pb.y;
+            s1.src_uv_image = pb.uv;
             s1.x = a.canvas_w / 2;
             s1.y = 0;
             s1.w = a.canvas_w / 2;
             s1.h = a.canvas_h;
             slots.push_back(s1);
         } else {
+            SourceImagePair p = a.source_a.enabled ? get_img(fv_a) : get_img(fv_b);
             gl_compose::SourceSlot s0{};
-            s0.src_image = a.source_a.enabled ? get_img(fv_a) : get_img(fv_b);
+            s0.src_y_image = p.y;
+            s0.src_uv_image = p.uv;
             s0.x = 0;
             s0.y = 0;
             s0.w = a.canvas_w;
@@ -449,19 +487,36 @@ int main(int argc, char** argv) {
         }
         compose.finish();
 
-        // mmap stride may differ from W*4 if Mesa padded the row. If it
-        // matches, one write; if not, per-row writes.
+        // Map → read → unmap per frame. radeonsi treats gbm_bo_map as a
+        // single-shot snapshot; a stale long-lived map returns zeros even
+        // with glFinish + DMA_BUF_IOCTL_SYNC. Cost: one ioctl roundtrip
+        // per frame, acceptable for this CPU read-out path (the rig uses
+        // RGA encode-direct from the same dma-buf and doesn't go through
+        // here).
+        uint32_t map_stride = 0;
+        void* map_data = nullptr;
+        void* canvas_map = gbm_bo_map(compose.canvas_bo(), 0, 0, a.canvas_w, a.canvas_h,
+                                      GBM_BO_TRANSFER_READ, &map_stride, &map_data);
+        if (!canvas_map) {
+            fprintf(stderr, "FAIL gbm_bo_map canvas\n");
+            break;
+        }
+        bool write_ok = true;
         if (map_stride == static_cast<uint32_t>(a.canvas_w) * 4) {
-            if (!write_full_(STDOUT_FILENO, canvas_map, bytes_per_frame))
-                break;
+            write_ok = write_full_(STDOUT_FILENO, canvas_map, bytes_per_frame);
         } else {
             for (int y = 0; y < a.canvas_h; ++y) {
                 const uint8_t* row = static_cast<const uint8_t*>(canvas_map) + y * map_stride;
                 if (!write_full_(STDOUT_FILENO, row, static_cast<size_t>(a.canvas_w) * 4)) {
-                    g_running.store(false);
+                    write_ok = false;
                     break;
                 }
             }
+        }
+        gbm_bo_unmap(compose.canvas_bo(), map_data);
+        if (!write_ok) {
+            g_running.store(false);
+            break;
         }
         ++frames_rendered;
 
@@ -477,9 +532,13 @@ int main(int argc, char** argv) {
     }
 
     fprintf(stderr, "shutting down\n");
-    gbm_bo_unmap(compose.canvas_bo(), map_data);
-    for (auto& kv : img_cache)
-        eglDestroyImage(ctx.display(), kv.second);
+    // canvas map_data is now scoped per-frame; no global unmap needed.
+    for (auto& kv : img_cache) {
+        if (kv.second.y != EGL_NO_IMAGE)
+            eglDestroyImage(ctx.display(), kv.second.y);
+        if (kv.second.uv != EGL_NO_IMAGE)
+            eglDestroyImage(ctx.display(), kv.second.uv);
+    }
     if (a.source_b.enabled) {
         if (b_is_scm)
             scm_b.stop();

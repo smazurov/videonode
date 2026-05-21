@@ -56,7 +56,8 @@ class EglCtx {
     // GBM-allocated bo's may carry their own modifier — query gbm_bo_get_modifier
     // and pass that explicitly.
     struct ImageDesc {
-        int fd = -1;           // dma-buf fd (caller retains ownership)
+        int fd = -1;           // dma-buf fd for plane 0 (caller retains ownership)
+        int plane1_fd = -1;    // optional separate fd for plane 1; -1 → reuse fd
         uint32_t fourcc = 0;   // DRM_FORMAT_*
         uint64_t modifier = 0; // DRM_FORMAT_MOD_*
         int width = 0;

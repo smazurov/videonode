@@ -52,7 +52,8 @@ bool decode_params(std::string_view s, Header& out, std::string* err) {
         ++p;
         p = skip_ws(s, p);
 
-        if (key == "slot_index" || key == "width" || key == "height" || key == "frame_idx") {
+        if (key == "slot_index" || key == "width" || key == "height" || key == "frame_idx" ||
+            key == "color_matrix" || key == "color_range" || key == "chroma_siting") {
             uint64_t v = 0;
             np = parse_uint(s, p, v);
             if (np == std::string::npos) {
@@ -65,6 +66,12 @@ bool decode_params(std::string_view s, Header& out, std::string* err) {
                 out.width = static_cast<uint32_t>(v);
             else if (key == "height")
                 out.height = static_cast<uint32_t>(v);
+            else if (key == "color_matrix")
+                out.color_matrix = static_cast<ColorMatrix>(v);
+            else if (key == "color_range")
+                out.color_range = static_cast<ColorRange>(v);
+            else if (key == "chroma_siting")
+                out.chroma_siting = static_cast<ChromaSiting>(v);
             else
                 out.frame_idx = v;
             p = np;
@@ -164,6 +171,9 @@ std::string EncodeFrameNotification(const Header& h) {
         params << h.plane_offsets[i];
     }
     params << "]";
+    params << R"(,"color_matrix":)" << static_cast<unsigned>(h.color_matrix);
+    params << R"(,"color_range":)" << static_cast<unsigned>(h.color_range);
+    params << R"(,"chroma_siting":)" << static_cast<unsigned>(h.chroma_siting);
     params << R"(,"frame_idx":)" << h.frame_idx;
     params << "}";
     return jsonrpc_msg::EncodeNotification("frame", params.str());

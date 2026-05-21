@@ -21,7 +21,8 @@
 #include "control_channel.hpp"
 #include "jsonrpc_msg.hpp"
 #include "v4l2_capture.hpp"
-#include "rga_csc.hpp"
+#include "csc.hpp"
+#include "nv12_buf.hpp"
 #include "placeholder_painter.hpp"
 #include "source_probe.hpp"
 #include "scm_rights_producer.hpp"
@@ -29,8 +30,13 @@
 #include "dma_heap.hpp"
 #include "jpeg_dec.hpp"
 #include "jpeg_dec_turbo.hpp"
+#if defined(HAVE_MPP)
 #include "mpp_jpeg_dec.hpp"
+#endif
 #include "version.hpp"
+#if defined(HAVE_GBM) && !defined(HAVE_RGA)
+#include "egl_ctx.hpp"
+#endif
 
 #include <atomic>
 #include <cerrno>
@@ -76,6 +82,9 @@ struct Args {
     // standalone runs from the smoke script / dev shell).
     std::string ctl_connect;
     std::string device_id;
+    // DRM render node used by the GBM allocator on Fedora / Mesa hosts.
+    // Ignored when HAVE_RGA is on (rig uses dma_heap; no GBM needed).
+    std::string alloc_drm_device = "/dev/dri/renderD128";
 };
 
 uint32_t fourcc_(const std::string& s) {
@@ -101,30 +110,30 @@ uint32_t v4l2_pix_fmt_(const std::string& s) {
         return V4L2_PIX_FMT_MJPEG;
     return fourcc_(s);
 }
-bool v4l2_to_rga_(uint32_t v4l2_fmt, rga::PixelFormat& out, std::string& name) {
+bool v4l2_to_csc_(uint32_t v4l2_fmt, csc::PixelFormat& out, std::string& name) {
     switch (v4l2_fmt) {
     case V4L2_PIX_FMT_NV12:
-        out = rga::PixelFormat::Nv12;
+        out = csc::PixelFormat::Nv12;
         name = "NV12";
         return true;
     case V4L2_PIX_FMT_NV16:
-        out = rga::PixelFormat::Nv16;
+        out = csc::PixelFormat::Nv16;
         name = "NV16";
         return true;
     case V4L2_PIX_FMT_NV24:
-        out = rga::PixelFormat::Nv24;
+        out = csc::PixelFormat::Nv24;
         name = "NV24";
         return true;
     case V4L2_PIX_FMT_BGR24:
-        out = rga::PixelFormat::Bgr3;
+        out = csc::PixelFormat::Bgr3;
         name = "BGR3";
         return true;
     case V4L2_PIX_FMT_YUYV:
-        out = rga::PixelFormat::Yuyv;
+        out = csc::PixelFormat::Yuyv;
         name = "YUYV";
         return true;
     case V4L2_PIX_FMT_UYVY:
-        out = rga::PixelFormat::Uyvy;
+        out = csc::PixelFormat::Uyvy;
         name = "UYVY";
         return true;
     }
@@ -155,8 +164,8 @@ enum class DecodeMode {
 struct CaptureSession {
     bool active = false;
     v4l2::Streamer cap;
-    std::vector<dmaheap::Buffer> out_ring;
-    rga::PixelFormat src_fmt = rga::PixelFormat::Nv12;
+    std::vector<nv12_buf::Buffer> out_ring;
+    csc::PixelFormat src_fmt = csc::PixelFormat::Nv12;
     std::string src_fmt_name;
     int width = 0;
     int height = 0;
@@ -168,19 +177,20 @@ struct CaptureSession {
     bool using_mpp = false;     // log-only
     std::vector<void*> in_maps; // V4L2 capture buffer mmaps (JPEG bytes)
     std::vector<size_t> in_map_sizes;
-    std::vector<void*> out_maps; // writable mmaps into out_ring (TurboJPEG)
-    std::vector<size_t> out_map_sizes;
+    // TurboJPEG decode writes NV12 directly into the bo: per-slot Y/UV
+    // mmap pointers obtained from nv12_buf::map_rw. Held across the
+    // session; nv12_buf::unmap() runs in teardown_session_.
+    std::vector<void*> out_y;
+    std::vector<void*> out_uv;
 };
 
 void teardown_session_(CaptureSession& s) {
     if (s.jpeg)
         s.jpeg.reset();
-    for (size_t i = 0; i < s.out_maps.size(); ++i) {
-        if (s.out_maps[i] && s.out_maps[i] != MAP_FAILED)
-            ::munmap(s.out_maps[i], s.out_map_sizes[i]);
-    }
-    s.out_maps.clear();
-    s.out_map_sizes.clear();
+    for (auto& b : s.out_ring)
+        nv12_buf::unmap(b);
+    s.out_y.clear();
+    s.out_uv.clear();
     s.in_maps.clear();
     s.in_map_sizes.clear();
     s.out_ring.clear();
@@ -193,7 +203,7 @@ void teardown_session_(CaptureSession& s) {
     s.using_mpp = false;
 }
 
-bool try_open_capture(CaptureSession& s, const Args& a) {
+bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator) {
     teardown_session_(s);
     if (!s.cap.open(a.device))
         return false;
@@ -225,7 +235,7 @@ bool try_open_capture(CaptureSession& s, const Args& a) {
         s.src_fmt_name = "MJPG";
     } else {
         s.mode = DecodeMode::Rga;
-        if (!v4l2_to_rga_(cur.pixel_format, s.src_fmt, s.src_fmt_name)) {
+        if (!v4l2_to_csc_(cur.pixel_format, s.src_fmt, s.src_fmt_name)) {
             s.cap.close();
             return false;
         }
@@ -257,8 +267,6 @@ bool try_open_capture(CaptureSession& s, const Args& a) {
         return false;
     }
 
-    const size_t out_size = size_t(s.width) * s.height * 3 / 2;
-
     if (s.mode == DecodeMode::Mjpeg) {
         // mmap each V4L2 capture buffer for CPU read of variable-length
         // JPEG payloads. MJPEG is single-plane only — mmap_buffer asserts.
@@ -273,18 +281,33 @@ bool try_open_capture(CaptureSession& s, const Args& a) {
             s.in_map_sizes.push_back(sz);
         }
 
-        // Probe MPP first; on host the rockchip_stubs make mpp_create fail
-        // and we fall through to TurboJPEG.
-        auto mpp = std::make_unique<mpp_jpeg_dec::MppJpegDec>();
-        if (mpp->init(s.width, s.height)) {
+        // Probe MPP first; if librockchip_mpp isn't compiled in, skip it
+        // entirely and use TurboJPEG.
+        std::unique_ptr<jpeg_dec::JpegDec> mpp;
+#if defined(HAVE_MPP)
+        mpp = std::make_unique<mpp_jpeg_dec::MppJpegDec>();
+        if (!mpp->init(s.width, s.height))
+            mpp.reset();
+#endif
+        if (mpp) {
             s.jpeg = std::move(mpp);
             s.using_mpp = true;
             fprintf(stderr, "videonode-source: MJPEG backend = MPP (HW)\n");
         } else {
-            // TurboJPEG fallback. Allocate out_ring + mmap each slot
-            // writable, hand the (fd, ptr) pairs to the decoder.
+            // TurboJPEG fallback. Allocate out_ring via nv12_buf + map
+            // each slot for CPU writes; hand (y_fd, y_ptr) pairs to the
+            // decoder. On split-buffer backends (Fedora GBM) the
+            // TurboJPEG NV12 output assumes contiguous Y+UV, which the
+            // GBM split layout doesn't satisfy — skipped on that backend
+            // until the TurboJPEG path is split-aware.
+#if defined(HAVE_GBM) && !defined(HAVE_RGA)
+            fprintf(stderr, "videonode-source: TurboJPEG MJPEG decode not yet wired for "
+                            "GBM split-buffer backend; aborting capture\n");
+            s.cap.close();
+            return false;
+#else
             for (int i = 0; i < a.buffers; ++i) {
-                dmaheap::Buffer b = dmaheap::alloc("system-uncached", out_size);
+                nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
                 if (!b.valid()) {
                     s.cap.close();
                     s.out_ring.clear();
@@ -295,16 +318,18 @@ bool try_open_capture(CaptureSession& s, const Args& a) {
             std::vector<jpeg_dec::TurboJpegDec::Slot> slots;
             slots.reserve(s.out_ring.size());
             for (auto& buf : s.out_ring) {
-                void* m = ::mmap(nullptr, out_size, PROT_READ | PROT_WRITE, MAP_SHARED, buf.fd, 0);
-                if (m == MAP_FAILED) {
-                    fprintf(stderr, "videonode-source: mmap out_ring fd=%d: %s\n", buf.fd,
-                            strerror(errno));
+                auto m = nv12_buf::map_rw(buf);
+                if (!m.y) {
+                    fprintf(stderr, "videonode-source: map_rw out_ring fd=%d failed\n", buf.y_fd);
                     s.cap.close();
                     return false;
                 }
-                s.out_maps.push_back(m);
-                s.out_map_sizes.push_back(out_size);
-                slots.push_back({buf.fd, static_cast<uint8_t*>(m)});
+                s.out_y.push_back(m.y);
+                s.out_uv.push_back(m.uv);
+                // Single-buffer backend: Y and UV are contiguous in one
+                // mapped region. TurboJPEG decodes NV12 into that
+                // contiguous layout via the y_fd + y pointer.
+                slots.push_back({buf.y_fd, static_cast<uint8_t*>(m.y)});
             }
             auto tj = std::make_unique<jpeg_dec::TurboJpegDec>();
             if (!tj->init(s.width, s.height, std::move(slots))) {
@@ -314,11 +339,14 @@ bool try_open_capture(CaptureSession& s, const Args& a) {
             s.jpeg = std::move(tj);
             s.using_mpp = false;
             fprintf(stderr, "videonode-source: MJPEG backend = TurboJPEG (SW)\n");
+#endif
         }
     } else {
-        // RGA path: out_ring holds NV12 dma-heap buffers RGA writes into.
+        // RGA / GLES CSC path: out_ring holds NV12 buffers the CSC writes
+        // into. Allocator is dma_heap (single bo) on rig, GBM (split
+        // bos) on Fedora — see nv12_buf.hpp.
         for (int i = 0; i < a.buffers; ++i) {
-            dmaheap::Buffer b = dmaheap::alloc("system-uncached", out_size);
+            nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
             if (!b.valid()) {
                 s.cap.close();
                 s.out_ring.clear();
@@ -341,46 +369,57 @@ bool try_open_capture(CaptureSession& s, const Args& a) {
 struct PlaceholderRing {
     int width = 0;
     int height = 0;
-    std::vector<dmaheap::Buffer> bufs;
-    std::vector<void*> maps;
-    std::vector<size_t> sizes;
+    std::vector<nv12_buf::Buffer> bufs;
+    std::vector<uint8_t> stage_; // tightly-packed CPU NV12 (W*H*1.5)
     int next = 0;
     uint64_t tick_idx = 0;
 
-    bool init(int w, int h, const std::string& device_path) {
+    bool init(nv12_buf::Allocator& alloc, int w, int h, const std::string& device_path) {
         width = w;
         height = h;
-        const size_t sz = size_t(w) * h * 3 / 2;
+        const size_t tight = size_t(w) * h * 3 / 2;
+        stage_.assign(tight, 0);
+        placeholder_painter::paint_base(stage_.data(), w, h, device_path.c_str());
         for (int i = 0; i < 2; ++i) {
-            dmaheap::Buffer b = dmaheap::alloc("system-uncached", sz);
+            nv12_buf::Buffer b = alloc.alloc(w, h);
             if (!b.valid())
                 return false;
-            void* m = ::mmap(nullptr, sz, PROT_READ | PROT_WRITE, MAP_SHARED, b.fd, 0);
-            if (m == MAP_FAILED)
+            auto m = nv12_buf::map_rw(b);
+            if (!m.y || !m.uv)
                 return false;
-            placeholder_painter::paint_base(static_cast<uint8_t*>(m), w, h, device_path.c_str());
+            const uint8_t* src_y = stage_.data();
+            const uint8_t* src_uv = stage_.data() + size_t(w) * h;
+            for (int y = 0; y < h; ++y)
+                std::memcpy(static_cast<uint8_t*>(m.y) + y * b.y_pitch, src_y + y * w, w);
+            for (int y = 0; y < h / 2; ++y)
+                std::memcpy(static_cast<uint8_t*>(m.uv) + y * b.uv_pitch, src_uv + y * w, w);
+            nv12_buf::unmap(b);
             bufs.push_back(std::move(b));
-            maps.push_back(m);
-            sizes.push_back(sz);
         }
         return true;
     }
-    int paint_and_pick_fd(uint64_t wallclock_ms, const char* status) {
+    // Returns a reference to the slot that holds the freshest placeholder
+    // frame; caller passes it to broadcast_frame to forward both fds +
+    // plane offsets.
+    nv12_buf::Buffer& paint_and_pick(uint64_t wallclock_ms, const char* status) {
         ++tick_idx;
         int idx = next;
         next = (next + 1) % int(bufs.size());
-        placeholder_painter::paint_tick(static_cast<uint8_t*>(maps[idx]), width, height, tick_idx,
-                                        wallclock_ms, status);
-        return bufs[idx].fd;
+        placeholder_painter::paint_tick(stage_.data(), width, height, tick_idx, wallclock_ms,
+                                        status);
+        nv12_buf::Buffer& b = bufs[idx];
+        auto m = nv12_buf::map_rw(b);
+        if (m.y) {
+            for (int y = 0; y < height; ++y)
+                std::memcpy(static_cast<uint8_t*>(m.y) + y * b.y_pitch,
+                            stage_.data() + y * width, width);
+        }
+        nv12_buf::unmap(b);
+        return b;
     }
     void destroy() {
-        for (size_t i = 0; i < bufs.size(); ++i) {
-            if (maps[i] && maps[i] != MAP_FAILED)
-                ::munmap(maps[i], sizes[i]);
-        }
         bufs.clear();
-        maps.clear();
-        sizes.clear();
+        stage_.clear();
     }
 };
 
@@ -511,8 +550,14 @@ void broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec
     h_.format = "NV12";
     h_.plane_pitches = {d.y_pitch, d.uv_pitch};
     h_.plane_offsets = {d.y_offset, d.uv_offset};
+    // Color contract — see dmabuf_msg.hpp. RGA's IM_COLOR_SPACE_DEFAULT
+    // and csc_gles's BT.601 shader both emit BT.601 limited / MPEG-2.
+    h_.color_matrix = dmabuf_msg::ColorMatrix::Bt601;
+    h_.color_range = dmabuf_msg::ColorRange::Limited;
+    h_.chroma_siting = dmabuf_msg::ChromaSiting::Mpeg2;
     h_.frame_idx = frame_idx;
-    prod.broadcast(h_, {d.fd, d.fd});
+    int uv_fd = d.plane1_fd >= 0 ? d.plane1_fd : d.fd;
+    prod.broadcast(h_, {d.fd, uv_fd});
 }
 
 // json_quote escapes a string for safe injection into a JSON object as
@@ -636,19 +681,20 @@ std::string build_status_params(const std::string& device_id, source_probe::Sour
     return o.str();
 }
 
-// Thin shim for the RGA + placeholder paths that produce tight NV12 (no
-// stride padding). MJPEG-MPP can't use this because it returns padded
-// strides; it builds its own DecodedNv12.
-void broadcast_frame(scm_rights_producer::ScmRightsProducer& prod, int fd, int w, int h,
-                     uint64_t frame_idx) {
+// Thin shim for the placeholder + transitioning re-broadcast paths.
+// Reads layout straight from the nv12_buf::Buffer so split-buffer and
+// single-buffer backends both work.
+void broadcast_buffer(scm_rights_producer::ScmRightsProducer& prod, const nv12_buf::Buffer& b,
+                      uint64_t frame_idx) {
     jpeg_dec::DecodedNv12 d;
-    d.fd = fd;
-    d.width = w;
-    d.height = h;
-    d.y_pitch = uint32_t(w);
-    d.uv_pitch = uint32_t(w);
-    d.y_offset = 0;
-    d.uv_offset = uint32_t(w) * uint32_t(h);
+    d.fd = b.y_fd;
+    d.plane1_fd = b.uv_fd;
+    d.width = b.width;
+    d.height = b.height;
+    d.y_pitch = b.y_pitch;
+    d.uv_pitch = b.uv_pitch;
+    d.y_offset = b.y_offset;
+    d.uv_offset = b.uv_offset;
     broadcast_nv12(prod, d, frame_idx);
 }
 
@@ -671,8 +717,32 @@ int main(int argc, char** argv) {
     if (::getppid() == 1)
         return 0;
 
+    // NV12 output allocator. On rig (HAVE_RGA) this is stateless and
+    // backed by dma_heap (single bo); on Fedora / Mesa hosts (HAVE_GBM,
+    // no RGA) we open an EglCtx for its gbm_device and hand it to the
+    // allocator (two-bo split for radeonsi compat).
+#if defined(HAVE_GBM) && !defined(HAVE_RGA)
+    egl_ctx::EglCtx alloc_ctx;
+    if (!alloc_ctx.init(a.alloc_drm_device)) {
+        fprintf(stderr, "videonode-source: failed to open DRM render node %s for GBM allocator\n",
+                a.alloc_drm_device.c_str());
+        return 1;
+    }
+    nv12_buf::Allocator allocator;
+    if (!allocator.init(alloc_ctx.gbm())) {
+        fprintf(stderr, "videonode-source: nv12_buf::Allocator::init failed\n");
+        return 1;
+    }
+#else
+    nv12_buf::Allocator allocator;
+    if (!allocator.init()) {
+        fprintf(stderr, "videonode-source: nv12_buf::Allocator::init failed\n");
+        return 1;
+    }
+#endif
+
     PlaceholderRing ph;
-    if (!ph.init(a.placeholder_w, a.placeholder_h, a.device)) {
+    if (!ph.init(allocator, a.placeholder_w, a.placeholder_h, a.device)) {
         fprintf(stderr, "videonode-source: failed to allocate placeholder ring\n");
         return 1;
     }
@@ -688,7 +758,7 @@ int main(int argc, char** argv) {
 
     CaptureSession cap;
     source_probe::SourceProbe probe(cap.cap);
-    if (try_open_capture(cap, a)) {
+    if (try_open_capture(cap, a, allocator)) {
         probe.attach();
     } else {
         fprintf(stderr, "videonode-source: capture not ready at startup\n");
@@ -860,8 +930,10 @@ int main(int argc, char** argv) {
 
     uint64_t real_frame_idx = 0;
     uint32_t last_dqbuf_seq = 0;
-    int last_good_out_fd = -1;
-    int last_good_w = 0, last_good_h = 0;
+    // Last fully-decoded real frame; re-broadcast during driver
+    // renegotiation gaps so downstream sees stable content. fd == -1
+    // means no good frame yet.
+    jpeg_dec::DecodedNv12 last_good_decoded{};
     source_probe::Health prev_health = source_probe::Health::Probing;
     bool need_reinit = !cap.active;
     // Power-present poll backstop: re-read the control once per second in
@@ -883,10 +955,8 @@ int main(int argc, char** argv) {
         // new args. The probe was already marked Transitioning; the
         // last_good fd is invalidated because out_ring is reallocated.
         if (need_reinit_for_format_change) {
-            last_good_out_fd = -1;
-            last_good_w = 0;
-            last_good_h = 0;
-            if (try_open_capture(cap, a)) {
+            last_good_decoded = {};
+            if (try_open_capture(cap, a, allocator)) {
                 probe.attach();
                 need_reinit = false;
             } else {
@@ -897,7 +967,7 @@ int main(int argc, char** argv) {
 
         // Reinit capture if we lost it.
         if (need_reinit) {
-            if (try_open_capture(cap, a)) {
+            if (try_open_capture(cap, a, allocator)) {
                 probe.attach();
                 need_reinit = false;
             }
@@ -965,24 +1035,26 @@ int main(int argc, char** argv) {
                         bool ok = false;
                         jpeg_dec::DecodedNv12 decoded;
                         if (cap.mode == DecodeMode::Rga) {
-                            rga::ConvertParams src_p, dst_p;
+                            nv12_buf::Buffer& dst_buf =
+                                cap.out_ring[df.index % cap.out_ring.size()];
+                            csc::ConvertParams src_p, dst_p;
                             src_p.fd = cap.cap.buffers()[df.index].primary_dma_buf();
                             src_p.fmt = cap.src_fmt;
                             src_p.width = cap.width;
                             src_p.height = cap.height;
-                            int out_fd = cap.out_ring[df.index % cap.out_ring.size()].fd;
-                            dst_p.fd = out_fd;
-                            dst_p.fmt = rga::PixelFormat::Nv12;
+                            dst_p.fd = dst_buf.y_fd;
+                            dst_p.fmt = csc::PixelFormat::Nv12;
                             dst_p.width = cap.width;
                             dst_p.height = cap.height;
-                            if (rga::convert(src_p, dst_p)) {
-                                decoded.fd = out_fd;
+                            if (csc::convert(src_p, dst_p)) {
+                                decoded.fd = dst_buf.y_fd;
+                                decoded.plane1_fd = dst_buf.uv_fd;
                                 decoded.width = cap.width;
                                 decoded.height = cap.height;
-                                decoded.y_pitch = uint32_t(cap.width);
-                                decoded.uv_pitch = uint32_t(cap.width);
-                                decoded.y_offset = 0;
-                                decoded.uv_offset = uint32_t(cap.width) * uint32_t(cap.height);
+                                decoded.y_pitch = dst_buf.y_pitch;
+                                decoded.uv_pitch = dst_buf.uv_pitch;
+                                decoded.y_offset = dst_buf.y_offset;
+                                decoded.uv_offset = dst_buf.uv_offset;
                                 ok = true;
                             }
                         } else { // DecodeMode::Mjpeg
@@ -995,9 +1067,7 @@ int main(int argc, char** argv) {
                         if (ok) {
                             ++real_frame_idx;
                             broadcast_nv12(prod, decoded, real_frame_idx);
-                            last_good_out_fd = decoded.fd;
-                            last_good_w = decoded.width;
-                            last_good_h = decoded.height;
+                            last_good_decoded = decoded;
                             // Push the next-broadcast forward so a real
                             // frame's broadcast counts as the tick.
                             next_broadcast = clock::now() + broadcast_period;
@@ -1009,7 +1079,7 @@ int main(int argc, char** argv) {
                             probe.note_dqbuf_failure(e);
                             if (e == ENODEV) {
                                 teardown_session_(cap);
-                                last_good_out_fd = -1;
+                                last_good_decoded = {};
                                 need_reinit = true;
                             }
                         }
@@ -1061,14 +1131,14 @@ int main(int argc, char** argv) {
             next_broadcast += broadcast_period;
             continue;
         }
-        if (h == source_probe::Health::Transitioning && last_good_out_fd >= 0) {
+        if (h == source_probe::Health::Transitioning && last_good_decoded.fd >= 0) {
             // Re-broadcast last good real frame with fresh sequence.
             ++real_frame_idx;
-            broadcast_frame(prod, last_good_out_fd, last_good_w, last_good_h, real_frame_idx);
+            broadcast_nv12(prod, last_good_decoded, real_frame_idx);
         } else {
             // Probing / NoCable / NoLock / Gone / Transitioning-without-history.
-            int fd = ph.paint_and_pick_fd(now_ms(), source_probe::status_text(h));
-            broadcast_frame(prod, fd, ph.width, ph.height, ph.tick_idx);
+            nv12_buf::Buffer& ph_buf = ph.paint_and_pick(now_ms(), source_probe::status_text(h));
+            broadcast_buffer(prod, ph_buf, ph.tick_idx);
         }
         next_broadcast += broadcast_period;
         if (next_broadcast < clock::now()) {

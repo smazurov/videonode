@@ -40,7 +40,9 @@ int main(int argc, char** argv) {
     const char* out = (argc > 4) ? argv[4] : "/tmp/compose-probe.ppm";
 
     egl_ctx::EglCtx ctx;
-    CHECK(ctx.init("/dev/dri/renderD130"), "EglCtx::init");
+    const char* dev = std::getenv("VN_DRM_DEVICE");
+    if (!dev) dev = "/dev/dri/renderD128";
+    CHECK(ctx.init(dev), "EglCtx::init");
     printf("ok: renderer=%s\n", glGetString(GL_RENDERER));
 
     fake_source::FakeSource src[4];
@@ -50,8 +52,9 @@ int main(int argc, char** argv) {
         fake_source::kBlue,
         fake_source::kYellow,
     };
+    // Single multi-plane NV12 EGLImage per source — matches the production
+    // gl_compose API. samplerExternalOES on the shader side does YUV→RGB.
     EGLImage img[4] = {EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE};
-
     for (int i = 0; i < 4; ++i) {
         CHECK(src[i].init(Sw, Sh, colors[i]), "FakeSource::init");
         egl_ctx::EglCtx::ImageDesc d;

@@ -35,17 +35,33 @@ void main() {
 }
 )";
 
+// Two single-plane sampler2D + manual BT.601 limited YUV→RGB. Each plane
+// is its own dma-buf at PLANE0_OFFSET=0 (canonical AMD/minigbm pattern).
+// samplerExternalOES isn't used because radeonsi returns zero for NV12
+// dma-buf imports through it. The csc-probe spike validated this exact
+// shader math (Y byte-exact, UV ±1 LSB) on this GPU.
 const char* kFS = R"(
-#extension GL_OES_EGL_image_external : require
 precision mediump float;
-uniform samplerExternalOES u_src;
+uniform sampler2D u_src_y;   // R8: Y in .r
+uniform sampler2D u_src_uv;  // GR88, half-res: Cb in .r, Cr in .g
 varying vec2 v_uv;
 void main() {
     if (v_uv.x < 0.0 || v_uv.x > 1.0 || v_uv.y < 0.0 || v_uv.y > 1.0) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
-    gl_FragColor = texture2D(u_src, v_uv);
+    float Y = texture2D(u_src_y,  v_uv).r;
+    vec2  C = texture2D(u_src_uv, v_uv).rg;
+    float y = 1.164383 * (Y - 0.0627451);
+    float u = C.r - 0.501961;
+    float v = C.g - 0.501961;
+    float r = y                + 1.596027 * v;
+    float g = y - 0.391762 * u - 0.812968 * v;
+    float b = y + 2.017232 * u;
+    gl_FragColor = vec4(clamp(r, 0.0, 1.0),
+                        clamp(g, 0.0, 1.0),
+                        clamp(b, 0.0, 1.0),
+                        1.0);
 }
 )";
 
@@ -98,8 +114,10 @@ bool GlCompose::build_program_(std::string_view vs_src, std::string_view fs_src)
     attr_uv_ = glGetAttribLocation(prog_, "a_uv");
     loc_canvas_size_ = glGetUniformLocation(prog_, "u_canvas_size");
     loc_warp_ = glGetUniformLocation(prog_, "u_warp");
-    loc_src_ = glGetUniformLocation(prog_, "u_src");
-    if (attr_pos_ < 0 || attr_uv_ < 0 || loc_canvas_size_ < 0 || loc_warp_ < 0 || loc_src_ < 0) {
+    loc_src_y_ = glGetUniformLocation(prog_, "u_src_y");
+    loc_src_uv_ = glGetUniformLocation(prog_, "u_src_uv");
+    if (attr_pos_ < 0 || attr_uv_ < 0 || loc_canvas_size_ < 0 || loc_warp_ < 0 ||
+        loc_src_y_ < 0 || loc_src_uv_ < 0) {
         fprintf(stderr, "gl_compose: attribute/uniform location missing\n");
         return false;
     }
@@ -205,22 +223,31 @@ bool GlCompose::render(const std::vector<SourceSlot>& slots) {
 
     glUseProgram(prog_);
     glUniform2f(loc_canvas_size_, (float)canvas_w_, (float)canvas_h_);
-    glUniform1i(loc_src_, 0);
-    glActiveTexture(GL_TEXTURE0);
+    glUniform1i(loc_src_y_, 0);
+    glUniform1i(loc_src_uv_, 1);
 
     for (const auto& s : slots) {
-        if (s.src_image == EGL_NO_IMAGE)
+        if (s.src_y_image == EGL_NO_IMAGE || s.src_uv_image == EGL_NO_IMAGE)
             continue;
 
-        // Per-source external texture from the source EGLImage.
-        GLuint tex = 0;
-        glGenTextures(1, &tex);
-        glBindTexture(GL_TEXTURE_EXTERNAL_OES, tex);
-        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        pfn_image_to_tex(GL_TEXTURE_EXTERNAL_OES, s.src_image);
+        GLuint tex_y = 0, tex_uv = 0;
+        glGenTextures(1, &tex_y);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex_y);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        pfn_image_to_tex(GL_TEXTURE_2D, s.src_y_image);
+
+        glGenTextures(1, &tex_uv);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, tex_uv);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        pfn_image_to_tex(GL_TEXTURE_2D, s.src_uv_image);
 
         // Slot quad in canvas-px (top-left origin), with UV (0..1).
         float verts[16] = {
@@ -246,7 +273,8 @@ bool GlCompose::render(const std::vector<SourceSlot>& slots) {
         glUniformMatrix3fv(loc_warp_, 1, GL_FALSE, s.warp.m);
 
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
-        glDeleteTextures(1, &tex);
+        glDeleteTextures(1, &tex_y);
+        glDeleteTextures(1, &tex_uv);
     }
 
     GLenum e = glGetError();

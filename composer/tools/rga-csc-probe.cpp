@@ -10,8 +10,7 @@
 // the failure surface as a clear pass/fail with format/stride/rect
 // numbers logged. Run via `make spike-test-on-rig`.
 //
-// Only built when HAVE_RGA is real (i.e. on the rig). Host build with
-// stubs would always fail and add noise.
+// Only built when HAVE_RGA is set (on the rig).
 
 #include "../src/dma_heap.hpp"
 #include "../src/rga_csc.hpp"

@@ -33,10 +33,17 @@ struct Warp {
     float m[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 };
 
-// One source bound to one canvas slot.
+// One source bound to one canvas slot. Two EGLImages per source: Y as R8
+// (luma), UV as GR88 (chroma at half resolution). Each is a single-plane
+// import from its own dma-buf fd at PLANE0_OFFSET=0 — that's the only
+// pattern radeonsi/amdgpu reliably samples (per minigbm/Chromium AMD
+// path). The fragment shader does BT.601 limited YUV→RGB manually with
+// two sampler2D uniforms; that side-steps `samplerExternalOES`, which
+// is also broken on radeonsi for NV12 dma-buf imports.
 struct SourceSlot {
-    EGLImage src_image = EGL_NO_IMAGE; // imported NV12 EGLImage (caller owns)
-    int x = 0;                         // canvas-px placement (top-left)
+    EGLImage src_y_image = EGL_NO_IMAGE;  // R8, W×H
+    EGLImage src_uv_image = EGL_NO_IMAGE; // GR88, W/2×H/2
+    int x = 0;                            // canvas-px placement (top-left)
     int y = 0;
     int w = 0; // slot size in canvas-px
     int h = 0;
@@ -87,7 +94,8 @@ class GlCompose {
     GLuint ibo_ = 0;
     GLint loc_canvas_size_ = -1;
     GLint loc_warp_ = -1;
-    GLint loc_src_ = -1;
+    GLint loc_src_y_ = -1;
+    GLint loc_src_uv_ = -1;
     GLint attr_pos_ = -1;
     GLint attr_uv_ = -1;
 };
