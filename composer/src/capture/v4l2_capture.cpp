@@ -93,66 +93,6 @@ uint32_t Streamer::buf_type_() const {
     return multiplanar_ ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : V4L2_BUF_TYPE_VIDEO_CAPTURE;
 }
 
-bool Streamer::get_format(StreamFormat& out) const {
-    if (fd_ < 0) {
-        errno = EBADF;
-        return false;
-    }
-    v4l2_format vfmt{};
-    vfmt.type = buf_type_();
-    if (xioctl(fd_, VIDIOC_G_FMT, &vfmt) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_G_FMT: %s\n", strerror(errno));
-        return false;
-    }
-    if (multiplanar_) {
-        out.width = vfmt.fmt.pix_mp.width;
-        out.height = vfmt.fmt.pix_mp.height;
-        out.pixel_format = vfmt.fmt.pix_mp.pixelformat;
-    } else {
-        out.width = vfmt.fmt.pix.width;
-        out.height = vfmt.fmt.pix.height;
-        out.pixel_format = vfmt.fmt.pix.pixelformat;
-    }
-    out.fps = 0; // we don't query S_PARM here
-    return true;
-}
-
-bool Streamer::set_format(const StreamFormat& f) {
-    if (fd_ < 0) {
-        errno = EBADF;
-        return false;
-    }
-    v4l2_format vfmt{};
-    vfmt.type = buf_type_();
-    if (multiplanar_) {
-        vfmt.fmt.pix_mp.width = f.width;
-        vfmt.fmt.pix_mp.height = f.height;
-        vfmt.fmt.pix_mp.pixelformat = f.pixel_format;
-        vfmt.fmt.pix_mp.field = V4L2_FIELD_NONE;
-    } else {
-        vfmt.fmt.pix.width = f.width;
-        vfmt.fmt.pix.height = f.height;
-        vfmt.fmt.pix.pixelformat = f.pixel_format;
-        vfmt.fmt.pix.field = V4L2_FIELD_NONE;
-    }
-    if (xioctl(fd_, VIDIOC_S_FMT, &vfmt) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_S_FMT: %s\n", strerror(errno));
-        return false;
-    }
-
-    if (f.fps != 0) {
-        v4l2_streamparm parm{};
-        parm.type = buf_type_();
-        parm.parm.capture.timeperframe.numerator = 1;
-        parm.parm.capture.timeperframe.denominator = f.fps;
-        if (xioctl(fd_, VIDIOC_S_PARM, &parm) < 0) {
-            // Many drivers (rk_hdmirx) silently ignore S_PARM; log + continue.
-            fprintf(stderr, "v4l2_capture: VIDIOC_S_PARM ignored: %s\n", strerror(errno));
-        }
-    }
-    return true;
-}
-
 bool Streamer::request_buffers(int count, std::vector<BufferRef>& out) {
     if (fd_ < 0) {
         errno = EBADF;
@@ -383,41 +323,6 @@ bool Streamer::read_ctrl(uint32_t cid, int32_t& out_value) const {
         return false;
     out_value = c.value;
     return true;
-}
-
-bool Streamer::query_dv_timings_valid() const {
-    if (fd_ < 0) {
-        errno = EBADF;
-        return false;
-    }
-    v4l2_dv_timings t{};
-    if (xioctl(fd_, VIDIOC_QUERY_DV_TIMINGS, &t) < 0)
-        return false;
-    return t.bt.width > 0 && t.bt.height > 0;
-}
-
-Streamer::DvTimingsState Streamer::query_dv_timings_state() const {
-    if (fd_ < 0)
-        return DvTimingsState::OtherError;
-    v4l2_dv_timings t{};
-    if (xioctl(fd_, VIDIOC_QUERY_DV_TIMINGS, &t) == 0) {
-        if (t.bt.width > 0 && t.bt.height > 0 && t.bt.pixelclock > 0) {
-            return DvTimingsState::Locked;
-        }
-        return DvTimingsState::Unstable;
-    }
-    switch (errno) {
-    case ENOLINK:
-        return DvTimingsState::NoLink;
-    case ENOLCK:
-        return DvTimingsState::Unstable;
-    case ERANGE:
-        return DvTimingsState::OutOfRange;
-    case ENOTTY:
-        return DvTimingsState::NotSupported;
-    default:
-        return DvTimingsState::OtherError;
-    }
 }
 
 bool Streamer::subscribe_source_change() {
