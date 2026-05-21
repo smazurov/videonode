@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SPIKE="${ROOT}/composer-spike/build-host/composer-spike"
+SPIKE="${ROOT}/composer-spike/build/host/composer-spike"
 FEEDER="${ROOT}/bin/scm-feeder"
 W=320 H=240 FPS=10 SECS=4
 
