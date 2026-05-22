@@ -40,6 +40,12 @@ cmake --build build/dev --target tidy-all   # clang-tidy whole tree (slow)
 - `SCCACHE_DIR=$HOME/.cache/videonode-sccache` — shared across worktrees.
   Each developer sets this once (e.g., `.envrc`). Install with
   `sudo dnf install sccache` (Fedora) or `apt install sccache` (Debian).
+- gRPC + protobuf for the daemon ↔ native control plane. Fedora:
+  `sudo dnf install protobuf-compiler protobuf-devel grpc-devel grpc-plugins`.
+  Debian (rig): `sudo apt install libgrpc++-dev libprotobuf-dev
+  protobuf-compiler protobuf-compiler-grpc`. The deb-build Docker
+  image installs these automatically (see
+  `composer/scripts/build-deb-arm64-docker.sh`).
 - MCP setup:
   - `mcp-cpp-server`: download the prebuilt binary from
     [mpsm/mcp-cpp releases](https://github.com/mpsm/mcp-cpp/releases) to
@@ -77,8 +83,9 @@ split-first reflex when something gets too thick.
   120 lines, 100 statements, 12 branches, 6 parameters, 5 nesting.
 - **When a file approaches the cap:** split rather than thicken. See
   `composer/docs/large-file-split-plan.md` for the rationale behind
-  the four extractions (`src/source/`, `rpc/jsonrpc_parse|serialize`,
-  `render/canvas_loop`, `capture/v4l2_format`).
+  the historical extractions (`src/source/`, `render/canvas_loop`,
+  `capture/v4l2_format`); the JSON-RPC parse/serialize extractions
+  referenced there are gone with the gRPC migration.
 
 ## Architecture
 
@@ -92,13 +99,31 @@ Three binaries (see `src/bin/`) supervised by the Go daemon:
   radeonsi on Fedora dev box). Reads up to two source sockets, composes
   BGRA via EGL/GLES, writes to stdout.
 
+Control plane: each native binary runs a gRPC server on a per-instance
+Unix socket the daemon allocates before spawn (`--grpc-listen <path>
+--device-id <id>` or `--composer-id <id>`). The daemon dials in, calls
+`Source.Describe()` / `Composer.Describe()` to seed identity, then
+issues unary RPCs (SetFormat, SetCanvas, …) and for sources opens a
+server-streaming `Source.StreamStatus` for the status push. Schemas
+live in `proto/control/*.proto` (repo root). Omit `--grpc-listen` to
+run a binary standalone — used by the R smoke scenarios.
+
+Data plane: `videonode-source` broadcasts NV12 dma-buf fds to consumers
+(`videonode-sink`, `videonode-composer`) via SCM_RIGHTS on a separate
+data socket. Wire format is a fixed-shape little-endian binary header
+(see `ipc/dmabuf_header.hpp`) followed by the fds in the same recvmsg.
+PipeWire / GStreamer ipcpipeline pattern.
+
 Library layout under `src/`:
-- `ipc/` — SCM_RIGHTS Unix-socket fd passing, dma_heap allocator
-- `rpc/` — JSON-RPC envelope codec (parse + serialize TUs), dma-buf frame messages, bidirectional control channel
+- `proto/` — protoc-generated gRPC + protobuf bindings (build tree only)
+- `ipc/` — SCM_RIGHTS Unix-socket fd passing, dma_heap allocator,
+  binary dma-buf header codec (`dmabuf_header`)
+- `rpc/` — gRPC server lifecycle wrapper (`grpc_server`) + composer
+  request struct definitions (`composer_rpc`, header-only)
 - `capture/` — V4L2 ioctl wrapper (capture + format-negotiation TUs), MJPEG decoders (MPP HW + libjpeg-turbo SW), source health probe
-- `render/` — CSC dispatch + GLES/RGA backends, GBM/dma_heap NV12 allocators, GPU compositor, EGL context, canvas loop, NO-SIGNAL placeholder painter
+- `render/` — CSC dispatch + GLES/RGA backends, GBM/dma_heap NV12 allocators, GPU compositor, EGL context, canvas loop, NO-SIGNAL placeholder painter, composer gRPC service impl (`composer_service`)
 - `process/` — child-process supervision, ffmpeg-pipe wrapper
-- `source/` — `videonode-source`'s orchestrator + capture session + broadcast helpers (extracted from the thin `bin/videonode_source_main.cpp` entry point)
+- `source/` — `videonode-source`'s orchestrator + capture session + broadcast helpers + source gRPC service impl (`source_service`)
 - `bin/` — the three binary entry points
 
 Vendored Rockchip stubs are gone — host builds either link real librga /
@@ -110,12 +135,12 @@ All three of these have a fuller writeup (rationale + sketch of the
 fix) in the `## Follow-ups` section of `composer/README.md` — read
 that before proposing work on any of them.
 
-- **Fuzzing**: `rpc/jsonrpc_msg::DecodeFrameNotification` and
-  `rpc/dmabuf_msg::DecodeFrameNotification` are prime targets. Preset
-  `fuzz` exists; harness not written. See `composer/README.md`
-  Follow-ups → Fuzzing.
+- **Fuzzing**: `ipc/dmabuf_header::Decode` is the prime target (the
+  only remaining untrusted-bytes decoder; the gRPC control plane is
+  parsed by libprotobuf). Preset `fuzz` exists; harness not written.
+  See `composer/README.md` Follow-ups → Fuzzing.
 - **C++ modules**: deferred until clangd module-navigation support
-  stabilizes. Experiment candidate: `rpc/jsonrpc_msg`. See
+  stabilizes. Experiment candidate: `ipc/dmabuf_header`. See
   `composer/README.md` Follow-ups → C++20 modules experiment.
 - **Hardened libstdc++**: enable `_GLIBCXX_ASSERTIONS` in `dev` preset
   only. See `composer/README.md` Follow-ups → Hardened libstdc++.
