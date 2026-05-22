@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <utility>
@@ -82,18 +83,18 @@ Buffer::~Buffer() {
     if (!impl)
         return;
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
-    auto* g = static_cast<GbmImpl*>(impl);
+    // Re-take ownership through unique_ptr so deletion goes through the
+    // typed deleter (cppcoreguidelines-owning-memory clean).
+    std::unique_ptr<GbmImpl> g{static_cast<GbmImpl*>(impl)};
     gbm_alloc::free(g->nv);
-    delete g;
 #else
-    auto* d = static_cast<DmaImpl*>(impl);
+    std::unique_ptr<DmaImpl> d{static_cast<DmaImpl*>(impl)};
     if (d->mapped) {
         dmaheap::munmap_rw(d->mapped, d->bo.size);
         d->mapped = nullptr;
     }
     // dmaheap::Buffer's destructor closes its fd. Setting y_fd/uv_fd above
     // to -1 (via the move-from path) means we don't double-close.
-    delete d;
 #endif
     impl = nullptr;
 }
@@ -123,12 +124,10 @@ Buffer Allocator::alloc(int width, int height) {
         std::fprintf(stderr, "nv12_buf::alloc: gbm backend not initialized\n");
         return out;
     }
-    auto* impl = new GbmImpl();
+    auto impl = std::make_unique<GbmImpl>();
     impl->nv = gbm_alloc::alloc(gbm_, width, height);
-    if (!impl->nv.valid()) {
-        delete impl;
+    if (!impl->nv.valid())
         return out;
-    }
     out.y_fd = impl->nv.y_fd;
     out.uv_fd = impl->nv.uv_fd;
     out.y_offset = 0;
@@ -137,7 +136,7 @@ Buffer Allocator::alloc(int width, int height) {
     out.uv_pitch = impl->nv.uv_stride;
     out.width = width;
     out.height = height;
-    out.impl = impl;
+    out.impl = impl.release();
     return out;
 }
 
@@ -168,26 +167,24 @@ Buffer Allocator::alloc(int width, int height) {
     Buffer out;
     if (width <= 0 || height <= 0 || (width & 1) || (height & 1))
         return out;
-    auto* impl = new DmaImpl();
-    const size_t sz = size_t(width) * height * 3 / 2;
+    auto impl = std::make_unique<DmaImpl>();
+    const size_t sz = static_cast<size_t>(width) * static_cast<size_t>(height) * 3 / 2;
     // Try "system-uncached" first (RK3588 prefers it for output buffers
     // RGA writes to without CPU readback); fall back to plain "system".
     impl->bo = dmaheap::alloc(dmaheap::kHeapUncached, sz);
     if (!impl->bo.valid())
         impl->bo = dmaheap::alloc(dmaheap::kHeapSystem, sz);
-    if (!impl->bo.valid()) {
-        delete impl;
+    if (!impl->bo.valid())
         return out;
-    }
     out.y_fd = impl->bo.fd;
     out.uv_fd = impl->bo.fd; // same fd, different offsets
     out.y_offset = 0;
-    out.uv_offset = uint32_t(width) * uint32_t(height);
-    out.y_pitch = uint32_t(width);
-    out.uv_pitch = uint32_t(width);
+    out.uv_offset = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
+    out.y_pitch = static_cast<uint32_t>(width);
+    out.uv_pitch = static_cast<uint32_t>(width);
     out.width = width;
     out.height = height;
-    out.impl = impl;
+    out.impl = impl.release();
     return out;
 }
 
