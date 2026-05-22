@@ -51,6 +51,10 @@ if(HAVE_RGA)
     vn_add_library(rga_csc
         SOURCES rga_csc.cpp
         PUBLIC_DEPS rga_iface)
+    # rga_csc.hpp gates its <rga/im2d.h> include on HAVE_RGA — give the
+    # define to both rga_csc (so it can see IM_STATUS / RK_FORMAT_*) and
+    # csc (the dispatcher that forwards into rga_csc).
+    target_compile_definitions(rga_csc PUBLIC HAVE_RGA=1)
     target_link_libraries(csc PUBLIC rga_csc)
     target_compile_definitions(csc PRIVATE HAVE_RGA=1)
 endif()
