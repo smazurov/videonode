@@ -1,6 +1,6 @@
 #include "src/ipc/scm_socket.hpp"
 
-#include <arpa/inet.h>
+#include <array>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -14,6 +14,9 @@
 namespace scm_socket {
 
 namespace {
+
+constexpr size_t kHeaderFixedPrefix = 36; // see ipc/dmabuf_header.hpp
+constexpr int kMaxFds = 16;
 
 bool set_addr(sockaddr_un& addr, const std::string& path) {
     if (path.size() + 1 > sizeof(addr.sun_path)) {
@@ -41,6 +44,32 @@ bool read_full(int fd, std::span<uint8_t> buf) {
         buf = buf.subspan(static_cast<size_t>(r));
     }
     return true;
+}
+
+// Extract SCM_RIGHTS fds from the cmsg buffer accompanying a recvmsg.
+// If MSG_CTRUNC is set, logs and leaves fds_out empty.
+void parse_cmsg_fds(const msghdr& m, std::vector<int>& fds_out) {
+    if (m.msg_flags & MSG_CTRUNC) {
+        fprintf(stderr, "scm_socket: control data truncated; some fds may have been dropped\n");
+        return;
+    }
+    for (cmsghdr* c = CMSG_FIRSTHDR(const_cast<msghdr*>(&m)); c != nullptr;
+         c = CMSG_NXTHDR(const_cast<msghdr*>(&m), c)) {
+        if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_RIGHTS)
+            continue;
+        size_t payload = c->cmsg_len - CMSG_LEN(0);
+        size_t count = payload / sizeof(int);
+        fds_out.resize(count);
+        std::memcpy(fds_out.data(), CMSG_DATA(c), count * sizeof(int));
+    }
+}
+
+void close_and_clear(std::vector<int>& fds) {
+    for (int fd : fds) {
+        if (fd >= 0)
+            ::close(fd);
+    }
+    fds.clear();
 }
 
 } // namespace
@@ -93,18 +122,18 @@ int ConnectClient(const std::string& path) {
     return s;
 }
 
-bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out, std::vector<int>& fds_out,
+bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out, std::vector<int>& fds_out,
                  bool* eof_out) {
     header_out = {};
     fds_out.clear();
     if (eof_out)
         *eof_out = false;
 
-    // First recvmsg: pull 4-byte length prefix + accompanying SCM_RIGHTS.
-    uint8_t prefix[4];
-    iovec iov{.iov_base = prefix, .iov_len = sizeof(prefix)};
-    // Space for up to 16 fds (much more than we ever expect).
-    constexpr int kMaxFds = 16;
+    // First recvmsg: pull the 36-byte fixed prefix + accompanying
+    // SCM_RIGHTS. The prefix's plane_count field (byte 35) tells us how
+    // many trailing pitch/offset words to read in a follow-up read().
+    std::array<uint8_t, kHeaderFixedPrefix> prefix{};
+    iovec iov{.iov_base = prefix.data(), .iov_len = prefix.size()};
     uint8_t cmsg_buf[CMSG_SPACE(sizeof(int) * kMaxFds)];
     msghdr m{};
     m.msg_iov = &iov;
@@ -120,98 +149,68 @@ bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out, std::vector<int>& 
     }
     if (n < 0)
         return false;
-    if (n != static_cast<ssize_t>(sizeof(prefix))) {
+    if (n != static_cast<ssize_t>(prefix.size())) {
         errno = EPROTO;
         return false;
     }
 
-    uint32_t body_len = (uint32_t(prefix[0]) << 24) | (uint32_t(prefix[1]) << 16) |
-                        (uint32_t(prefix[2]) << 8) | uint32_t(prefix[3]);
-    if (body_len == 0 || body_len > 65536) {
+    parse_cmsg_fds(m, fds_out);
+
+    const uint8_t plane_count = prefix[35];
+    if (plane_count == 0 || plane_count > dmabuf_header::kMaxPlanes) {
+        close_and_clear(fds_out);
         errno = EPROTO;
         return false;
     }
-
-    // Walk the cmsg headers, collect SCM_RIGHTS fds.
-    if (!(m.msg_flags & MSG_CTRUNC)) {
-        for (cmsghdr* c = CMSG_FIRSTHDR(&m); c != nullptr; c = CMSG_NXTHDR(&m, c)) {
-            if (c->cmsg_level == SOL_SOCKET && c->cmsg_type == SCM_RIGHTS) {
-                size_t payload = c->cmsg_len - CMSG_LEN(0);
-                size_t count = payload / sizeof(int);
-                fds_out.resize(count);
-                std::memcpy(fds_out.data(), CMSG_DATA(c), count * sizeof(int));
-            }
-        }
-    } else {
-        fprintf(stderr, "scm_socket: control data truncated; some fds may have been dropped\n");
-    }
-
-    // Now read the JSON body. It's a regular byte stream (no more cmsg).
-    std::string body(body_len, '\0');
-    if (!read_full(sock_fd, std::span(reinterpret_cast<uint8_t*>(body.data()), body_len))) {
-        for (int fd : fds_out)
-            ::close(fd);
-        fds_out.clear();
+    const size_t total = dmabuf_header::SerializedSize(plane_count);
+    std::vector<uint8_t> bytes(total);
+    std::memcpy(bytes.data(), prefix.data(), prefix.size());
+    if (!read_full(sock_fd,
+                   std::span<uint8_t>(bytes.data() + prefix.size(), total - prefix.size()))) {
+        close_and_clear(fds_out);
         return false;
     }
 
     std::string err;
-    if (!dmabuf_msg::DecodeFrameNotification(body, header_out, &err)) {
-        for (int fd : fds_out)
-            ::close(fd);
-        fds_out.clear();
-        fprintf(stderr, "scm_socket: DecodeFrameNotification: %s\n", err.c_str());
+    if (!dmabuf_header::Decode(bytes, header_out, &err)) {
+        close_and_clear(fds_out);
+        fprintf(stderr, "scm_socket: dmabuf_header::Decode: %s\n", err.c_str());
         errno = EPROTO;
         return false;
     }
 
-    // Validate: number of fds matches plane_pitches length per the
-    // protocol's contract. The Go sender enforces this; we double-check.
     if (fds_out.size() != header_out.plane_pitches.size()) {
-        for (int fd : fds_out)
-            ::close(fd);
-        fds_out.clear();
         fprintf(stderr, "scm_socket: %zu fds vs %zu plane_pitches (mismatch)\n", fds_out.size(),
                 header_out.plane_pitches.size());
+        close_and_clear(fds_out);
         errno = EPROTO;
         return false;
     }
     return true;
 }
 
-bool SendMessage(int sock_fd, const dmabuf_msg::Header& header, const std::vector<int>& fds) {
+bool SendMessage(int sock_fd, const dmabuf_header::Header& header, const std::vector<int>& fds) {
     if (fds.empty() || fds.size() != header.plane_pitches.size()) {
         errno = EINVAL;
         return false;
     }
-    std::string body = dmabuf_msg::EncodeFrameNotification(header);
-    if (body.empty() || body.size() > 65536) {
+    std::vector<uint8_t> body = dmabuf_header::Encode(header);
+    if (body.empty()) {
         errno = EINVAL;
         return false;
     }
-    // 4-byte big-endian length prefix.
-    uint8_t prefix[4];
-    uint32_t len = static_cast<uint32_t>(body.size());
-    prefix[0] = static_cast<uint8_t>((len >> 24) & 0xff);
-    prefix[1] = static_cast<uint8_t>((len >> 16) & 0xff);
-    prefix[2] = static_cast<uint8_t>((len >> 8) & 0xff);
-    prefix[3] = static_cast<uint8_t>(len & 0xff);
 
-    // Atomic single sendmsg: prefix + body in two iovecs, SCM_RIGHTS in
-    // ancillary. The previous two-write scheme corrupted the stream on
-    // O_NONBLOCK consumer sockets when the body's send EAGAIN'd partway
-    // (consumer got prefix+ancillary but only half the body, then next
-    // frame's prefix bytes were misinterpreted as body trailer).
-    iovec iov[2];
-    iov[0].iov_base = prefix;
-    iov[0].iov_len = sizeof(prefix);
-    iov[1].iov_base = const_cast<char*>(body.data());
-    iov[1].iov_len = body.size();
+    // Atomic single sendmsg: header bytes in one iovec, SCM_RIGHTS in
+    // ancillary. No length prefix needed — plane_count in the header
+    // tells the consumer how many bytes the full message occupies.
+    iovec iov;
+    iov.iov_base = body.data();
+    iov.iov_len = body.size();
 
-    uint8_t cmsg_buf[CMSG_SPACE(sizeof(int) * 16)];
+    uint8_t cmsg_buf[CMSG_SPACE(sizeof(int) * kMaxFds)];
     msghdr m{};
-    m.msg_iov = iov;
-    m.msg_iovlen = 2;
+    m.msg_iov = &iov;
+    m.msg_iovlen = 1;
     m.msg_control = cmsg_buf;
     m.msg_controllen = CMSG_SPACE(sizeof(int) * fds.size());
 
@@ -221,11 +220,10 @@ bool SendMessage(int sock_fd, const dmabuf_msg::Header& header, const std::vecto
     c->cmsg_len = CMSG_LEN(sizeof(int) * fds.size());
     std::memcpy(CMSG_DATA(c), fds.data(), sizeof(int) * fds.size());
 
-    ssize_t total = ssize_t(sizeof(prefix) + body.size());
     ssize_t n = ::sendmsg(sock_fd, &m, MSG_NOSIGNAL);
     if (n < 0)
         return false;
-    if (n != total) {
+    if (static_cast<size_t>(n) != body.size()) {
         errno = EIO;
         return false;
     }

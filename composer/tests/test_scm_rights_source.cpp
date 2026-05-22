@@ -5,7 +5,7 @@
 
 #include "src/ipc/scm_rights_source.hpp"
 #include "src/ipc/scm_socket.hpp"
-#include "src/rpc/dmabuf_msg.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 
 #include <gtest/gtest.h>
 
@@ -55,7 +55,7 @@ TEST(ScmRightsSource, EndToEndSinglePlane) {
             return;
         }
 
-        dmabuf_msg::Header h;
+        dmabuf_header::Header h;
         h.slot_index = 0;
         h.width = 1920;
         h.height = 1080;

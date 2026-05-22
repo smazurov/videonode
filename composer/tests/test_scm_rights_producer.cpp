@@ -4,7 +4,7 @@
 #include "src/ipc/scm_rights_producer.hpp"
 #include "src/ipc/scm_rights_source.hpp"
 #include "src/ipc/scm_socket.hpp"
-#include "src/rpc/dmabuf_msg.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 
 #include <gtest/gtest.h>
 
@@ -32,8 +32,8 @@ int make_fd(size_t size) {
     return fd;
 }
 
-dmabuf_msg::Header make_header(uint64_t idx) {
-    dmabuf_msg::Header h;
+dmabuf_header::Header make_header(uint64_t idx) {
+    dmabuf_header::Header h;
     h.slot_index = 0;
     h.width = 320;
     h.height = 240;
@@ -88,7 +88,7 @@ TEST(ScmRightsProducer, SingleConsumerReceivesBroadcast) {
     ::close(fd1); // caller closes after broadcast — kernel dup'd
     ::close(fd2);
 
-    dmabuf_msg::Header rh;
+    dmabuf_header::Header rh;
     std::vector<int> rfds;
     bool eof = false;
     EXPECT_TRUE(scm_socket::RecvMessage(client, rh, rfds, &eof));
@@ -122,7 +122,7 @@ TEST(ScmRightsProducer, TwoConsumersBothReceive) {
     ::close(fd);
 
     for (int c : {c1, c2}) {
-        dmabuf_msg::Header rh;
+        dmabuf_header::Header rh;
         std::vector<int> rfds;
         EXPECT_TRUE(scm_socket::RecvMessage(c, rh, rfds));
         EXPECT_EQ(uint64_t(42), rh.frame_idx);
@@ -187,7 +187,7 @@ TEST(ScmRightsProducer, DisconnectedConsumerEvicted) {
     // Drain c2 — pre-eviction broadcasts also queued for c2.
     bool saw_99 = false;
     for (int i = 0; i < 10; ++i) {
-        dmabuf_msg::Header rh;
+        dmabuf_header::Header rh;
         std::vector<int> rfds;
         if (!scm_socket::RecvMessage(c2, rh, rfds))
             break;
@@ -245,7 +245,7 @@ TEST(ScmRightsProducer, PruneDeadConsumersEvictsWithoutBroadcast) {
     EXPECT_TRUE(prod.broadcast(make_header(42), {fd, fd}));
     ::close(fd);
 
-    dmabuf_msg::Header rh;
+    dmabuf_header::Header rh;
     std::vector<int> rfds;
     EXPECT_TRUE(scm_socket::RecvMessage(c2, rh, rfds));
     EXPECT_EQ(uint64_t(42), rh.frame_idx);

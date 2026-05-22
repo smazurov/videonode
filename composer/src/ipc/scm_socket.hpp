@@ -1,9 +1,12 @@
-// scm_socket — Unix-socket helpers for receiving dma-buf fds via
-// SCM_RIGHTS, plus a small length-prefixed JSON header in the same recvmsg.
+// scm_socket — Unix-socket helpers for transporting dma-buf fds via
+// SCM_RIGHTS alongside a small binary header.
 //
-// Wire format mirrors internal/composer/dmabuf.go on the Go side:
+// Wire format (post-cutover; the JSON-RPC envelope is gone):
 //
-//   [4 bytes big-endian: header length] [JSON header...] + SCM_RIGHTS fds
+//   [binary header — see ipc/dmabuf_header.hpp] + SCM_RIGHTS fds
+//
+// The header is self-describing (peek plane_count after the fixed
+// 36-byte prefix to know the total size); no length prefix.
 //
 // One control channel handles one source slot. The composer's main loop
 // owns the socket fd; each new arriving message replaces the slot's
@@ -12,7 +15,7 @@
 
 #pragma once
 
-#include "src/rpc/dmabuf_msg.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 
 #include <cstdint>
 #include <string>
@@ -35,20 +38,18 @@ namespace scm_socket {
 // senders. Returns the connected fd or -1 on error.
 [[nodiscard]] int ConnectClient(const std::string& path);
 
-// Receive one length-prefixed JSON header + accompanying SCM_RIGHTS fds.
+// Receive one binary header + accompanying SCM_RIGHTS fds.
 // On success `header_out` and `fds_out` are populated and returns true.
 // On EOF (peer closed cleanly) returns false with `eof_out = true` if
 // non-null. On any other failure returns false and sets errno (if a
 // syscall failed) or leaves it untouched (parser failure).
 //
 // Caller owns the fds returned in fds_out and must close them when done.
-[[nodiscard]] bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out,
+[[nodiscard]] bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out,
                                std::vector<int>& fds_out, bool* eof_out = nullptr);
 
-// SendMessage sends a length-prefixed JSON header + SCM_RIGHTS fds. Used
-// by tests and by any future host-side sender that wants to talk the same
-// protocol from C++ (the production sender is Go).
-[[nodiscard]] bool SendMessage(int sock_fd, const dmabuf_msg::Header& header,
+// SendMessage sends a binary header + SCM_RIGHTS fds atomically.
+[[nodiscard]] bool SendMessage(int sock_fd, const dmabuf_header::Header& header,
                                const std::vector<int>& fds);
 
 } // namespace scm_socket

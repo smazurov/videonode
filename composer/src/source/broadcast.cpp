@@ -3,7 +3,7 @@
 #include "src/source/broadcast.hpp"
 
 #include "control/common.pb.h"
-#include "src/rpc/dmabuf_msg.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 #include "src/source/source_service.hpp" // nativerpc::LatestFrame
 
 #include <chrono>
@@ -65,18 +65,19 @@ uint64_t now_ms() {
 
 void broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec::DecodedNv12& d,
                     uint64_t frame_idx) {
-    dmabuf_msg::Header h_;
+    dmabuf_header::Header h_;
     h_.slot_index = 0;
     h_.width = uint32_t(d.width);
     h_.height = uint32_t(d.height);
     h_.format = "NV12";
     h_.plane_pitches = {d.y_pitch, d.uv_pitch};
     h_.plane_offsets = {d.y_offset, d.uv_offset};
-    // Color contract — see dmabuf_msg.hpp. RGA's IM_COLOR_SPACE_DEFAULT
-    // and csc_gles's BT.601 shader both emit BT.601 limited / MPEG-2.
-    h_.color_matrix = dmabuf_msg::ColorMatrix::Bt601;
-    h_.color_range = dmabuf_msg::ColorRange::Limited;
-    h_.chroma_siting = dmabuf_msg::ChromaSiting::Mpeg2;
+    // Color contract — see ipc/dmabuf_header.hpp. RGA's
+    // IM_COLOR_SPACE_DEFAULT and csc_gles's BT.601 shader both emit
+    // BT.601 limited / MPEG-2.
+    h_.color_matrix = dmabuf_header::ColorMatrix::Bt601;
+    h_.color_range = dmabuf_header::ColorRange::Limited;
+    h_.chroma_siting = dmabuf_header::ChromaSiting::Mpeg2;
     h_.frame_idx = frame_idx;
     int uv_fd = d.plane1_fd >= 0 ? d.plane1_fd : d.fd;
     prod.broadcast(h_, {d.fd, uv_fd});

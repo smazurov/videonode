@@ -148,7 +148,8 @@ void ScmRightsProducer::accept_loop_() {
     }
 }
 
-bool ScmRightsProducer::broadcast(const dmabuf_msg::Header& header, const std::vector<int>& fds) {
+bool ScmRightsProducer::broadcast(const dmabuf_header::Header& header,
+                                  const std::vector<int>& fds) {
     std::lock_guard<std::mutex> g(consumers_mu_);
     ++frame_counter_;
     if (consumers_.empty())

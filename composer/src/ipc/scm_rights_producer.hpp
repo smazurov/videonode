@@ -11,8 +11,8 @@
 // other. Each consumer is independent — disconnecting one or letting one
 // fall behind doesn't affect the rest.
 //
-// Wire format is identical to scm_rights_source's: dmabuf_msg::Header
-// (length-prefixed JSON) + SCM_RIGHTS ancillary fds. So videonode-composer's
+// Wire format is identical to scm_rights_source's: dmabuf_header::Header
+// (fixed-shape binary) + SCM_RIGHTS ancillary fds. So videonode-composer's
 // existing consumer code dials a Producer's socket and reads frames
 // unchanged.
 //
@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include "src/rpc/dmabuf_msg.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -80,7 +80,7 @@ class ScmRightsProducer {
     // Returns false only if no consumers are currently connected (caller
     // may choose to skip work in that case). Per-consumer send failures
     // are not surfaced — they're recorded in stats.
-    bool broadcast(const dmabuf_msg::Header& header, const std::vector<int>& fds);
+    bool broadcast(const dmabuf_header::Header& header, const std::vector<int>& fds);
 
     // prune_dead_consumers polls every connected consumer fd for hangup
     // (POLLHUP/POLLERR/POLLNVAL) and evicts + closes any that have lost
