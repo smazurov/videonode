@@ -306,7 +306,13 @@ func (m *streamProcessManager) orchestrateComposer(ctx context.Context, streamID
 		m.logger.Error("composer plan missing GrpcUds (BUG)", tag...)
 		return
 	}
+	// Stale socket trap: if a previous composer crashed without cleaning
+	// up, the bare os.Stat() check would succeed instantly and the dial
+	// would race the actual bind. Try dial-and-Describe in the loop
+	// instead — Manager.RegisterComposer returns ErrUnavailable when
+	// nobody's listening on the socket yet, which we retry.
 	pollDeadline := time.Now().Add(identifyTimeout)
+	var lastErr error
 	for {
 		select {
 		case <-ctx.Done():
@@ -314,23 +320,20 @@ func (m *streamProcessManager) orchestrateComposer(ctx context.Context, streamID
 			return
 		default:
 		}
-		if info, err := os.Stat(plan.GrpcUds); err == nil && info.Mode()&os.ModeSocket != 0 {
+		regCtx, regCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		err := m.controlServer.RegisterComposer(regCtx, plan.ComposerID, plan.GrpcUds)
+		regCancel()
+		if err == nil {
 			break
 		}
+		lastErr = err
 		if time.Now().After(pollDeadline) {
-			m.logger.Warn("composer never bound grpc UDS within timeout", tag...)
+			m.logger.Warn("composer register never succeeded within timeout",
+				append(append([]any{}, tag...), "error", lastErr)...)
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	regCtx, regCancel := context.WithTimeout(ctx, perCallTimeout)
-	if err := m.controlServer.RegisterComposer(regCtx, plan.ComposerID, plan.GrpcUds); err != nil {
-		regCancel()
-		m.logger.Warn("composer register failed",
-			append(append([]any{}, tag...), "error", err)...)
-		return
-	}
-	regCancel()
 	m.logger.Info("composer dialed — pushing initial config", tag...)
 
 	push := func(name string, fn func(context.Context) error) bool {

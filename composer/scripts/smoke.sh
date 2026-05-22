@@ -487,8 +487,11 @@ I1_ipc_canvas_perspective() {
         record I1 FAIL "go build (arm64) failed; see $ARTIFACTS_DIR/I1.build.log"
         return
     fi
-    rsync -az "$local_bin" "$RIG:$rig_bin" >/dev/null 2>&1 \
-        || { record I1 FAIL "rsync videonode to rig failed"; return; }
+    # Ensure the rig scratch dir exists — rsync into a missing parent
+    # was failing silently before this guard.
+    $RIG_SSH -o ConnectTimeout=5 "$RIG" "mkdir -p /tmp/smoke-vn/data" >/dev/null 2>&1 || true
+    rsync -az "$local_bin" "$RIG:$rig_bin" 2>"$ARTIFACTS_DIR/I1.rsync.log" \
+        || { record I1 FAIL "rsync videonode to rig failed; see $ARTIFACTS_DIR/I1.rsync.log"; return; }
 
     # Write the rig-side script to a file and scp it over — using
     # `bash -s` with a heredoc-as-stdin breaks complex scripts (here-
@@ -563,7 +566,10 @@ sleep 6
 # pushed the initial config over IPC.
 COMP_PID_BEFORE=$(pgrep -f "videonode-composer --drm-device" | sort -n | tail -1)
 [ -z "$COMP_PID_BEFORE" ] && { echo "STAGE=composer_spawn FAIL"; exit 1; }
-grep -q 'pipelinectl: client identified.*kind=composer' "$WORKDIR/daemon.log" \
+# The gRPC migration replaced the JSON-RPC `client identified` log line
+# with `composer registered` (the daemon now dials the composer's UDS
+# and calls Describe() to seed identity).
+grep -q 'pipelinectl: composer registered' "$WORKDIR/daemon.log" \
     || { echo "STAGE=identify FAIL"; exit 1; }
 grep -q 'composer initial config pushed' "$WORKDIR/daemon.log" \
     || { echo "STAGE=initial_push FAIL"; exit 1; }
