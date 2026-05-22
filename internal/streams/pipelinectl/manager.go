@@ -68,9 +68,10 @@ type Manager struct {
 	logger     logging.Logger
 	statusCh   chan StatusParams
 
-	mu        sync.RWMutex
-	sources   map[string]*nativeConn // key: device_id
-	composers map[string]*nativeConn // key: composer_id
+	mu           sync.RWMutex
+	sources      map[string]*nativeConn // key: device_id
+	composers    map[string]*nativeConn // key: composer_id
+	statusClosed bool                   // true once Stop() has closed statusCh
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -133,8 +134,9 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop closes all per-process gRPC channels and cancels any pending
-// StreamStatus goroutines. Idempotent.
+// Stop closes all per-process gRPC channels, cancels any pending
+// StreamStatus goroutines, and closes StatusFeed so range-readers
+// (main.go's fan-out goroutine) can exit. Idempotent.
 func (m *Manager) Stop() error {
 	if m.cancel != nil {
 		m.cancel()
@@ -149,9 +151,14 @@ func (m *Manager) Stop() error {
 	}
 	m.sources = make(map[string]*nativeConn)
 	m.composers = make(map[string]*nativeConn)
+	already := m.statusClosed
+	m.statusClosed = true
 	m.mu.Unlock()
 	for _, c := range conns {
 		m.closeConn(c)
+	}
+	if !already {
+		close(m.statusCh)
 	}
 	return nil
 }
@@ -216,6 +223,17 @@ func (m *Manager) RegisterSource(ctx context.Context, deviceID, udsPath string) 
 		_ = cc.Close()
 		return fmt.Errorf("pipelinectl: describe source %s: %w", deviceID, err)
 	}
+	// Wire the lifecycle context + done channel BEFORE publishing to
+	// m.sources, so a concurrent Unregister sees non-nil values and
+	// joins the runStatusStream goroutine on closeConn. Without this
+	// pre-publish, an Unregister between m.sources[id]=c and the
+	// `c.statusCancel=cancel` line below would skip the join and leave
+	// the goroutine running against a closed gRPC channel.
+	if m.ctx == nil {
+		_ = cc.Close()
+		return fmt.Errorf("pipelinectl: manager not started")
+	}
+	streamCtx, cancel := context.WithCancel(m.ctx)
 	c := &nativeConn{
 		id:              deviceID,
 		kind:            "source",
@@ -225,6 +243,8 @@ func (m *Manager) RegisterSource(ctx context.Context, deviceID, udsPath string) 
 		pid:             info.GetPid(),
 		version:         info.GetVersion(),
 		protocolVersion: info.GetProtocolVersion(),
+		statusCancel:    cancel,
+		streamDone:      make(chan struct{}),
 	}
 
 	m.mu.Lock()
@@ -238,9 +258,6 @@ func (m *Manager) RegisterSource(ctx context.Context, deviceID, udsPath string) 
 	m.mu.Unlock()
 
 	// Open the long-lived StreamStatus and pump into m.statusCh.
-	streamCtx, cancel := context.WithCancel(m.ctx)
-	c.statusCancel = cancel
-	c.streamDone = make(chan struct{})
 	go m.runStatusStream(streamCtx, c)
 
 	m.logger.Info("pipelinectl: source registered",
@@ -253,6 +270,9 @@ func (m *Manager) RegisterSource(ctx context.Context, deviceID, udsPath string) 
 // Describe() to capture identity. Composers don't push status today,
 // so no streaming goroutine is started.
 func (m *Manager) RegisterComposer(ctx context.Context, composerID, udsPath string) error {
+	if m.ctx == nil {
+		return fmt.Errorf("pipelinectl: manager not started")
+	}
 	cc, err := m.dial(udsPath)
 	if err != nil {
 		return err
@@ -375,6 +395,15 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 			params := statusFromProto(msg)
 			if params.DeviceID == "" {
 				params.DeviceID = c.id
+			}
+			// Skip if Stop closed statusCh between our last ctx check
+			// and now — sending on a closed chan would panic. The flag
+			// is set under m.mu in Stop.
+			m.mu.RLock()
+			closed := m.statusClosed
+			m.mu.RUnlock()
+			if closed {
+				return
 			}
 			select {
 			case m.statusCh <- params:

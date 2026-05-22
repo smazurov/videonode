@@ -736,6 +736,16 @@ func (m *streamProcessManager) Stop(streamID string) error {
 	err := m.pool.Stop(streamID)
 
 	if hadSpec && spec.Canvas != nil && m.native.CanvasReady() {
+		// Cancel any in-flight orchestrate goroutine before tearing
+		// down the gRPC channel, otherwise it may keep dialing the
+		// dying UDS or push a stale plan over a freshly-respawned
+		// composer.
+		m.mu.Lock()
+		if cancel, ok := m.composerOrchCancels[streamID]; ok && cancel != nil {
+			cancel()
+			delete(m.composerOrchCancels, streamID)
+		}
+		m.mu.Unlock()
 		// Close the gRPC channel to the (now-dying) composer so we don't
 		// keep retrying StreamStatus / unary calls against a corpse.
 		if m.controlServer != nil {

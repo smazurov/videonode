@@ -149,12 +149,19 @@ bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out, std::vector<int
     }
     if (n < 0)
         return false;
+
+    // Collect any SCM_RIGHTS fds the kernel installed into our fd
+    // table BEFORE rejecting a short read — otherwise we'd leak the
+    // installed fds (the kernel doesn't undo install on the receiver
+    // side; MSG_CMSG_CLOEXEC only sets FD_CLOEXEC, it doesn't skip
+    // installation).
+    parse_cmsg_fds(m, fds_out);
+
     if (n != static_cast<ssize_t>(prefix.size())) {
+        close_and_clear(fds_out);
         errno = EPROTO;
         return false;
     }
-
-    parse_cmsg_fds(m, fds_out);
 
     const uint8_t plane_count = prefix[35];
     if (plane_count == 0 || plane_count > dmabuf_header::kMaxPlanes) {
