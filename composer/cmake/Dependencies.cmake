@@ -1,6 +1,29 @@
 find_package(PkgConfig REQUIRED)
 find_package(Threads   REQUIRED)
 
+# gRPC + protobuf for the daemon ↔ native control plane. Matches the
+# project's pkg-config convention used for EGL / GLES / DRM above.
+# Debian trixie ships gRPC 1.51.1 (libgrpc++-dev) and protobuf 3.21.12
+# (libprotobuf-dev); Fedora 43+ has grpc-devel / grpc-plugins /
+# protobuf-devel. The Apache-libgrpc++ pkg-config link line is heavy
+# (transitive abseil/cares/re2/ssl/etc.) — pkg_check_modules captures
+# that automatically; find_package(gRPC CONFIG) does the same but
+# requires the CMake config files to be in the right place, which varies.
+pkg_check_modules(GRPCPP   REQUIRED IMPORTED_TARGET grpc++)
+pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)
+
+add_library(grpc_bundle INTERFACE)
+target_link_libraries(grpc_bundle INTERFACE PkgConfig::GRPCPP PkgConfig::PROTOBUF)
+
+# Plugin + compiler binaries. Same path on Debian and Fedora (/usr/bin).
+find_program(GRPC_CPP_PLUGIN_PATH grpc_cpp_plugin REQUIRED)
+find_program(PROTOC_PATH          protoc          REQUIRED)
+
+message(STATUS "  grpc++:                       ${GRPCPP_VERSION}")
+message(STATUS "  protobuf:                     ${PROTOBUF_VERSION}")
+message(STATUS "  grpc_cpp_plugin:              ${GRPC_CPP_PLUGIN_PATH}")
+message(STATUS "  protoc:                       ${PROTOC_PATH}")
+
 # Required on every Linux box with Mesa userspace + libdrm; transitively
 # pulled in by tests / host-side libs.
 pkg_check_modules(EGL    REQUIRED IMPORTED_TARGET egl)

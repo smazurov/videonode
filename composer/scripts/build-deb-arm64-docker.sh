@@ -47,7 +47,8 @@ HOST_GID="$(id -g)"
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config g++ ca-certificates curl git \
             libegl-dev libgles-dev libgbm-dev libdrm-dev \
-            libturbojpeg0-dev dpkg-dev
+            libturbojpeg0-dev dpkg-dev \
+            libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc
         composer/scripts/install-rockchip-libs.sh
         cd composer
         cmake -B "$BUILD_DIR" -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
