@@ -49,7 +49,7 @@ struct Buffer {
     Buffer& operator=(Buffer&& o) noexcept;
     ~Buffer();
 
-    bool valid() const { return y_fd >= 0 && uv_fd >= 0; }
+    [[nodiscard]] bool valid() const { return y_fd >= 0 && uv_fd >= 0; }
 };
 
 // Backend selector + per-process state holder. On Fedora it owns a
@@ -82,8 +82,8 @@ struct Mapping {
     uint32_t y_pitch = 0;
     uint32_t uv_pitch = 0;
 
-    std::span<uint8_t> y_bytes() const;
-    std::span<uint8_t> uv_bytes() const;
+    [[nodiscard]] std::span<uint8_t> y_bytes() const;
+    [[nodiscard]] std::span<uint8_t> uv_bytes() const;
 };
 Mapping map_rw(Buffer& b);
 void unmap(Buffer& b);
