@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package videonode.control;
+
+import "google/protobuf/empty.proto";
+import "control/common.proto";
+
+option go_package = "github.com/smazurov/videonode/internal/streams/pipelinectl/pb;controlpb";
+
+// Composer is the gRPC service exposed by every videonode-composer
+// binary over its per-instance Unix-domain socket. Composer is fully
+// daemon-driven: argv is just --drm-device / --grpc-listen / --composer-id.
+// Everything else (canvas dims, slot bindings, layout, effects,
+// per-source state) arrives over this RPC surface.
+//
+// Composers do not push status today; if/when they do, add
+// StreamStatus here mirroring source.proto.
+service Composer {
+  // Describe returns the composer's identity. First call after dial.
+  rpc Describe(google.protobuf.Empty) returns (NativeInfo);
+
+  // SetCanvas configures the output canvas. Must arrive before the
+  // composer can render anything useful.
+  rpc SetCanvas(SetCanvasRequest) returns (google.protobuf.Empty);
+
+  // SetSource binds a slot to a SCM-publishing source.
+  rpc SetSource(SetSourceRequest) returns (google.protobuf.Empty);
+
+  // ClearSource unbinds a slot.
+  rpc ClearSource(ClearSourceRequest) returns (google.protobuf.Empty);
+
+  // SetLayout atomically replaces the composer's placement set.
+  rpc SetLayout(SetLayoutRequest) returns (google.protobuf.Empty);
+
+  // SetEffects atomically replaces the effect list bound to source_id.
+  rpc SetEffects(SetEffectsRequest) returns (google.protobuf.Empty);
+
+  // SetSourceState notifies the composer that a source's collapsed
+  // health state changed. Composer applies the user warp only when
+  // state is "live" or "transitioning".
+  rpc SetSourceState(SetSourceStateRequest) returns (google.protobuf.Empty);
+
+  // Shutdown asks the composer to exit cleanly.
+  rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+message SetCanvasRequest {
+  uint32 w = 1;
+  uint32 h = 2;
+  uint32 fps = 3;
+}
+
+message SetSourceRequest {
+  // free-form slot identifier ("a", "b", ...)
+  string slot = 1;
+  // stable source identifier (matches the source's own --device-id)
+  string source_id = 2;
+  // Unix-socket path where the source's scm_rights_producer is listening
+  string scm_path = 3;
+  uint32 width = 4;
+  uint32 height = 5;
+  uint32 fps = 6;
+}
+
+message ClearSourceRequest {
+  string slot = 1;
+}
+
+message LayoutSlot {
+  string slot = 1;
+  // canvas pixel coordinates; x/y may be negative (clipped off-canvas).
+  int32 x = 2;
+  int32 y = 3;
+  int32 w = 4;
+  int32 h = 5;
+}
+
+message SetLayoutRequest {
+  repeated LayoutSlot slots = 1;
+}
+
+// PerspectiveEffectParams holds an integer-pixel quadrilateral plus the
+// snapshot dimensions used to normalize corners to UV [0,1].
+message PerspectiveEffectParams {
+  // TLx, TLy, TRx, TRy, BRx, BRy, BLx, BLy — exactly 8 ints, order fixed.
+  repeated int32 corners = 1;
+  int32 snapshot_w = 2;
+  int32 snapshot_h = 3;
+}
+
+message Effect {
+  // "perspective" (others reserved). Unknown types are logged + skipped.
+  string type = 1;
+  // Populated iff type == "perspective".
+  PerspectiveEffectParams perspective = 2;
+}
+
+message SetEffectsRequest {
+  string source_id = 1;
+  // order-significant; composer applies in array order.
+  repeated Effect effects = 2;
+}
+
+message SetSourceStateRequest {
+  string source_id = 1;
+  // "live" | "transitioning" | "placeholder"
+  string state = 2;
+}

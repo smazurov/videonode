@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package videonode.control;
+
+import "google/protobuf/empty.proto";
+import "control/common.proto";
+
+option go_package = "github.com/smazurov/videonode/internal/streams/pipelinectl/pb;controlpb";
+
+// Source is the gRPC service exposed by every videonode-source binary
+// over its per-instance Unix-domain socket (path passed via --grpc-listen).
+// The daemon dials in, calls Describe() to record identity, then issues
+// unary control RPCs and subscribes to StreamStatus for the unsolicited
+// status push that replaces the legacy `status` JSON-RPC notification.
+service Source {
+  // Describe returns the native binary's identity. First call after dial.
+  rpc Describe(google.protobuf.Empty) returns (NativeInfo);
+
+  // SetFormat asks the source to reconfigure its V4L2 capture. The
+  // `applied` bit reports whether the source actually re-armed (it may
+  // refuse if the request matches the running format).
+  rpc SetFormat(SetFormatRequest) returns (SetFormatResponse);
+
+  // GetStatus returns the current status snapshot synchronously. Useful
+  // for one-shot probes; the long-lived push is StreamStatus below.
+  rpc GetStatus(google.protobuf.Empty) returns (Status);
+
+  // StreamStatus yields Status frames on health change, consumer-count
+  // change, or once per second as a heartbeat. The stream stays open
+  // for the lifetime of the source process.
+  rpc StreamStatus(google.protobuf.Empty) returns (stream Status);
+
+  // Snapshot captures one frame from the broadcast loop and returns the
+  // raw NV12 plane bytes. Replaces the legacy daemon-as-dma-buf-consumer
+  // path in internal/streams/snapshot_native.go — the daemon never opens
+  // the SCM_RIGHTS data plane.
+  rpc Snapshot(SnapshotRequest) returns (SnapshotResponse);
+
+  // Shutdown asks the source to exit cleanly.
+  rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+message SetFormatRequest {
+  string fourcc = 1;
+  uint32 w = 2;
+  uint32 h = 3;
+  // 0 = "driver decides"
+  uint32 fps = 4;
+}
+
+message SetFormatResponse {
+  bool applied = 1;
+}
+
+message SnapshotRequest {
+  // Reserved for future controls (deadline, format hint, max dimension).
+}
+
+message SnapshotResponse {
+  // Raw NV12 planes copied out of the most-recent dma-buf. The daemon's
+  // existing ffmpeg subprocess encodes JPEG from these — same pipeline
+  // shape as the legacy snapshot_native.go, just over gRPC.
+  bytes nv12 = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  uint32 pitch_y = 4;
+  uint32 pitch_uv = 5;
+  uint64 frame_idx = 6;
+  // CLOCK_MONOTONIC nanoseconds at the moment Snapshot grabbed the frame.
+  uint64 captured_at_ns = 7;
+}

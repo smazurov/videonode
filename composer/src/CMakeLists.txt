@@ -6,6 +6,7 @@
 #
 # Adding a new production binary: edit `bin/CMakeLists.txt`.
 
+add_subdirectory(proto)
 add_subdirectory(ipc)
 add_subdirectory(rpc)
 add_subdirectory(capture)

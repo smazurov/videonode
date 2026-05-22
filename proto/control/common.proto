@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package videonode.control;
+
+option go_package = "github.com/smazurov/videonode/internal/streams/pipelinectl/pb;controlpb";
+
+// NativeInfo replaces the legacy `identify` JSON-RPC notification.
+// Returned by every native binary's Describe() unary RPC. The daemon
+// calls Describe() immediately after dialing the per-binary UDS so it
+// can record the running PID + version and verify identity.
+message NativeInfo {
+  string device_id = 1;
+  uint32 pid = 2;
+  string version = 3;
+  // "source" or "composer". Empty defaults to "source" for back-compat
+  // with the legacy identify payload.
+  string kind = 4;
+  // Bump when adding required fields. Receivers tolerate higher minor
+  // versions but reject incompatible majors.
+  uint32 protocol_version = 5;
+}
+
+// Status is the unsolicited push from videonode-source. Replaces the
+// `status` JSON-RPC notification. Field shapes mirror the JSON produced
+// by composer/src/source/broadcast.cpp::build_status_params().
+
+message DeviceInfo {
+  string path = 1;
+  bool multiplanar = 2;
+}
+
+message SignalInfo {
+  bool has_dv_timings = 1;
+  bool cable_present = 2;
+  bool signal_locked = 3;
+  string dv_timings = 4;
+}
+
+message FormatInfo {
+  string fourcc = 1;
+  uint32 w = 2;
+  uint32 h = 3;
+  uint32 fps = 4;
+  uint32 buffers = 5;
+  // "rga" | "mjpeg-mpp" | "mjpeg-turbojpeg"
+  string mode = 6;
+}
+
+message BroadcastInfo {
+  uint32 target_fps = 1;
+  uint64 real_frames = 2;
+  uint64 placeholder_frames = 3;
+  uint32 last_seq = 4;
+}
+
+message ConsumerEntry {
+  int32 fd = 1;
+  uint64 frames_sent = 2;
+  uint64 frames_dropped = 3;
+  // Only set on entries in the `evicted` list.
+  uint64 evicted_at_frame = 4;
+}
+
+message ConsumersInfo {
+  int32 count = 1;
+  repeated ConsumerEntry live = 2;
+  repeated ConsumerEntry evicted = 3;
+}
+
+message Status {
+  string device_id = 1;
+  int64 ts_ms = 2;
+  // "live" | "transitioning" | "noCable" | "noLock" | "gone" | "probing"
+  string health = 3;
+  DeviceInfo device = 4;
+  SignalInfo signal = 5;
+  FormatInfo format = 6;
+  BroadcastInfo broadcast = 7;
+  ConsumersInfo consumers = 8;
+}
