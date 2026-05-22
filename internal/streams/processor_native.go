@@ -74,7 +74,7 @@ func (p *processor) processStreamNative(streamID string, spec *StreamSpec, _ str
 		"-g", strconv.Itoa(fps * 2), "-bf", "0",
 		"-bsf:v", "dump_extra=freq=keyframe",
 		"-rtsp_transport", "tcp",
-		"-f", "rtsp", fmt.Sprintf("rtsp://127.0.0.1:8554/%s", streamID),
+		"-f", "rtsp", fmt.Sprintf("rtsp://%s/%s", p.rtspHostOrDefault(), streamID),
 	}
 
 	var sb strings.Builder

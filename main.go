@@ -23,7 +23,7 @@ import (
 	"github.com/smazurov/videonode/internal/metrics/exporters"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
-	"github.com/smazurov/videonode/internal/streams/sourcectl"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 	"github.com/smazurov/videonode/internal/streams/store"
 	"github.com/smazurov/videonode/internal/updater"
 )
@@ -210,9 +210,9 @@ func main() {
 		// BEFORE the stream service spawns any sidecars so they can
 		// dial in on startup. Only enable when the native pipeline is
 		// available — without a sidecar binary, no clients connect.
-		var ctlServer *sourcectl.Server
+		var ctlServer *pipelinectl.Server
 		if native.V4L2Source != "" {
-			ctlServer = sourcectl.New("", nil)
+			ctlServer = pipelinectl.New("", nil)
 			if err := ctlServer.Start(context.Background()); err != nil {
 				logger.Warn("control plane disabled (start failed)",
 					"error", err)
@@ -237,9 +237,10 @@ func main() {
 			EventBus:         eventBus,
 			VisionDefaultFPS: opts.VisionDefaultFPS,
 			Native:           native,
+			RTSPPort:         opts.StreamingRTSPPort,
 		}
 		if ctlServer != nil {
-			serviceOpts.ControlSocketPath = ctlServer.SocketPath()
+			serviceOpts.ControlServer = ctlServer
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)
@@ -286,6 +287,8 @@ func main() {
 			PrometheusHandler:   promhttp.Handler(), // Prometheus metrics via promauto
 			UpdateService:       updateService,
 			ControlServer:       ctlServer,
+			StreamingRTSPPort:   opts.StreamingRTSPPort,
+			StreamingSRTPort:    opts.SRTAddr,
 		}
 
 		// Add LED controller if available

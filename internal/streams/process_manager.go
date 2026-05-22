@@ -1,10 +1,12 @@
 package streams
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
 	"github.com/smazurov/videonode/internal/recording"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
 // ProcessState represents the current state of a stream process.
@@ -54,6 +57,17 @@ type StreamProcessManager interface {
 	// CaptureRawSnapshot looks up the vision pipe by source ID regardless of canvas ownership.
 	CaptureRawSnapshot(sourceStreamID string) ([]byte, error)
 	OwnedBy(sourceStreamID string) string
+	// CanvasOwner reports the canvas that lists this source, ignoring
+	// the independent-process gate. Use it for IPC pushes that target
+	// the canvas's composer regardless of the source's solo runtime.
+	CanvasOwner(sourceStreamID string) string
+	// PushComposerPerspective forwards a perspective update to the
+	// composer over pipelinectl WITHOUT a process restart. Returns nil
+	// on successful push, an error if no composer is connected for this
+	// streamID or the dispatch fails. Callers use this in PATCH handlers
+	// to deliver live perspective changes while keeping the RTSP feed
+	// flowing.
+	PushComposerPerspective(streamID, sourceID string, persp *ffmpeg.PerspectiveConfig) (bool, error)
 }
 
 // visionPipe is one source stream's raw-frame vision pipe.
@@ -82,7 +96,20 @@ type streamProcessManager struct {
 	visionPipes map[string]*visionPipe
 	// canvasOwnership: source ID → canvas ID currently owning its device.
 	canvasOwnership map[string]string
-	mu              sync.Mutex
+	// pendingComposerPlans is keyed by stream-id; populated by
+	// generateCommand when a GPU compose stream is built, drained by
+	// onStateChange when the stream reaches Running. Each plan triggers
+	// one orchestration goroutine that pushes set_canvas / set_source /
+	// set_layout / set_effects / set_source_state to the composer.
+	pendingComposerPlans map[string]*composerOrchestration
+	// composerOrchCancels holds the cancel func for the orchestration
+	// goroutine in flight for each streamID. A new Running transition
+	// cancels the prior goroutine before starting a new one, so two
+	// concurrent orchestrators never race interleaved set_* pushes
+	// against the same composer over pipelinectl.
+	composerOrchCancels map[string]context.CancelFunc
+	controlServer       *pipelinectl.Server
+	mu                  sync.Mutex
 }
 
 // ProcessManagerOptions contains options for creating a StreamProcessManager.
@@ -92,12 +119,13 @@ type ProcessManagerOptions struct {
 	CanvasProcessor *canvasProcessor
 	EventBus        *events.Bus
 	Native          *NativePipelineConfig
-	// ControlSocketPath is the daemon-wide sourcectl UDS path. When set,
-	// videonode-source sidecars are spawned with --ctl-connect pointing
-	// at this socket so the daemon can issue commands (set_format) and
-	// receive status notifications. Empty string disables the control
-	// plane.
-	ControlSocketPath string
+	// ControlServer is the daemon-wide pipelinectl server. Single source
+	// of truth: its SocketPath() gives the UDS for videonode-source's
+	// --ctl-connect, and the server itself is the dispatch surface for
+	// pushing config to videonode-composer (set_canvas / set_source /
+	// set_layout / set_effects / set_source_state). Nil disables the
+	// control plane entirely.
+	ControlServer *pipelinectl.Server
 }
 
 // NewStreamProcessManager creates a new StreamProcessManager.
@@ -105,15 +133,18 @@ func NewStreamProcessManager(opts *ProcessManagerOptions) StreamProcessManager {
 	logger := logging.GetLogger("process_manager")
 
 	spm := &streamProcessManager{
-		store:           opts.Store,
-		processor:       opts.Processor,
-		canvasProcessor: opts.CanvasProcessor,
-		native:          opts.Native,
-		eventBus:        opts.EventBus,
-		logger:          logger,
-		crashedStreams:  make(map[string]bool),
-		visionPipes:     make(map[string]*visionPipe),
-		canvasOwnership: make(map[string]string),
+		store:                opts.Store,
+		processor:            opts.Processor,
+		canvasProcessor:      opts.CanvasProcessor,
+		native:               opts.Native,
+		eventBus:             opts.EventBus,
+		logger:               logger,
+		crashedStreams:       make(map[string]bool),
+		visionPipes:          make(map[string]*visionPipe),
+		canvasOwnership:      make(map[string]string),
+		pendingComposerPlans: make(map[string]*composerOrchestration),
+		composerOrchCancels:  make(map[string]context.CancelFunc),
+		controlServer:        opts.ControlServer,
 	}
 
 	spm.pool = process.NewPool(&process.PoolOptions{
@@ -127,8 +158,8 @@ func NewStreamProcessManager(opts *ProcessManagerOptions) StreamProcessManager {
 	// but are owned by the ProducerManager. The canvasProcessor reads back
 	// the per-device socket path from the manager when building sink cmds.
 	spm.producerMgr = NewProducerManager(spm.pool)
-	if opts.ControlSocketPath != "" {
-		spm.producerMgr.SetControlSocketPath(opts.ControlSocketPath)
+	if opts.ControlServer != nil {
+		spm.producerMgr.SetControlSocketPath(opts.ControlServer.SocketPath())
 	}
 	if spm.canvasProcessor != nil {
 		spm.canvasProcessor.producerMgr = spm.producerMgr
@@ -160,6 +191,18 @@ func (m *streamProcessManager) generateCommand(streamID string) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	// Stash any composer-orchestration plan for the post-spawn pusher,
+	// replacing any older plan from a prior restart. A nil plan must
+	// also be written so a canvas → non-canvas (or canvas-removed)
+	// transition doesn't leave a stale plan that would misfire on the
+	// next Running transition.
+	m.mu.Lock()
+	if processed.ComposerPlan != nil {
+		m.pendingComposerPlans[streamID] = processed.ComposerPlan
+	} else {
+		delete(m.pendingComposerPlans, streamID)
+	}
+	m.mu.Unlock()
 	return processed.FFmpegCommand, nil
 }
 
@@ -169,7 +212,28 @@ func (m *streamProcessManager) onStateChange(id string, _, newState process.Stat
 		// Pool auto-restart doesn't go through Restart/RestartCanvas, so clear the crash flag here.
 		m.mu.Lock()
 		delete(m.crashedStreams, id)
+		// If this stream has a pending composer orchestration plan, kick
+		// off a goroutine that waits for the composer to identify on the
+		// pipelinectl UDS and pushes the daemon-side configuration. Cancel
+		// any prior orchestrator for this streamID first — concurrent
+		// goroutines could otherwise interleave set_* pushes against the
+		// same composer.
+		plan := m.pendingComposerPlans[id]
+		delete(m.pendingComposerPlans, id)
+		if cancel, ok := m.composerOrchCancels[id]; ok {
+			cancel()
+			delete(m.composerOrchCancels, id)
+		}
+		var ctx context.Context
+		var cancel context.CancelFunc
+		if plan != nil && m.controlServer != nil {
+			ctx, cancel = context.WithCancel(context.Background())
+			m.composerOrchCancels[id] = cancel
+		}
 		m.mu.Unlock()
+		if plan != nil && m.controlServer != nil {
+			go m.orchestrateComposer(ctx, id, plan)
+		}
 
 		if m.eventBus != nil {
 			m.eventBus.Publish(events.StreamStateChangedEvent{
@@ -205,6 +269,165 @@ func (m *streamProcessManager) onStateChange(id string, _, newState process.Stat
 			}
 		}()
 	}
+}
+
+// orchestrateComposer waits for `plan.ComposerID` to identify on the
+// pipelinectl UDS, then sequences the daemon→composer pushes:
+// set_canvas → set_source (per slot) → set_layout → set_effects (per
+// source) → set_source_state. Logs and aborts on any failure; the
+// composer keeps rendering whatever World state it has (initially:
+// solid black). This is fire-and-forget — the goroutine exits once the
+// initial config is delivered. PATCH-triggered re-pushes are handled
+// separately by the API layer (see api/streams.go).
+func (m *streamProcessManager) orchestrateComposer(ctx context.Context, streamID string, plan *composerOrchestration) {
+	const identifyTimeout = 30 * time.Second
+	const perCallTimeout = 5 * time.Second
+
+	tag := []any{"stream_id", streamID, "composer_id", plan.ComposerID}
+
+	defer func() {
+		m.mu.Lock()
+		// Only clear our own slot — a newer orchestrator may have replaced it.
+		if c, ok := m.composerOrchCancels[streamID]; ok && c != nil {
+			if ctx.Err() != nil {
+				// We were cancelled; the newer orchestrator now owns the slot.
+			} else {
+				delete(m.composerOrchCancels, streamID)
+			}
+		}
+		m.mu.Unlock()
+	}()
+
+	// Wait for composer to identify, or for cancellation. The pipelinectl
+	// server registers it once its identify message lands; we poll
+	// ConnectedComposers().
+	pollDeadline := time.Now().Add(identifyTimeout)
+	for {
+		select {
+		case <-ctx.Done():
+			m.logger.Info("composer orchestration cancelled (superseded)", tag...)
+			return
+		default:
+		}
+		found := slices.Contains(m.controlServer.ConnectedComposers(), plan.ComposerID)
+		if found {
+			break
+		}
+		if time.Now().After(pollDeadline) {
+			m.logger.Warn("composer never identified within timeout", tag...)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	m.logger.Info("composer identified — pushing initial config", tag...)
+
+	push := func(name string, fn func(context.Context) error) bool {
+		if ctx.Err() != nil {
+			m.logger.Info("composer orchestration cancelled mid-push (superseded)",
+				append(append([]any{}, tag...), "method", name)...)
+			return false
+		}
+		callCtx, cancel := context.WithTimeout(ctx, perCallTimeout)
+		defer cancel()
+		if err := fn(callCtx); err != nil {
+			args := append(append([]any{}, tag...), "method", name, "error", err)
+			m.logger.Warn("composer config push failed", args...)
+			return false
+		}
+		return true
+	}
+
+	if !push("set_canvas", func(c context.Context) error {
+		return m.controlServer.SendSetCanvas(c, plan.ComposerID, plan.Canvas)
+	}) {
+		return
+	}
+	for _, s := range plan.Sources {
+		if !push("set_source", func(c context.Context) error {
+			return m.controlServer.SendSetSource(c, plan.ComposerID, s)
+		}) {
+			return
+		}
+	}
+	if !push("set_layout", func(c context.Context) error {
+		return m.controlServer.SendSetLayout(c, plan.ComposerID, plan.Layout)
+	}) {
+		return
+	}
+	for _, e := range plan.Effects {
+		if !push("set_effects", func(c context.Context) error {
+			return m.controlServer.SendSetEffects(c, plan.ComposerID, e)
+		}) {
+			return
+		}
+	}
+	for _, s := range plan.States {
+		if !push("set_source_state", func(c context.Context) error {
+			return m.controlServer.SendSetSourceState(c, plan.ComposerID, s)
+		}) {
+			return
+		}
+	}
+	done := append(append([]any{}, tag...),
+		"canvas", fmt.Sprintf("%dx%d@%dfps", plan.Canvas.W, plan.Canvas.H, plan.Canvas.FPS),
+		"sources", len(plan.Sources),
+		"effects", len(plan.Effects))
+	m.logger.Info("composer initial config pushed", done...)
+}
+
+// PushComposerPerspective sends a live perspective update to the
+// composer for the given canvas streamID. Returns:
+//
+//	delivered=false, err=nil → no composer is currently connected (e.g.
+//	                            the canvas isn't running, or the composer
+//	                            hasn't identified yet). The caller should
+//	                            fall back to a restart so the post-spawn
+//	                            orchestrator delivers the new perspective.
+//	delivered=true,  err=nil → set_effects was sent over the wire.
+//	delivered=false, err≠nil → dispatch attempted but failed; same fallback
+//	                            as the no-composer case.
+//
+// Splitting "applied via IPC" from "errored" lets UpdatePartial skip the
+// canvas restart ONLY when the live IPC push actually crossed the wire.
+func (m *streamProcessManager) PushComposerPerspective(streamID, sourceID string, persp *ffmpeg.PerspectiveConfig) (bool, error) {
+	if m.controlServer == nil {
+		return false, nil
+	}
+	composerID := composerIDFor(streamID)
+	connected := slices.Contains(m.controlServer.ConnectedComposers(), composerID)
+	if !connected {
+		return false, nil
+	}
+
+	// Empty perspective → clear by pushing an empty effects array.
+	effects := []pipelinectl.EffectParams{}
+	if persp != nil {
+		eff := pipelinectl.EffectParams{
+			Type:           "perspective",
+			Corners:        persp.Corners,
+			SnapshotWidth:  persp.SnapshotWidth,
+			SnapshotHeight: persp.SnapshotHeight,
+		}
+		if eff.SnapshotWidth == 0 || eff.SnapshotHeight == 0 {
+			if src, ok := m.store.GetStream(sourceID); ok {
+				if w, h := parseInputDims(src.FFmpeg.Resolution); w > 0 && h > 0 {
+					eff.SnapshotWidth = w
+					eff.SnapshotHeight = h
+				}
+			}
+		}
+		effects = append(effects, eff)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.controlServer.SendSetEffects(ctx, composerID, pipelinectl.SetEffectsParams{
+		SourceID: sourceID,
+		Effects:  effects,
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // configureProcess sets up log parsing + vision pipe(s).
@@ -715,6 +938,16 @@ func (m *streamProcessManager) OwnedBy(sourceStreamID string) string {
 		return ""
 	}
 	return owner
+}
+
+// CanvasOwner returns the canvas ID that lists this source in its
+// SourceStreams, regardless of whether the source also has an
+// independent process slot. Used by the perspective IPC push path —
+// we want to reach the composer even when the source fans out via SCM.
+func (m *streamProcessManager) CanvasOwner(sourceStreamID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.canvasOwnership[sourceStreamID]
 }
 
 // GetStatus returns the current state of a stream's process.

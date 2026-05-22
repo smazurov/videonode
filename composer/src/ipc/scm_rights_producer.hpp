@@ -82,6 +82,18 @@ class ScmRightsProducer {
     // are not surfaced — they're recorded in stats.
     bool broadcast(const dmabuf_msg::Header& header, const std::vector<int>& fds);
 
+    // prune_dead_consumers polls every connected consumer fd for hangup
+    // (POLLHUP/POLLERR/POLLNVAL) and evicts + closes any that have lost
+    // their peer. Returns the number evicted.
+    //
+    // broadcast() also evicts dead consumers, but only as a side effect of
+    // sendmsg() returning EPIPE — which means eviction stalls whenever the
+    // caller pauses broadcasting (e.g. a V4L2 source between DQBUFs, or a
+    // signal-transition window). Callers should drive prune_dead_consumers()
+    // from a steady tick to keep the consumer list bounded regardless of
+    // broadcast cadence.
+    int prune_dead_consumers();
+
     // Diagnostics. Thread-safe snapshot.
     int consumer_count() const;
     std::vector<ConsumerStats> stats() const;

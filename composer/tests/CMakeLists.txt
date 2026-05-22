@@ -15,6 +15,7 @@ vn_add_test(set_format_parser  DEPS set_format_parser            LABELS source)
 vn_add_test(child_process       DEPS child_process                LABELS process)
 vn_add_test(jsonrpc_msg         DEPS jsonrpc_msg                  LABELS rpc)
 vn_add_test(dmabuf_msg          DEPS dmabuf_msg                   LABELS rpc)
+vn_add_test(composer_rpc        DEPS composer_rpc                 LABELS rpc)
 vn_add_test(scm_socket          DEPS scm_socket                   LABELS ipc)
 
 vn_add_test(scm_rights_source
@@ -26,6 +27,8 @@ vn_add_test(scm_rights_producer
     LABELS ipc)
 
 vn_add_test(placeholder_painter DEPS placeholder_painter          LABELS render)
+vn_add_test(homography          DEPS homography                   LABELS render)
+vn_add_test(world               DEPS world Threads::Threads       LABELS render)
 vn_add_test(source_probe        DEPS source_probe                 LABELS capture)
 
 if(HAVE_GBM)

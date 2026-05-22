@@ -153,7 +153,11 @@ func (s *Server) registerStreamRoutes() {
 				if body.Perspective.Null {
 					spec.Perspective = nil
 				} else {
-					spec.Perspective = &ffmpeg.PerspectiveConfig{Corners: body.Perspective.Value.Corners}
+					spec.Perspective = &ffmpeg.PerspectiveConfig{
+						Corners:        body.Perspective.Value.Corners,
+						SnapshotWidth:  body.Perspective.Value.SnapshotWidth,
+						SnapshotHeight: body.Perspective.Value.SnapshotHeight,
+					}
 				}
 			}
 			if body.Vision.Sent {
@@ -546,8 +550,8 @@ func (s *Server) domainToAPIStreamWithSpec(stream streams.Stream, config *stream
 		Codec:     codec,
 		Bitrate:   displayBitrate,
 		StartTime: stream.StartTime,
-		RTSPURL:   fmt.Sprintf(":8554/%s", stream.ID),
-		SRTURL:    fmt.Sprintf(":6001?streamid=%s", stream.ID),
+		RTSPURL:   fmt.Sprintf("%s/%s", s.rtspPortOrDefault(), stream.ID),
+		SRTURL:    fmt.Sprintf("%s?streamid=%s", s.srtPortOrDefault(), stream.ID),
 	}
 
 	if config != nil {
@@ -572,7 +576,9 @@ func (s *Server) domainToAPIStreamWithSpec(stream streams.Stream, config *stream
 
 		if config.Perspective != nil {
 			apiData.Perspective = &models.PerspectiveData{
-				Corners: config.Perspective.Corners,
+				Corners:        config.Perspective.Corners,
+				SnapshotWidth:  config.Perspective.SnapshotWidth,
+				SnapshotHeight: config.Perspective.SnapshotHeight,
 			}
 		}
 		if config.Vision != nil {

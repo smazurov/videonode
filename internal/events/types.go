@@ -2,7 +2,7 @@ package events
 
 import (
 	"github.com/smazurov/videonode/internal/api/models"
-	"github.com/smazurov/videonode/internal/streams/sourcectl"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
 // Event type constants for kelindar/event.
@@ -24,9 +24,9 @@ const (
 // videonode-source sidecar over the control plane. Emitted on health
 // changes, consumer-count changes, and ~1 Hz heartbeat.
 type SourceStatusEvent struct {
-	DeviceID  string                 `json:"device_id" doc:"Stable device identifier the snapshot describes"`
-	Status    sourcectl.StatusParams `json:"status" doc:"Full status snapshot from the sidecar"`
-	Timestamp string                 `json:"timestamp" doc:"Server time when received"`
+	DeviceID  string                   `json:"device_id" doc:"Stable device identifier the snapshot describes"`
+	Status    pipelinectl.StatusParams `json:"status" doc:"Full status snapshot from the sidecar"`
+	Timestamp string                   `json:"timestamp" doc:"Server time when received"`
 }
 
 // Type returns the event type identifier for SourceStatusEvent.

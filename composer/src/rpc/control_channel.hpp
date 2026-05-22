@@ -47,7 +47,14 @@ class ControlChannel {
 
     // init() captures the daemon socket path + identity. Does NOT dial
     // yet — dial happens lazily inside maintain().
-    void init(std::string daemon_socket_path, std::string device_id, std::string version);
+    //
+    // `kind` selects which client registry the daemon files this
+    // connection under. "source" (the default when empty) lands in the
+    // pipelinectl source map and receives set_format / status; "composer"
+    // lands in the composer map and receives set_canvas / set_source /
+    // set_layout / set_effects / set_source_state.
+    void init(std::string daemon_socket_path, std::string device_id, std::string version,
+              std::string kind = "");
 
     // Register the closure invoked on every incoming Request. Method
     // dispatch is the handler's responsibility.
@@ -89,6 +96,7 @@ class ControlChannel {
     std::string daemon_path_;
     std::string device_id_;
     std::string version_;
+    std::string kind_;
     CommandHandler handler_;
 
     int fd_ = -1;

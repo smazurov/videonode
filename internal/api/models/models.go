@@ -372,8 +372,16 @@ type FFmpegCommandResponse struct {
 
 // PerspectiveData holds 4 corner points for perspective correction.
 // Corners are clockwise: [0]=top-left, [1]=top-right, [2]=bottom-right, [3]=bottom-left.
+//
+// SnapshotWidth/SnapshotHeight are the dimensions of the still frame the
+// user clicked on when marking the corners. They travel alongside the
+// corners on the wire so the GPU composer (which works in normalized UV
+// space) can rebuild the homography regardless of later source-resolution
+// changes. The ffmpeg path ignores these fields.
 type PerspectiveData struct {
-	Corners [4][2]int `json:"corners" doc:"Four corner points [[x,y],...] clockwise: top-left, top-right, bottom-right, bottom-left"`
+	Corners        [4][2]int `json:"corners" doc:"Four corner points [[x,y],...] clockwise: top-left, top-right, bottom-right, bottom-left"`
+	SnapshotWidth  int       `json:"snapshot_width,omitempty" doc:"Width of the still frame the corners were marked on; used by the GPU compose path to normalize."`
+	SnapshotHeight int       `json:"snapshot_height,omitempty" doc:"Height of the still frame the corners were marked on; used by the GPU compose path to normalize."`
 }
 
 // VisionData configures the raw frame output for the AI vision sidecar.

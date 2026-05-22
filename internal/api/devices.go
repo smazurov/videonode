@@ -10,7 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/devices"
-	"github.com/smazurov/videonode/internal/streams/sourcectl"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
 // DevicePathInput represents device path parameter input.
@@ -380,7 +380,7 @@ func (s *Server) registerDeviceRoutes() {
 		Method:      http.MethodPost,
 		Path:        "/api/devices/{device_id}/format",
 		Summary:     "Set Capture Format",
-		Description: "Issue a runtime set_format command to the videonode-source sidecar for this device. The sidecar will re-open the V4L2 device with the new format/resolution/fps while keeping all connected consumers attached.",
+		Description: "Issue a runtime set_format command to the videonode-source for this device. The source will re-open the V4L2 device with the new format/resolution/fps while keeping all connected consumers attached.",
 		Tags:        []string{"devices"},
 		Security:    withAuth(),
 		Errors:      []int{400, 401, 404, 500, 503},
@@ -389,7 +389,7 @@ func (s *Server) registerDeviceRoutes() {
 			return nil, huma.Error503ServiceUnavailable(
 				"control plane disabled (set --native-* binaries to enable)")
 		}
-		params := sourcectl.SetFormatParams{
+		params := pipelinectl.SetFormatParams{
 			FourCC: input.Body.FourCC,
 			W:      input.Body.Width,
 			H:      input.Body.Height,

@@ -11,6 +11,11 @@
 
 namespace gbm_alloc {
 
+std::mutex& gbm_device_mu() {
+    static std::mutex m;
+    return m;
+}
+
 namespace {
 
 struct MapState {
@@ -82,6 +87,7 @@ Mapped map_rw(Nv12Buf& b) {
     Mapped m;
     if (!b.valid())
         return m;
+    std::lock_guard<std::mutex> g(gbm_device_mu());
     uint32_t s = 0;
     auto* ys = static_cast<MapState*>(gbm_bo_get_user_data(b.y_bo));
     auto* uvs = static_cast<MapState*>(gbm_bo_get_user_data(b.uv_bo));
@@ -112,6 +118,7 @@ std::span<uint8_t> Mapped::uv_bytes() const {
 void unmap(Nv12Buf& b) {
     if (!b.valid())
         return;
+    std::lock_guard<std::mutex> g(gbm_device_mu());
     auto* ys = static_cast<MapState*>(gbm_bo_get_user_data(b.y_bo));
     auto* uvs = static_cast<MapState*>(gbm_bo_get_user_data(b.uv_bo));
     if (ys && ys->map_data) {

@@ -9,9 +9,17 @@ import (
 )
 
 // ProcessedStream represents a stream with its FFmpeg command ready to run.
+//
+// For canvas streams on the GPU composer path, `ComposerPlan` carries the
+// daemon-pushed configuration that must reach the composer over
+// pipelinectl AFTER the process is spawned. StreamProcessManager kicks
+// off a goroutine on Running transition that watches for the composer's
+// identify and dispatches the set_canvas / set_source / set_layout /
+// set_effects / set_source_state pushes. Nil for non-GPU streams.
 type ProcessedStream struct {
 	StreamID      string
 	FFmpegCommand string
+	ComposerPlan  *composerOrchestration
 }
 
 // encoderSelector is a function that selects the best encoder for a given codec.
@@ -33,7 +41,17 @@ type processor struct {
 	getStreamState  func(streamID string) (*Stream, bool) // Get runtime state
 	isCrashed       func(streamID string) bool            // Check if stream crashed
 	native          *NativePipelineConfig                 // set by service; nil → legacy-only
+	rtspHost        string                                // host:port the per-stream sink targets; empty → "127.0.0.1:8554"
 	logger          logging.Logger
+}
+
+// rtspHostOrDefault returns the configured RTSP target or the well-known
+// fallback used by tests and non-service-managed processors.
+func (p *processor) rtspHostOrDefault() string {
+	if p.rtspHost == "" {
+		return defaultGPURTSPHost
+	}
+	return p.rtspHost
 }
 
 // newProcessor creates a new stream processor.
@@ -100,7 +118,7 @@ func (p *processor) applyStreamSettingsToFFmpegParams(ffmpegParams *ffmpeg.Param
 
 	ffmpegParams.ProgressSocket = socketPath
 	ffmpegParams.Options = streamConfig.FFmpeg.Options
-	ffmpegParams.OutputURL = fmt.Sprintf("rtsp://127.0.0.1:8554/%s", streamID)
+	ffmpegParams.OutputURL = fmt.Sprintf("rtsp://%s/%s", p.rtspHostOrDefault(), streamID)
 
 	// Vision pipeline — auto-enable when perspective is set
 	if streamConfig.Vision != nil && streamConfig.Vision.Enabled {

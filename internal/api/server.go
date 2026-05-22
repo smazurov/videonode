@@ -16,7 +16,7 @@ import (
 	"github.com/smazurov/videonode/internal/recording"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
-	"github.com/smazurov/videonode/internal/streams/sourcectl"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 	"github.com/smazurov/videonode/internal/updater"
 	"github.com/smazurov/videonode/ui"
 )
@@ -30,8 +30,26 @@ type Server struct {
 	options        *Options
 	deviceDetector devices.DeviceDetector
 	eventBus       *events.Bus
-	controlServer  *sourcectl.Server
+	controlServer  *pipelinectl.Server
 	logger         logging.Logger
+}
+
+// rtspPortOrDefault returns the configured RTSP publish port (e.g.
+// ":8554" or "10.0.0.1:8654"), falling back to the well-known default
+// when Options.StreamingRTSPPort wasn't set.
+func (s *Server) rtspPortOrDefault() string {
+	if s.options != nil && s.options.StreamingRTSPPort != "" {
+		return s.options.StreamingRTSPPort
+	}
+	return ":8554"
+}
+
+// srtPortOrDefault mirrors rtspPortOrDefault for the SRT publish port.
+func (s *Server) srtPortOrDefault() string {
+	if s.options != nil && s.options.StreamingSRTPort != "" {
+		return s.options.StreamingSRTPort
+	}
+	return ":6001"
 }
 
 // basicAuthMiddleware creates middleware for HTTP basic authentication.
@@ -130,7 +148,15 @@ type Options struct {
 	StreamProvider      streaming.StreamProvider      // Stream access for snapshots/recording
 	RawSnapshotProvider recording.RawSnapshotProvider // Raw vision pipe snapshot provider
 	RecordingDir        string                        // Directory for snapshot images
-	ControlServer       *sourcectl.Server             // Optional control plane for native sidecars
+	ControlServer       *pipelinectl.Server           // Optional control plane for native sidecars
+	// StreamingRTSPPort is the daemon's RTSP listen address as configured
+	// at startup (":8554" by default). Used in API responses (rtsp_url
+	// field) so clients dial the actual published port, not a hardcoded
+	// 8554.
+	StreamingRTSPPort string
+	// StreamingSRTPort mirrors StreamingRTSPPort for the SRT publish port
+	// surfaced as srt_url in API responses.
+	StreamingSRTPort string
 }
 
 // NewServer creates a new API server with Huma v2 using Go 1.22+ native routing.
