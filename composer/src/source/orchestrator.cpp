@@ -372,6 +372,12 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
             ctl.maintain();
         }
 
+        // Prune dead consumers on every loop iteration. broadcast()'s
+        // in-band eviction stalls during DQBUF gaps (signal transitions) or
+        // when next_broadcast keeps being pushed forward by a steady DQBUF
+        // stream; this keeps the consumer list bounded regardless.
+        (void)prod.prune_dead_consumers();
+
         // Format-change reinit: synchronous teardown + reopen with the
         // new args. The probe was already marked Transitioning; the
         // last_good fd is invalidated because out_ring is reallocated.
@@ -555,6 +561,9 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
 
         if (h == source_probe::Health::Live) {
             // already broadcast via DQBUF path; nothing extra to do here.
+            // (prune_dead_consumers runs unconditionally at the top of every
+            // loop iteration, so dead consumers are reaped regardless of the
+            // broadcast cadence.)
             next_broadcast += broadcast_period;
             continue;
         }

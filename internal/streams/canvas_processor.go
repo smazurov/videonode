@@ -25,6 +25,10 @@ type canvasProcessor struct {
 	// native is the resolved binary-availability config. When CanvasReady()
 	// returns true, canvases auto-route through the GPU compose path.
 	native *NativePipelineConfig
+	// rtspHost is "host:port" the GPU compose path's ffmpeg sink targets.
+	// Resolved from ServiceOptions.RTSPPort by NewStreamService; defaults
+	// to "127.0.0.1:8554" when unset.
+	rtspHost string
 }
 
 func newCanvasProcessor(store Store) *canvasProcessor {
@@ -191,7 +195,7 @@ func (cp *canvasProcessor) processStream(canvasID string) (*ProcessedStream, err
 		BFrames: ffmpegParams.BFrames,
 
 		ProgressSocket: getSocketPath(canvasID),
-		OutputURL:      fmt.Sprintf("rtsp://127.0.0.1:8554/%s", canvasID),
+		OutputURL:      fmt.Sprintf("rtsp://%s/%s", cp.rtspHostOrDefault(), canvasID),
 
 		Options: canvasSpec.FFmpeg.Options,
 	}

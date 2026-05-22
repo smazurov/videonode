@@ -187,7 +187,7 @@ type DeviceSetFormatInput struct {
 
 // DeviceSetFormatData is the success payload of set_format.
 type DeviceSetFormatData struct {
-	Applied bool `json:"applied" doc:"True if the sidecar accepted and applied the new format"`
+	Applied bool `json:"applied" doc:"True if the source accepted and applied the new format"`
 }
 
 // DeviceSetFormatResponse is the HTTP response wrapper for DeviceSetFormatData.

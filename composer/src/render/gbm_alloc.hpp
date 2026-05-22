@@ -20,12 +20,23 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <span>
 
 struct gbm_device;
 struct gbm_bo;
 
 namespace gbm_alloc {
+
+// Process-wide mutex serializing all gbm_bo_map / gbm_bo_unmap calls on
+// this process's shared gbm_device. Mesa's gallium "threaded context" is
+// single-threaded by design; concurrent gbm_bo_map/unmap from
+// ffmpeg_pipe_source capture threads and canvas_loop's main-thread
+// readback raced inside si_texture_transfer_unmap and crashed during
+// deferred-unmap execution. Every caller that touches a gbm_bo's CPU
+// mapping must take this lock for as long as a single gbm_device backs
+// all the BOs (which it does in videonode-composer).
+std::mutex& gbm_device_mu();
 
 // Two-bo NV12: separate Y (R8) and UV (GR88) GBM bos, each at its own
 // PLANE0_OFFSET=0. This is the layout radeonsi/amdgpu reliably imports

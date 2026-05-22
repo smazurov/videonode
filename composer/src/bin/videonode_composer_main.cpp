@@ -1,33 +1,28 @@
-// videonode-composer — capture + GPU-compose, write BGRA canvas frames to stdout.
+// videonode-composer — daemon-driven GPU compositor.
 //
-// The encoder is NOT part of this binary. We're a frame producer; consumers
-// pipe our stdout into ffmpeg (or anything else). Example pipeline:
-/*
-    videonode-composer --canvas-w 1920 --canvas-h 1080 --fps 60 \
-      | ffmpeg -f rawvideo -pix_fmt bgra -s 1920x1080 -framerate 30 -i pipe:0 \
-               -c:v h264_rkmpp -profile:v high -level:v 5.2 -rc_mode VBR \
-               -b:v 6M -g 60 -bf 0 -bsf:v dump_extra=freq=keyframe \
-               -rtsp_transport tcp -f rtsp rtsp://127.0.0.1:8554/composer
-*/
+// argv is intentionally minimal — `videonode-composer` is a passive
+// render server. The daemon dials `--ctl-connect` (a Unix socket it's
+// listening on), receives our `identify`, and pushes everything
+// dynamic (canvas dims, slot ↔ source bindings, layout, effects,
+// per-source state) as JSON-RPC requests. We snapshot that state every
+// frame in canvas_loop, render BGRA to stdout. Pipe stdout to ffmpeg
+// for transcoding.
 //
-// Why no encoder here:
-//   - Cross-egress isolation is the architecture's main selling point.
-//     Per-egress encoders live in their own processes, supervised by the
-//     parent. The composer's job is one composed frame stream; the parent
-//     fans that out.
-//   - h264_rkmpp on the rig + libx264 on a dev machine is a one-line shell
-//     change; not worth a code branch.
-//   - Backpressure is just the Unix pipe. ffmpeg slow → write() blocks →
-//     compose loop sleeps. No torn frames, no fancy plumbing.
+//   videonode-composer
+//       --drm-device /dev/dri/renderD130
+//       --ctl-connect /tmp/videonode-control.sock
+//       --composer-id <stream-id>-composer
+//       --seconds 0
 //
-// This file is argv + startup wiring only. The compose-render-stdout loop
-// and the EGLImage import path live in src/render/canvas_loop.{cpp,hpp}.
+// Until the daemon has pushed at least one canvas + one bound+placed
+// slot, we render a solid-black BGRA frame at a default 1280×720@30 so
+// the downstream pipe stays alive.
 
-#include "src/ipc/scm_rights_source.hpp"
-#include "src/process/ffmpeg_pipe_source.hpp"
 #include "src/render/canvas_loop.hpp"
 #include "src/render/egl_ctx.hpp"
-#include "src/render/gl_compose.hpp"
+#include "src/render/world.hpp"
+#include "src/rpc/composer_rpc.hpp"
+#include "src/rpc/control_channel.hpp"
 #include "version.hpp"
 
 #include <atomic>
@@ -44,34 +39,112 @@ void on_signal(int) {
 }
 
 struct Args {
-    std::string drm_device = "/dev/dri/renderD128"; // common default; rig override below
-    int canvas_w = 1920;
-    int canvas_h = 1080;
-    int fps = 60;
-    int run_seconds = 0; // 0 = run until SIGINT or stdout EPIPE
-    render::SourceArgs source_a;
-    render::SourceArgs source_b;
+    std::string drm_device = "/dev/dri/renderD128";
+    std::string ctl_connect; // empty = control plane disabled (diagnostic mode)
+    std::string composer_id;
+    int run_seconds = 0; // 0 = until SIGINT / stdout EPIPE
+    int target_fps = 30; // pre-ready tick rate; once ready, snapshot.canvas_fps wins
 };
+
+void print_help(const Args& d) {
+    printf(
+        "videonode-composer — daemon-driven BGRA canvas writer.\n"
+        "\n"
+        "  --drm-device PATH      DRM render node (default %s)\n"
+        "  --ctl-connect PATH     daemon UDS path for JSON-RPC control plane (required for live config)\n"
+        "  --composer-id ID       stable identifier sent to daemon on identify (required if --ctl-connect set)\n"
+        "  --seconds N            run length in seconds (default %d = until SIGINT / stdout closes)\n"
+        "  --target-fps N         pre-ready (no canvas yet) tick rate (default %d); once daemon sends set_canvas\n"
+        "                           the snapshot's canvas_fps takes over\n"
+        "  --version              print version and exit\n"
+        "\n"
+        "Stdout: raw BGRA bytes at canvas_w*canvas_h*4 per frame. Pipe to\n"
+        "ffmpeg with `-f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0 …`\n"
+        "(W/H/N come from the daemon's set_canvas push — pick matching values\n"
+        "in the downstream ffmpeg invocation).\n",
+        d.drm_device.c_str(), d.run_seconds, d.target_fps);
+}
+
+// Build the control-channel command handler. Each daemon-issued method
+// parses the params with composer_rpc, then applies to World.
+control_channel::HandlerResponse dispatch_command(render::World& world,
+                                                  const control_channel::IncomingRequest& req) {
+    using composer_rpc::ParseError;
+
+    auto mk_err = [&](const ParseError& e) {
+        control_channel::HandlerResponse r;
+        r.ok = false;
+        r.error_code = e.code;
+        r.error_message = e.message;
+        return r;
+    };
+    auto mk_ok = []() {
+        control_channel::HandlerResponse r;
+        r.ok = true;
+        r.result_json = "{}";
+        return r;
+    };
+
+    if (req.method == "set_canvas") {
+        composer_rpc::SetCanvasRequest p;
+        ParseError e;
+        if (!composer_rpc::parse_set_canvas(req.params_json, p, e)) return mk_err(e);
+        if (!world.apply_set_canvas(p, e)) return mk_err(e);
+        return mk_ok();
+    }
+    if (req.method == "set_source") {
+        composer_rpc::SetSourceRequest p;
+        ParseError e;
+        if (!composer_rpc::parse_set_source(req.params_json, p, e)) return mk_err(e);
+        if (!world.apply_set_source(p, e)) return mk_err(e);
+        return mk_ok();
+    }
+    if (req.method == "clear_source") {
+        composer_rpc::ClearSourceRequest p;
+        ParseError e;
+        if (!composer_rpc::parse_clear_source(req.params_json, p, e)) return mk_err(e);
+        if (!world.apply_clear_source(p, e)) return mk_err(e);
+        return mk_ok();
+    }
+    if (req.method == "set_layout") {
+        composer_rpc::SetLayoutRequest p;
+        ParseError e;
+        if (!composer_rpc::parse_set_layout(req.params_json, p, e)) return mk_err(e);
+        if (!world.apply_set_layout(p, e)) return mk_err(e);
+        return mk_ok();
+    }
+    if (req.method == "set_effects") {
+        composer_rpc::SetEffectsRequest p;
+        ParseError e;
+        if (!composer_rpc::parse_set_effects(req.params_json, p, e)) return mk_err(e);
+        if (!world.apply_set_effects(p, e)) return mk_err(e);
+        return mk_ok();
+    }
+    if (req.method == "set_source_state") {
+        composer_rpc::SetSourceStateRequest p;
+        ParseError e;
+        if (!composer_rpc::parse_set_source_state(req.params_json, p, e)) return mk_err(e);
+        if (!world.apply_set_source_state(p, e)) return mk_err(e);
+        return mk_ok();
+    }
+    if (req.method == "shutdown") {
+        // Trigger a clean exit. Render loop sees g_running flip below.
+        g_running.store(false);
+        return mk_ok();
+    }
+    // Unknown method — JSON-RPC standard "method not found".
+    control_channel::HandlerResponse r;
+    r.ok = false;
+    r.error_code = -32601;
+    r.error_message = "method not found: " + req.method;
+    return r;
+}
 
 } // namespace
 
 int main(int argc, char** argv) {
     Args a;
-
-    // Sensible per-platform defaults: on the rig, source A is HDMI-IN at
-    // 4K NV12 and source B is the Lyra at 1080p MJPEG. Override per slot
-    // via CLI flags below.
-    a.source_a.device = "/dev/video0";
-    a.source_a.input_format = "nv12";
-    a.source_a.width = 3840;
-    a.source_a.height = 2160;
-    a.source_a.fps = 60;
-
-    a.source_b.device = "/dev/video1";
-    a.source_b.input_format = "mjpeg";
-    a.source_b.width = 1920;
-    a.source_b.height = 1080;
-    a.source_b.fps = 60;
+    Args d; // defaults for help text
 
     auto eat_int = [&](int i, int& dst) -> int {
         if (i + 1 < argc) {
@@ -87,82 +160,21 @@ int main(int argc, char** argv) {
         }
         return i;
     };
+
     for (int i = 1; i < argc; ++i) {
         std::string s = argv[i];
-        if (s == "--canvas-w")
-            i = eat_int(i, a.canvas_w);
-        else if (s == "--canvas-h")
-            i = eat_int(i, a.canvas_h);
-        else if (s == "--fps")
-            i = eat_int(i, a.fps);
+        if (s == "--drm-device")
+            i = eat_str(i, a.drm_device);
+        else if (s == "--ctl-connect")
+            i = eat_str(i, a.ctl_connect);
+        else if (s == "--composer-id")
+            i = eat_str(i, a.composer_id);
         else if (s == "--seconds")
             i = eat_int(i, a.run_seconds);
-        else if (s == "--drm-device")
-            i = eat_str(i, a.drm_device);
-
-        else if (s == "--no-source-a")
-            a.source_a.enabled = false;
-        else if (s == "--source-a-testsrc")
-            a.source_a.testsrc = true;
-        else if (s == "--source-a-device")
-            i = eat_str(i, a.source_a.device);
-        else if (s == "--source-a-format")
-            i = eat_str(i, a.source_a.input_format);
-        else if (s == "--source-a-width")
-            i = eat_int(i, a.source_a.width);
-        else if (s == "--source-a-height")
-            i = eat_int(i, a.source_a.height);
-        else if (s == "--source-a-fps")
-            i = eat_int(i, a.source_a.fps);
-        else if (s == "--source-a-scm-path")
-            i = eat_str(i, a.source_a.scm_socket_path);
-
-        else if (s == "--no-source-b")
-            a.source_b.enabled = false;
-        else if (s == "--source-b-testsrc")
-            a.source_b.testsrc = true;
-        else if (s == "--source-b-device")
-            i = eat_str(i, a.source_b.device);
-        else if (s == "--source-b-format")
-            i = eat_str(i, a.source_b.input_format);
-        else if (s == "--source-b-width")
-            i = eat_int(i, a.source_b.width);
-        else if (s == "--source-b-height")
-            i = eat_int(i, a.source_b.height);
-        else if (s == "--source-b-fps")
-            i = eat_int(i, a.source_b.fps);
-        else if (s == "--source-b-scm-path")
-            i = eat_str(i, a.source_b.scm_socket_path);
-
+        else if (s == "--target-fps")
+            i = eat_int(i, a.target_fps);
         else if (s == "-h" || s == "--help") {
-            Args d; // defaults
-            printf(
-                "videonode-composer — write BGRA canvas frames to stdout.\n"
-                "  --canvas-w W                          (default %d)\n"
-                "  --canvas-h H                          (default %d)\n"
-                "  --fps N                               (default %d)\n"
-                "  --seconds N                           (default %d = until SIGINT or stdout "
-                "EPIPE)\n"
-                "  --drm-device PATH                     (default %s)\n"
-                "  --source-{a,b}-testsrc                use lavfi testsrc2 instead of V4L2\n"
-                "  --source-{a,b}-device DEV             V4L2 device path (a=%s b=%s)\n"
-                "  --source-{a,b}-format FMT             V4L2 input pixel format (nv12 / mjpeg / "
-                "yuyv422)\n"
-                "  --source-{a,b}-width W                source width  (default a=%d b=%d)\n"
-                "  --source-{a,b}-height H               source height (default a=%d b=%d)\n"
-                "  --source-{a,b}-fps N                  source fps    (default a=%d b=%d)\n"
-                "  --source-{a,b}-scm-path PATH          dial videonode-source SCM socket instead "
-                "of "
-                "V4L2\n"
-                "  --no-source-{a,b}                     disable that slot\n"
-                "  --version                             print version and exit\n"
-                "\n"
-                "Stdout: rawvideo BGRA at canvas_w*canvas_h*4 bytes per frame at canvas fps.\n"
-                "Pipe to ffmpeg with -f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0 ...\n",
-                d.canvas_w, d.canvas_h, d.fps, d.run_seconds, d.drm_device.c_str(),
-                d.source_a.device.c_str(), d.source_b.device.c_str(), d.source_a.width,
-                d.source_b.width, d.source_a.height, d.source_b.height, d.source_a.fps,
-                d.source_b.fps);
+            print_help(d);
             return 0;
         } else if (s == "--version") {
             printf("videonode-composer %s\n", vn::kVersion);
@@ -175,71 +187,35 @@ int main(int argc, char** argv) {
 
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
-    std::signal(SIGPIPE, SIG_IGN); // we handle EPIPE explicitly
-    // Note: not using PR_SET_PDEATHSIG here. videonode-composer sits inside
-    // a `composer | ffmpeg` shell pipeline; bash forks a transient
-    // subshell that exits right after exec, so PDEATHSIG would fire
-    // immediately. Composer dies naturally via stdout EPIPE when ffmpeg
-    // ends; that suffices for shutdown propagation.
+    std::signal(SIGPIPE, SIG_IGN); // composer dies via EPIPE in write_full_
 
-    // EGL first. Declared BEFORE the source objects so the destruction order
-    // is correct: sources hold gbm_bo handles owned by the gbm_device inside
-    // ctx; ff_a / ff_b destructors run before ~EglCtx and can still call
-    // gbm_bo_destroy.
     egl_ctx::EglCtx ctx;
     if (!ctx.init(a.drm_device))
         return 1;
 
-    ffmpeg_pipe_source::FfmpegPipeSource ff_a, ff_b;
-    scm_rights_source::ScmRightsSource scm_a, scm_b;
-    const bool a_is_scm = a.source_a.enabled && !a.source_a.scm_socket_path.empty();
-    const bool b_is_scm = a.source_b.enabled && !a.source_b.scm_socket_path.empty();
+    render::World world;
 
-    if (a.source_a.enabled) {
-        bool ok = a_is_scm ? render::StartScmSource(scm_a, a.source_a, "source-a")
-                           : render::StartFfmpegSource(ff_a, a.source_a, "source-a", ctx.gbm());
-        if (!ok)
-            return 1;
-    }
-    if (a.source_b.enabled) {
-        bool ok = b_is_scm ? render::StartScmSource(scm_b, a.source_b, "source-b")
-                           : render::StartFfmpegSource(ff_b, a.source_b, "source-b", ctx.gbm());
-        if (!ok)
-            return 1;
-    }
-
-    gl_compose::GlCompose compose;
-    if (!compose.init(ctx, a.canvas_w, a.canvas_h))
-        return 1;
-    fprintf(stderr, "ok: GLES canvas %dx%d via %s\n", a.canvas_w, a.canvas_h, a.drm_device.c_str());
-
-    render::CanvasLoopArgs la;
-    la.canvas_w = a.canvas_w;
-    la.canvas_h = a.canvas_h;
-    la.fps = a.fps;
-    la.run_seconds = a.run_seconds;
-    la.a_enabled = a.source_a.enabled;
-    la.a_is_scm = a_is_scm;
-    la.b_enabled = a.source_b.enabled;
-    la.b_is_scm = b_is_scm;
-
-    int frames_rendered =
-        render::RunCanvasLoop(la, ctx, compose, scm_a, scm_b, ff_a, ff_b, g_running);
-
-    fprintf(stderr, "shutting down\n");
-    if (a.source_b.enabled) {
-        if (b_is_scm)
-            scm_b.stop();
-        else
-            ff_b.stop();
-    }
-    if (a.source_a.enabled) {
-        if (a_is_scm)
-            scm_a.stop();
-        else
-            ff_a.stop();
+    // Control channel is optional. Without it, composer renders black
+    // forever — useful only for diagnostic smoke-tests. With --ctl-connect
+    // + --composer-id, we dial the daemon, identify, and let it push the
+    // runtime configuration.
+    control_channel::ControlChannel ctl;
+    control_channel::ControlChannel* ctl_ptr = nullptr;
+    if (!a.ctl_connect.empty() && !a.composer_id.empty()) {
+        ctl.init(a.ctl_connect, a.composer_id, vn::kVersion, "composer");
+        ctl.set_command_handler([&](const control_channel::IncomingRequest& req) {
+            return dispatch_command(world, req);
+        });
+        ctl_ptr = &ctl;
+        fprintf(stderr, "ok: control channel target=%s id=%s\n",
+                a.ctl_connect.c_str(), a.composer_id.c_str());
+    } else {
+        fprintf(stderr, "WARN: control channel disabled (missing --ctl-connect / --composer-id) — "
+                        "composer will render black until SIGINT\n");
     }
 
-    fprintf(stderr, "PASS: %d frames composed\n", frames_rendered);
+    int frames = render::RunCanvasLoop(ctx, world, ctl_ptr, a.target_fps, a.run_seconds, g_running);
+
+    fprintf(stderr, "PASS: %d frames composed\n", frames);
     return 0;
 }

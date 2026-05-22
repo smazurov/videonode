@@ -75,13 +75,22 @@ func NewProducerManager(pool process.Pool) *ProducerManager {
 	}
 }
 
-// SetControlSocketPath attaches the daemon-wide sourcectl socket path so
+// SetControlSocketPath attaches the daemon-wide pipelinectl socket path so
 // future sidecar spawns dial it for control + status. Must be called
 // before Acquire to take effect for that sidecar. Idempotent.
 func (pm *ProducerManager) SetControlSocketPath(path string) {
 	pm.mu.Lock()
 	pm.ctlSocketPath = path
 	pm.mu.Unlock()
+}
+
+// ControlSocketPath returns the daemon-wide pipelinectl UDS path, or
+// empty string if the control plane is disabled. CanvasProcessor reads
+// this when wiring composer's --ctl-connect argv.
+func (pm *ProducerManager) ControlSocketPath() string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.ctlSocketPath
 }
 
 // ProducerProcessID returns the pool key for a producer of the given device.

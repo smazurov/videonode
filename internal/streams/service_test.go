@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/events"
+	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
 )
 
@@ -38,6 +39,10 @@ func (s *stubProcMgr) IsRunning(id string) bool                  { return s.runn
 func (s *stubProcMgr) IsCrashed(string) bool                     { return false }
 func (s *stubProcMgr) CaptureRawSnapshot(string) ([]byte, error) { return nil, nil }
 func (s *stubProcMgr) OwnedBy(id string) string                  { return s.ownedBy[id] }
+func (s *stubProcMgr) CanvasOwner(id string) string              { return s.ownedBy[id] }
+func (s *stubProcMgr) PushComposerPerspective(string, string, *ffmpeg.PerspectiveConfig) (bool, error) {
+	return false, nil
+}
 
 // newTestService builds a minimal *service usable for unit tests that exercise
 // only store-backed concurrency primitives. Process manager, processors, and

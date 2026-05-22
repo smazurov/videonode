@@ -204,6 +204,86 @@ TEST(ScmRightsProducer, DisconnectedConsumerEvicted) {
     prod.stop();
 }
 
+// Regression: a disconnected consumer must be reaped by prune_dead_consumers()
+// without the producer needing to broadcast anything. broadcast()-driven
+// eviction (the DisconnectedConsumerEvicted test above) stalls during gaps
+// in the frame source (e.g. V4L2 between DQBUFs, or a signal-transition
+// window), so the source binary calls prune_dead_consumers() on every main-
+// loop iteration regardless of broadcast cadence. If this test ever fails,
+// dead consumers will pile up in production whenever the source pauses —
+// see scm_rights_producer.cpp prune_dead_consumers().
+TEST(ScmRightsProducer, PruneDeadConsumersEvictsWithoutBroadcast) {
+    auto path = tmp_sock("prune");
+    scm_rights_producer::ScmRightsProducer prod;
+    scm_rights_producer::InitParams p;
+    p.socket_path = path;
+    EXPECT_TRUE(prod.init(p));
+    EXPECT_TRUE(prod.start());
+
+    int c1 = scm_socket::ConnectClient(path);
+    int c2 = scm_socket::ConnectClient(path);
+    int c3 = scm_socket::ConnectClient(path);
+    EXPECT_TRUE(
+        wait_for([&] { return prod.consumer_count() == 3; }, std::chrono::milliseconds(500)));
+
+    // Disconnect two; do NOT call broadcast(). prune_dead_consumers() alone
+    // must reap them, since real source code may go many ticks without a
+    // frame to broadcast.
+    ::close(c1);
+    ::close(c3);
+
+    // Brief settle for the kernel to propagate the peer close into POLLHUP.
+    EXPECT_TRUE(wait_for(
+        [&] { return prod.prune_dead_consumers() == 0 && prod.consumer_count() == 1; },
+        std::chrono::milliseconds(500)));
+
+    // c2 should still be a live consumer.
+    EXPECT_EQ(1, prod.consumer_count());
+
+    // Confirm c2 still works end-to-end after the prune.
+    int fd = make_fd(4096);
+    EXPECT_TRUE(prod.broadcast(make_header(42), {fd, fd}));
+    ::close(fd);
+
+    dmabuf_msg::Header rh;
+    std::vector<int> rfds;
+    EXPECT_TRUE(scm_socket::RecvMessage(c2, rh, rfds));
+    EXPECT_EQ(uint64_t(42), rh.frame_idx);
+    for (int f : rfds)
+        ::close(f);
+
+    ::close(c2);
+    prod.stop();
+}
+
+// Regression: with repeated connect→disconnect cycles, the producer's
+// internal consumer list must stay bounded. Mirrors what
+// videonode-sink processes do under churn (e.g. supervisor restarts).
+// Before prune_dead_consumers(), this would let dead fds accumulate during
+// stretches when broadcast() didn't run.
+TEST(ScmRightsProducer, ChurnCyclesDoNotLeakConsumers) {
+    auto path = tmp_sock("churn");
+    scm_rights_producer::ScmRightsProducer prod;
+    scm_rights_producer::InitParams p;
+    p.socket_path = path;
+    EXPECT_TRUE(prod.init(p));
+    EXPECT_TRUE(prod.start());
+
+    for (int i = 0; i < 10; ++i) {
+        int c = scm_socket::ConnectClient(path);
+        ASSERT_TRUE(c >= 0);
+        EXPECT_TRUE(wait_for([&] { return prod.consumer_count() >= 1; },
+                             std::chrono::milliseconds(200)));
+        ::close(c);
+        // Reap without broadcasting — that's the whole point of prune.
+        EXPECT_TRUE(wait_for(
+            [&] { prod.prune_dead_consumers(); return prod.consumer_count() == 0; },
+            std::chrono::milliseconds(500)))
+            << "cycle " << i << " left " << prod.consumer_count() << " consumers";
+    }
+    prod.stop();
+}
+
 TEST(ScmRightsProducer, MaxConsumersCapEnforced) {
     auto path = tmp_sock("cap");
     scm_rights_producer::ScmRightsProducer prod;

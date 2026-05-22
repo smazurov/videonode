@@ -8,6 +8,18 @@ vn_add_library(fake_source
 # placeholder mode. Pure CPU, no Rockchip deps.
 vn_add_library(placeholder_painter SOURCES placeholder_painter.cpp)
 
+# homography: corner→3×3 row-major homography solver for the GPU composer.
+# Pure math, no GL, no allocation. Used by canvas_loop to translate
+# daemon-supplied corner points into the per-source warp matrix.
+vn_add_library(homography SOURCES homography.cpp)
+
+# world: composer-side mirror of daemon-pushed runtime state (canvas
+# dims, slot bindings, layout, effects, per-source state). Mutex-
+# protected; canvas_loop snapshots per frame.
+vn_add_library(world
+    SOURCES world.cpp
+    PUBLIC_DEPS composer_rpc homography)
+
 # nv12_buf: backend-agnostic NV12 output buffer abstraction used by
 # videonode-source. dma_heap single-buffer when HAVE_RGA (rig path); GBM
 # split-buffer when HAVE_GBM and not HAVE_RGA (Fedora / Mesa hosts).
@@ -68,7 +80,9 @@ if(HAVE_GBM)
 
     # canvas_loop: composer compose-render-stdout loop, extracted from
     # videonode_composer_main.cpp so the binary stays argv-only.
+    # Daemon-driven: reads state from `world`, services daemon RPCs via
+    # `control_channel`. Owns ScmRightsSource per slot internally.
     vn_add_library(canvas_loop
         SOURCES canvas_loop.cpp
-        PUBLIC_DEPS gl_compose egl_ctx scm_rights_source ffmpeg_pipe_source)
+        PUBLIC_DEPS gl_compose egl_ctx scm_rights_source world control_channel gbm_alloc)
 endif()

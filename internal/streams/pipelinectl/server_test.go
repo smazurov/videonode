@@ -1,4 +1,4 @@
-package sourcectl
+package pipelinectl
 
 import (
 	"bufio"
@@ -239,7 +239,7 @@ func TestServer_HeartbeatWatchdogDisconnects(t *testing.T) {
 	// Manually backdate lastSeen so the watchdog disconnects on its
 	// next tick (~1s). The watchdog reads via atomic.Int64.Load.
 	srv.mu.RLock()
-	conn := srv.sidecars["dev-y"]
+	conn := srv.clients["dev-y"]
 	srv.mu.RUnlock()
 	if conn == nil {
 		t.Fatal("missing connection record")

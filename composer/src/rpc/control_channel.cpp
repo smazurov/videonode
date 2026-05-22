@@ -63,10 +63,11 @@ ControlChannel::~ControlChannel() {
 }
 
 void ControlChannel::init(std::string daemon_socket_path, std::string device_id,
-                          std::string version) {
+                          std::string version, std::string kind) {
     daemon_path_ = std::move(daemon_socket_path);
     device_id_ = std::move(device_id);
     version_ = std::move(version);
+    kind_ = std::move(kind);
     next_dial_attempt_ = std::chrono::steady_clock::now();
 }
 
@@ -134,6 +135,9 @@ void ControlChannel::send_identify() {
     params << ",\"pid\":" << ::getpid();
     if (!version_.empty()) {
         params << ",\"version\":" << json_quote(version_);
+    }
+    if (!kind_.empty()) {
+        params << ",\"kind\":" << json_quote(kind_);
     }
     params << "}";
     std::string line = jsonrpc_msg::EncodeNotification("identify", params.str());

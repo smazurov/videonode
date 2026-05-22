@@ -3,6 +3,7 @@ package streams
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -10,8 +11,20 @@ import (
 	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 	"github.com/smazurov/videonode/internal/types"
 )
+
+// onlyPerspectiveChanged reports whether the only difference between
+// before and after is in the Perspective field. Used by UpdatePartial
+// to skip a canvas restart when the live IPC push has already
+// delivered the new corners to the composer.
+func onlyPerspectiveChanged(before, after StreamSpec) bool {
+	before.Perspective = nil
+	after.Perspective = nil
+	before.UpdatedAt = after.UpdatedAt
+	return reflect.DeepEqual(before, after)
+}
 
 // ServiceOptions contains optional configuration for the stream service.
 type ServiceOptions struct {
@@ -21,10 +34,16 @@ type ServiceOptions struct {
 	ProcessManager   StreamProcessManager
 	VisionDefaultFPS int                   // default FPS for vision pipes; 0 = no throttle
 	Native           *NativePipelineConfig // optional; when binaries are present, single V4L2 streams + canvases take the dma-buf path
-	// ControlSocketPath is the daemon-wide sourcectl UDS path. When set,
-	// native-pipeline sidecars are launched with the control plane
-	// enabled. main.go owns the sourcectl.Server lifecycle.
-	ControlSocketPath string
+	// ControlServer is the daemon-wide pipelinectl server (single source
+	// of truth for both the UDS path and the daemon→composer dispatch
+	// surface). Nil disables the control plane — sources can't be
+	// commanded and the GPU compose path renders black frames forever.
+	// main.go owns the lifecycle.
+	ControlServer *pipelinectl.Server
+	// RTSPPort is the host:port the daemon's embedded RTSP server is
+	// listening on. The GPU compose path's ffmpeg sink targets it. Empty
+	// = the well-known default "127.0.0.1:8554".
+	RTSPPort string
 }
 
 type service struct {
@@ -55,6 +74,7 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 	}
 
 	processor := newProcessor(repo)
+	processor.rtspHost = resolveRTSPHost(opts.RTSPPort)
 
 	encoderSelector := makeEncoderSelector(logger, opts, repo)
 	encoderSelectorFunc := makeEncoderSelectorFunc(encoderSelector, logger)
@@ -67,6 +87,7 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 	cp.deviceResolver = deviceResolverFunc
 	cp.defaultVisionFPS = opts.VisionDefaultFPS
 	cp.native = opts.Native
+	cp.rtspHost = resolveRTSPHost(opts.RTSPPort)
 
 	processor.native = opts.Native
 
@@ -92,12 +113,12 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		svc.processManager = opts.ProcessManager
 	} else {
 		svc.processManager = NewStreamProcessManager(&ProcessManagerOptions{
-			Store:             repo,
-			Processor:         processor,
-			CanvasProcessor:   cp,
-			EventBus:          opts.EventBus,
-			Native:            opts.Native,
-			ControlSocketPath: opts.ControlSocketPath,
+			Store:           repo,
+			Processor:       processor,
+			CanvasProcessor: cp,
+			EventBus:        opts.EventBus,
+			Native:          opts.Native,
+			ControlServer:   opts.ControlServer,
 		})
 	}
 
@@ -448,6 +469,7 @@ func (s *service) UpdatePartial(_ context.Context, streamID string, patch func(*
 		s.streamsMutex.Unlock()
 		return nil, NewStreamError(ErrCodeStreamNotFound, fmt.Sprintf("stream %s not found", streamID), nil)
 	}
+	preimage := streamConfig
 
 	stream, streamExists := s.streams[streamID]
 	if !streamExists {
@@ -483,6 +505,24 @@ func (s *service) UpdatePartial(_ context.Context, streamID string, patch func(*
 	streamCopy := copyStream(stream)
 	s.streamsMutex.Unlock()
 
+	// Live-push perspective to any running composer that has this stream
+	// as one of its sources. delivered=true means set_effects crossed the
+	// wire; the canvas restart below can be skipped. delivered=false
+	// (composer not connected, dispatch failed, or no control server)
+	// means we must fall through to a restart so the post-spawn
+	// orchestrator delivers the new perspective.
+	livePerspectivePushed := false
+	if s.processManager != nil && streamConfig.Canvas == nil {
+		if ownerID := s.processManager.CanvasOwner(streamID); ownerID != "" {
+			delivered, err := s.processManager.PushComposerPerspective(ownerID, streamID, streamConfig.Perspective)
+			if err != nil {
+				s.logger.Warn("live perspective push failed; restart will deliver via post-spawn orchestrator",
+					"canvas_id", ownerID, "source_id", streamID, "error", err)
+			}
+			livePerspectivePushed = delivered
+		}
+	}
+
 	if s.processManager != nil {
 		switch {
 		case streamConfig.Canvas != nil && !streamConfig.Canvas.IsEngaged():
@@ -494,7 +534,14 @@ func (s *service) UpdatePartial(_ context.Context, streamID string, patch func(*
 				s.logger.Warn("Failed to restart canvas process", "stream_id", streamID, "error", err)
 			}
 		default:
-			if ownerID := s.processManager.OwnedBy(streamID); ownerID != "" {
+			canvasID := s.processManager.CanvasOwner(streamID)
+			if canvasID != "" && livePerspectivePushed && onlyPerspectiveChanged(preimage, streamConfig) {
+				// Live IPC push delivered the new perspective without
+				// restart — the canvas stays hot. Skip RestartCanvas to
+				// preserve the no-restart contract for perspective edits.
+				s.logger.Info("perspective updated via IPC; canvas not restarted",
+					"canvas_id", canvasID, "source_id", streamID)
+			} else if ownerID := s.processManager.OwnedBy(streamID); ownerID != "" {
 				if err := s.processManager.RestartCanvas(ownerID); err != nil {
 					s.logger.Warn("Failed to restart owning canvas after source update",
 						"stream_id", streamID, "canvas_id", ownerID, "error", err)

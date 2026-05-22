@@ -185,6 +185,38 @@ bool ScmRightsProducer::broadcast(const dmabuf_msg::Header& header, const std::v
     return true;
 }
 
+int ScmRightsProducer::prune_dead_consumers() {
+    std::lock_guard<std::mutex> g(consumers_mu_);
+    if (consumers_.empty())
+        return 0;
+    std::vector<pollfd> pfds;
+    pfds.reserve(consumers_.size());
+    for (const auto& c : consumers_) {
+        pfds.push_back(pollfd{.fd=c.fd, .events=0, .revents=0});
+    }
+    // 0ms timeout: just sample current state. POLLHUP/POLLERR/POLLNVAL are
+    // always reported regardless of events mask.
+    if (::poll(pfds.data(), pfds.size(), 0) <= 0)
+        return 0;
+    std::vector<size_t> to_evict;
+    to_evict.reserve(consumers_.size());
+    for (size_t i = 0; i < pfds.size(); ++i) {
+        if (pfds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            auto& c = consumers_[i];
+            fprintf(stderr, "scm_rights_producer: consumer fd=%d gone (prune); evicting\n", c.fd);
+            evicted_.push_back(ConsumerStats{.fd=c.fd, .frames_sent=c.frames_sent,
+                                              .frames_dropped=c.frames_dropped,
+                                              .evicted_at_frame=frame_counter_});
+            ::close(c.fd);
+            to_evict.push_back(i);
+        }
+    }
+    for (auto it = to_evict.rbegin(); it != to_evict.rend(); ++it) {
+        consumers_.erase(consumers_.begin() + *it);
+    }
+    return static_cast<int>(to_evict.size());
+}
+
 int ScmRightsProducer::consumer_count() const {
     std::lock_guard<std::mutex> g(consumers_mu_);
     return static_cast<int>(consumers_.size());
