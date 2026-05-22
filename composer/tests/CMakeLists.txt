@@ -17,13 +17,14 @@ vn_add_test(jsonrpc_msg         DEPS jsonrpc_msg                  LABELS rpc)
 vn_add_test(dmabuf_msg          DEPS dmabuf_msg                   LABELS rpc)
 vn_add_test(composer_rpc        DEPS composer_rpc                 LABELS rpc)
 vn_add_test(scm_socket          DEPS scm_socket                   LABELS ipc)
+vn_add_test(dmabuf_header       DEPS dmabuf_header                LABELS ipc)
 
 vn_add_test(scm_rights_source
-    DEPS scm_rights_source scm_socket dmabuf_msg Threads::Threads
+    DEPS scm_rights_source scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
 
 vn_add_test(scm_rights_producer
-    DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_msg Threads::Threads
+    DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
 
 vn_add_test(placeholder_painter DEPS placeholder_painter          LABELS render)

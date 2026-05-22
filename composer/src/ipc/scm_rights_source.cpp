@@ -1,6 +1,6 @@
 #include "src/ipc/scm_rights_source.hpp"
 
-#include "src/rpc/dmabuf_msg.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 #include "src/ipc/scm_socket.hpp"
 
 #include <cerrno>
@@ -167,7 +167,7 @@ ScmRightsSource::~ScmRightsSource() {
 
 void ScmRightsSource::thread_main_() {
     while (!stop_requested_.load()) {
-        dmabuf_msg::Header header;
+        dmabuf_header::Header header;
         std::vector<int> fds;
         bool eof = false;
         if (!scm_socket::RecvMessage(client_fd_, header, fds, &eof)) {

@@ -3,7 +3,7 @@
 // SCM_RIGHTS + length-prefixed JSON on the same process for verification.
 
 #include "src/ipc/scm_socket.hpp"
-#include "src/rpc/dmabuf_msg.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 
 #include <gtest/gtest.h>
 
@@ -46,7 +46,7 @@ TEST(ScmSocket, SingleFdRoundtrip) {
     int a, b;
     ASSERT_TRUE(make_socketpair(a, b));
 
-    dmabuf_msg::Header h;
+    dmabuf_header::Header h;
     h.slot_index = 0;
     h.width = 1920;
     h.height = 1080;
@@ -60,7 +60,7 @@ TEST(ScmSocket, SingleFdRoundtrip) {
 
     EXPECT_TRUE(scm_socket::SendMessage(a, h, {tmp}));
 
-    dmabuf_msg::Header rxHeader;
+    dmabuf_header::Header rxHeader;
     std::vector<int> rxFds;
     bool eof = false;
     EXPECT_TRUE(scm_socket::RecvMessage(b, rxHeader, rxFds, &eof));
@@ -88,7 +88,7 @@ TEST(ScmSocket, MultiFdRoundtrip) {
     int a, b;
     ASSERT_TRUE(make_socketpair(a, b));
 
-    dmabuf_msg::Header h;
+    dmabuf_header::Header h;
     h.slot_index = 1;
     h.width = 1280;
     h.height = 720;
@@ -101,7 +101,7 @@ TEST(ScmSocket, MultiFdRoundtrip) {
     int uv = make_tempfile_with_byte(0x22);
     EXPECT_TRUE(scm_socket::SendMessage(a, h, {y, uv}));
 
-    dmabuf_msg::Header rxHeader;
+    dmabuf_header::Header rxHeader;
     std::vector<int> rxFds;
     EXPECT_TRUE(scm_socket::RecvMessage(b, rxHeader, rxFds, nullptr));
     EXPECT_EQ(rxFds.size(), 2u);
@@ -125,7 +125,7 @@ TEST(ScmSocket, EofOnCleanClose) {
     ASSERT_TRUE(make_socketpair(a, b));
     ::close(a);
 
-    dmabuf_msg::Header rxHeader;
+    dmabuf_header::Header rxHeader;
     std::vector<int> rxFds;
     bool eof = false;
     EXPECT_FALSE(scm_socket::RecvMessage(b, rxHeader, rxFds, &eof));
