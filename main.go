@@ -210,7 +210,7 @@ func main() {
 		// BEFORE the stream service spawns any sidecars so they can
 		// dial in on startup. Only enable when the native pipeline is
 		// available — without a sidecar binary, no clients connect.
-		var ctlServer *pipelinectl.Server
+		var ctlServer *pipelinectl.Manager
 		if native.V4L2Source != "" {
 			ctlServer = pipelinectl.New("", nil)
 			if err := ctlServer.Start(context.Background()); err != nil {

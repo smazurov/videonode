@@ -39,7 +39,7 @@ type ServiceOptions struct {
 	// surface). Nil disables the control plane — sources can't be
 	// commanded and the GPU compose path renders black frames forever.
 	// main.go owns the lifecycle.
-	ControlServer *pipelinectl.Server
+	ControlServer *pipelinectl.Manager
 	// RTSPPort is the host:port the daemon's embedded RTSP server is
 	// listening on. The GPU compose path's ffmpeg sink targets it. Empty
 	// = the well-known default "127.0.0.1:8554".
