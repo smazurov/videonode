@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <drm_fourcc.h>
 #include <gbm.h>
+#include <memory>
 #include <unistd.h>
 
 #ifndef DRM_FORMAT_MOD_LINEAR
@@ -77,8 +78,16 @@ Nv12Buf alloc(gbm_device* gbm, int width, int height) {
     out.height = height;
     out.modifier = gbm_bo_get_modifier(y_bo);
 
-    gbm_bo_set_user_data(y_bo, new MapState(), [](gbm_bo*, void* p) { delete (MapState*)p; });
-    gbm_bo_set_user_data(uv_bo, new MapState(), [](gbm_bo*, void* p) { delete (MapState*)p; });
+    // Heap-allocate per-bo map bookkeeping; gbm transfers ownership back to
+    // us via the destroy callback, which frees through unique_ptr.
+    auto y_state = std::make_unique<MapState>();
+    auto uv_state = std::make_unique<MapState>();
+    gbm_bo_set_user_data(y_bo, y_state.release(), [](gbm_bo*, void* p) {
+        std::unique_ptr<MapState>{static_cast<MapState*>(p)};
+    });
+    gbm_bo_set_user_data(uv_bo, uv_state.release(), [](gbm_bo*, void* p) {
+        std::unique_ptr<MapState>{static_cast<MapState*>(p)};
+    });
     return out;
 }
 
