@@ -29,11 +29,20 @@ fi
 
 echo ">>> $ENGINE run $IMAGE → $BUILD_DIR/"
 
+# apt inside the container requires root, but we don't want root-owned
+# artifacts on the host. Run the build as root inside the container, then
+# chown the build dir back to the invoking user at the end (even on failure).
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+
 "$ENGINE" run --rm --platform linux/arm64 \
     -v "$ROOT:/work" \
     -w /work \
     -e BUILD_DIR="$BUILD_DIR" \
+    -e HOST_UID="$HOST_UID" \
+    -e HOST_GID="$HOST_GID" \
     "$IMAGE" bash -eu -c '
+        trap "chown -R \"$HOST_UID:$HOST_GID\" composer/$BUILD_DIR 2>/dev/null || true" EXIT
         apt-get update -qq
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config g++ ca-certificates curl git \
