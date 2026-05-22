@@ -24,10 +24,7 @@
 #include "src/capture/source_probe.hpp"
 #include "src/render/nv12_buf.hpp"
 #include "src/render/placeholder_painter.hpp"
-#include "src/rpc/control_channel.hpp"
 #include "src/rpc/grpc_server.hpp"
-#include "src/rpc/jsonrpc_msg.hpp"
-#include "src/source/set_format_parser.hpp"
 #include "src/source/broadcast.hpp"
 #include "src/source/capture_session.hpp"
 #include "src/source/source_service.hpp"
@@ -135,8 +132,9 @@ void print_help(const Args& d) {
            "  --broadcast-fps N             publish rate (default %d)\n"
            "  --placeholder-w W             placeholder canvas width  (default %d)\n"
            "  --placeholder-h H             placeholder canvas height (default %d)\n"
-           "  --ctl-connect PATH            daemon control UDS to dial (omit to disable)\n"
-           "  --device-id ID                stable device ID for control-plane identify\n",
+           "  --grpc-listen PATH            per-instance UDS where the source's gRPC server\n"
+           "                                  binds (the daemon dials in). Omit for standalone.\n"
+           "  --device-id ID                stable device ID advertised via Source.Describe()\n",
            d.device.c_str(), d.buffers, d.out_socket.c_str(), d.max_consumers, d.run_seconds,
            d.broadcast_fps, d.placeholder_w, d.placeholder_h);
 }
@@ -209,11 +207,6 @@ bool parse_args(int argc, char** argv, Args& a) {
             if (!v)
                 return false;
             a.placeholder_h = atoi(v);
-        } else if (s == "--ctl-connect") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.ctl_connect = v;
         } else if (s == "--device-id") {
             const char* v = eat(i);
             if (!v)
@@ -298,11 +291,10 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         fprintf(stderr, "videonode-source: capture not ready at startup\n");
     }
 
-    // Control plane: two parallel paths during the cutover.
-    //   --grpc-listen → run a gRPC server on this UDS (new)
-    //   --ctl-connect → dial the daemon over JSON-RPC (legacy)
-    // Both / either / neither may be set. Standalone (neither) keeps the
-    // R-smoke scenarios working.
+    // Control plane: --grpc-listen + --device-id together bring up an
+    // in-process gRPC server (nativerpc::SourceService) that the daemon
+    // dials. Both empty → standalone mode (R smoke scenarios), no
+    // server, no daemon-issued SetFormat / Snapshot / status stream.
     bool need_reinit_for_format_change = false;
 
     nativerpc::SourceContext gctx;
@@ -327,62 +319,6 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         }
     }
 
-    control_channel::ControlChannel ctl;
-    bool ctl_enabled = !a.ctl_connect.empty() && !a.device_id.empty();
-    if (ctl_enabled) {
-        ctl.init(a.ctl_connect, a.device_id, vn::kVersion);
-        ctl.set_command_handler(
-            [&](const control_channel::IncomingRequest& req) -> control_channel::HandlerResponse {
-                control_channel::HandlerResponse resp;
-                if (req.method == "shutdown") {
-                    running.store(false);
-                    resp.ok = true;
-                    return resp;
-                }
-                if (req.method == "get_status") {
-                    // Caller fills in the snapshot below when it sends it
-                    // back over the wire — we can't reach all the state
-                    // we'd need here without yet more captures. Simpler:
-                    // schedule a push and reply with an empty ack.
-                    resp.ok = true;
-                    return resp;
-                }
-                if (req.method == "set_format") {
-                    SetFormatRequest sfr;
-                    SetFormatError sfe;
-                    if (!parse_set_format(req.params_json, sfr, sfe)) {
-                        resp.ok = false;
-                        resp.error_code = sfe.code;
-                        resp.error_message = std::move(sfe.message);
-                        return resp;
-                    }
-                    if (v4l2_pix_fmt_(sfr.fourcc) == 0) {
-                        resp.ok = false;
-                        resp.error_code = -32000;
-                        resp.error_message = "unsupported fourcc";
-                        return resp;
-                    }
-                    // Apply: stash new args, notify probe, mark for reinit.
-                    a.in_format = sfr.fourcc;
-                    a.in_width = int(sfr.w);
-                    a.in_height = int(sfr.h);
-                    a.in_fps = int(sfr.fps);
-                    probe.note_format_change();
-                    need_reinit_for_format_change = true;
-                    fprintf(stderr, "videonode-source: set_format requested: %s %ux%u@%u\n",
-                            sfr.fourcc.c_str(), sfr.w, sfr.h, sfr.fps);
-                    resp.ok = true;
-                    resp.result_json = "{\"applied\":true}";
-                    return resp;
-                }
-                resp.ok = false;
-                resp.error_code = -32601;
-                resp.error_message = "method not found";
-                return resp;
-            });
-        fprintf(stderr, "videonode-source: control plane → %s (id=%s)\n", a.ctl_connect.c_str(),
-                a.device_id.c_str());
-    }
 
     using clock = std::chrono::steady_clock;
     const auto broadcast_period =
@@ -408,10 +344,6 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     while (running.load()) {
         if (a.run_seconds > 0 && clock::now() - loop_start > std::chrono::seconds(a.run_seconds))
             break;
-
-        if (ctl_enabled) {
-            ctl.maintain();
-        }
 
         // Prune dead consumers on every loop iteration. broadcast()'s
         // in-band eviction stalls during DQBUF gaps (signal transitions) or
@@ -452,11 +384,11 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         if (poll_timeout_ms > 100)
             poll_timeout_ms = 100;
 
-        // Build pollset: capture fd (if active) + control-channel fd (if
-        // connected). We keep slots stable so revents land where expected.
+        // Build pollset: capture fd (if active). The gRPC control plane
+        // runs on its own thread (see nativerpc::GrpcServer), so we no
+        // longer multiplex its socket through this poll.
         std::vector<pollfd> pset;
         int cap_idx = -1;
-        int ctl_idx = -1;
         if (cap.active) {
             pollfd pfd{};
             pfd.fd = cap.cap.fd();
@@ -464,16 +396,9 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
             cap_idx = int(pset.size());
             pset.push_back(pfd);
         }
-        if (ctl_enabled && ctl.connected()) {
-            ctl_idx = int(pset.size());
-            ctl.add_to_poll(pset);
-        }
 
         if (!pset.empty()) {
             int pr = ::poll(pset.data(), pset.size(), poll_timeout_ms);
-            if (pr > 0 && ctl_idx >= 0) {
-                ctl.handle_events(pset[ctl_idx].revents);
-            }
             if (pr > 0 && cap_idx >= 0) {
                 pollfd pfd = pset[cap_idx];
                 if (pfd.revents & POLLPRI) {
@@ -592,27 +517,19 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
             prev_health = h;
         }
 
-        // Control-plane status push: on health change, on consumer-count
-        // change, or every ~1s as a heartbeat. Drop-on-EAGAIN so a slow
-        // daemon can't deadlock the broadcast loop. We mirror the push to
-        // the gRPC StreamStatus subscribers when the gRPC server is up.
-        if ((ctl_enabled && ctl.connected()) || grpc_enabled) {
+        // Control-plane status push (gRPC StreamStatus subscribers): on
+        // health change, consumer-count change, or every ~1s as a
+        // heartbeat. PublishStatus is non-blocking — slow subscribers
+        // see stale snapshots, not deadlock.
+        if (grpc_enabled) {
             int cur_consumers = prod.consumer_count();
             bool consumers_changed = (cur_consumers != prev_consumer_count);
             bool heartbeat_due = clock::now() >= next_status_heartbeat;
             if (health_changed || consumers_changed || heartbeat_due) {
-                if (ctl_enabled && ctl.connected()) {
-                    std::string params = build_status_params(a.device_id, probe, h, cap, a,
-                                                             real_frame_idx, ph.tick_idx,
-                                                             last_dqbuf_seq, prod);
-                    ctl.push_status(params);
-                }
-                if (grpc_enabled) {
-                    videonode::control::Status sp;
-                    build_status_proto(sp, a.device_id, probe, h, cap, a, real_frame_idx,
-                                       ph.tick_idx, last_dqbuf_seq, prod);
-                    grpc_svc.PublishStatus(sp);
-                }
+                videonode::control::Status sp;
+                build_status_proto(sp, a.device_id, probe, h, cap, a, real_frame_idx, ph.tick_idx,
+                                   last_dqbuf_seq, prod);
+                grpc_svc.PublishStatus(sp);
                 prev_consumer_count = cur_consumers;
                 next_status_heartbeat = clock::now() + std::chrono::seconds(1);
             }

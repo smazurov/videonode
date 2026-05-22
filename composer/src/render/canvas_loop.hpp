@@ -1,13 +1,13 @@
 // canvas_loop — daemon-driven composer render loop.
 //
 // videonode-composer is a passive render server: its argv carries only
-// `--drm-device --ctl-connect --composer-id`. Everything dynamic (canvas
+// `--drm-device --grpc-listen --composer-id`. Everything dynamic (canvas
 // dims, source bindings, layout, per-source effects, per-source state)
-// arrives over JSON-RPC on the control channel and lands in `World`.
-// `RunCanvasLoop` snapshots World per frame, materializes the bound
-// sources (dialling/tearing down ScmRightsSource instances to match the
-// World's current slot map), runs `gl_compose`, gbm_bo_maps the canvas,
-// and writes BGRA bytes to stdout.
+// arrives over gRPC and lands in `World`. `RunCanvasLoop` snapshots
+// World per frame, materializes the bound sources (dialling/tearing
+// down ScmRightsSource instances to match the World's current slot
+// map), runs `gl_compose`, gbm_bo_maps the canvas, and writes BGRA
+// bytes to stdout.
 //
 // Lifecycles
 // ----------
@@ -29,9 +29,6 @@
 
 #include <atomic>
 
-namespace control_channel {
-class ControlChannel;
-}
 namespace egl_ctx {
 class EglCtx;
 }
@@ -43,14 +40,13 @@ namespace render {
 
 // Render at the target frame rate until `running` goes false, the
 // composer's stdout closes (EPIPE), or `run_seconds` (if non-zero)
-// elapses. `ctl` is optional (nullable) — when null, composer renders
-// black forever (useful only for diagnostics).
+// elapses.
 //
 // `target_fps` is the loop's tick rate; `world.snapshot().canvas_fps`
 // is preferred once ready, but until then we tick at this rate.
 //
 // Returns the number of frames rendered (placeholder + real).
-int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, control_channel::ControlChannel* ctl,
-                  int target_fps, int run_seconds, std::atomic<bool>& running);
+int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
+                  std::atomic<bool>& running);
 
 } // namespace render

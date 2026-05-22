@@ -10,12 +10,7 @@ vn_add_test(ffmpeg_pipe_source_argv
          Threads::Threads
     LABELS process)
 
-vn_add_test(set_format_parser  DEPS set_format_parser            LABELS source)
-
 vn_add_test(child_process       DEPS child_process                LABELS process)
-vn_add_test(jsonrpc_msg         DEPS jsonrpc_msg                  LABELS rpc)
-vn_add_test(dmabuf_msg          DEPS dmabuf_msg                   LABELS rpc)
-vn_add_test(composer_rpc        DEPS composer_rpc                 LABELS rpc)
 vn_add_test(scm_socket          DEPS scm_socket                   LABELS ipc)
 vn_add_test(dmabuf_header       DEPS dmabuf_header                LABELS ipc)
 

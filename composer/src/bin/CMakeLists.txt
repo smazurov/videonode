@@ -25,7 +25,6 @@ vn_add_executable(videonode-sink
 if(HAVE_GBM)
     vn_add_executable(videonode-composer
         SOURCES videonode_composer_main.cpp
-        DEPS    canvas_loop world composer_rpc control_channel
-                composer_service grpc_server
+        DEPS    canvas_loop world composer_service grpc_server
                 egl_ctx gl_compose gles_bundle)
 endif()

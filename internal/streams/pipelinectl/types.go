@@ -1,27 +1,12 @@
-// Package pipelinectl is the daemon-side control plane for the pipeline
-// processes the daemon supervises — videonode-source instances (kind
-// "source") and videonode-composer instances (kind "composer"). It owns
-// one well-known Unix-domain control socket; each pipeline process dials
-// in, identifies itself with a stable id + kind, then exchanges
-// JSON-RPC 2.0 frames bidirectionally with the daemon.
+// Package pipelinectl is the daemon-side gRPC client manager for the
+// native binaries the daemon supervises — videonode-source instances
+// (kind "source") and videonode-composer instances (kind "composer").
+// The daemon dials each spawned binary's per-instance UDS, calls
+// Describe() to seed identity, then issues unary RPCs (SetFormat,
+// SetCanvas, …) and (for sources) subscribes to StreamStatus.
 //
-// Wire format: newline-delimited JSON-RPC 2.0 over SOCK_STREAM UDS.
-// Library: github.com/creachadair/jrpc2 with channel.Line framing and
-// server-side AllowPush so we can send commands and accept unsolicited
-// status notifications on the same connection.
+// Wire format: gRPC over SOCK_STREAM UDS, see proto/control/*.proto.
 package pipelinectl
-
-// IdentifyParams is sent by a pipeline process as its first message after
-// connecting. DeviceID + Kind together namespace the sender so a single
-// daemon UDS can serve both videonode-source instances (Kind="" or
-// "source") and videonode-composer instances (Kind="composer"). For
-// backwards compat, a missing/empty Kind is interpreted as "source".
-type IdentifyParams struct {
-	DeviceID string `json:"device_id"`
-	PID      int    `json:"pid"`
-	Version  string `json:"version,omitempty"`
-	Kind     string `json:"kind,omitempty"`
-}
 
 // SetFormatParams is the request payload for the "set_format" command
 // sent from the daemon to a client. All fields except FPS are required;

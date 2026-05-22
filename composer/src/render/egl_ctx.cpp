@@ -121,9 +121,9 @@ EGLImage EglCtx::import_dmabuf(const ImageDesc& d) const {
         }
         // YUV colorspace + range hints. Required by Mesa for some YUV
         // dma-buf imports to actually sample as YUV (rather than zeroed).
-        // BT.601 limited range matches dmabuf_msg::Header's Bt601/Limited
-        // contract; if a producer ever needs a different matrix it'd
-        // propagate via FrameView and feed in here.
+        // BT.601 limited range matches dmabuf_header::Header's
+        // Bt601/Limited contract; if a producer ever needs a different
+        // matrix it'd propagate via FrameView and feed in here.
         attrs[i++] = EGL_YUV_COLOR_SPACE_HINT_EXT;
         attrs[i++] = EGL_ITU_REC601_EXT;
         attrs[i++] = EGL_SAMPLE_RANGE_HINT_EXT;
