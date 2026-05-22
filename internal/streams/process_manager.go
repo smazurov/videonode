@@ -159,7 +159,7 @@ func NewStreamProcessManager(opts *ProcessManagerOptions) StreamProcessManager {
 	// the per-device socket path from the manager when building sink cmds.
 	spm.producerMgr = NewProducerManager(spm.pool)
 	if opts.ControlServer != nil {
-		spm.producerMgr.SetControlSocketPath(opts.ControlServer.SocketPath())
+		spm.producerMgr.SetControlManager(opts.ControlServer)
 	}
 	if spm.canvasProcessor != nil {
 		spm.canvasProcessor.producerMgr = spm.producerMgr
@@ -298,9 +298,14 @@ func (m *streamProcessManager) orchestrateComposer(ctx context.Context, streamID
 		m.mu.Unlock()
 	}()
 
-	// Wait for composer to identify, or for cancellation. The pipelinectl
-	// server registers it once its identify message lands; we poll
-	// ConnectedComposers().
+	// Wait for the composer's gRPC UDS to appear, then dial in via the
+	// control manager. Replaces the legacy "wait for identify" loop;
+	// Manager.RegisterComposer calls Describe() which doubles as the
+	// readiness probe — if it succeeds, the composer is up and serving.
+	if plan.GrpcUds == "" {
+		m.logger.Error("composer plan missing GrpcUds (BUG)", tag...)
+		return
+	}
 	pollDeadline := time.Now().Add(identifyTimeout)
 	for {
 		select {
@@ -309,17 +314,24 @@ func (m *streamProcessManager) orchestrateComposer(ctx context.Context, streamID
 			return
 		default:
 		}
-		found := slices.Contains(m.controlServer.ConnectedComposers(), plan.ComposerID)
-		if found {
+		if info, err := os.Stat(plan.GrpcUds); err == nil && info.Mode()&os.ModeSocket != 0 {
 			break
 		}
 		if time.Now().After(pollDeadline) {
-			m.logger.Warn("composer never identified within timeout", tag...)
+			m.logger.Warn("composer never bound grpc UDS within timeout", tag...)
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	m.logger.Info("composer identified — pushing initial config", tag...)
+	regCtx, regCancel := context.WithTimeout(ctx, perCallTimeout)
+	if err := m.controlServer.RegisterComposer(regCtx, plan.ComposerID, plan.GrpcUds); err != nil {
+		regCancel()
+		m.logger.Warn("composer register failed",
+			append(append([]any{}, tag...), "error", err)...)
+		return
+	}
+	regCancel()
+	m.logger.Info("composer dialed — pushing initial config", tag...)
 
 	push := func(name string, fn func(context.Context) error) bool {
 		if ctx.Err() != nil {
@@ -721,6 +733,11 @@ func (m *streamProcessManager) Stop(streamID string) error {
 	err := m.pool.Stop(streamID)
 
 	if hadSpec && spec.Canvas != nil && m.native.CanvasReady() {
+		// Close the gRPC channel to the (now-dying) composer so we don't
+		// keep retrying StreamStatus / unary calls against a corpse.
+		if m.controlServer != nil {
+			m.controlServer.Unregister(composerIDFor(streamID))
+		}
 		m.releaseCanvasProducers(streamID, spec.Canvas)
 	} else if hadSpec && spec.Canvas == nil && m.shouldUseNativeForSingleStream(&spec) && m.producerMgr != nil {
 		m.producerMgr.Release(streamID)

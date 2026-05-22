@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
 // ProducerKeyPrefix is the pool-key namespace for device producer processes.
@@ -51,11 +53,11 @@ type ProducerManager struct {
 	mu     sync.Mutex
 	// keyed by deviceID
 	entries map[string]*producerEntry
-	// Optional. When set, sidecars are spawned with --ctl-connect and
-	// --device-id pointing at this server so the daemon can issue commands
-	// (set_format) and receive status notifications. nil = control plane
-	// disabled (test / standalone harnesses).
-	ctlSocketPath string
+	// Optional. When set, every Acquire'd producer is spawned with
+	// --grpc-listen pointing at a per-device UDS the daemon dials into
+	// for control + status. nil = control plane disabled (smoke / R-test
+	// harnesses that run videonode-source standalone).
+	controlManager *pipelinectl.Manager
 }
 
 type producerEntry struct {
@@ -75,22 +77,34 @@ func NewProducerManager(pool process.Pool) *ProducerManager {
 	}
 }
 
-// SetControlSocketPath attaches the daemon-wide pipelinectl socket path so
-// future sidecar spawns dial it for control + status. Must be called
-// before Acquire to take effect for that sidecar. Idempotent.
-func (pm *ProducerManager) SetControlSocketPath(path string) {
+// SetControlManager attaches the daemon's gRPC client manager. Spawns
+// after this call will run with --grpc-listen pointing at a per-device
+// UDS, and Acquire will dial into the spawned binary via the manager.
+// Must be called before Acquire to take effect for that producer.
+func (pm *ProducerManager) SetControlManager(mgr *pipelinectl.Manager) {
 	pm.mu.Lock()
-	pm.ctlSocketPath = path
+	pm.controlManager = mgr
 	pm.mu.Unlock()
 }
 
-// ControlSocketPath returns the daemon-wide pipelinectl UDS path, or
-// empty string if the control plane is disabled. CanvasProcessor reads
-// this when wiring composer's --ctl-connect argv.
-func (pm *ProducerManager) ControlSocketPath() string {
+// HasControlManager reports whether the daemon-side control plane is
+// wired. Consumers (canvas_processor_gpu) use this to refuse paths that
+// need live control without it.
+func (pm *ProducerManager) HasControlManager() bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	return pm.ctlSocketPath
+	return pm.controlManager != nil
+}
+
+// NativeUdsDir is where per-instance gRPC sockets for spawned native
+// binaries live. Created on demand by Acquire / canvas_processor.
+const NativeUdsDir = "/tmp/videonode-native"
+
+// GrpcSocketPathFor builds the per-instance gRPC UDS path the daemon
+// allocates before spawning a native binary. `kind` is "source" or
+// "composer"; `id` is the device-id / composer-id.
+func GrpcSocketPathFor(kind, id string) string {
+	return filepath.Join(NativeUdsDir, kind+"-"+sanitizeForFilename(id)+".sock")
 }
 
 // ProducerProcessID returns the pool key for a producer of the given device.
@@ -143,6 +157,20 @@ func (pm *ProducerManager) Acquire(spec ProducerSpec) (*ProducerHandle, error) {
 	// Best-effort socket cleanup from a prior run; sidecar also rm -f's on start.
 	_ = os.Remove(socketPath)
 
+	// Ensure the per-instance gRPC UDS parent exists before spawn so the
+	// native binary can bind. Failure here is fatal — without the dir
+	// the source would crash on bind.
+	if pm.controlManager != nil {
+		grpcPath := GrpcSocketPathFor("source", spec.DeviceID)
+		if err := os.MkdirAll(filepath.Dir(grpcPath), 0o755); err != nil {
+			pm.mu.Lock()
+			delete(pm.entries, spec.DeviceID)
+			pm.mu.Unlock()
+			return nil, fmt.Errorf("producer Acquire: mkdir %s: %w", filepath.Dir(grpcPath), err)
+		}
+		_ = os.Remove(grpcPath) // stale sock from a prior crash
+	}
+
 	if err := pm.pool.Start(ProducerProcessID(spec.DeviceID)); err != nil {
 		pm.mu.Lock()
 		delete(pm.entries, spec.DeviceID)
@@ -151,8 +179,27 @@ func (pm *ProducerManager) Acquire(spec ProducerSpec) (*ProducerHandle, error) {
 	}
 
 	if err := waitForSocket(socketPath, socketReadyTimeout); err != nil {
-		pm.logger.Warn("producer Acquire: socket not ready, continuing anyway (sink will retry-dial)",
+		pm.logger.Warn("producer Acquire: data-plane socket not ready, continuing anyway (sink will retry-dial)",
 			"device_id", spec.DeviceID, "socket", socketPath, "error", err)
+	}
+
+	// Wait for the gRPC UDS to appear, then dial into the new source via
+	// the control manager. A failure to register is non-fatal: the data
+	// plane still works (Acquire returns success), but daemon-issued
+	// SetFormat / Snapshot / status fan-out won't work for this source.
+	if pm.controlManager != nil {
+		grpcPath := GrpcSocketPathFor("source", spec.DeviceID)
+		if err := waitForSocket(grpcPath, socketReadyTimeout); err != nil {
+			pm.logger.Warn("producer Acquire: grpc socket not ready",
+				"device_id", spec.DeviceID, "uds", grpcPath, "error", err)
+		} else {
+			regCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := pm.controlManager.RegisterSource(regCtx, spec.DeviceID, grpcPath); err != nil {
+				pm.logger.Warn("producer Acquire: control register failed",
+					"device_id", spec.DeviceID, "uds", grpcPath, "error", err)
+			}
+			cancel()
+		}
 	}
 
 	pm.logger.Info("producer started", "device_id", spec.DeviceID, "socket", socketPath)
@@ -178,8 +225,14 @@ func (pm *ProducerManager) Release(deviceID string) {
 		return
 	}
 	delete(pm.entries, deviceID)
+	mgr := pm.controlManager
 	pm.mu.Unlock()
 
+	// Close the gRPC channel first so we don't keep dialing a dying
+	// process while pool.Stop is in flight.
+	if mgr != nil {
+		mgr.Unregister(deviceID)
+	}
 	if err := pm.pool.Stop(ProducerProcessID(deviceID)); err != nil {
 		pm.logger.Warn("producer Release: pool.Stop failed", "device_id", deviceID, "error", err)
 	}
@@ -207,7 +260,7 @@ func (pm *ProducerManager) Command(processID string) (string, error) {
 
 	pm.mu.Lock()
 	entry, ok := pm.entries[deviceID]
-	ctlPath := pm.ctlSocketPath
+	hasCtl := pm.controlManager != nil
 	pm.mu.Unlock()
 	if !ok {
 		return "", fmt.Errorf("producer Command: no entry for device %s", deviceID)
@@ -216,17 +269,17 @@ func (pm *ProducerManager) Command(processID string) (string, error) {
 	// Plain exec — no sh wrapper, no trap, no background. The pool
 	// supervises this process directly so its stdout/stderr stream back
 	// through process.SetLogParser into journald (tagged stream_id=
-	// producer:<deviceID>). PR_SET_PDEATHSIG inside the sidecar handles
-	// cleanup if the daemon vanishes.
+	// producer:<deviceID>). PR_SET_PDEATHSIG inside the source binary
+	// handles cleanup if the daemon vanishes.
 	argv := []string{
 		entry.spec.BinaryPath,
 		"--device", entry.spec.DevicePath,
 		"--out-socket", entry.socketPath,
 	}
-	if ctlPath != "" {
+	if hasCtl {
 		argv = append(argv,
-			"--ctl-connect", ctlPath,
-			"--device-id", entry.spec.DeviceID,
+			"--grpc-listen", GrpcSocketPathFor("source", deviceID),
+			"--device-id", deviceID,
 		)
 	}
 	return shellJoin(argv), nil

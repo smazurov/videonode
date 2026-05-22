@@ -54,11 +54,15 @@ func resolveRTSPHost(rtspPort string) string {
 // set_source_state pushes.
 type composerOrchestration struct {
 	ComposerID string
-	Canvas     pipelinectl.SetCanvasParams
-	Sources    []pipelinectl.SetSourceParams
-	Layout     pipelinectl.SetLayoutParams
-	Effects    []pipelinectl.SetEffectsParams
-	States     []pipelinectl.SetSourceStateParams
+	// GrpcUds is the per-instance UDS the composer binary is listening
+	// on; the daemon dials in via Manager.RegisterComposer before pushing
+	// the rest of the plan.
+	GrpcUds string
+	Canvas  pipelinectl.SetCanvasParams
+	Sources []pipelinectl.SetSourceParams
+	Layout  pipelinectl.SetLayoutParams
+	Effects []pipelinectl.SetEffectsParams
+	States  []pipelinectl.SetSourceStateParams
 }
 
 // composerIDFor returns the stable composer-id the daemon will send the
@@ -101,7 +105,7 @@ func (cp *canvasProcessor) processStreamGPU(
 	// plane it would dial a non-listening socket forever and render solid
 	// black. Refuse the GPU path here so the failure is visible (caller
 	// surfaces the error) instead of silently emitting a black RTSP feed.
-	if cp.producerMgr.ControlSocketPath() == "" {
+	if !cp.producerMgr.HasControlManager() {
 		return nil, fmt.Errorf("canvas %s: GPU path requires pipelinectl (control plane not started)", canvasID)
 	}
 	srcID := canvas.SourceStreams[0]
@@ -120,10 +124,11 @@ func (cp *canvasProcessor) processStreamGPU(
 	}
 
 	composerID := composerIDFor(canvasID)
+	composerUds := GrpcSocketPathFor("composer", composerID)
 	composerArgv := []string{
 		cp.native.Composer,
 		"--drm-device", gpuDRMDevice,
-		"--ctl-connect", cp.controlSocketPath(),
+		"--grpc-listen", composerUds,
 		"--composer-id", composerID,
 		"--target-fps", strconv.Itoa(canvasFPS),
 	}
@@ -160,6 +165,7 @@ func (cp *canvasProcessor) processStreamGPU(
 	// health change.
 	plan := &composerOrchestration{
 		ComposerID: composerID,
+		GrpcUds:    composerUds,
 		Canvas: pipelinectl.SetCanvasParams{
 			W:   uint32(canvas.Width),
 			H:   uint32(canvas.Height),
@@ -223,18 +229,6 @@ func (cp *canvasProcessor) rtspHostOrDefault() string {
 		return defaultGPURTSPHost
 	}
 	return cp.rtspHost
-}
-
-// controlSocketPath returns the daemon-wide pipelinectl UDS path. Falls
-// back to the well-known default when no override is configured (matches
-// pipelinectl.DefaultSocketPath behavior).
-func (cp *canvasProcessor) controlSocketPath() string {
-	if cp.producerMgr != nil {
-		if p := cp.producerMgr.ControlSocketPath(); p != "" {
-			return p
-		}
-	}
-	return pipelinectl.DefaultSocketPath
 }
 
 // parseInputDims splits a "WxH" resolution string into its components.
