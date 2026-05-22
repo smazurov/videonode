@@ -4,7 +4,7 @@
 # Stop with Ctrl-C or by killing the inotifywait process.
 set -euo pipefail
 
-RIG="${RIG:-orangepi@orangepi5-ultra.lan}"
+RIG="${RIG:-orangepi}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DST_DIR="${DST_DIR:-/home/orangepi/composer}"
 DEBOUNCE_MS="${DEBOUNCE_MS:-200}"
