@@ -7,9 +7,11 @@
 // <cstddef> first: real /usr/include/rga/im2d_single.h uses NULL without
 // including its definition itself.
 #include <cstddef>
-#include <rga/im2d.h>
-
 #include <cstdint>
+
+#if defined(HAVE_RGA)
+#include <rga/im2d.h>
+#endif
 
 namespace rga {
 
@@ -25,7 +27,9 @@ enum class PixelFormat {
     Uyvy,
 };
 
+#if defined(HAVE_RGA)
 int to_rk_format(PixelFormat f);
+#endif
 
 // ConvertParams describes one source or destination buffer for convert().
 // fd is the dma-buf fd (importbuffer_fd dups it; caller retains ownership).
