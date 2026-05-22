@@ -11,8 +11,8 @@
 
 TEST(ChildProcess, StdoutPipeReadsChildOutput) {
     // `printf 'hello'` -> we read from its stdout.
-    auto r = child_process::spawn("printf", {"printf", "hello"},
-                                  child_process::Direction::StdoutPipe);
+    auto r =
+        child_process::spawn("printf", {"printf", "hello"}, child_process::Direction::StdoutPipe);
     EXPECT_TRUE(r.pid > 0);
     EXPECT_TRUE(r.pipe_fd >= 0);
 

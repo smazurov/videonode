@@ -233,9 +233,9 @@ TEST(ScmRightsProducer, PruneDeadConsumersEvictsWithoutBroadcast) {
     ::close(c3);
 
     // Brief settle for the kernel to propagate the peer close into POLLHUP.
-    EXPECT_TRUE(wait_for(
-        [&] { return prod.prune_dead_consumers() == 0 && prod.consumer_count() == 1; },
-        std::chrono::milliseconds(500)));
+    EXPECT_TRUE(
+        wait_for([&] { return prod.prune_dead_consumers() == 0 && prod.consumer_count() == 1; },
+                 std::chrono::milliseconds(500)));
 
     // c2 should still be a live consumer.
     EXPECT_EQ(1, prod.consumer_count());
@@ -272,12 +272,15 @@ TEST(ScmRightsProducer, ChurnCyclesDoNotLeakConsumers) {
     for (int i = 0; i < 10; ++i) {
         int c = scm_socket::ConnectClient(path);
         ASSERT_TRUE(c >= 0);
-        EXPECT_TRUE(wait_for([&] { return prod.consumer_count() >= 1; },
-                             std::chrono::milliseconds(200)));
+        EXPECT_TRUE(
+            wait_for([&] { return prod.consumer_count() >= 1; }, std::chrono::milliseconds(200)));
         ::close(c);
         // Reap without broadcasting — that's the whole point of prune.
         EXPECT_TRUE(wait_for(
-            [&] { prod.prune_dead_consumers(); return prod.consumer_count() == 0; },
+            [&] {
+                prod.prune_dead_consumers();
+                return prod.consumer_count() == 0;
+            },
             std::chrono::milliseconds(500)))
             << "cycle " << i << " left " << prod.consumer_count() << " consumers";
     }

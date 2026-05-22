@@ -58,10 +58,7 @@ bool solve_8x8(double A[8][9], double x[8]) {
 
 } // namespace
 
-Status corners_to_warp(const int corners_px[8],
-                       int snapshot_w,
-                       int snapshot_h,
-                       float out[9]) {
+Status corners_to_warp(const int corners_px[8], int snapshot_w, int snapshot_h, float out[9]) {
     if (snapshot_w <= 0 || snapshot_h <= 0)
         return Status::BadSnapshotDims;
 

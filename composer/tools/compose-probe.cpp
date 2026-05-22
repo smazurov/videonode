@@ -41,7 +41,8 @@ int main(int argc, char** argv) {
 
     egl_ctx::EglCtx ctx;
     const char* dev = std::getenv("VN_DRM_DEVICE");
-    if (!dev) dev = "/dev/dri/renderD128";
+    if (!dev)
+        dev = "/dev/dri/renderD128";
     CHECK(ctx.init(dev), "EglCtx::init");
     printf("ok: renderer=%s\n", glGetString(GL_RENDERER));
 

@@ -42,12 +42,13 @@ namespace scm_socket {
 // syscall failed) or leaves it untouched (parser failure).
 //
 // Caller owns the fds returned in fds_out and must close them when done.
-[[nodiscard]] bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out, std::vector<int>& fds_out,
-                               bool* eof_out = nullptr);
+[[nodiscard]] bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out,
+                               std::vector<int>& fds_out, bool* eof_out = nullptr);
 
 // SendMessage sends a length-prefixed JSON header + SCM_RIGHTS fds. Used
 // by tests and by any future host-side sender that wants to talk the same
 // protocol from C++ (the production sender is Go).
-[[nodiscard]] bool SendMessage(int sock_fd, const dmabuf_msg::Header& header, const std::vector<int>& fds);
+[[nodiscard]] bool SendMessage(int sock_fd, const dmabuf_msg::Header& header,
+                               const std::vector<int>& fds);
 
 } // namespace scm_socket

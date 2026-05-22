@@ -110,7 +110,7 @@ ScmRightsProducer::~ScmRightsProducer() {
 
 void ScmRightsProducer::accept_loop_() {
     while (!stop_requested_.load()) {
-        pollfd pfd{.fd=listen_fd_, .events=POLLIN, .revents=0};
+        pollfd pfd{.fd = listen_fd_, .events = POLLIN, .revents = 0};
         int r = ::poll(&pfd, 1, 250);
         if (r < 0) {
             if (errno == EINTR)
@@ -142,7 +142,7 @@ void ScmRightsProducer::accept_loop_() {
             ::close(cfd);
             continue;
         }
-        consumers_.push_back(Consumer{.fd=cfd, .frames_sent=0, .frames_dropped=0});
+        consumers_.push_back(Consumer{.fd = cfd, .frames_sent = 0, .frames_dropped = 0});
         fprintf(stderr, "scm_rights_producer: consumer connected (fd=%d, total=%zu)\n", cfd,
                 consumers_.size());
     }
@@ -173,7 +173,10 @@ bool ScmRightsProducer::broadcast(const dmabuf_msg::Header& header, const std::v
         // EPIPE / ECONNRESET / EBADF — consumer is gone. Evict.
         fprintf(stderr, "scm_rights_producer: consumer fd=%d gone (%s); evicting\n", c.fd,
                 strerror(errno));
-        evicted_.push_back(ConsumerStats{.fd=c.fd, .frames_sent=c.frames_sent, .frames_dropped=c.frames_dropped, .evicted_at_frame=frame_counter_});
+        evicted_.push_back(ConsumerStats{.fd = c.fd,
+                                         .frames_sent = c.frames_sent,
+                                         .frames_dropped = c.frames_dropped,
+                                         .evicted_at_frame = frame_counter_});
         ::close(c.fd);
         to_evict.push_back(i);
     }
@@ -192,7 +195,7 @@ int ScmRightsProducer::prune_dead_consumers() {
     std::vector<pollfd> pfds;
     pfds.reserve(consumers_.size());
     for (const auto& c : consumers_) {
-        pfds.push_back(pollfd{.fd=c.fd, .events=0, .revents=0});
+        pfds.push_back(pollfd{.fd = c.fd, .events = 0, .revents = 0});
     }
     // 0ms timeout: just sample current state. POLLHUP/POLLERR/POLLNVAL are
     // always reported regardless of events mask.
@@ -204,9 +207,10 @@ int ScmRightsProducer::prune_dead_consumers() {
         if (pfds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) {
             auto& c = consumers_[i];
             fprintf(stderr, "scm_rights_producer: consumer fd=%d gone (prune); evicting\n", c.fd);
-            evicted_.push_back(ConsumerStats{.fd=c.fd, .frames_sent=c.frames_sent,
-                                              .frames_dropped=c.frames_dropped,
-                                              .evicted_at_frame=frame_counter_});
+            evicted_.push_back(ConsumerStats{.fd = c.fd,
+                                             .frames_sent = c.frames_sent,
+                                             .frames_dropped = c.frames_dropped,
+                                             .evicted_at_frame = frame_counter_});
             ::close(c.fd);
             to_evict.push_back(i);
         }
@@ -227,7 +231,10 @@ std::vector<ConsumerStats> ScmRightsProducer::stats() const {
     std::vector<ConsumerStats> out;
     out.reserve(consumers_.size() + evicted_.size());
     for (const auto& c : consumers_) {
-        out.push_back(ConsumerStats{.fd=c.fd, .frames_sent=c.frames_sent, .frames_dropped=c.frames_dropped, .evicted_at_frame=0});
+        out.push_back(ConsumerStats{.fd = c.fd,
+                                    .frames_sent = c.frames_sent,
+                                    .frames_dropped = c.frames_dropped,
+                                    .evicted_at_frame = 0});
     }
     for (const auto& e : evicted_)
         out.push_back(e);

@@ -63,7 +63,8 @@ TEST(PlaceholderPainter, PaintBaseWritesTitleText) {
 
 TEST(PlaceholderPainter, PaintBaseWithDevicePath) {
     auto buf = make_buf();
-    ASSERT_TRUE(placeholder_painter::paint_base(buf, kW, kH, "/dev/v4l/by-path/platform-fdee0000.hdmirx"));
+    ASSERT_TRUE(
+        placeholder_painter::paint_base(buf, kW, kH, "/dev/v4l/by-path/platform-fdee0000.hdmirx"));
 
     // Subtitle sits below the title baseline. Count bright pixels in a
     // strip a bit below the title — must be > 0 (proves subtitle painted)

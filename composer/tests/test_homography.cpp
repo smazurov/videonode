@@ -30,10 +30,7 @@ TEST(Homography, IdentityCornersGiveIdentityMatrix) {
     // Source corners = full source rect → maps unit-square dest UVs to
     // unit-square source UVs (identity sampling).
     int corners[8] = {
-        0, 0,
-        1919, 0,
-        1919, 1079,
-        0, 1079,
+        0, 0, 1919, 0, 1919, 1079, 0, 1079,
     };
     float h[9] = {};
     auto s = homography::corners_to_warp(corners, 1920, 1080, h);
@@ -58,10 +55,7 @@ TEST(Homography, KnownKeystoneTopInset) {
     // corners. Expect a non-identity matrix that, when applied to the
     // top-middle dest UV (0.5, 0), samples around y=0.05 in source UV.
     int corners[8] = {
-        96, 0,
-        1823, 0,
-        1919, 1079,
-        0, 1079,
+        96, 0, 1823, 0, 1919, 1079, 0, 1079,
     };
     float h[9] = {};
     auto s = homography::corners_to_warp(corners, 1920, 1080, h);
@@ -84,10 +78,7 @@ TEST(Homography, RoundTripCornersThroughMatrix) {
     // corners (up to numeric tolerance). Strongest guarantee that the
     // solve is correct.
     int corners[8] = {
-        200, 100,
-        1700, 80,
-        1750, 950,
-        180, 1000,
+        200, 100, 1700, 80, 1750, 950, 180, 1000,
     };
     float h[9] = {};
     auto s = homography::corners_to_warp(corners, 1920, 1080, h);
@@ -122,25 +113,17 @@ TEST(Homography, RejectsCollinearCorners) {
     // Three points on the top edge + one elsewhere → no unique homography
     // (the linear system is rank-deficient).
     int corners[8] = {
-        0, 0,
-        960, 0,
-        1919, 0,
-        0, 1079,
+        0, 0, 960, 0, 1919, 0, 0, 1079,
     };
     float h[9] = {};
-    EXPECT_EQ(homography::Status::Degenerate,
-              homography::corners_to_warp(corners, 1920, 1080, h));
+    EXPECT_EQ(homography::Status::Degenerate, homography::corners_to_warp(corners, 1920, 1080, h));
 }
 
 TEST(Homography, RejectsCoincidentCorners) {
     // Two corners at the same point also degenerate.
     int corners[8] = {
-        0, 0,
-        0, 0,
-        1919, 1079,
-        0, 1079,
+        0, 0, 0, 0, 1919, 1079, 0, 1079,
     };
     float h[9] = {};
-    EXPECT_EQ(homography::Status::Degenerate,
-              homography::corners_to_warp(corners, 1920, 1080, h));
+    EXPECT_EQ(homography::Status::Degenerate, homography::corners_to_warp(corners, 1920, 1080, h));
 }

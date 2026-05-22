@@ -47,22 +47,25 @@ struct Args {
 };
 
 void print_help(const Args& d) {
-    printf(
-        "videonode-composer — daemon-driven BGRA canvas writer.\n"
-        "\n"
-        "  --drm-device PATH      DRM render node (default %s)\n"
-        "  --ctl-connect PATH     daemon UDS path for JSON-RPC control plane (required for live config)\n"
-        "  --composer-id ID       stable identifier sent to daemon on identify (required if --ctl-connect set)\n"
-        "  --seconds N            run length in seconds (default %d = until SIGINT / stdout closes)\n"
-        "  --target-fps N         pre-ready (no canvas yet) tick rate (default %d); once daemon sends set_canvas\n"
-        "                           the snapshot's canvas_fps takes over\n"
-        "  --version              print version and exit\n"
-        "\n"
-        "Stdout: raw BGRA bytes at canvas_w*canvas_h*4 per frame. Pipe to\n"
-        "ffmpeg with `-f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0 …`\n"
-        "(W/H/N come from the daemon's set_canvas push — pick matching values\n"
-        "in the downstream ffmpeg invocation).\n",
-        d.drm_device.c_str(), d.run_seconds, d.target_fps);
+    printf("videonode-composer — daemon-driven BGRA canvas writer.\n"
+           "\n"
+           "  --drm-device PATH      DRM render node (default %s)\n"
+           "  --ctl-connect PATH     daemon UDS path for JSON-RPC control plane (required for live "
+           "config)\n"
+           "  --composer-id ID       stable identifier sent to daemon on identify (required if "
+           "--ctl-connect set)\n"
+           "  --seconds N            run length in seconds (default %d = until SIGINT / stdout "
+           "closes)\n"
+           "  --target-fps N         pre-ready (no canvas yet) tick rate (default %d); once daemon "
+           "sends set_canvas\n"
+           "                           the snapshot's canvas_fps takes over\n"
+           "  --version              print version and exit\n"
+           "\n"
+           "Stdout: raw BGRA bytes at canvas_w*canvas_h*4 per frame. Pipe to\n"
+           "ffmpeg with `-f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0 …`\n"
+           "(W/H/N come from the daemon's set_canvas push — pick matching values\n"
+           "in the downstream ffmpeg invocation).\n",
+           d.drm_device.c_str(), d.run_seconds, d.target_fps);
 }
 
 // Build the control-channel command handler. Each daemon-issued method
@@ -88,43 +91,55 @@ control_channel::HandlerResponse dispatch_command(render::World& world,
     if (req.method == "set_canvas") {
         composer_rpc::SetCanvasRequest p;
         ParseError e;
-        if (!composer_rpc::parse_set_canvas(req.params_json, p, e)) return mk_err(e);
-        if (!world.apply_set_canvas(p, e)) return mk_err(e);
+        if (!composer_rpc::parse_set_canvas(req.params_json, p, e))
+            return mk_err(e);
+        if (!world.apply_set_canvas(p, e))
+            return mk_err(e);
         return mk_ok();
     }
     if (req.method == "set_source") {
         composer_rpc::SetSourceRequest p;
         ParseError e;
-        if (!composer_rpc::parse_set_source(req.params_json, p, e)) return mk_err(e);
-        if (!world.apply_set_source(p, e)) return mk_err(e);
+        if (!composer_rpc::parse_set_source(req.params_json, p, e))
+            return mk_err(e);
+        if (!world.apply_set_source(p, e))
+            return mk_err(e);
         return mk_ok();
     }
     if (req.method == "clear_source") {
         composer_rpc::ClearSourceRequest p;
         ParseError e;
-        if (!composer_rpc::parse_clear_source(req.params_json, p, e)) return mk_err(e);
-        if (!world.apply_clear_source(p, e)) return mk_err(e);
+        if (!composer_rpc::parse_clear_source(req.params_json, p, e))
+            return mk_err(e);
+        if (!world.apply_clear_source(p, e))
+            return mk_err(e);
         return mk_ok();
     }
     if (req.method == "set_layout") {
         composer_rpc::SetLayoutRequest p;
         ParseError e;
-        if (!composer_rpc::parse_set_layout(req.params_json, p, e)) return mk_err(e);
-        if (!world.apply_set_layout(p, e)) return mk_err(e);
+        if (!composer_rpc::parse_set_layout(req.params_json, p, e))
+            return mk_err(e);
+        if (!world.apply_set_layout(p, e))
+            return mk_err(e);
         return mk_ok();
     }
     if (req.method == "set_effects") {
         composer_rpc::SetEffectsRequest p;
         ParseError e;
-        if (!composer_rpc::parse_set_effects(req.params_json, p, e)) return mk_err(e);
-        if (!world.apply_set_effects(p, e)) return mk_err(e);
+        if (!composer_rpc::parse_set_effects(req.params_json, p, e))
+            return mk_err(e);
+        if (!world.apply_set_effects(p, e))
+            return mk_err(e);
         return mk_ok();
     }
     if (req.method == "set_source_state") {
         composer_rpc::SetSourceStateRequest p;
         ParseError e;
-        if (!composer_rpc::parse_set_source_state(req.params_json, p, e)) return mk_err(e);
-        if (!world.apply_set_source_state(p, e)) return mk_err(e);
+        if (!composer_rpc::parse_set_source_state(req.params_json, p, e))
+            return mk_err(e);
+        if (!world.apply_set_source_state(p, e))
+            return mk_err(e);
         return mk_ok();
     }
     if (req.method == "shutdown") {
@@ -207,8 +222,8 @@ int main(int argc, char** argv) {
             return dispatch_command(world, req);
         });
         ctl_ptr = &ctl;
-        fprintf(stderr, "ok: control channel target=%s id=%s\n",
-                a.ctl_connect.c_str(), a.composer_id.c_str());
+        fprintf(stderr, "ok: control channel target=%s id=%s\n", a.ctl_connect.c_str(),
+                a.composer_id.c_str());
     } else {
         fprintf(stderr, "WARN: control channel disabled (missing --ctl-connect / --composer-id) — "
                         "composer will render black until SIGINT\n");

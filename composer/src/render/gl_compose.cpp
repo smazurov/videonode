@@ -116,8 +116,8 @@ bool GlCompose::build_program_(std::string_view vs_src, std::string_view fs_src)
     loc_warp_ = glGetUniformLocation(prog_, "u_warp");
     loc_src_y_ = glGetUniformLocation(prog_, "u_src_y");
     loc_src_uv_ = glGetUniformLocation(prog_, "u_src_uv");
-    if (attr_pos_ < 0 || attr_uv_ < 0 || loc_canvas_size_ < 0 || loc_warp_ < 0 ||
-        loc_src_y_ < 0 || loc_src_uv_ < 0) {
+    if (attr_pos_ < 0 || attr_uv_ < 0 || loc_canvas_size_ < 0 || loc_warp_ < 0 || loc_src_y_ < 0 ||
+        loc_src_uv_ < 0) {
         fprintf(stderr, "gl_compose: attribute/uniform location missing\n");
         return false;
     }

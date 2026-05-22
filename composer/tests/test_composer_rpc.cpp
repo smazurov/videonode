@@ -72,8 +72,7 @@ TEST(SetSource, MissingField) {
     composer_rpc::SetSourceRequest r;
     ParseError e;
     EXPECT_FALSE(parse_set_source(
-        R"({"slot":"a","source_id":"hdmi-1","width":1920,"height":1080,"fps":30})",
-        r, e));
+        R"({"slot":"a","source_id":"hdmi-1","width":1920,"height":1080,"fps":30})", r, e));
 }
 
 // ----- clear_source ---------------------------------------------------
@@ -117,16 +116,15 @@ TEST(SetLayout, EmptySlotsArray) {
 TEST(SetLayout, NonPositiveDims) {
     composer_rpc::SetLayoutRequest r;
     ParseError e;
-    EXPECT_FALSE(parse_set_layout(
-        R"({"slots":[{"slot":"a","x":0,"y":0,"w":0,"h":1080}]})", r, e));
+    EXPECT_FALSE(parse_set_layout(R"({"slots":[{"slot":"a","x":0,"y":0,"w":0,"h":1080}]})", r, e));
 }
 
 TEST(SetLayout, NegativeOffsetOk) {
     // x/y signed — negative is valid (off-canvas slots).
     composer_rpc::SetLayoutRequest r;
     ParseError e;
-    ASSERT_TRUE(parse_set_layout(
-        R"({"slots":[{"slot":"a","x":-50,"y":-100,"w":960,"h":1080}]})", r, e));
+    ASSERT_TRUE(
+        parse_set_layout(R"({"slots":[{"slot":"a","x":-50,"y":-100,"w":960,"h":1080}]})", r, e));
     EXPECT_EQ(-50, r.slots[0].x);
     EXPECT_EQ(-100, r.slots[0].y);
 }
@@ -168,8 +166,7 @@ TEST(SetEffects, UnknownTypeMarkedUnrecognized) {
     composer_rpc::SetEffectsRequest r;
     ParseError e;
     ASSERT_TRUE(parse_set_effects(
-        R"({"source_id":"hdmi-1","effects":[{"type":"crop","rect":[0,0,100,100]}]})",
-        r, e));
+        R"({"source_id":"hdmi-1","effects":[{"type":"crop","rect":[0,0,100,100]}]})", r, e));
     ASSERT_EQ(1u, r.effects.size());
     EXPECT_EQ("crop", r.effects[0].type);
     EXPECT_FALSE(r.effects[0].recognized);

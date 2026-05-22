@@ -102,7 +102,8 @@ TEST(DmabufMsg, RejectsMalformed) {
     std::string err;
     EXPECT_FALSE(DecodeFrameNotification("", h, &err));
     EXPECT_FALSE(DecodeFrameNotification("{not json}", h, &err));
-    EXPECT_FALSE(DecodeFrameNotification(R"({"jsonrpc":"2.0","method":"frame","params":{"slot_index":)", h, &err));
+    EXPECT_FALSE(DecodeFrameNotification(
+        R"({"jsonrpc":"2.0","method":"frame","params":{"slot_index":)", h, &err));
     // Missing planes entirely.
     EXPECT_FALSE(DecodeFrameNotification(
         R"({"jsonrpc":"2.0","method":"frame","params":{"slot_index":0,"width":1,"height":1,"format":"NV12","plane_pitches":[],"plane_offsets":[],"frame_idx":0}})",
@@ -159,8 +160,11 @@ TEST(DmabufMsg, EscapesInFormatString) {
 TEST(DmabufMsg, LargeFrameIdxRoundtrip) {
     // frame_idx is uint64_t — verify the full range round-trips.
     Header h;
-    h.width = 1; h.height = 1; h.format = "NV12";
-    h.plane_pitches = {1}; h.plane_offsets = {0};
+    h.width = 1;
+    h.height = 1;
+    h.format = "NV12";
+    h.plane_pitches = {1};
+    h.plane_offsets = {0};
     h.frame_idx = 18446744073709551615ULL; // UINT64_MAX
     std::string s = EncodeFrameNotification(h);
     Header back;
@@ -172,7 +176,9 @@ TEST(DmabufMsg, NonzeroOffsetsMultiPlane) {
     // Real NV12 layout — chroma offset is width*height past Y plane.
     Header h;
     h.slot_index = 0;
-    h.width = 1920; h.height = 1080; h.format = "NV12";
+    h.width = 1920;
+    h.height = 1080;
+    h.format = "NV12";
     h.plane_pitches = {1920, 1920};
     h.plane_offsets = {0, 1920 * 1080};
     h.frame_idx = 1;
@@ -186,8 +192,11 @@ TEST(DmabufMsg, NonNv12FormatRoundtrip) {
     // Future-proof: BGR3 / YUYV / etc. all just strings.
     for (const char* fmt : {"BGR3", "YUYV", "UYVY", "NV16", "NV24"}) {
         Header h;
-        h.width = 16; h.height = 16; h.format = fmt;
-        h.plane_pitches = {32}; h.plane_offsets = {0};
+        h.width = 16;
+        h.height = 16;
+        h.format = fmt;
+        h.plane_pitches = {32};
+        h.plane_offsets = {0};
         h.frame_idx = 1;
         std::string s = EncodeFrameNotification(h);
         Header back;

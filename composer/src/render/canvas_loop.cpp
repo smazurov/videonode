@@ -42,8 +42,7 @@ struct SourceImagePair {
     EGLImage uv = EGL_NO_IMAGE;
 };
 
-SourceImagePair import_frame_(const egl_ctx::EglCtx& ctx,
-                              const scm_rights_source::FrameView& v) {
+SourceImagePair import_frame_(const egl_ctx::EglCtx& ctx, const scm_rights_source::FrameView& v) {
     SourceImagePair p;
     if (v.fd < 0 || v.plane1_fd < 0 || v.width <= 0 || v.height <= 0)
         return p;
@@ -128,21 +127,21 @@ void reconcile_sources_(std::map<std::string, LiveSource>& live,
         p.socket_path = b.scm_path;
         p.dial = true; // composer is the consumer
         if (!s->init(p)) {
-            fprintf(stderr, "canvas_loop: init slot %s (%s) failed\n",
-                    b.slot.c_str(), b.scm_path.c_str());
+            fprintf(stderr, "canvas_loop: init slot %s (%s) failed\n", b.slot.c_str(),
+                    b.scm_path.c_str());
             continue;
         }
         if (!s->start()) {
-            fprintf(stderr, "canvas_loop: start slot %s (%s) failed\n",
-                    b.slot.c_str(), b.scm_path.c_str());
+            fprintf(stderr, "canvas_loop: start slot %s (%s) failed\n", b.slot.c_str(),
+                    b.scm_path.c_str());
             continue;
         }
         LiveSource ls;
         ls.src = std::move(s);
         ls.scm_path = b.scm_path;
         live[b.slot] = std::move(ls);
-        fprintf(stderr, "canvas_loop: dialed slot %s -> %s (%s)\n",
-                b.slot.c_str(), b.source_id.c_str(), b.scm_path.c_str());
+        fprintf(stderr, "canvas_loop: dialed slot %s -> %s (%s)\n", b.slot.c_str(),
+                b.source_id.c_str(), b.scm_path.c_str());
     }
 }
 
@@ -163,12 +162,8 @@ bool write_black_canvas_(int w, int h) {
 
 } // namespace
 
-int RunCanvasLoop(egl_ctx::EglCtx& ctx,
-                  World& world,
-                  control_channel::ControlChannel* ctl,
-                  int target_fps,
-                  int run_seconds,
-                  std::atomic<bool>& running) {
+int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, control_channel::ControlChannel* ctl,
+                  int target_fps, int run_seconds, std::atomic<bool>& running) {
     auto start = std::chrono::steady_clock::now();
     int frames_rendered = 0;
 
@@ -192,8 +187,7 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx,
     };
 
     auto period = [&](int fps) {
-        return std::chrono::nanoseconds(fps > 0 ? 1'000'000'000LL / fps
-                                                : 1'000'000'000LL / 30);
+        return std::chrono::nanoseconds(fps > 0 ? 1'000'000'000LL / fps : 1'000'000'000LL / 30);
     };
 
     auto next_tick = std::chrono::steady_clock::now();
@@ -214,9 +208,12 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx,
             ctl->add_to_poll(pset);
             if (!pset.empty()) {
                 auto until = next_tick - std::chrono::steady_clock::now();
-                int timeout_ms = int(std::chrono::duration_cast<std::chrono::milliseconds>(until).count());
-                if (timeout_ms < 0) timeout_ms = 0;
-                if (timeout_ms > 100) timeout_ms = 100;
+                int timeout_ms =
+                    int(std::chrono::duration_cast<std::chrono::milliseconds>(until).count());
+                if (timeout_ms < 0)
+                    timeout_ms = 0;
+                if (timeout_ms > 100)
+                    timeout_ms = 100;
                 int pr = ::poll(pset.data(), pset.size(), timeout_ms);
                 if (pr > 0)
                     ctl->handle_events(pset[0].revents);
@@ -246,16 +243,16 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx,
         if (!compose) {
             compose = std::make_unique<gl_compose::GlCompose>();
             if (!compose->init(ctx, int(snap.canvas_w), int(snap.canvas_h))) {
-                fprintf(stderr, "canvas_loop: gl_compose init %dx%d failed\n",
-                        int(snap.canvas_w), int(snap.canvas_h));
+                fprintf(stderr, "canvas_loop: gl_compose init %dx%d failed\n", int(snap.canvas_w),
+                        int(snap.canvas_h));
                 compose.reset();
                 next_tick += period(target_fps);
                 continue;
             }
             compose_w = int(snap.canvas_w);
             compose_h = int(snap.canvas_h);
-            fprintf(stderr, "canvas_loop: ready canvas %dx%d (%u fps)\n",
-                    compose_w, compose_h, snap.canvas_fps);
+            fprintf(stderr, "canvas_loop: ready canvas %dx%d (%u fps)\n", compose_w, compose_h,
+                    snap.canvas_fps);
         } else if (int(snap.canvas_w) != compose_w || int(snap.canvas_h) != compose_h) {
             // MVP STUB: canvas dim change mid-stream not supported. Log once.
             static bool warned = false;
@@ -303,9 +300,15 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx,
             if (sit != snap.source_states.end()) {
                 const auto& ss = sit->second;
                 if (ss.state != "placeholder" && ss.has_perspective) {
-                    s.warp.m[0] = ss.warp[0]; s.warp.m[1] = ss.warp[1]; s.warp.m[2] = ss.warp[2];
-                    s.warp.m[3] = ss.warp[3]; s.warp.m[4] = ss.warp[4]; s.warp.m[5] = ss.warp[5];
-                    s.warp.m[6] = ss.warp[6]; s.warp.m[7] = ss.warp[7]; s.warp.m[8] = ss.warp[8];
+                    s.warp.m[0] = ss.warp[0];
+                    s.warp.m[1] = ss.warp[1];
+                    s.warp.m[2] = ss.warp[2];
+                    s.warp.m[3] = ss.warp[3];
+                    s.warp.m[4] = ss.warp[4];
+                    s.warp.m[5] = ss.warp[5];
+                    s.warp.m[6] = ss.warp[6];
+                    s.warp.m[7] = ss.warp[7];
+                    s.warp.m[8] = ss.warp[8];
                 }
                 // else: identity (struct default)
             }
@@ -337,13 +340,11 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx,
         size_t bytes_per_frame = size_t(compose_w) * compose_h * 4;
         if (map_stride == uint32_t(compose_w) * 4) {
             write_ok = write_full_(
-                STDOUT_FILENO,
-                std::span(static_cast<const uint8_t*>(canvas_map), bytes_per_frame));
+                STDOUT_FILENO, std::span(static_cast<const uint8_t*>(canvas_map), bytes_per_frame));
         } else {
             for (int y = 0; y < compose_h && write_ok; ++y) {
                 const uint8_t* row = static_cast<const uint8_t*>(canvas_map) + y * map_stride;
-                if (!write_full_(STDOUT_FILENO,
-                                 std::span(row, size_t(compose_w) * 4)))
+                if (!write_full_(STDOUT_FILENO, std::span(row, size_t(compose_w) * 4)))
                     write_ok = false;
             }
         }

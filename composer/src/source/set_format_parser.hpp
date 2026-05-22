@@ -47,8 +47,7 @@ struct SetFormatError {
 // up against v4l2_pix_fmt_ in source/capture_session.hpp and return
 // -32000 "unsupported fourcc" on miss). Kept out of the parser to avoid
 // a source/ → capture/ dep cycle.
-[[nodiscard]] bool parse_set_format(std::string_view params_json,
-                                    SetFormatRequest& out,
+[[nodiscard]] bool parse_set_format(std::string_view params_json, SetFormatRequest& out,
                                     SetFormatError& err);
 
 } // namespace source

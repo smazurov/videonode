@@ -18,7 +18,7 @@ composer_rpc::SetCanvasRequest canvas(uint32_t w, uint32_t h, uint32_t fps) {
 }
 
 composer_rpc::SetSourceRequest source(const char* slot, const char* sid, const char* path,
-                                       uint32_t w = 1920, uint32_t h = 1080, uint32_t fps = 30) {
+                                      uint32_t w = 1920, uint32_t h = 1080, uint32_t fps = 30) {
     composer_rpc::SetSourceRequest r;
     r.slot = slot;
     r.source_id = sid;
@@ -29,7 +29,8 @@ composer_rpc::SetSourceRequest source(const char* slot, const char* sid, const c
     return r;
 }
 
-composer_rpc::SetLayoutRequest layout_one(const char* slot, int32_t x, int32_t y, int32_t w, int32_t h) {
+composer_rpc::SetLayoutRequest layout_one(const char* slot, int32_t x, int32_t y, int32_t w,
+                                          int32_t h) {
     composer_rpc::SetLayoutRequest r;
     composer_rpc::LayoutSlot ls;
     ls.slot = slot;
@@ -41,16 +42,16 @@ composer_rpc::SetLayoutRequest layout_one(const char* slot, int32_t x, int32_t y
     return r;
 }
 
-composer_rpc::SetEffectsRequest perspective_effect(const char* sid,
-                                                    int corners[8],
-                                                    int snap_w, int snap_h) {
+composer_rpc::SetEffectsRequest perspective_effect(const char* sid, int corners[8], int snap_w,
+                                                   int snap_h) {
     composer_rpc::SetEffectsRequest r;
     r.source_id = sid;
     composer_rpc::Effect e;
     e.type = "perspective";
     e.recognized = true;
     composer_rpc::PerspectiveEffectParams p{};
-    for (int i = 0; i < 8; ++i) p.corners[i] = corners[i];
+    for (int i = 0; i < 8; ++i)
+        p.corners[i] = corners[i];
     p.snapshot_w = snap_w;
     p.snapshot_h = snap_h;
     e.perspective = p;
@@ -131,8 +132,16 @@ TEST(World, SetLayoutReplacesEntirely) {
 
     composer_rpc::SetLayoutRequest l2;
     composer_rpc::LayoutSlot a, b;
-    a.slot = "a"; a.x = 0; a.y = 0; a.w = 480; a.h = 1080;
-    b.slot = "b"; b.x = 480; b.y = 0; b.w = 1440; b.h = 1080;
+    a.slot = "a";
+    a.x = 0;
+    a.y = 0;
+    a.w = 480;
+    a.h = 1080;
+    b.slot = "b";
+    b.x = 480;
+    b.y = 0;
+    b.w = 1440;
+    b.h = 1080;
     l2.slots = {a, b};
     ASSERT_TRUE(w.apply_set_layout(l2, e));
     auto s2 = w.snapshot();
@@ -150,7 +159,7 @@ TEST(World, SetEffectsSolvesPerspective) {
     EXPECT_TRUE(it->second.has_perspective);
     // warp is not identity if perspective was solved
     bool any_off_diagonal = (it->second.warp[1] != 0.0f || it->second.warp[3] != 0.0f ||
-                              it->second.warp[6] != 0.0f || it->second.warp[7] != 0.0f);
+                             it->second.warp[6] != 0.0f || it->second.warp[7] != 0.0f);
     EXPECT_TRUE(any_off_diagonal);
 }
 

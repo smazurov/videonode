@@ -90,8 +90,8 @@ size_t parse_string(std::string_view s, size_t p, std::string& out) {
                 int h3 = hex_nibble(s[p + 5]);
                 if (h0 < 0 || h1 < 0 || h2 < 0 || h3 < 0)
                     return std::string::npos;
-                unsigned cp = (unsigned(h0) << 12) | (unsigned(h1) << 8) |
-                              (unsigned(h2) << 4) | unsigned(h3);
+                unsigned cp =
+                    (unsigned(h0) << 12) | (unsigned(h1) << 8) | (unsigned(h2) << 4) | unsigned(h3);
                 // Surrogate-pair handling: high surrogate (D800-DBFF) must
                 // be followed by a low surrogate (DC00-DFFF).
                 if (cp >= 0xd800 && cp <= 0xdbff && p + 12 <= s.size() && s[p + 6] == '\\' &&
