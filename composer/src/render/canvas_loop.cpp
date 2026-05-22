@@ -5,7 +5,6 @@
 #include "src/render/gbm_alloc.hpp"
 #include "src/render/gl_compose.hpp"
 #include "src/render/world.hpp"
-#include "src/rpc/control_channel.hpp"
 
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
@@ -162,8 +161,8 @@ bool write_black_canvas_(int w, int h) {
 
 } // namespace
 
-int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, control_channel::ControlChannel* ctl,
-                  int target_fps, int run_seconds, std::atomic<bool>& running) {
+int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
+                  std::atomic<bool>& running) {
     auto start = std::chrono::steady_clock::now();
     int frames_rendered = 0;
 
@@ -197,32 +196,10 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, control_channel::ControlCh
             std::chrono::steady_clock::now() - start > std::chrono::seconds(run_seconds))
             break;
 
-        if (ctl) {
-            // Drain any pending control messages with a poll bounded by
-            // time-to-next-frame. The handlers update World; we re-read it
-            // below. The composer's poll set is just the ctl fd today;
-            // ScmRightsSource has its own reader thread so its fds don't
-            // belong here.
-            ctl->maintain();
-            std::vector<pollfd> pset;
-            ctl->add_to_poll(pset);
-            if (!pset.empty()) {
-                auto until = next_tick - std::chrono::steady_clock::now();
-                int timeout_ms =
-                    int(std::chrono::duration_cast<std::chrono::milliseconds>(until).count());
-                if (timeout_ms < 0)
-                    timeout_ms = 0;
-                if (timeout_ms > 100)
-                    timeout_ms = 100;
-                int pr = ::poll(pset.data(), pset.size(), timeout_ms);
-                if (pr > 0)
-                    ctl->handle_events(pset[0].revents);
-            } else {
-                std::this_thread::sleep_until(next_tick);
-            }
-        } else {
-            std::this_thread::sleep_until(next_tick);
-        }
+        // Control plane runs on its own thread (nativerpc::GrpcServer);
+        // the canvas loop just snapshots World after sleeping to next
+        // tick. No poll multiplexing here.
+        std::this_thread::sleep_until(next_tick);
 
         Snapshot snap = world.snapshot();
 

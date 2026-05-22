@@ -27,13 +27,6 @@ void broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec
 void broadcast_buffer(scm_rights_producer::ScmRightsProducer& prod, const nv12_buf::Buffer& b,
                       uint64_t frame_idx);
 
-// Serialize the full status snapshot as a JSON object suitable for use
-// as the `params` of a JSON-RPC `status` notification.
-std::string build_status_params(const std::string& device_id, source_probe::SourceProbe& probe,
-                                source_probe::Health h, const CaptureSession& cap, const Args& a,
-                                uint64_t real_frame_idx, uint64_t placeholder_frames,
-                                uint32_t last_seq, scm_rights_producer::ScmRightsProducer& prod);
-
 } // namespace source
 
 // Forward decl avoids dragging the heavy grpc + protobuf headers into
@@ -48,8 +41,10 @@ struct LatestFrame;
 
 namespace source {
 
-// Populate a Status proto with the same shape as build_status_params.
-// Used by the gRPC control plane in parallel with the JSON one.
+// Populate a Status proto from the current capture / probe / broadcast
+// state. Called by the orchestrator on health change, consumer-count
+// change, or once per second as a heartbeat; the gRPC StreamStatus
+// subscribers receive each published Status.
 void build_status_proto(::videonode::control::Status& out, const std::string& device_id,
                         source_probe::SourceProbe& probe, source_probe::Health h,
                         const CaptureSession& cap, const Args& a, uint64_t real_frame_idx,
