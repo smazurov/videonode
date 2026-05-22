@@ -1,9 +1,11 @@
 videonode
 .vscode/
-.claude/
-# Skills and shared infrastructure are committed; only session/runtime state is ignored.
-!.claude/skills/
-!.claude/skills/**
+# .claude/ session + runtime state is ignored; skills/ is committed.
+# Listing children explicitly because git can't re-include a path once
+# its parent is ignored.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
 vendor/
 tmp/
 .env
