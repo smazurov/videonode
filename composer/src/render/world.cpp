@@ -9,6 +9,14 @@ namespace {
 constexpr int kInvalidParams = -32602;
 constexpr int kSemanticError = -32000;
 
+// Input bounds, matched to the deleted composer_rpc.cpp parsers so the
+// gRPC handlers reject the same garbage the JSON-RPC parsers did. The
+// upper bounds are intentionally generous — they catch obvious abuse
+// (zero dims, gigabyte textures, runaway fps) without constraining real
+// content (4K @ 240 fps fits comfortably).
+constexpr uint32_t kMaxDim = 16384;
+constexpr uint32_t kMaxFps = 240;
+
 bool fail(composer_rpc::ParseError& err, int code, const char* msg) {
     err.code = code;
     err.message = msg;
@@ -60,17 +68,34 @@ bool recompute_warp(SourceState& ss, composer_rpc::ParseError& err) {
 
 bool World::apply_set_canvas(const composer_rpc::SetCanvasRequest& r,
                              composer_rpc::ParseError& err) {
+    if (r.w == 0 || r.h == 0)
+        return fail(err, kInvalidParams, "set_canvas: w/h must be > 0");
+    if (r.w > kMaxDim || r.h > kMaxDim)
+        return fail(err, kInvalidParams, "set_canvas: w/h exceed 16384");
+    if (r.fps == 0 || r.fps > kMaxFps)
+        return fail(err, kInvalidParams, "set_canvas: fps must be in 1..240");
     std::lock_guard<std::mutex> g(mu_);
     canvas_w_ = r.w;
     canvas_h_ = r.h;
     canvas_fps_ = r.fps;
     got_canvas_ = true;
-    (void)err;
     return true;
 }
 
 bool World::apply_set_source(const composer_rpc::SetSourceRequest& r,
                              composer_rpc::ParseError& err) {
+    if (r.slot.empty())
+        return fail(err, kInvalidParams, "set_source: slot must be non-empty");
+    if (r.source_id.empty())
+        return fail(err, kInvalidParams, "set_source: source_id must be non-empty");
+    if (r.scm_path.empty())
+        return fail(err, kInvalidParams, "set_source: scm_path must be non-empty");
+    if (r.width == 0 || r.height == 0)
+        return fail(err, kInvalidParams, "set_source: width/height must be > 0");
+    if (r.width > kMaxDim || r.height > kMaxDim)
+        return fail(err, kInvalidParams, "set_source: width/height exceed 16384");
+    if (r.fps > kMaxFps)
+        return fail(err, kInvalidParams, "set_source: fps exceeds 240");
     std::lock_guard<std::mutex> g(mu_);
     SlotBinding b{};
     b.slot = r.slot;
@@ -83,12 +108,13 @@ bool World::apply_set_source(const composer_rpc::SetSourceRequest& r,
     // Touch the source-state so it exists when set_effects / set_source_state
     // arrive (or has already arrived in the other order).
     (void)touch_source_state(source_states_, r.source_id);
-    (void)err;
     return true;
 }
 
 bool World::apply_clear_source(const composer_rpc::ClearSourceRequest& r,
                                composer_rpc::ParseError& err) {
+    if (r.slot.empty())
+        return fail(err, kInvalidParams, "clear_source: slot must be non-empty");
     std::lock_guard<std::mutex> g(mu_);
     auto it = slots_.find(r.slot);
     if (it == slots_.end())
@@ -102,6 +128,16 @@ bool World::apply_clear_source(const composer_rpc::ClearSourceRequest& r,
 
 bool World::apply_set_layout(const composer_rpc::SetLayoutRequest& r,
                              composer_rpc::ParseError& err) {
+    // Validate the whole list before touching layout_ so a partial
+    // apply doesn't leave the composer in a half-updated state.
+    for (const auto& ls : r.slots) {
+        if (ls.slot.empty())
+            return fail(err, kInvalidParams, "set_layout: empty slot name");
+        if (ls.w <= 0 || ls.h <= 0)
+            return fail(err, kInvalidParams, "set_layout: w/h must be > 0");
+        if (ls.w > int32_t(kMaxDim) || ls.h > int32_t(kMaxDim))
+            return fail(err, kInvalidParams, "set_layout: w/h exceed 16384");
+    }
     std::lock_guard<std::mutex> g(mu_);
     layout_.clear();
     for (const auto& ls : r.slots) {
@@ -113,12 +149,13 @@ bool World::apply_set_layout(const composer_rpc::SetLayoutRequest& r,
         rect.h = ls.h;
         layout_[ls.slot] = std::move(rect);
     }
-    (void)err;
     return true;
 }
 
 bool World::apply_set_effects(const composer_rpc::SetEffectsRequest& r,
                               composer_rpc::ParseError& err) {
+    if (r.source_id.empty())
+        return fail(err, kInvalidParams, "set_effects: source_id must be non-empty");
     std::lock_guard<std::mutex> g(mu_);
     auto& ss = touch_source_state(source_states_, r.source_id);
     ss.effects = r.effects;
@@ -127,10 +164,14 @@ bool World::apply_set_effects(const composer_rpc::SetEffectsRequest& r,
 
 bool World::apply_set_source_state(const composer_rpc::SetSourceStateRequest& r,
                                    composer_rpc::ParseError& err) {
+    if (r.source_id.empty())
+        return fail(err, kInvalidParams, "set_source_state: source_id must be non-empty");
+    if (r.state != "live" && r.state != "transitioning" && r.state != "placeholder")
+        return fail(err, kInvalidParams,
+                    "set_source_state: state must be live|transitioning|placeholder");
     std::lock_guard<std::mutex> g(mu_);
     auto& ss = touch_source_state(source_states_, r.source_id);
     ss.state = r.state;
-    (void)err;
     return true;
 }
 

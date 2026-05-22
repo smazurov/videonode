@@ -152,6 +152,10 @@ func (pm *ProducerManager) Acquire(spec ProducerSpec) (*ProducerHandle, error) {
 		refcount:   1,
 	}
 	pm.entries[spec.DeviceID] = entry
+	// Snapshot the control manager under the same lock that
+	// SetControlManager writes it; subsequent reads in this function
+	// use the local copy so go test -race doesn't flag the field.
+	mgr := pm.controlManager
 	pm.mu.Unlock()
 
 	// Best-effort socket cleanup from a prior run; sidecar also rm -f's on start.
@@ -160,7 +164,7 @@ func (pm *ProducerManager) Acquire(spec ProducerSpec) (*ProducerHandle, error) {
 	// Ensure the per-instance gRPC UDS parent exists before spawn so the
 	// native binary can bind. Failure here is fatal — without the dir
 	// the source would crash on bind.
-	if pm.controlManager != nil {
+	if mgr != nil {
 		grpcPath := GrpcSocketPathFor("source", spec.DeviceID)
 		if err := os.MkdirAll(filepath.Dir(grpcPath), 0o755); err != nil {
 			pm.mu.Lock()
@@ -187,14 +191,14 @@ func (pm *ProducerManager) Acquire(spec ProducerSpec) (*ProducerHandle, error) {
 	// the control manager. A failure to register is non-fatal: the data
 	// plane still works (Acquire returns success), but daemon-issued
 	// SetFormat / Snapshot / status fan-out won't work for this source.
-	if pm.controlManager != nil {
+	if mgr != nil {
 		grpcPath := GrpcSocketPathFor("source", spec.DeviceID)
 		if err := waitForSocket(grpcPath, socketReadyTimeout); err != nil {
 			pm.logger.Warn("producer Acquire: grpc socket not ready",
 				"device_id", spec.DeviceID, "uds", grpcPath, "error", err)
 		} else {
 			regCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if err := pm.controlManager.RegisterSource(regCtx, spec.DeviceID, grpcPath); err != nil {
+			if err := mgr.RegisterSource(regCtx, spec.DeviceID, grpcPath); err != nil {
 				pm.logger.Warn("producer Acquire: control register failed",
 					"device_id", spec.DeviceID, "uds", grpcPath, "error", err)
 			}
