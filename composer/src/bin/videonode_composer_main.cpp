@@ -19,17 +19,21 @@
 // the downstream pipe stays alive.
 
 #include "src/render/canvas_loop.hpp"
+#include "src/render/composer_service.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/render/world.hpp"
 #include "src/rpc/composer_rpc.hpp"
 #include "src/rpc/control_channel.hpp"
+#include "src/rpc/grpc_server.hpp"
 #include "version.hpp"
 
 #include <atomic>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -42,6 +46,9 @@ struct Args {
     std::string drm_device = "/dev/dri/renderD128";
     std::string ctl_connect; // empty = control plane disabled (diagnostic mode)
     std::string composer_id;
+    // gRPC control plane: when set, composer binds a gRPC server here.
+    // Empty = no gRPC server (parallel to ctl_connect for the cutover).
+    std::string grpc_listen;
     int run_seconds = 0; // 0 = until SIGINT / stdout EPIPE
     int target_fps = 30; // pre-ready tick rate; once ready, snapshot.canvas_fps wins
 };
@@ -184,6 +191,8 @@ int main(int argc, char** argv) {
             i = eat_str(i, a.ctl_connect);
         else if (s == "--composer-id")
             i = eat_str(i, a.composer_id);
+        else if (s == "--grpc-listen")
+            i = eat_str(i, a.grpc_listen);
         else if (s == "--seconds")
             i = eat_int(i, a.run_seconds);
         else if (s == "--target-fps")
@@ -210,10 +219,30 @@ int main(int argc, char** argv) {
 
     render::World world;
 
-    // Control channel is optional. Without it, composer renders black
-    // forever — useful only for diagnostic smoke-tests. With --ctl-connect
-    // + --composer-id, we dial the daemon, identify, and let it push the
-    // runtime configuration.
+    // Control channel is optional. Two parallel paths live alongside
+    // until the JSON-RPC code is deleted in a later commit:
+    //   --grpc-listen  → run a gRPC server on the given UDS (new)
+    //   --ctl-connect  → dial the daemon over JSON-RPC (legacy)
+    // Either / both / neither may be set; standalone (neither) renders
+    // black until SIGINT.
+    nativerpc::GrpcServer grpc_srv;
+    std::unique_ptr<nativerpc::ComposerService> grpc_svc;
+    if (!a.grpc_listen.empty() && !a.composer_id.empty()) {
+        nativerpc::ComposerContext gctx;
+        gctx.world = &world;
+        gctx.running = &g_running;
+        gctx.composer_id = a.composer_id;
+        gctx.version = vn::kVersion;
+        grpc_svc = std::make_unique<nativerpc::ComposerService>(std::move(gctx));
+        std::vector<grpc::Service*> services = {grpc_svc.get()};
+        if (!grpc_srv.Start(a.grpc_listen, services)) {
+            fprintf(stderr, "FATAL: gRPC server failed to start on %s\n", a.grpc_listen.c_str());
+            return 1;
+        }
+        fprintf(stderr, "ok: grpc server listening on %s id=%s\n", a.grpc_listen.c_str(),
+                a.composer_id.c_str());
+    }
+
     control_channel::ControlChannel ctl;
     control_channel::ControlChannel* ctl_ptr = nullptr;
     if (!a.ctl_connect.empty() && !a.composer_id.empty()) {
@@ -224,12 +253,14 @@ int main(int argc, char** argv) {
         ctl_ptr = &ctl;
         fprintf(stderr, "ok: control channel target=%s id=%s\n", a.ctl_connect.c_str(),
                 a.composer_id.c_str());
-    } else {
-        fprintf(stderr, "WARN: control channel disabled (missing --ctl-connect / --composer-id) — "
+    } else if (a.grpc_listen.empty()) {
+        fprintf(stderr, "WARN: control channel disabled (missing --grpc-listen / --ctl-connect) — "
                         "composer will render black until SIGINT\n");
     }
 
     int frames = render::RunCanvasLoop(ctx, world, ctl_ptr, a.target_fps, a.run_seconds, g_running);
+
+    grpc_srv.Shutdown();
 
     fprintf(stderr, "PASS: %d frames composed\n", frames);
     return 0;

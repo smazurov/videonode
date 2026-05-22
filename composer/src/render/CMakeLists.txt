@@ -20,6 +20,13 @@ vn_add_library(world
     SOURCES world.cpp
     PUBLIC_DEPS composer_rpc homography)
 
+# composer_service: gRPC service impl for videonode.control.Composer.
+# Translates proto requests into composer_rpc structs and forwards to
+# World::apply_*. Daemon dials in over the per-instance UDS.
+vn_add_library(composer_service
+    SOURCES composer_service.cpp
+    PUBLIC_DEPS world vn_proto grpc_server)
+
 # nv12_buf: backend-agnostic NV12 output buffer abstraction used by
 # videonode-source. dma_heap single-buffer when HAVE_RGA (rig path); GBM
 # split-buffer when HAVE_GBM and not HAVE_RGA (Fedora / Mesa hosts).

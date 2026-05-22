@@ -25,6 +25,10 @@ struct Args {
     // standalone runs from the smoke script / dev shell).
     std::string ctl_connect;
     std::string device_id;
+    // gRPC control plane: when set, videonode-source binds a gRPC server
+    // on this UDS and the daemon dials in (replaces ctl_connect after
+    // the full cutover). Empty = no gRPC server.
+    std::string grpc_listen;
     // DRM render node used by the GBM allocator on Fedora / Mesa hosts.
     // Ignored when HAVE_RGA is on (rig uses dma_heap; no GBM needed).
     std::string alloc_drm_device = "/dev/dri/renderD128";
