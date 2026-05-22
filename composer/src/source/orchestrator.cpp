@@ -20,14 +20,17 @@
 
 #include "src/source/orchestrator.hpp"
 
+#include "control/common.pb.h"
 #include "src/capture/source_probe.hpp"
 #include "src/render/nv12_buf.hpp"
 #include "src/render/placeholder_painter.hpp"
 #include "src/rpc/control_channel.hpp"
+#include "src/rpc/grpc_server.hpp"
 #include "src/rpc/jsonrpc_msg.hpp"
 #include "src/source/set_format_parser.hpp"
 #include "src/source/broadcast.hpp"
 #include "src/source/capture_session.hpp"
+#include "src/source/source_service.hpp"
 #include "version.hpp"
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
 #include "src/render/csc_gles.hpp"
@@ -216,6 +219,11 @@ bool parse_args(int argc, char** argv, Args& a) {
             if (!v)
                 return false;
             a.device_id = v;
+        } else if (s == "--grpc-listen") {
+            const char* v = eat(i);
+            if (!v)
+                return false;
+            a.grpc_listen = v;
         } else if (s == "-h" || s == "--help") {
             print_help(a);
             exit(0);
@@ -290,12 +298,37 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         fprintf(stderr, "videonode-source: capture not ready at startup\n");
     }
 
-    // Control plane: dial the daemon if --ctl-connect was provided.
-    // Without it, the sidecar runs standalone (e.g. from smoke scripts)
-    // with no command/status channel.
+    // Control plane: two parallel paths during the cutover.
+    //   --grpc-listen → run a gRPC server on this UDS (new)
+    //   --ctl-connect → dial the daemon over JSON-RPC (legacy)
+    // Both / either / neither may be set. Standalone (neither) keeps the
+    // R-smoke scenarios working.
+    bool need_reinit_for_format_change = false;
+
+    nativerpc::SourceContext gctx;
+    gctx.device_id = a.device_id;
+    gctx.version = vn::kVersion;
+    gctx.running = &running;
+    gctx.args = &a;
+    gctx.need_reinit_for_format_change = &need_reinit_for_format_change;
+    gctx.probe = &probe;
+    nativerpc::SourceService grpc_svc(&gctx);
+    nativerpc::GrpcServer grpc_srv;
+    bool grpc_enabled = !a.grpc_listen.empty() && !a.device_id.empty();
+    if (grpc_enabled) {
+        std::vector<grpc::Service*> services = {&grpc_svc};
+        if (!grpc_srv.Start(a.grpc_listen, services)) {
+            fprintf(stderr, "videonode-source: gRPC server failed to start on %s\n",
+                    a.grpc_listen.c_str());
+            grpc_enabled = false;
+        } else {
+            fprintf(stderr, "videonode-source: grpc server listening on %s (id=%s)\n",
+                    a.grpc_listen.c_str(), a.device_id.c_str());
+        }
+    }
+
     control_channel::ControlChannel ctl;
     bool ctl_enabled = !a.ctl_connect.empty() && !a.device_id.empty();
-    bool need_reinit_for_format_change = false;
     if (ctl_enabled) {
         ctl.init(a.ctl_connect, a.device_id, vn::kVersion);
         ctl.set_command_handler(
@@ -510,6 +543,12 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                         if (ok) {
                             ++real_frame_idx;
                             broadcast_nv12(prod, decoded, real_frame_idx);
+                            if (grpc_enabled) {
+                                nativerpc::LatestFrame lf;
+                                if (snapshot_nv12_from_decoded(decoded, real_frame_idx, lf)) {
+                                    grpc_svc.UpdateLastFrame(std::move(lf));
+                                }
+                            }
                             last_good_decoded = decoded;
                             // Push the next-broadcast forward so a real
                             // frame's broadcast counts as the tick.
@@ -555,16 +594,25 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
 
         // Control-plane status push: on health change, on consumer-count
         // change, or every ~1s as a heartbeat. Drop-on-EAGAIN so a slow
-        // daemon can't deadlock the broadcast loop.
-        if (ctl_enabled && ctl.connected()) {
+        // daemon can't deadlock the broadcast loop. We mirror the push to
+        // the gRPC StreamStatus subscribers when the gRPC server is up.
+        if ((ctl_enabled && ctl.connected()) || grpc_enabled) {
             int cur_consumers = prod.consumer_count();
             bool consumers_changed = (cur_consumers != prev_consumer_count);
             bool heartbeat_due = clock::now() >= next_status_heartbeat;
             if (health_changed || consumers_changed || heartbeat_due) {
-                std::string params =
-                    build_status_params(a.device_id, probe, h, cap, a, real_frame_idx, ph.tick_idx,
-                                        last_dqbuf_seq, prod);
-                ctl.push_status(params);
+                if (ctl_enabled && ctl.connected()) {
+                    std::string params = build_status_params(a.device_id, probe, h, cap, a,
+                                                             real_frame_idx, ph.tick_idx,
+                                                             last_dqbuf_seq, prod);
+                    ctl.push_status(params);
+                }
+                if (grpc_enabled) {
+                    videonode::control::Status sp;
+                    build_status_proto(sp, a.device_id, probe, h, cap, a, real_frame_idx,
+                                       ph.tick_idx, last_dqbuf_seq, prod);
+                    grpc_svc.PublishStatus(sp);
+                }
                 prev_consumer_count = cur_consumers;
                 next_status_heartbeat = clock::now() + std::chrono::seconds(1);
             }
@@ -586,10 +634,22 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
             // Re-broadcast last good real frame with fresh sequence.
             ++real_frame_idx;
             broadcast_nv12(prod, last_good_decoded, real_frame_idx);
+            if (grpc_enabled) {
+                nativerpc::LatestFrame lf;
+                if (snapshot_nv12_from_decoded(last_good_decoded, real_frame_idx, lf)) {
+                    grpc_svc.UpdateLastFrame(std::move(lf));
+                }
+            }
         } else {
             // Probing / NoCable / NoLock / Gone / Transitioning-without-history.
             nv12_buf::Buffer& ph_buf = ph.paint_and_pick(now_ms(), source_probe::status_text(h));
             broadcast_buffer(prod, ph_buf, ph.tick_idx);
+            if (grpc_enabled) {
+                nativerpc::LatestFrame lf;
+                if (snapshot_nv12_from_buffer(ph_buf, ph.tick_idx, lf)) {
+                    grpc_svc.UpdateLastFrame(std::move(lf));
+                }
+            }
         }
         next_broadcast += broadcast_period;
         if (next_broadcast < clock::now()) {
@@ -600,6 +660,10 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     fprintf(stderr, "videonode-source: shutting down (real=%llu placeholder=%llu)\n",
             static_cast<unsigned long long>(real_frame_idx),
             static_cast<unsigned long long>(ph.tick_idx));
+    if (grpc_enabled) {
+        grpc_svc.StopStreams();
+        grpc_srv.Shutdown();
+    }
     prod.stop();
     if (cap.active) {
         if (!cap.cap.stream_off()) {
