@@ -6,9 +6,11 @@
 //
 // Source format support:
 //   - NV24 → NV12 ✅ (Phase 2 first cut)
-//   - NV12 → NV12 = pass-through; caller skips us entirely.
+//   - NV12 → NV12 ✅ (shader-driven copy — orchestrator unconditionally
+//     dispatches through csc::convert for DecodeMode::Rga, so we cannot
+//     rely on the caller skipping us).
 //   - NV16 / YUYV / UYVY / BGR3 → NV12 = TODO follow-ups (returns false
-//     with one-time log).
+//     with one-time log). See GitHub issue #6.
 //
 // Output contract (matches dmabuf_msg.hpp): NV12 single dma-buf, Y plane
 // at offset 0 pitch dst_w, UV plane at offset dst_w*dst_h pitch dst_w.
@@ -18,6 +20,8 @@
 #pragma once
 
 #include "src/render/csc.hpp"
+
+struct gbm_device;
 
 namespace csc_gles {
 
@@ -32,5 +36,11 @@ namespace csc_gles {
 
 // Tear down. Idempotent. Not strictly required (process exit cleans up).
 void shutdown();
+
+// Access csc_gles's internal gbm_device. Only valid after a successful
+// init(). Callers that allocate source/destination dma-bufs may want to
+// share this device to avoid Mesa cross-gbm_device renderbuffer-import
+// pitfalls on radeonsi. Returns nullptr if init() never ran.
+[[nodiscard]] gbm_device* gbm_device_for_io();
 
 } // namespace csc_gles

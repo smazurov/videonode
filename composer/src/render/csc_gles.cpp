@@ -22,7 +22,8 @@ struct State {
     bool ready = false;
 
     GLuint prog_y = 0;
-    GLuint prog_uv = 0;
+    GLuint prog_uv = 0;             // NV24 → NV12: 2×2 chroma downsample
+    GLuint prog_uv_passthrough = 0; // NV12 → NV12: single-tap UV copy
     GLuint vbo = 0;
 
     // Sampler textures (rebound per frame to whichever EGLImage we just
@@ -79,6 +80,19 @@ void main() {
     gl_FragColor = vec4((a.r + b.r + c.r + d.r) * 0.25,
                         (a.g + b.g + c.g + d.g) * 0.25,
                         0.0, 1.0);
+}
+)";
+
+// Pass 2 alt: 4:2:0 → 4:2:0 single-tap UV copy. Used when the source is
+// already NV12, i.e. src UV is sampled at the same half-resolution that
+// the destination UV plane uses, so a one-tap fetch is bit-exact.
+const char* kFS_UV_PASSTHROUGH = R"(
+precision mediump float;
+varying vec2 v_uv;
+uniform sampler2D u_src_uv;
+void main() {
+    vec4 s = texture2D(u_src_uv, v_uv);
+    gl_FragColor = vec4(s.r, s.g, 0.0, 1.0);
 }
 )";
 
@@ -168,7 +182,8 @@ bool init() {
 
     s.prog_y = link_program(kVS, kFS_Y);
     s.prog_uv = link_program(kVS, kFS_UV);
-    if (!s.prog_y || !s.prog_uv)
+    s.prog_uv_passthrough = link_program(kVS, kFS_UV_PASSTHROUGH);
+    if (!s.prog_y || !s.prog_uv || !s.prog_uv_passthrough)
         return false;
 
     glGenBuffers(1, &s.vbo);
@@ -193,6 +208,11 @@ bool init() {
     return true;
 }
 
+gbm_device* gbm_device_for_io() {
+    State& s = state();
+    return s.ready ? s.ctx.gbm() : nullptr;
+}
+
 void shutdown() {
     State& s = state();
     if (!s.ready)
@@ -201,13 +221,15 @@ void shutdown() {
         glDeleteProgram(s.prog_y);
     if (s.prog_uv)
         glDeleteProgram(s.prog_uv);
+    if (s.prog_uv_passthrough)
+        glDeleteProgram(s.prog_uv_passthrough);
     if (s.vbo)
         glDeleteBuffers(1, &s.vbo);
     if (s.tex_src_y)
         glDeleteTextures(1, &s.tex_src_y);
     if (s.tex_src_uv)
         glDeleteTextures(1, &s.tex_src_uv);
-    s.prog_y = s.prog_uv = s.vbo = s.tex_src_y = s.tex_src_uv = 0;
+    s.prog_y = s.prog_uv = s.prog_uv_passthrough = s.vbo = s.tex_src_y = s.tex_src_uv = 0;
     s.ready = false;
     // s.ctx destructor runs on process exit; we leave it owned by the
     // singleton so re-init() picks up the same context.
@@ -222,9 +244,9 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
         log_once("dst.fmt != Nv12 — only NV12 output is supported");
         return false;
     }
-    if (src.fmt != csc::PixelFormat::Nv24) {
-        // TODO: add NV16 / YUYV / UYVY / BGR3 shaders.
-        log_once("only NV24 input is implemented in this Phase 2 first cut");
+    if (src.fmt != csc::PixelFormat::Nv24 && src.fmt != csc::PixelFormat::Nv12) {
+        // TODO: add NV16 / YUYV / UYVY / BGR3 shaders. See GitHub issue #6.
+        log_once("only NV12/NV24 input is implemented; other formats are TODO");
         return false;
     }
     if (src.width <= 0 || src.height <= 0 || (src.width & 1) || (src.height & 1))
@@ -234,32 +256,63 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
 
     const int W = src.width;
     const int H = src.height;
-    const int src_uv_pitch = (src.wstride > 0 ? src.wstride : W) * 2; // NV24: 2 bytes per UV sample
+    const bool src_is_nv12 = (src.fmt == csc::PixelFormat::Nv12);
+    const int src_y_pitch = (src.wstride > 0 ? src.wstride : W);
+    // NV24 UV row = W × 2 bytes (full-res interleaved). NV12 UV row = W
+    // bytes (W/2 interleaved UV pairs at 2 bytes each = W); both reduce
+    // to "Y stride × bpp/2", which for the formats we care about is the
+    // Y stride itself for NV12 and 2× for NV24.
+    const int src_uv_pitch = src_is_nv12 ? src_y_pitch : src_y_pitch * 2;
+    const int src_uv_w = src_is_nv12 ? (W / 2) : W;
+    const int src_uv_h = src_is_nv12 ? (H / 2) : H;
     const int dst_y_pitch = (dst.wstride > 0 ? dst.wstride : W);
-    const int dst_uv_pitch = dst_y_pitch; // NV12 UV: W bytes per row (W/2 samples × 2 bytes)
+    // NV12 UV: W bytes per row (W/2 samples × 2 bytes); honour caller-
+    // supplied uv_wstride when set (host GBM split allocator returns a
+    // different stride for the half-res UV BO).
+    const int dst_uv_pitch = (dst.uv_wstride > 0 ? dst.uv_wstride : dst_y_pitch);
     const int dst_y_size = dst_y_pitch * H;
 
-    // Import source as two planes: Y (R8, W×H), UV (GR88, W×H — full 4:4:4).
+    // Split-buffer routing: when uv_fd is set, the UV plane lives in its
+    // own dma-buf at offset 0; otherwise UV trails Y in the same fd.
+    const bool src_split = (src.uv_fd >= 0);
+    const bool dst_split = (dst.uv_fd >= 0);
+    const int src_uv_actual_fd = src_split ? src.uv_fd : src.fd;
+    const int src_uv_actual_offset = src_split ? 0 : (src_y_pitch * H);
+    const int src_uv_actual_pitch = (src.uv_wstride > 0 ? src.uv_wstride : src_uv_pitch);
+    const int dst_uv_actual_fd = dst_split ? dst.uv_fd : dst.fd;
+    const int dst_uv_actual_offset = dst_split ? 0 : dst_y_size;
+
+    // Use the "let the driver pick" modifier sentinel for every plane.
+    // Hardcoding DRM_FORMAT_MOD_LINEAR was rejected by Mesa/radeonsi for
+    // GBM-allocated R8/GR88 BOs: gbm_bo_get_modifier() reports INVALID,
+    // and explicit LINEAR fails the renderbuffer-storage import even
+    // when the underlying layout is linear. egl_ctx::import_dmabuf
+    // omits the modifier attrs when it sees this sentinel.
+    constexpr uint64_t kModInvalid = (uint64_t{1} << 56) - 1;
+
+    // Import source as two planes: Y (R8, W×H), UV (GR88).
+    //   NV24: UV at full resolution W×H (4:4:4).
+    //   NV12: UV at half resolution (W/2)×(H/2) (4:2:0).
     egl_ctx::EglCtx::ImageDesc sd_y;
     sd_y.fd = src.fd;
     sd_y.fourcc = DRM_FORMAT_R8;
-    sd_y.modifier = DRM_FORMAT_MOD_LINEAR;
+    sd_y.modifier = kModInvalid;
     sd_y.width = W;
     sd_y.height = H;
     sd_y.plane0_offset = 0;
-    sd_y.plane0_pitch = (src.wstride > 0 ? src.wstride : W);
+    sd_y.plane0_pitch = src_y_pitch;
     EGLImage img_src_y = s.ctx.import_dmabuf(sd_y);
     if (img_src_y == EGL_NO_IMAGE)
         return false;
 
     egl_ctx::EglCtx::ImageDesc sd_uv;
-    sd_uv.fd = src.fd;
+    sd_uv.fd = src_uv_actual_fd;
     sd_uv.fourcc = DRM_FORMAT_GR88;
-    sd_uv.modifier = DRM_FORMAT_MOD_LINEAR;
-    sd_uv.width = W;
-    sd_uv.height = H;
-    sd_uv.plane0_offset = (src.wstride > 0 ? src.wstride : W) * H;
-    sd_uv.plane0_pitch = src_uv_pitch;
+    sd_uv.modifier = kModInvalid;
+    sd_uv.width = src_uv_w;
+    sd_uv.height = src_uv_h;
+    sd_uv.plane0_offset = src_uv_actual_offset;
+    sd_uv.plane0_pitch = src_uv_actual_pitch;
     EGLImage img_src_uv = s.ctx.import_dmabuf(sd_uv);
     if (img_src_uv == EGL_NO_IMAGE) {
         eglDestroyImage(s.ctx.display(), img_src_y);
@@ -271,7 +324,7 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
     egl_ctx::EglCtx::ImageDesc dd_y;
     dd_y.fd = dst.fd;
     dd_y.fourcc = DRM_FORMAT_R8;
-    dd_y.modifier = DRM_FORMAT_MOD_LINEAR;
+    dd_y.modifier = kModInvalid;
     dd_y.width = W;
     dd_y.height = H;
     dd_y.plane0_offset = 0;
@@ -284,12 +337,12 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
     }
 
     egl_ctx::EglCtx::ImageDesc dd_uv;
-    dd_uv.fd = dst.fd;
+    dd_uv.fd = dst_uv_actual_fd;
     dd_uv.fourcc = DRM_FORMAT_GR88;
-    dd_uv.modifier = DRM_FORMAT_MOD_LINEAR;
+    dd_uv.modifier = kModInvalid;
     dd_uv.width = W / 2;
     dd_uv.height = H / 2;
-    dd_uv.plane0_offset = dst_y_size;
+    dd_uv.plane0_offset = dst_uv_actual_offset;
     dd_uv.plane0_pitch = dst_uv_pitch;
     EGLImage img_dst_uv = s.ctx.import_dmabuf(dd_uv);
     if (img_dst_uv == EGL_NO_IMAGE) {
@@ -345,16 +398,24 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
     glUniform1i(glGetUniformLocation(s.prog_y, "u_src_y"), 0);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    // Pass 2: UV plane, half resolution, 2×2 downsample.
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo_uv);
-    glViewport(0, 0, W / 2, H / 2);
-    glUseProgram(s.prog_uv);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, s.tex_src_uv);
-    glUniform1i(glGetUniformLocation(s.prog_uv, "u_src_uv"), 0);
-    glUniform2f(glGetUniformLocation(s.prog_uv, "u_src_uv_texel"), 1.0f / float(W),
-                1.0f / float(H));
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    // Pass 2: UV plane, half resolution.
+    //   NV24 src → 2×2 average downsample (prog_uv).
+    //   NV12 src → single-tap copy (prog_uv_passthrough); src UV is
+    //   already at the same W/2 × H/2 the dst UV viewport draws into.
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo_uv);
+        glViewport(0, 0, W / 2, H / 2);
+        const GLuint prog_uv = src_is_nv12 ? s.prog_uv_passthrough : s.prog_uv;
+        glUseProgram(prog_uv);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, s.tex_src_uv);
+        glUniform1i(glGetUniformLocation(prog_uv, "u_src_uv"), 0);
+        if (!src_is_nv12) {
+            glUniform2f(glGetUniformLocation(prog_uv, "u_src_uv_texel"), 1.0f / float(W),
+                        1.0f / float(H));
+        }
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
 
     glFinish();
 
