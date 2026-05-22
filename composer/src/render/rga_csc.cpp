@@ -38,7 +38,7 @@ struct ImportedBuffer {
     rga_buffer_handle_t handle = 0;
     rga_buffer_t buf{};
 
-    bool valid() const { return handle != 0; }
+    [[nodiscard]] bool valid() const { return handle != 0; }
 };
 
 ImportedBuffer import_(const ConvertParams& p) {

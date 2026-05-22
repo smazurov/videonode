@@ -54,7 +54,9 @@ struct Nv12Buf {
     int height = 0;
     uint64_t modifier = 0;
 
-    bool valid() const { return y_bo != nullptr && y_fd >= 0 && uv_bo != nullptr && uv_fd >= 0; }
+    [[nodiscard]] bool valid() const {
+        return y_bo != nullptr && y_fd >= 0 && uv_bo != nullptr && uv_fd >= 0;
+    }
 };
 
 // Allocate a GBM-backed NV12 buffer. Width and height must be even.
@@ -70,8 +72,8 @@ struct Mapped {
     uint32_t y_stride = 0;
     uint32_t uv_stride = 0;
 
-    std::span<uint8_t> y_bytes() const;
-    std::span<uint8_t> uv_bytes() const;
+    [[nodiscard]] std::span<uint8_t> y_bytes() const;
+    [[nodiscard]] std::span<uint8_t> uv_bytes() const;
 };
 Mapped map_rw(Nv12Buf& b);
 void unmap(Nv12Buf& b);
