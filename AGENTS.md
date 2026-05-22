@@ -116,6 +116,12 @@ Available integration tests:
 - **Video Capture**: FFmpeg integration for screenshot capture from V4L2 devices with configurable delay
 - **Device Detection**: Pure Go V4L2 device detection via `pkg/linuxav/v4l2`
 - **Stream Management**: go2rtc integration for RTSP/WebRTC streaming with TOML-based configuration
+- **Native Control Plane**: gRPC over per-instance Unix sockets to the C++ binaries
+  (`videonode-source`, `videonode-composer`). Daemon dials each spawned binary,
+  calls `Describe()`, then issues unary RPCs (SetFormat / SetCanvas / SetSource /
+  SetLayout / SetEffects / SetSourceState / Snapshot / Shutdown) and subscribes
+  to `Source.StreamStatus` for the status push. Schemas in `proto/control/*.proto`;
+  generated stubs in `internal/streams/pipelinectl/pb/`.
 - **Observability**: Built-in metrics collection with Prometheus export and SSE real-time updates
 
 ### Key Packages
@@ -124,16 +130,18 @@ Use `go doc` or the `mcp__godoc__get_doc` tool to read package documentation:
 
 ```bash
 # Internal packages
-go doc ./internal/api          # API server and endpoints
-go doc ./internal/streams      # Stream lifecycle management
-go doc ./internal/encoders     # Hardware encoder detection
-go doc ./internal/capture      # Screenshot capture
-go doc ./internal/config       # Configuration loading
-go doc ./internal/metrics      # Metrics collection
-go doc ./internal/ffmpeg       # FFmpeg command building
-go doc ./internal/logging      # Structured logging
-go doc ./pkg/linuxav/v4l2      # V4L2 device detection
-go doc ./pkg/linuxav/hotplug   # USB hotplug monitoring
+go doc ./internal/api                            # API server and endpoints
+go doc ./internal/streams                        # Stream lifecycle management
+go doc ./internal/streams/pipelinectl            # gRPC client manager for native binaries
+go doc ./internal/streams/pipelinectl/pb         # Generated control-plane proto stubs
+go doc ./internal/encoders                       # Hardware encoder detection
+go doc ./internal/capture                        # Screenshot capture
+go doc ./internal/config                         # Configuration loading
+go doc ./internal/metrics                        # Metrics collection
+go doc ./internal/ffmpeg                         # FFmpeg command building
+go doc ./internal/logging                        # Structured logging
+go doc ./pkg/linuxav/v4l2                        # V4L2 device detection
+go doc ./pkg/linuxav/hotplug                     # USB hotplug monitoring
 
 # External modules (use full import path)
 go doc github.com/danielgtaylor/huma/v2          # Huma API framework
