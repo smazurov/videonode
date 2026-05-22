@@ -347,16 +347,35 @@ func (m *Manager) closeConn(c *nativeConn) {
 	}
 }
 
+// StaleStreamTimeout bounds how long runStatusStream will keep trying
+// to reopen a broken StreamStatus before evicting the source from the
+// manager. After this many seconds of sustained failure (no successful
+// Recv in between), the source is Unregister'd and ConnectedDevices()
+// stops reporting it — replaces the legacy 1s/3s heartbeat watchdog.
+const StaleStreamTimeout = 30 * time.Second
+
 // runStatusStream opens the server-streaming RPC and pumps each
 // received Status onto m.statusCh. On any stream error (server gone,
 // network blip, etc.) it backs off and reconnects until the context is
-// cancelled.
+// cancelled or StaleStreamTimeout elapses without a single successful
+// receive — at which point the source is evicted from m.sources.
 func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 	defer close(c.streamDone)
 	backoff := 200 * time.Millisecond
 	const backoffCap = 5 * time.Second
+	// Wall-clock of the last good Recv (or stream open). Used to bound
+	// total time spent retrying a dead peer.
+	lastGood := time.Now()
 	for {
 		if ctx.Err() != nil {
+			return
+		}
+		if time.Since(lastGood) > StaleStreamTimeout {
+			m.logger.Warn("pipelinectl: source unresponsive — evicting",
+				"device_id", c.id, "stale_for", time.Since(lastGood))
+			// Schedule the Unregister from a fresh goroutine so we don't
+			// deadlock on closeConn waiting for our own streamDone close.
+			go m.Unregister(c.id)
 			return
 		}
 		stream, err := c.srcClient.StreamStatus(ctx, &emptypb.Empty{})
@@ -392,6 +411,7 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 				}
 				break
 			}
+			lastGood = time.Now()
 			params := statusFromProto(msg)
 			if params.DeviceID == "" {
 				params.DeviceID = c.id

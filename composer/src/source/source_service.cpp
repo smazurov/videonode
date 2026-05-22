@@ -37,6 +37,22 @@ grpc::Status SourceService::SetFormat(grpc::ServerContext* /*ctx*/,
     if (source::v4l2_pix_fmt_(req->fourcc()) == 0) {
         return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "unsupported fourcc");
     }
+    // Mirror the validation the deleted set_format_parser performed.
+    if (req->w() == 0 || req->h() == 0) {
+        return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "w/h must be > 0");
+    }
+    if (req->w() > 16384 || req->h() > 16384) {
+        return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "w/h exceed 16384");
+    }
+    // NV12 / NV21 / NV24 / YUYV / UYVY all require even width; YUV
+    // 4:2:0 family additionally requires even height. The deleted
+    // parser enforced even-w/h universally — keep that contract.
+    if ((req->w() & 1u) != 0 || (req->h() & 1u) != 0) {
+        return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "w/h must be even");
+    }
+    if (req->fps() > 240) {
+        return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "fps exceeds 240");
+    }
     {
         std::lock_guard<std::mutex> lock(ctx_->set_format_mu);
         if (ctx_->args) {

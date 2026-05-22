@@ -111,6 +111,13 @@ class SourceService final : public videonode::control::Source::Service {
 
     // Tell every active StreamStatus to flush and return. Called from
     // the orchestrator's shutdown path so the server thread can join.
+    //
+    // SourceService is single-use: once StopStreams() has been called
+    // the service is unusable (stop_streams_ stays true). The binary
+    // exits shortly after, so this is the expected lifecycle. If a
+    // future in-process restart path needs to reuse a SourceService
+    // across Stop/Start cycles, add a Reset() that clears
+    // stop_streams_ before reopening the gRPC server.
     void StopStreams();
 
   private:
