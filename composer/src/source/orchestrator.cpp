@@ -30,7 +30,7 @@
 #include "src/source/capture_session.hpp"
 #include "version.hpp"
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
-#include "src/render/egl_ctx.hpp"
+#include "src/render/csc_gles.hpp"
 #endif
 
 #include <atomic>
@@ -237,17 +237,25 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
 
     // NV12 output allocator. On rig (HAVE_RGA) this is stateless and
     // backed by dma_heap (single bo); on Fedora / Mesa hosts (HAVE_GBM,
-    // no RGA) we open an EglCtx for its gbm_device and hand it to the
-    // allocator (two-bo split for radeonsi compat).
+    // no RGA) the GBM allocator MUST share csc_gles's gbm_device —
+    // radeonsi rejects cross-gbm_device dma-buf imports as renderbuffer
+    // storage, so allocating against a sibling device produces FBO-
+    // incomplete and no frames flow. csc_gles::init() lazy-creates its
+    // EGL+GBM stack on first call; we force-init eagerly here so the
+    // allocator has the right device.
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
-    egl_ctx::EglCtx alloc_ctx;
-    if (!alloc_ctx.init(a.alloc_drm_device)) {
-        fprintf(stderr, "videonode-source: failed to open DRM render node %s for GBM allocator\n",
-                a.alloc_drm_device.c_str());
+    if (!csc_gles::init()) {
+        fprintf(stderr, "videonode-source: csc_gles::init failed; cannot bring up Mesa CSC backend "
+                        "(needed for the GBM allocator's gbm_device)\n");
+        return 1;
+    }
+    gbm_device* alloc_gbm = csc_gles::gbm_device_for_io();
+    if (alloc_gbm == nullptr) {
+        fprintf(stderr, "videonode-source: csc_gles::gbm_device_for_io returned null\n");
         return 1;
     }
     nv12_buf::Allocator allocator;
-    if (!allocator.init(alloc_ctx.gbm())) {
+    if (!allocator.init(alloc_gbm)) {
         fprintf(stderr, "videonode-source: nv12_buf::Allocator::init failed\n");
         return 1;
     }
@@ -470,9 +478,16 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                             src_p.width = cap.width;
                             src_p.height = cap.height;
                             dst_p.fd = dst_buf.y_fd;
+                            // Split-allocator (host GBM) gives distinct
+                            // y_fd / uv_fd; single-buffer (rig dma_heap)
+                            // shares one fd at different offsets. csc_gles
+                            // distinguishes via uv_fd ≥ 0.
+                            dst_p.uv_fd = (dst_buf.uv_fd != dst_buf.y_fd) ? dst_buf.uv_fd : -1;
+                            dst_p.uv_wstride = int(dst_buf.uv_pitch);
                             dst_p.fmt = csc::PixelFormat::Nv12;
                             dst_p.width = cap.width;
                             dst_p.height = cap.height;
+                            dst_p.wstride = int(dst_buf.y_pitch);
                             if (csc::convert(src_p, dst_p)) {
                                 decoded.fd = dst_buf.y_fd;
                                 decoded.plane1_fd = dst_buf.uv_fd;

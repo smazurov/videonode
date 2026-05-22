@@ -24,8 +24,11 @@ if(HAVE_MPP)
     target_compile_definitions(orchestrator PRIVATE HAVE_MPP=1)
 endif()
 if(HAVE_GBM AND NOT HAVE_RGA)
-    # nv12_buf::Allocator::init needs a gbm_device on this backend;
-    # source::Run opens it via EglCtx at startup.
+    # nv12_buf::Allocator::init needs a gbm_device on this backend.
+    # source::Run reuses csc_gles's gbm_device so that allocated dma-bufs
+    # can be imported as renderbuffer storage by csc_gles's EGL context
+    # (radeonsi rejects cross-gbm_device renderbuffer imports — see
+    # gh#6).
     target_compile_definitions(orchestrator PRIVATE HAVE_GBM=1)
-    target_link_libraries(orchestrator PUBLIC egl_ctx gles_bundle)
+    target_link_libraries(orchestrator PUBLIC csc_gles gles_bundle)
 endif()

@@ -34,3 +34,12 @@ vn_add_test(source_probe        DEPS source_probe                 LABELS capture
 if(HAVE_GBM)
     vn_add_test(format_dispatch DEPS format_dispatch              LABELS render)
 endif()
+
+# csc_gles is only compiled when HAVE_GLES_CSC; the test allocates dma-buf
+# storage via GBM directly. SetUp() GTEST_SKIPs the body when no DRM
+# render node is reachable (headless CI), so the test self-quiesces.
+if(HAVE_GLES_CSC AND HAVE_GBM)
+    vn_add_test(csc_gles
+        DEPS csc csc_gles egl_ctx gles_bundle
+        LABELS render)
+endif()
