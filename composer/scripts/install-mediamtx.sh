@@ -3,7 +3,7 @@
 # Reversible: `rm /home/orangepi/mediamtx` and stop the systemd-run unit if active.
 set -euo pipefail
 
-RIG="${RIG:-orangepi@orangepi5-ultra.lan}"
+RIG="${RIG:-orangepi}"
 VERSION="${MEDIAMTX_VERSION:-v1.9.3}"   # bump as needed
 
 ssh "${RIG}" "bash -lc '

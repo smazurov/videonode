@@ -3,7 +3,7 @@
 # Env: SKIP_UI=1, SKIP_RESTART=1, RIG=user@host, REMOTE_PATH=/abs/path
 set -euo pipefail
 
-RIG="${RIG:-orangepi@orangepi5-ultra.lan}"
+RIG="${RIG:-orangepi}"
 REMOTE_PATH="${REMOTE_PATH:-/home/orangepi/.local/bin/videonode}"
 REMOTE_TMP="${REMOTE_PATH}.new"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

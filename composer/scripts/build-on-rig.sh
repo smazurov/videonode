@@ -5,7 +5,7 @@
 # to be meson), we wipe it before reconfiguring.
 set -euo pipefail
 
-RIG="${RIG:-orangepi@orangepi5-ultra.lan}"
+RIG="${RIG:-orangepi}"
 DST_DIR="${DST_DIR:-/home/orangepi/composer}"
 
 ssh "${RIG}" "bash -lc 'set -euo pipefail
