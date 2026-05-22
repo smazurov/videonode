@@ -69,8 +69,7 @@ struct R8Bo {
 };
 
 bool r8_alloc(gbm_device* gbm, R8Bo& out, int w, int h) {
-    out.bo = gbm_bo_create(gbm, w, h, DRM_FORMAT_R8,
-                           GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
+    out.bo = gbm_bo_create(gbm, w, h, DRM_FORMAT_R8, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
     if (!out.bo)
         return false;
     out.fd = gbm_bo_get_fd(out.bo);
@@ -92,16 +91,14 @@ void r8_free(R8Bo& b) {
 
 uint8_t* r8_map_write(R8Bo& b) {
     uint32_t s = 0;
-    b.mapped = gbm_bo_map(b.bo, 0, 0, b.w, b.h,
-                          GBM_BO_TRANSFER_READ_WRITE, &s, &b.map_handle);
+    b.mapped = gbm_bo_map(b.bo, 0, 0, b.w, b.h, GBM_BO_TRANSFER_READ_WRITE, &s, &b.map_handle);
     b.stride = s;
     return static_cast<uint8_t*>(b.mapped);
 }
 
 uint8_t* r8_map_read(R8Bo& b) {
     uint32_t s = 0;
-    b.mapped = gbm_bo_map(b.bo, 0, 0, b.w, b.h,
-                          GBM_BO_TRANSFER_READ, &s, &b.map_handle);
+    b.mapped = gbm_bo_map(b.bo, 0, 0, b.w, b.h, GBM_BO_TRANSFER_READ, &s, &b.map_handle);
     b.stride = s;
     return static_cast<uint8_t*>(b.mapped);
 }
@@ -252,7 +249,7 @@ int main(int argc, char** argv) {
         DIE("map src_uv");
     for (int y = 0; y < H; ++y) {
         for (int x = 0; x < W; ++x) {
-            suv[y * src_uv.stride + 2 * x + 0] = uint8_t((x ^ y) & 0xFF);            // U
+            suv[y * src_uv.stride + 2 * x + 0] = uint8_t((x ^ y) & 0xFF);          // U
             suv[y * src_uv.stride + 2 * x + 1] = uint8_t((x * 7 + y * 11) & 0xFF); // V
         }
     }
@@ -467,8 +464,7 @@ int main(int argc, char** argv) {
                     W, H, us);
     } else {
         if (errors_y > 0)
-            std::fprintf(stderr,
-                         "FAIL: Y plane: %d mismatches; first at (%d,%d) got=%d want=%d\n",
+            std::fprintf(stderr, "FAIL: Y plane: %d mismatches; first at (%d,%d) got=%d want=%d\n",
                          errors_y, first_err_y_x, first_err_y_y, first_err_y_got, first_err_y_want);
         if (errors_uv > 0)
             std::fprintf(stderr,

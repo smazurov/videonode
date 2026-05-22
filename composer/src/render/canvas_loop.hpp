@@ -50,11 +50,7 @@ namespace render {
 // is preferred once ready, but until then we tick at this rate.
 //
 // Returns the number of frames rendered (placeholder + real).
-int RunCanvasLoop(egl_ctx::EglCtx& ctx,
-                  World& world,
-                  control_channel::ControlChannel* ctl,
-                  int target_fps,
-                  int run_seconds,
-                  std::atomic<bool>& running);
+int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, control_channel::ControlChannel* ctl,
+                  int target_fps, int run_seconds, std::atomic<bool>& running);
 
 } // namespace render

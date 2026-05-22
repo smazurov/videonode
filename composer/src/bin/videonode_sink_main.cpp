@@ -52,8 +52,7 @@ bool write_full(int fd, std::span<const uint8_t> buf) {
 
 // emit_frame writes a YUV4MPEG2 frame (NV12 → I420 chroma deinterleave on
 // CPU). y4m's per-stream header is written separately on first frame.
-bool emit_frame(const scm_rights_source::FrameView& v,
-                std::vector<uint8_t>& uplane,
+bool emit_frame(const scm_rights_source::FrameView& v, std::vector<uint8_t>& uplane,
                 std::vector<uint8_t>& vplane) {
     if (v.fd < 0 || v.width <= 0 || v.height <= 0)
         return true;
@@ -89,9 +88,8 @@ bool emit_frame(const scm_rights_source::FrameView& v,
 
 bool emit_y4m_header(int w, int h, int fps_num, int fps_den) {
     char hdr[128];
-    int n = std::snprintf(hdr, sizeof(hdr),
-                          "YUV4MPEG2 W%d H%d F%d:%d Ip A1:1 C420\n",
-                          w, h, fps_num, fps_den);
+    int n = std::snprintf(hdr, sizeof(hdr), "YUV4MPEG2 W%d H%d F%d:%d Ip A1:1 C420\n", w, h,
+                          fps_num, fps_den);
     return write_full(STDOUT_FILENO,
                       std::span(reinterpret_cast<const uint8_t*>(hdr), static_cast<size_t>(n)));
 }
@@ -208,7 +206,9 @@ int main(int argc, char** argv) {
         }
         if (!announced || v.width != announced_w || v.height != announced_h) {
             if (announced) {
-                fprintf(stderr, "videonode-sink: dimensions changed %dx%d → %dx%d; downstream ffmpeg likely needs restart\n",
+                fprintf(stderr,
+                        "videonode-sink: dimensions changed %dx%d → %dx%d; downstream ffmpeg "
+                        "likely needs restart\n",
                         announced_w, announced_h, v.width, v.height);
             }
             if (!emit_y4m_header(v.width, v.height, 60, 1))

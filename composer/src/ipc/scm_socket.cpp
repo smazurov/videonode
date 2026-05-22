@@ -43,7 +43,6 @@ bool read_full(int fd, std::span<uint8_t> buf) {
     return true;
 }
 
-
 } // namespace
 
 int ListenAndAccept(const std::string& path) {
@@ -103,7 +102,7 @@ bool RecvMessage(int sock_fd, dmabuf_msg::Header& header_out, std::vector<int>& 
 
     // First recvmsg: pull 4-byte length prefix + accompanying SCM_RIGHTS.
     uint8_t prefix[4];
-    iovec iov{.iov_base=prefix, .iov_len=sizeof(prefix)};
+    iovec iov{.iov_base = prefix, .iov_len = sizeof(prefix)};
     // Space for up to 16 fds (much more than we ever expect).
     constexpr int kMaxFds = 16;
     uint8_t cmsg_buf[CMSG_SPACE(sizeof(int) * kMaxFds)];

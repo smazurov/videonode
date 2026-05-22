@@ -157,8 +157,8 @@ bool init() {
         return false;
     }
 
-    s.egl_image_to_tex2d = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress(
-        "glEGLImageTargetTexture2DOES");
+    s.egl_image_to_tex2d =
+        (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
     s.egl_image_to_rbo = (PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC)eglGetProcAddress(
         "glEGLImageTargetRenderbufferStorageOES");
     if (!s.egl_image_to_tex2d || !s.egl_image_to_rbo) {
@@ -352,7 +352,8 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, s.tex_src_uv);
     glUniform1i(glGetUniformLocation(s.prog_uv, "u_src_uv"), 0);
-    glUniform2f(glGetUniformLocation(s.prog_uv, "u_src_uv_texel"), 1.0f / float(W), 1.0f / float(H));
+    glUniform2f(glGetUniformLocation(s.prog_uv, "u_src_uv_texel"), 1.0f / float(W),
+                1.0f / float(H));
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
     glFinish();

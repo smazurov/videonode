@@ -65,7 +65,7 @@ SpawnResult spawn(const std::string& program, const std::vector<std::string>& ar
         fprintf(stderr, "child_process: posix_spawnp(%s): %s\n", program.c_str(), strerror(rc));
         return {};
     }
-    return {.pid=pid, .pipe_fd=parent_end};
+    return {.pid = pid, .pipe_fd = parent_end};
 }
 
 void reap(pid_t pid, int pipe_fd, int graceful_ms) {

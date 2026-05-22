@@ -32,8 +32,8 @@ namespace homography {
 // (RPC error, log + skip, etc.).
 enum class Status {
     Ok,
-    BadSnapshotDims,   // snapshot_w or snapshot_h <= 0
-    Degenerate,        // 4 corners are collinear / coincident — no unique homography
+    BadSnapshotDims, // snapshot_w or snapshot_h <= 0
+    Degenerate,      // 4 corners are collinear / coincident — no unique homography
 };
 
 // Solve the 3×3 row-major homography that maps the unit square
@@ -43,9 +43,7 @@ enum class Status {
 // `transpose=GL_FALSE` (which gl_compose already uses).
 //
 // `corners_px` is 8 ints: [TLx, TLy, TRx, TRy, BRx, BRy, BLx, BLy].
-[[nodiscard]] Status corners_to_warp(const int corners_px[8],
-                                     int snapshot_w,
-                                     int snapshot_h,
+[[nodiscard]] Status corners_to_warp(const int corners_px[8], int snapshot_w, int snapshot_h,
                                      float out[9]);
 
 } // namespace homography

@@ -30,8 +30,8 @@ struct IncomingRequest {
 // an `error` with `code` + `message` (+ optional `data_json`).
 struct HandlerResponse {
     bool ok = true;
-    std::string result_json;  // optional; if empty and ok, emits "{}"
-    int64_t error_code = 0;   // when !ok
+    std::string result_json; // optional; if empty and ok, emits "{}"
+    int64_t error_code = 0;  // when !ok
     std::string error_message;
     std::string error_data_json; // optional
 };

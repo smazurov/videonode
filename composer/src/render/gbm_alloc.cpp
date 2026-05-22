@@ -43,8 +43,7 @@ Nv12Buf alloc(gbm_device* gbm, int width, int height) {
     // Y plane: R8 at full resolution.
     gbm_bo* y_bo = alloc_linear_(gbm, width, height, DRM_FORMAT_R8);
     if (!y_bo) {
-        std::fprintf(stderr, "gbm_alloc: gbm_bo_create R8 %dx%d failed (Y plane)\n", width,
-                     height);
+        std::fprintf(stderr, "gbm_alloc: gbm_bo_create R8 %dx%d failed (Y plane)\n", width, height);
         return out;
     }
     // UV plane: GR88 at half resolution.

@@ -30,18 +30,19 @@ struct Color {
 
 // A few preset colors that survive the YUV→RGB round-trip cleanly enough
 // to be unambiguous in ffplay. BT.601 limited range.
-inline constexpr Color kRed = {.y=76, .u=85, .v=255};
-inline constexpr Color kGreen = {.y=149, .u=43, .v=21};
-inline constexpr Color kBlue = {.y=29, .u=255, .v=107};
-inline constexpr Color kYellow = {.y=225, .u=0, .v=148};
-inline constexpr Color kCyan = {.y=178, .u=171, .v=0};
-inline constexpr Color kWhite = {.y=235, .u=128, .v=128};
+inline constexpr Color kRed = {.y = 76, .u = 85, .v = 255};
+inline constexpr Color kGreen = {.y = 149, .u = 43, .v = 21};
+inline constexpr Color kBlue = {.y = 29, .u = 255, .v = 107};
+inline constexpr Color kYellow = {.y = 225, .u = 0, .v = 148};
+inline constexpr Color kCyan = {.y = 178, .u = 171, .v = 0};
+inline constexpr Color kWhite = {.y = 235, .u = 128, .v = 128};
 
 class FakeSource {
   public:
     // Allocate the dma-buf and mmap it. Returns false on failure.
     // width and height must be even (NV12 chroma subsampling).
-    [[nodiscard]] bool init(int width, int height, Color square_color, std::string_view heap_name = "system");
+    [[nodiscard]] bool init(int width, int height, Color square_color,
+                            std::string_view heap_name = "system");
 
     // Update the buffer contents for the given frame index. Cheap: writes
     // a black background and a 200x200 colored square at a position that

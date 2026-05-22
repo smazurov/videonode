@@ -51,8 +51,7 @@ size_t after_pair(std::string_view s, size_t p, ParseError& err, bool* done) {
 // Read the next key. Returns the position right after the ':' (start of
 // the value), or std::string::npos on error / closing brace. If the
 // object closed, sets `*closed = true` and returns position just past '}'.
-size_t next_key(std::string_view s, size_t p, std::string& key,
-                ParseError& err, bool* closed) {
+size_t next_key(std::string_view s, size_t p, std::string& key, ParseError& err, bool* closed) {
     using namespace jsonrpc_msg::parse;
     p = skip_ws(s, p);
     if (p >= s.size()) {
@@ -129,7 +128,8 @@ size_t skip_unknown(std::string_view s, size_t p, ParseError& err) {
 
 bool parse_set_canvas(std::string_view s, SetCanvasRequest& out, ParseError& err) {
     size_t p = open_object(s, err);
-    if (p == std::string::npos) return false;
+    if (p == std::string::npos)
+        return false;
 
     uint64_t w = 0, h = 0, fps = 0;
     bool got_w = false, got_h = false, got_fps = false;
@@ -138,30 +138,38 @@ bool parse_set_canvas(std::string_view s, SetCanvasRequest& out, ParseError& err
     while (!closed) {
         std::string key;
         p = next_key(s, p, key, err, &closed);
-        if (p == std::string::npos) return false;
-        if (closed) break;
+        if (p == std::string::npos)
+            return false;
+        if (closed)
+            break;
 
         if (key == "w") {
             p = take_uint(s, p, w, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_w = true;
         } else if (key == "h") {
             p = take_uint(s, p, h, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_h = true;
         } else if (key == "fps") {
             p = take_uint(s, p, fps, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_fps = true;
         } else {
             p = skip_unknown(s, p, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
         }
 
         bool done = false;
         p = after_pair(s, p, err, &done);
-        if (p == std::string::npos) return false;
-        if (done) break;
+        if (p == std::string::npos)
+            return false;
+        if (done)
+            break;
     }
 
     if (!got_w || !got_h || !got_fps)
@@ -183,7 +191,8 @@ bool parse_set_canvas(std::string_view s, SetCanvasRequest& out, ParseError& err
 
 bool parse_set_source(std::string_view s, SetSourceRequest& out, ParseError& err) {
     size_t p = open_object(s, err);
-    if (p == std::string::npos) return false;
+    if (p == std::string::npos)
+        return false;
 
     std::string slot, source_id, scm_path;
     uint64_t width = 0, height = 0, fps = 0;
@@ -194,42 +203,53 @@ bool parse_set_source(std::string_view s, SetSourceRequest& out, ParseError& err
     while (!closed) {
         std::string key;
         p = next_key(s, p, key, err, &closed);
-        if (p == std::string::npos) return false;
-        if (closed) break;
+        if (p == std::string::npos)
+            return false;
+        if (closed)
+            break;
 
         if (key == "slot") {
             p = take_string(s, p, slot, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_slot = true;
         } else if (key == "source_id") {
             p = take_string(s, p, source_id, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_sid = true;
         } else if (key == "scm_path") {
             p = take_string(s, p, scm_path, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_path = true;
         } else if (key == "width") {
             p = take_uint(s, p, width, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_w = true;
         } else if (key == "height") {
             p = take_uint(s, p, height, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_h = true;
         } else if (key == "fps") {
             p = take_uint(s, p, fps, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_fps = true;
         } else {
             p = skip_unknown(s, p, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
         }
 
         bool done = false;
         p = after_pair(s, p, err, &done);
-        if (p == std::string::npos) return false;
-        if (done) break;
+        if (p == std::string::npos)
+            return false;
+        if (done)
+            break;
     }
 
     if (!got_slot || !got_sid || !got_path || !got_w || !got_h || !got_fps)
@@ -256,7 +276,8 @@ bool parse_set_source(std::string_view s, SetSourceRequest& out, ParseError& err
 
 bool parse_clear_source(std::string_view s, ClearSourceRequest& out, ParseError& err) {
     size_t p = open_object(s, err);
-    if (p == std::string::npos) return false;
+    if (p == std::string::npos)
+        return false;
 
     std::string slot;
     bool got_slot = false;
@@ -265,22 +286,28 @@ bool parse_clear_source(std::string_view s, ClearSourceRequest& out, ParseError&
     while (!closed) {
         std::string key;
         p = next_key(s, p, key, err, &closed);
-        if (p == std::string::npos) return false;
-        if (closed) break;
+        if (p == std::string::npos)
+            return false;
+        if (closed)
+            break;
 
         if (key == "slot") {
             p = take_string(s, p, slot, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_slot = true;
         } else {
             p = skip_unknown(s, p, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
         }
 
         bool done = false;
         p = after_pair(s, p, err, &done);
-        if (p == std::string::npos) return false;
-        if (done) break;
+        if (p == std::string::npos)
+            return false;
+        if (done)
+            break;
     }
 
     if (!got_slot || slot.empty())
@@ -309,38 +336,48 @@ bool parse_layout_slot_obj(std::string_view s, size_t& p, LayoutSlot& out, Parse
     while (!closed) {
         std::string key;
         p = next_key(s, p, key, err, &closed);
-        if (p == std::string::npos) return false;
-        if (closed) break;
+        if (p == std::string::npos)
+            return false;
+        if (closed)
+            break;
 
         if (key == "slot") {
             p = take_string(s, p, slot, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_slot = true;
         } else if (key == "x") {
             p = take_int(s, p, x, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_x = true;
         } else if (key == "y") {
             p = take_int(s, p, y, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_y = true;
         } else if (key == "w") {
             p = take_int(s, p, w, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_w = true;
         } else if (key == "h") {
             p = take_int(s, p, h, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_h = true;
         } else {
             p = skip_unknown(s, p, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
         }
 
         bool done = false;
         p = after_pair(s, p, err, &done);
-        if (p == std::string::npos) return false;
-        if (done) break;
+        if (p == std::string::npos)
+            return false;
+        if (done)
+            break;
     }
 
     if (!got_slot || !got_x || !got_y || !got_w || !got_h)
@@ -362,7 +399,8 @@ bool parse_layout_slot_obj(std::string_view s, size_t& p, LayoutSlot& out, Parse
 bool parse_set_layout(std::string_view s, SetLayoutRequest& out, ParseError& err) {
     using namespace jsonrpc_msg::parse;
     size_t p = open_object(s, err);
-    if (p == std::string::npos) return false;
+    if (p == std::string::npos)
+        return false;
 
     bool got_slots = false;
 
@@ -370,8 +408,10 @@ bool parse_set_layout(std::string_view s, SetLayoutRequest& out, ParseError& err
     while (!closed) {
         std::string key;
         p = next_key(s, p, key, err, &closed);
-        if (p == std::string::npos) return false;
-        if (closed) break;
+        if (p == std::string::npos)
+            return false;
+        if (closed)
+            break;
 
         if (key == "slots") {
             p = skip_ws(s, p);
@@ -388,7 +428,8 @@ bool parse_set_layout(std::string_view s, SetLayoutRequest& out, ParseError& err
                     break;
                 }
                 LayoutSlot ls{};
-                if (!parse_layout_slot_obj(s, p, ls, err)) return false;
+                if (!parse_layout_slot_obj(s, p, ls, err))
+                    return false;
                 out.slots.push_back(std::move(ls));
                 p = skip_ws(s, p);
                 if (p < s.size() && s[p] == ',') {
@@ -404,13 +445,16 @@ bool parse_set_layout(std::string_view s, SetLayoutRequest& out, ParseError& err
             got_slots = true;
         } else {
             p = skip_unknown(s, p, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
         }
 
         bool done = false;
         p = after_pair(s, p, err, &done);
-        if (p == std::string::npos) return false;
-        if (done) break;
+        if (p == std::string::npos)
+            return false;
+        if (done)
+            break;
     }
 
     if (!got_slots)
@@ -453,14 +497,16 @@ bool parse_corners_array(std::string_view s, size_t& p, int32_t corners[8], Pars
             ++p;
             int64_t x = 0, y = 0;
             p = take_int(s, p, x, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             p = skip_ws(s, p);
             if (p >= s.size() || s[p] != ',')
                 return fail(err, "expected ',' between x,y");
             ++p;
             p = skip_ws(s, p);
             p = take_int(s, p, y, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             p = skip_ws(s, p);
             if (p >= s.size() || s[p] != ']')
                 return fail(err, "expected ']' closing corner");
@@ -472,7 +518,8 @@ bool parse_corners_array(std::string_view s, size_t& p, int32_t corners[8], Pars
         } else {
             int64_t v = 0;
             p = take_int(s, p, v, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             if (count >= 8)
                 return fail(err, "too many corner values (want 8)");
             corners[count++] = int32_t(v);
@@ -509,37 +556,46 @@ bool parse_effect_obj(std::string_view s, size_t& p, Effect& out, ParseError& er
     while (!closed) {
         std::string key;
         p = next_key(s, p, key, err, &closed);
-        if (p == std::string::npos) return false;
-        if (closed) break;
+        if (p == std::string::npos)
+            return false;
+        if (closed)
+            break;
 
         if (key == "type") {
             p = take_string(s, p, type, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
         } else if (key == "corners") {
-            if (!parse_corners_array(s, p, persp.corners, err)) return false;
+            if (!parse_corners_array(s, p, persp.corners, err))
+                return false;
             got_corners = true;
         } else if (key == "snapshot_w") {
             int64_t v = 0;
             p = take_int(s, p, v, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             persp.snapshot_w = int32_t(v);
             got_snap_w = true;
         } else if (key == "snapshot_h") {
             int64_t v = 0;
             p = take_int(s, p, v, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             persp.snapshot_h = int32_t(v);
             got_snap_h = true;
         } else {
             // Unknown field — keep for forward-compat with new effect kinds.
             p = skip_unknown(s, p, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
         }
 
         bool done = false;
         p = after_pair(s, p, err, &done);
-        if (p == std::string::npos) return false;
-        if (done) break;
+        if (p == std::string::npos)
+            return false;
+        if (done)
+            break;
     }
 
     if (type.empty())
@@ -564,7 +620,8 @@ bool parse_effect_obj(std::string_view s, size_t& p, Effect& out, ParseError& er
 bool parse_set_effects(std::string_view s, SetEffectsRequest& out, ParseError& err) {
     using namespace jsonrpc_msg::parse;
     size_t p = open_object(s, err);
-    if (p == std::string::npos) return false;
+    if (p == std::string::npos)
+        return false;
 
     bool got_sid = false, got_effects = false;
 
@@ -572,12 +629,15 @@ bool parse_set_effects(std::string_view s, SetEffectsRequest& out, ParseError& e
     while (!closed) {
         std::string key;
         p = next_key(s, p, key, err, &closed);
-        if (p == std::string::npos) return false;
-        if (closed) break;
+        if (p == std::string::npos)
+            return false;
+        if (closed)
+            break;
 
         if (key == "source_id") {
             p = take_string(s, p, out.source_id, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_sid = true;
         } else if (key == "effects") {
             p = skip_ws(s, p);
@@ -593,7 +653,8 @@ bool parse_set_effects(std::string_view s, SetEffectsRequest& out, ParseError& e
                     break;
                 }
                 Effect e{};
-                if (!parse_effect_obj(s, p, e, err)) return false;
+                if (!parse_effect_obj(s, p, e, err))
+                    return false;
                 out.effects.push_back(std::move(e));
                 p = skip_ws(s, p);
                 if (p < s.size() && s[p] == ',') {
@@ -609,13 +670,16 @@ bool parse_set_effects(std::string_view s, SetEffectsRequest& out, ParseError& e
             got_effects = true;
         } else {
             p = skip_unknown(s, p, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
         }
 
         bool done = false;
         p = after_pair(s, p, err, &done);
-        if (p == std::string::npos) return false;
-        if (done) break;
+        if (p == std::string::npos)
+            return false;
+        if (done)
+            break;
     }
 
     if (!got_sid || out.source_id.empty())
@@ -629,7 +693,8 @@ bool parse_set_effects(std::string_view s, SetEffectsRequest& out, ParseError& e
 
 bool parse_set_source_state(std::string_view s, SetSourceStateRequest& out, ParseError& err) {
     size_t p = open_object(s, err);
-    if (p == std::string::npos) return false;
+    if (p == std::string::npos)
+        return false;
 
     bool got_sid = false, got_state = false;
 
@@ -637,26 +702,33 @@ bool parse_set_source_state(std::string_view s, SetSourceStateRequest& out, Pars
     while (!closed) {
         std::string key;
         p = next_key(s, p, key, err, &closed);
-        if (p == std::string::npos) return false;
-        if (closed) break;
+        if (p == std::string::npos)
+            return false;
+        if (closed)
+            break;
 
         if (key == "source_id") {
             p = take_string(s, p, out.source_id, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_sid = true;
         } else if (key == "state") {
             p = take_string(s, p, out.state, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
             got_state = true;
         } else {
             p = skip_unknown(s, p, err);
-            if (p == std::string::npos) return false;
+            if (p == std::string::npos)
+                return false;
         }
 
         bool done = false;
         p = after_pair(s, p, err, &done);
-        if (p == std::string::npos) return false;
-        if (done) break;
+        if (p == std::string::npos)
+            return false;
+        if (done)
+            break;
     }
 
     if (!got_sid || out.source_id.empty())

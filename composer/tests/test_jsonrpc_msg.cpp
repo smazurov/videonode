@@ -18,11 +18,17 @@ using parse::skip_ws;
 // parse helpers — exhaustive coverage.
 // =====================================================================
 
-TEST(JsonrpcParse, SkipWsEmpty) { EXPECT_EQ(skip_ws("", 0), size_t(0)); }
+TEST(JsonrpcParse, SkipWsEmpty) {
+    EXPECT_EQ(skip_ws("", 0), size_t(0));
+}
 
-TEST(JsonrpcParse, SkipWsNoWhitespace) { EXPECT_EQ(skip_ws("abc", 0), size_t(0)); }
+TEST(JsonrpcParse, SkipWsNoWhitespace) {
+    EXPECT_EQ(skip_ws("abc", 0), size_t(0));
+}
 
-TEST(JsonrpcParse, SkipWsSpaces) { EXPECT_EQ(skip_ws("   a", 0), size_t(3)); }
+TEST(JsonrpcParse, SkipWsSpaces) {
+    EXPECT_EQ(skip_ws("   a", 0), size_t(3));
+}
 
 TEST(JsonrpcParse, SkipWsTabsNewlinesReturns) {
     EXPECT_EQ(skip_ws("\t\n\r a", 0), size_t(4));
@@ -33,7 +39,9 @@ TEST(JsonrpcParse, SkipWsFromMiddle) {
     EXPECT_EQ(skip_ws(" ab   cd", 3), size_t(6));
 }
 
-TEST(JsonrpcParse, SkipWsOnlyWhitespace) { EXPECT_EQ(skip_ws("    ", 0), size_t(4)); }
+TEST(JsonrpcParse, SkipWsOnlyWhitespace) {
+    EXPECT_EQ(skip_ws("    ", 0), size_t(4));
+}
 
 TEST(JsonrpcParse, ParseStringEmpty) {
     std::string out;
@@ -201,32 +209,54 @@ TEST(JsonrpcParse, ParseUintArrayRejectsTrailingComma) {
     EXPECT_EQ(parse_uint_array("[1,]", 0, a), std::string::npos);
 }
 
-TEST(JsonrpcParse, SkipValueString) { EXPECT_EQ(skip_value(R"("abc")", 0), size_t(5)); }
+TEST(JsonrpcParse, SkipValueString) {
+    EXPECT_EQ(skip_value(R"("abc")", 0), size_t(5));
+}
 
 TEST(JsonrpcParse, SkipValueStringWithEscape) {
     // R"("a\"b")" is 6 characters: " a \ " b "
     EXPECT_EQ(skip_value(R"("a\"b")", 0), size_t(6));
 }
 
-TEST(JsonrpcParse, SkipValueUint) { EXPECT_EQ(skip_value("42", 0), size_t(2)); }
+TEST(JsonrpcParse, SkipValueUint) {
+    EXPECT_EQ(skip_value("42", 0), size_t(2));
+}
 
-TEST(JsonrpcParse, SkipValueIntNegative) { EXPECT_EQ(skip_value("-42", 0), size_t(3)); }
+TEST(JsonrpcParse, SkipValueIntNegative) {
+    EXPECT_EQ(skip_value("-42", 0), size_t(3));
+}
 
-TEST(JsonrpcParse, SkipValueFloat) { EXPECT_EQ(skip_value("3.14", 0), size_t(4)); }
+TEST(JsonrpcParse, SkipValueFloat) {
+    EXPECT_EQ(skip_value("3.14", 0), size_t(4));
+}
 
-TEST(JsonrpcParse, SkipValueExponent) { EXPECT_EQ(skip_value("1e10", 0), size_t(4)); }
+TEST(JsonrpcParse, SkipValueExponent) {
+    EXPECT_EQ(skip_value("1e10", 0), size_t(4));
+}
 
-TEST(JsonrpcParse, SkipValueNegExponent) { EXPECT_EQ(skip_value("1.5e-3", 0), size_t(6)); }
+TEST(JsonrpcParse, SkipValueNegExponent) {
+    EXPECT_EQ(skip_value("1.5e-3", 0), size_t(6));
+}
 
-TEST(JsonrpcParse, SkipValueTrue) { EXPECT_EQ(skip_value("true", 0), size_t(4)); }
+TEST(JsonrpcParse, SkipValueTrue) {
+    EXPECT_EQ(skip_value("true", 0), size_t(4));
+}
 
-TEST(JsonrpcParse, SkipValueFalse) { EXPECT_EQ(skip_value("false", 0), size_t(5)); }
+TEST(JsonrpcParse, SkipValueFalse) {
+    EXPECT_EQ(skip_value("false", 0), size_t(5));
+}
 
-TEST(JsonrpcParse, SkipValueNull) { EXPECT_EQ(skip_value("null", 0), size_t(4)); }
+TEST(JsonrpcParse, SkipValueNull) {
+    EXPECT_EQ(skip_value("null", 0), size_t(4));
+}
 
-TEST(JsonrpcParse, SkipValueEmptyObject) { EXPECT_EQ(skip_value("{}", 0), size_t(2)); }
+TEST(JsonrpcParse, SkipValueEmptyObject) {
+    EXPECT_EQ(skip_value("{}", 0), size_t(2));
+}
 
-TEST(JsonrpcParse, SkipValueEmptyArray) { EXPECT_EQ(skip_value("[]", 0), size_t(2)); }
+TEST(JsonrpcParse, SkipValueEmptyArray) {
+    EXPECT_EQ(skip_value("[]", 0), size_t(2));
+}
 
 TEST(JsonrpcParse, SkipValueNestedObject) {
     EXPECT_EQ(skip_value(R"({"a":{"b":1},"c":[1,2]})", 0), size_t(23));
@@ -248,9 +278,13 @@ TEST(JsonrpcParse, SkipValueEscapesInStrings) {
     EXPECT_EQ(skip_value(s, 0), std::string(s).size());
 }
 
-TEST(JsonrpcParse, SkipValueLeadingWhitespace) { EXPECT_EQ(skip_value("   42", 0), size_t(5)); }
+TEST(JsonrpcParse, SkipValueLeadingWhitespace) {
+    EXPECT_EQ(skip_value("   42", 0), size_t(5));
+}
 
-TEST(JsonrpcParse, SkipValueRejectsEof) { EXPECT_EQ(skip_value("", 0), std::string::npos); }
+TEST(JsonrpcParse, SkipValueRejectsEof) {
+    EXPECT_EQ(skip_value("", 0), std::string::npos);
+}
 
 TEST(JsonrpcParse, SkipValueRejectsUnbalancedObject) {
     EXPECT_EQ(skip_value("{", 0), std::string::npos);
@@ -261,7 +295,8 @@ TEST(JsonrpcParse, SkipValueRejectsUnbalancedObject) {
 // =====================================================================
 
 TEST(JsonrpcDecode, RequestNumericId) {
-    const char* s = R"({"jsonrpc":"2.0","method":"set_format","params":{"fourcc":"YUYV","w":1920},"id":42})";
+    const char* s =
+        R"({"jsonrpc":"2.0","method":"set_format","params":{"fourcc":"YUYV","w":1920},"id":42})";
     Frame f;
     std::string err;
     EXPECT_TRUE(DecodeFrame(s, f, &err));
@@ -372,8 +407,7 @@ TEST(JsonrpcDecode, ResponseErrorWithDataObject) {
 }
 
 TEST(JsonrpcDecode, ResponseErrorWithDataString) {
-    const char* s =
-        R"({"jsonrpc":"2.0","error":{"code":1,"message":"oops","data":"hi"},"id":7})";
+    const char* s = R"({"jsonrpc":"2.0","error":{"code":1,"message":"oops","data":"hi"},"id":7})";
     Frame f;
     EXPECT_TRUE(DecodeFrame(s, f, nullptr));
     EXPECT_EQ(f.error_data_json, "\"hi\"");
@@ -381,8 +415,7 @@ TEST(JsonrpcDecode, ResponseErrorWithDataString) {
 
 TEST(JsonrpcDecode, ResponseErrorExtraFieldsInErrorObject) {
     // Unknown keys inside error object must be tolerated.
-    const char* s =
-        R"({"jsonrpc":"2.0","error":{"code":1,"message":"oops","extra":42},"id":7})";
+    const char* s = R"({"jsonrpc":"2.0","error":{"code":1,"message":"oops","extra":42},"id":7})";
     Frame f;
     std::string err;
     EXPECT_TRUE(DecodeFrame(s, f, &err));
@@ -405,7 +438,8 @@ TEST(JsonrpcDecode, FieldOrderInsensitive) {
 }
 
 TEST(JsonrpcDecode, ForwardCompatUnknownTopLevelKeys) {
-    const char* s = R"({"jsonrpc":"2.0","method":"x","params":{},"id":1,"future":"hi","also":[1,2],"nested":{"k":"v"}})";
+    const char* s =
+        R"({"jsonrpc":"2.0","method":"x","params":{},"id":1,"future":"hi","also":[1,2],"nested":{"k":"v"}})";
     Frame f;
     std::string err;
     EXPECT_TRUE(DecodeFrame(s, f, &err));
@@ -508,8 +542,8 @@ TEST(JsonrpcReject, ErrorNotObject) {
 
 TEST(JsonrpcReject, ErrorBadCodeType) {
     Frame f;
-    EXPECT_FALSE(DecodeFrame(R"({"jsonrpc":"2.0","error":{"code":"bad","message":"x"},"id":1})",
-                             f, nullptr));
+    EXPECT_FALSE(DecodeFrame(R"({"jsonrpc":"2.0","error":{"code":"bad","message":"x"},"id":1})", f,
+                             nullptr));
 }
 
 TEST(JsonrpcReject, BadIdValue) {

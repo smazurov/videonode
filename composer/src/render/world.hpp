@@ -58,8 +58,8 @@ namespace render {
 struct SourceState {
     std::string source_id;
     std::array<float, 9> warp = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    bool has_perspective = false;            // true once set_effects with type=perspective lands
-    std::string state = "live";              // "live" | "transitioning" | "placeholder"
+    bool has_perspective = false;              // true once set_effects with type=perspective lands
+    std::string state = "live";                // "live" | "transitioning" | "placeholder"
     std::vector<composer_rpc::Effect> effects; // raw effect list (incl. unrecognized); audit/log
 };
 
@@ -68,7 +68,7 @@ struct SourceState {
 // owned elsewhere (canvas_loop builds it from this binding); World
 // only carries the bookkeeping.
 struct SlotBinding {
-    std::string slot;       // "a", "b", …
+    std::string slot; // "a", "b", …
     std::string source_id;
     std::string scm_path;
     uint32_t width = 0;
@@ -132,8 +132,8 @@ class World {
     uint32_t canvas_h_ = 0;
     uint32_t canvas_fps_ = 0;
     bool got_canvas_ = false;
-    std::map<std::string, SlotBinding> slots_;        // key: slot name
-    std::map<std::string, LayoutRect> layout_;        // key: slot name
+    std::map<std::string, SlotBinding> slots_;         // key: slot name
+    std::map<std::string, LayoutRect> layout_;         // key: slot name
     std::map<std::string, SourceState> source_states_; // key: source_id
 };
 

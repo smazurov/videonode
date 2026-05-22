@@ -91,8 +91,8 @@ void ControlChannel::disconnect(const char* why) {
     fd_ = -1;
     read_buf_.clear();
     // Reset backoff schedule.
-    next_dial_attempt_ = std::chrono::steady_clock::now() +
-                         std::chrono::milliseconds(dial_backoff_ms_);
+    next_dial_attempt_ =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(dial_backoff_ms_);
     dial_backoff_ms_ = std::min(dial_backoff_ms_ * 2, kMaxBackoffMs);
 }
 
@@ -111,8 +111,8 @@ void ControlChannel::dial() {
         // Expected at startup before the daemon is up; only log once per
         // backoff window to keep journals quiet.
         ::close(fd);
-        next_dial_attempt_ = std::chrono::steady_clock::now() +
-                             std::chrono::milliseconds(dial_backoff_ms_);
+        next_dial_attempt_ =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(dial_backoff_ms_);
         dial_backoff_ms_ = std::min(dial_backoff_ms_ * 2, kMaxBackoffMs);
         return;
     }
@@ -232,8 +232,8 @@ void ControlChannel::dispatch_line(const std::string& line) {
         return;
     }
     if (!handler_) {
-        std::string resp = jsonrpc_msg::EncodeResponseError(
-            -32601, "no handler registered", "", frame.id_raw);
+        std::string resp =
+            jsonrpc_msg::EncodeResponseError(-32601, "no handler registered", "", frame.id_raw);
         resp += '\n';
         write_line(resp, /*nonblocking=*/true);
         return;
@@ -247,8 +247,8 @@ void ControlChannel::dispatch_line(const std::string& line) {
     if (hr.ok) {
         resp = jsonrpc_msg::EncodeResponseResult(hr.result_json, frame.id_raw);
     } else {
-        resp = jsonrpc_msg::EncodeResponseError(hr.error_code, hr.error_message,
-                                                hr.error_data_json, frame.id_raw);
+        resp = jsonrpc_msg::EncodeResponseError(hr.error_code, hr.error_message, hr.error_data_json,
+                                                frame.id_raw);
     }
     resp += '\n';
     if (!write_line(resp, /*nonblocking=*/true)) {

@@ -73,16 +73,16 @@ std::string EncodeNotification(const std::string& method, std::string_view param
 
 std::string EncodeResponseResult(std::string_view result_json, std::string_view id_raw) {
     std::ostringstream o;
-    o << R"({"jsonrpc":"2.0","result":)" << (result_json.empty() ? std::string_view("{}") : result_json)
-      << R"(,"id":)" << id_raw << "}";
+    o << R"({"jsonrpc":"2.0","result":)"
+      << (result_json.empty() ? std::string_view("{}") : result_json) << R"(,"id":)" << id_raw
+      << "}";
     return o.str();
 }
 
 std::string EncodeResponseError(int64_t code, const std::string& message,
                                 std::string_view data_json, std::string_view id_raw) {
     std::ostringstream o;
-    o << R"({"jsonrpc":"2.0","error":{"code":)" << code << R"(,"message":)"
-      << json_escape(message);
+    o << R"({"jsonrpc":"2.0","error":{"code":)" << code << R"(,"message":)" << json_escape(message);
     if (!data_json.empty())
         o << R"(,"data":)" << data_json;
     o << R"(},"id":)" << id_raw << "}";

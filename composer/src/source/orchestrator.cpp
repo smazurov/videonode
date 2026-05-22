@@ -103,8 +103,8 @@ struct PlaceholderRing {
         auto m = nv12_buf::map_rw(b);
         if (m.y) {
             for (int y = 0; y < height; ++y)
-                std::memcpy(static_cast<uint8_t*>(m.y) + y * b.y_pitch,
-                            stage_.data() + y * width, width);
+                std::memcpy(static_cast<uint8_t*>(m.y) + y * b.y_pitch, stage_.data() + y * width,
+                            width);
         }
         nv12_buf::unmap(b);
         return b;
@@ -339,8 +339,8 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                 resp.error_message = "method not found";
                 return resp;
             });
-        fprintf(stderr, "videonode-source: control plane → %s (id=%s)\n",
-                a.ctl_connect.c_str(), a.device_id.c_str());
+        fprintf(stderr, "videonode-source: control plane → %s (id=%s)\n", a.ctl_connect.c_str(),
+                a.device_id.c_str());
     }
 
     using clock = std::chrono::steady_clock;
@@ -546,9 +546,9 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
             bool consumers_changed = (cur_consumers != prev_consumer_count);
             bool heartbeat_due = clock::now() >= next_status_heartbeat;
             if (health_changed || consumers_changed || heartbeat_due) {
-                std::string params = build_status_params(
-                    a.device_id, probe, h, cap, a, real_frame_idx, ph.tick_idx, last_dqbuf_seq,
-                    prod);
+                std::string params =
+                    build_status_params(a.device_id, probe, h, cap, a, real_frame_idx, ph.tick_idx,
+                                        last_dqbuf_seq, prod);
                 ctl.push_status(params);
                 prev_consumer_count = cur_consumers;
                 next_status_heartbeat = clock::now() + std::chrono::seconds(1);
