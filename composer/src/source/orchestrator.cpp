@@ -352,22 +352,46 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         (void)prod.prune_dead_consumers();
 
         // Format-change reinit: synchronous teardown + reopen with the
-        // new args. The probe was already marked Transitioning; the
-        // last_good fd is invalidated because out_ring is reallocated.
-        if (need_reinit_for_format_change) {
+        // new args. The gRPC SetFormat handler runs on a separate thread
+        // and mutates `a` + `need_reinit_for_format_change` under
+        // set_format_mu; copy out the flag (and atomically clear it)
+        // under the lock so the reinit reads a consistent Args snapshot.
+        // try_open_capture takes Args by const ref so further writes by
+        // SetFormat during the V4L2 ioctls only affect the *next* loop
+        // iteration's reinit.
+        bool reinit_now = false;
+        {
+            std::lock_guard<std::mutex> lock(gctx.set_format_mu);
+            if (need_reinit_for_format_change) {
+                reinit_now = true;
+                need_reinit_for_format_change = false;
+            }
+        }
+        if (reinit_now) {
             last_good_decoded = {};
-            if (try_open_capture(cap, a, allocator)) {
+            // Snapshot Args under the lock so try_open_capture sees a
+            // coherent set even if SetFormat races us.
+            Args snap;
+            {
+                std::lock_guard<std::mutex> lock(gctx.set_format_mu);
+                snap = a;
+            }
+            if (try_open_capture(cap, snap, allocator)) {
                 probe.attach();
                 need_reinit = false;
             } else {
                 need_reinit = true;
             }
-            need_reinit_for_format_change = false;
         }
 
         // Reinit capture if we lost it.
         if (need_reinit) {
-            if (try_open_capture(cap, a, allocator)) {
+            Args snap;
+            {
+                std::lock_guard<std::mutex> lock(gctx.set_format_mu);
+                snap = a;
+            }
+            if (try_open_capture(cap, snap, allocator)) {
                 probe.attach();
                 need_reinit = false;
             }

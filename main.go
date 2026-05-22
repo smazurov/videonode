@@ -383,6 +383,17 @@ func main() {
 				_ = mppCollector.Stop()
 			}
 
+			// Tear down the native control plane: closes every per-source
+			// gRPC channel, cancels in-flight StreamStatus goroutines, and
+			// closes the StatusFeed channel that the fan-out goroutine in
+			// main reads. Without this the daemon hangs on SIGTERM because
+			// the fan-out goroutine blocks on a never-closed channel.
+			if ctlServer != nil {
+				if err := ctlServer.Stop(); err != nil {
+					logger.Error("Error stopping control manager", "error", err)
+				}
+			}
+
 			// Exit with non-zero code if restart was requested (systemd will restart)
 			if updateService != nil && updateService.IsRestartPending() {
 				os.Exit(3)
