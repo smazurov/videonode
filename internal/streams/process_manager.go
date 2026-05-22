@@ -108,7 +108,7 @@ type streamProcessManager struct {
 	// concurrent orchestrators never race interleaved set_* pushes
 	// against the same composer over pipelinectl.
 	composerOrchCancels map[string]context.CancelFunc
-	controlServer       *pipelinectl.Server
+	controlServer       *pipelinectl.Manager
 	mu                  sync.Mutex
 }
 
@@ -125,7 +125,7 @@ type ProcessManagerOptions struct {
 	// pushing config to videonode-composer (set_canvas / set_source /
 	// set_layout / set_effects / set_source_state). Nil disables the
 	// control plane entirely.
-	ControlServer *pipelinectl.Server
+	ControlServer *pipelinectl.Manager
 }
 
 // NewStreamProcessManager creates a new StreamProcessManager.
@@ -1072,10 +1072,13 @@ func (m *streamProcessManager) CaptureRawSnapshot(streamID string) ([]byte, erro
 			recording.ErrSnapshotNotSupported, streamID)
 	}
 
-	// Native path: dial the producer's SCM_RIGHTS socket directly.
-	if m.producerMgr != nil {
-		if sock, ok := m.producerMgr.SocketPath(streamID); ok {
-			if jpeg, err := captureNativeSnapshot(sock, 3*time.Second); err == nil {
+	// Native path: pull a frame from videonode-source via gRPC. Falls
+	// back to the legacy vision-pipe path on failure (e.g. control
+	// server not configured, no source registered yet).
+	if m.controlServer != nil && m.producerMgr != nil {
+		if _, ok := m.producerMgr.SocketPath(streamID); ok {
+			ctx := context.Background()
+			if jpeg, err := captureNativeSnapshot(ctx, m.controlServer, streamID, 3*time.Second); err == nil {
 				return jpeg, nil
 			} else {
 				m.logger.Debug("Native snapshot failed, falling back",

@@ -30,7 +30,7 @@ type Server struct {
 	options        *Options
 	deviceDetector devices.DeviceDetector
 	eventBus       *events.Bus
-	controlServer  *pipelinectl.Server
+	controlServer  *pipelinectl.Manager
 	logger         logging.Logger
 }
 
@@ -148,7 +148,7 @@ type Options struct {
 	StreamProvider      streaming.StreamProvider      // Stream access for snapshots/recording
 	RawSnapshotProvider recording.RawSnapshotProvider // Raw vision pipe snapshot provider
 	RecordingDir        string                        // Directory for snapshot images
-	ControlServer       *pipelinectl.Server           // Optional control plane for native sidecars
+	ControlServer       *pipelinectl.Manager          // Optional control plane for native sidecars
 	// StreamingRTSPPort is the daemon's RTSP listen address as configured
 	// at startup (":8554" by default). Used in API responses (rtsp_url
 	// field) so clients dial the actual published port, not a hardcoded
