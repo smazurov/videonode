@@ -2,6 +2,13 @@
 
 #include "src/common/log_levels.hpp"
 
+// Mirror of the header guard: this TU is only compiled when HAVE_MPP. The
+// preprocessor wrapper keeps clang-tidy / IDE indexers from choking on the
+// missing Rockchip headers on dev hosts (where librockchip_mpp is absent
+// and the build system excludes this file from the link, but a CDB-less
+// probe may still hand it to clang-tidy).
+#if defined(HAVE_MPP)
+
 #include <rockchip/rk_mpi.h>
 #include <rockchip/mpp_frame.h>
 #include <rockchip/mpp_packet.h>
@@ -178,3 +185,5 @@ bool MppJpegDec::decode(std::span<const uint8_t> jpeg, jpeg_dec::DecodedNv12& ou
 }
 
 } // namespace mpp_jpeg_dec
+
+#endif // HAVE_MPP

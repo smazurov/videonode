@@ -2,6 +2,14 @@
 
 #include "src/common/log_levels.hpp"
 
+// Gated on HAVE_RGA so the file can sit in compile_commands.json even on
+// dev hosts where librga is absent — clang-tidy / IDE indexers still parse
+// it without bailing out on missing RK_FORMAT_* / IM_STATUS / rga_buffer_*
+// identifiers. The CMake rule (composer/src/render/CMakeLists.txt) only
+// links this TU when HAVE_RGA is on, so the empty translation unit on
+// non-rig builds is benign.
+#if defined(HAVE_RGA)
+
 namespace rga {
 
 int to_rk_format(PixelFormat f) {
@@ -85,3 +93,5 @@ bool convert(const ConvertParams& src, const ConvertParams& dst) {
 }
 
 } // namespace rga
+
+#endif // HAVE_RGA

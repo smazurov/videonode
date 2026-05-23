@@ -23,6 +23,13 @@
 #include <memory>
 #include <span>
 
+// Gated on HAVE_MPP so dev hosts without librockchip_mpp can still parse
+// the header (clang-tidy, IDE indexers) without bailing on missing
+// <rockchip/rk_mpi.h>. Production rig builds set HAVE_MPP via
+// composer/cmake/Dependencies.cmake; the matching .cpp is only compiled
+// when HAVE_MPP is on.
+#if defined(HAVE_MPP)
+
 // rockchip-mpp declares MppCtx/MppApi/MppFrame as `typedef void*` (or
 // equivalent), so we can't usefully forward-declare them. Just pull in the
 // full MPP API surface; it's a clean C header.
@@ -103,3 +110,5 @@ class MppJpegDec : public jpeg_dec::JpegDec {
 };
 
 } // namespace mpp_jpeg_dec
+
+#endif // HAVE_MPP
