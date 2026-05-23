@@ -31,13 +31,23 @@ composer/scripts/sync-to-rig.sh
 RIG=orangepi composer/scripts/build-on-rig.sh
 
 # 3. (Optional) cross-build Go supervisor and install over the canonical bin.
+#
+# The UI is embedded into the binary via `go:embed ui/dist`. If you
+# touched anything under `ui/src/`, you MUST `pnpm build` first or
+# the binary ships the stale pre-build assets (or fails to compile
+# when ui/dist doesn't exist yet). Safe to run unconditionally:
+cd ui && pnpm install --frozen-lockfile && pnpm build && cd ..
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/videonode-arm64 .
-scp /tmp/videonode-arm64 orangepi:/home/orangepi/.local/bin/videonode
+# Direct scp over the live canonical binary fails with "Failure" when
+# the service is holding the text segment mapped. Stage to /tmp first,
+# then cp inside step 4 (which has the service stopped):
+scp /tmp/videonode-arm64 orangepi:/tmp/videonode-arm64.staging
 
-# 4. Stop the service (free Text file busy locks), install the native bins,
-#    start the service.
+# 4. Stop the service (free Text file busy locks), install the native bins
+#    AND the staged Go supervisor (if step 3 ran), then start the service.
 ssh orangepi '
   systemctl --user stop videonode.service
+  [ -f /tmp/videonode-arm64.staging ] && cp -f /tmp/videonode-arm64.staging /home/orangepi/.local/bin/videonode
   cp -f /home/orangepi/composer/build/src/bin/videonode-source   /home/orangepi/.local/bin/
   cp -f /home/orangepi/composer/build/src/bin/videonode-sink     /home/orangepi/.local/bin/
   cp -f /home/orangepi/composer/build/src/bin/videonode-composer /home/orangepi/.local/bin/
@@ -82,6 +92,8 @@ ssh orangepi 'coredumpctl info --no-pager | head -100; \
 - **`/tmp/smoke-vn/`** is a stale smoke-test scratch dir. If you find a supervisor running from `/tmp/smoke-vn/videonode`, kill it (`pkill -TERM -f /tmp/smoke-vn/videonode`), wait, then `rm -rf /tmp/smoke-vn`. Do not relaunch from there.
 - **Running processes hold old code.** A successful `cp` updates the binary on disk, but already-running processes keep their old text segment mapped. Confirm the new code is live by comparing `ps -o etime` for the supervisor + helpers against the binary mtime on the rig.
 - **HDMI source unstable** — `verify-from-dev.sh` against the HDMI stream will fail if the input has no signal lock. That is a source issue, not a deploy issue; the composer canvas stream (which falls back to placeholder rendering when sources are absent) is the more reliable verification target.
+- **UI is `go:embed`-bundled** — touching anything under `ui/src/` requires `cd ui && pnpm build` BEFORE `go build`, otherwise the binary ships the stale pre-build assets in `ui/dist/`. Safe to run the UI build unconditionally; it's ~5 seconds. The bare `go build` succeeds without it (existing `ui/dist/` from a prior build is fine), so the staleness is silent — you'll only notice by diffing the rendered HTML.
+- **Auth on the canonical service is Linux PAM**, not the `[auth] username/password` fields in `config.toml`. The factory defaults to `linux` when `[auth] type` is unset, which hands credentials to `/sbin/unix_chkpwd` for the system user. On the rig that's `orangepi:orangepi`. The `[auth] username/password` config fields are only consulted when `[auth] type = "basic"` is set explicitly. `curl -u <wrong>:<wrong>` returns 401 with no hint about which backend is rejecting.
 
 ## Prerequisites
 
