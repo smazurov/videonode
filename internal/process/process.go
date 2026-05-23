@@ -301,14 +301,20 @@ func (p *Process) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 	}
 }
 
-// sendStopSignal sends SIGINT to the subprocess without waiting.
+// sendStopSignal sends SIGINT to the subprocess's process group without
+// waiting. Targeting the group (negative pid) is required for `sh -c "A | B"`
+// encoder pipelines so the piped children die with the shell — otherwise
+// they reparent to init and keep holding the gRPC socket / RTSP producer
+// slot, producing the black-canvas symptom on restart. The cmd has
+// Setpgid:true, so pid == pgid.
 func (p *Process) sendStopSignal() {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return
 	}
-	p.logger.Info("Sending SIGINT to process", "pid", p.cmd.Process.Pid)
-	if err := p.cmd.Process.Signal(syscall.SIGINT); err != nil {
-		p.logger.Warn("Failed to send SIGINT", "error", err)
+	pid := p.cmd.Process.Pid
+	p.logger.Info("Sending SIGINT to process group", "pid", pid)
+	if err := syscall.Kill(-pid, syscall.SIGINT); err != nil {
+		p.logger.Warn("Failed to send SIGINT to group", "error", err)
 	}
 }
 
@@ -320,9 +326,10 @@ func (p *Process) waitForExit(processDone <-chan error, timeout time.Duration) i
 	case <-time.After(timeout):
 		p.logger.Warn("Graceful shutdown timeout, forcing kill", "timeout", timeout)
 		if p.cmd.Process != nil {
-			if err := p.cmd.Process.Kill(); err != nil {
-				if !errors.Is(err, os.ErrProcessDone) {
-					p.logger.Error("Failed to kill process", "error", err)
+			// Kill the whole process group; see sendStopSignal for why.
+			if err := syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL); err != nil {
+				if !errors.Is(err, syscall.ESRCH) {
+					p.logger.Error("Failed to kill process group", "error", err)
 				}
 			}
 		}
