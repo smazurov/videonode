@@ -1,8 +1,10 @@
 #include "src/ipc/scm_socket.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <array>
 #include <cerrno>
-#include <cstdio>
+#include <cstdint>
 #include <cstring>
 #include <fcntl.h>
 #include <span>
@@ -12,6 +14,8 @@
 #include <unistd.h>
 
 namespace scm_socket {
+
+using vn::base::unique_fd;
 
 namespace {
 
@@ -50,7 +54,7 @@ bool read_full(int fd, std::span<uint8_t> buf) {
 // If MSG_CTRUNC is set, logs and leaves fds_out empty.
 void parse_cmsg_fds(const msghdr& m, std::vector<int>& fds_out) {
     if (m.msg_flags & MSG_CTRUNC) {
-        fprintf(stderr, "scm_socket: control data truncated; some fds may have been dropped\n");
+        vn::log::warn("scm_socket: control data truncated; some fds may have been dropped");
         return;
     }
     for (cmsghdr* c = CMSG_FIRSTHDR(const_cast<msghdr*>(&m)); c != nullptr;
@@ -74,50 +78,56 @@ void close_and_clear(std::vector<int>& fds) {
 
 } // namespace
 
-int ListenAndAccept(const std::string& path) {
+unique_fd BindAndListen(const std::string& path, int backlog) {
     ::unlink(path.c_str()); // best-effort: stale path won't bind otherwise
-    int s = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (s < 0)
-        return -1;
+    unique_fd s(::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0));
+    if (!s)
+        return {};
 
     sockaddr_un addr{};
     if (!set_addr(addr, path)) {
-        ::close(s);
-        return -1;
+        return {};
     }
-    if (::bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        ::close(s);
-        return -1;
+    if (::bind(s.get(), reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        return {};
     }
-    if (::listen(s, 1) < 0) {
-        ::close(s);
-        return -1;
+    if (::listen(s.get(), backlog) < 0) {
+        return {};
     }
-    int c = ::accept4(s, nullptr, nullptr, SOCK_CLOEXEC);
+    return s;
+}
+
+unique_fd ListenAndAccept(const std::string& path) {
+    unique_fd s = BindAndListen(path, 1);
+    if (!s)
+        return {};
+    unique_fd c(::accept4(s.get(), nullptr, nullptr, SOCK_CLOEXEC));
+    // s closes via destructor regardless; preserve errno from accept4 on
+    // failure.
     int saved = errno;
-    ::close(s);
+    s.reset();
     errno = saved;
     return c;
 }
 
-int AcceptOne(int listen_fd) {
-    return ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+unique_fd AcceptOne(int listen_fd) {
+    return unique_fd(::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC));
 }
 
-int ConnectClient(const std::string& path) {
-    int s = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (s < 0)
-        return -1;
+unique_fd ConnectClient(const std::string& path) {
+    unique_fd s(::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0));
+    if (!s)
+        return {};
     sockaddr_un addr{};
     if (!set_addr(addr, path)) {
-        ::close(s);
-        return -1;
+        return {};
     }
-    if (::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+    if (::connect(s.get(), reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        // s's destructor runs on return, restore errno after that close.
         int saved = errno;
-        ::close(s);
+        s.reset();
         errno = saved;
-        return -1;
+        return {};
     }
     return s;
 }
@@ -181,14 +191,14 @@ bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out, std::vector<int
     std::string err;
     if (!dmabuf_header::Decode(bytes, header_out, &err)) {
         close_and_clear(fds_out);
-        fprintf(stderr, "scm_socket: dmabuf_header::Decode: %s\n", err.c_str());
+        vn::log::error("scm_socket: dmabuf_header::Decode: %s", err.c_str());
         errno = EPROTO;
         return false;
     }
 
     if (fds_out.size() != header_out.plane_pitches.size()) {
-        fprintf(stderr, "scm_socket: %zu fds vs %zu plane_pitches (mismatch)\n", fds_out.size(),
-                header_out.plane_pitches.size());
+        vn::log::error("scm_socket: %zu fds vs %zu plane_pitches (mismatch)", fds_out.size(),
+                       header_out.plane_pitches.size());
         close_and_clear(fds_out);
         errno = EPROTO;
         return false;

@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include "src/common/unique_fd.hpp"
 #include "src/ipc/dmabuf_header.hpp"
 
 #include <cstdint>
@@ -23,20 +24,27 @@
 
 namespace scm_socket {
 
-// Bind a Unix STREAM socket at `path`, listen for one connection. Returns
-// the listening fd on success (>= 0) or -1 on error with errno set. The
+// Bind a Unix STREAM socket at `path` and call ::listen(backlog). Returns
+// the listening fd. Empty unique_fd on error with errno set. The path is
+// unlinked first if it exists (we own it). Use this when the caller wants
+// to manage accept() separately (e.g. defer it past init(), poll for
+// multiple consumers over the socket's lifetime).
+[[nodiscard]] vn::base::unique_fd BindAndListen(const std::string& path, int backlog);
+
+// Bind a Unix STREAM socket at `path`, listen + accept ONE client, and
+// return the connected client fd as a unique_fd (the internal listen fd is
+// closed before we return). Empty unique_fd on error with errno set. The
 // path is unlinked first if it exists (we own it).
-[[nodiscard]] int ListenAndAccept(const std::string& path);
+[[nodiscard]] vn::base::unique_fd ListenAndAccept(const std::string& path);
 
 // AcceptOne accepts a single client on `listen_fd` and returns the client
-// fd. -1 on error with errno set. ListenAndAccept handles both already;
-// this is for callers that hold the listen fd and want to accept multiple
-// clients over its lifetime.
-[[nodiscard]] int AcceptOne(int listen_fd);
+// fd. Empty unique_fd on error with errno set. For callers that hold a
+// long-lived listen fd and accept multiple consumers over its lifetime.
+[[nodiscard]] vn::base::unique_fd AcceptOne(int listen_fd);
 
 // Connect to a Unix STREAM socket at `path`. Used by the testing/probe
-// senders. Returns the connected fd or -1 on error.
-[[nodiscard]] int ConnectClient(const std::string& path);
+// senders. Empty unique_fd on error with errno set.
+[[nodiscard]] vn::base::unique_fd ConnectClient(const std::string& path);
 
 // Receive one binary header + accompanying SCM_RIGHTS fds.
 // On success `header_out` and `fds_out` are populated and returns true.
