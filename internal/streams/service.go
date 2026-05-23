@@ -829,7 +829,7 @@ func (s *service) GetFFmpegCommand(_ context.Context, streamID string, _ string)
 	if streamConfig.CustomFFmpegCommand != "" {
 		return streamConfig.CustomFFmpegCommand, true, nil
 	}
-	cmd, err := buildEncoderPreviewCommand(streamConfig, s.rtspHost, s.deviceResolver)
+	cmd, err := buildEncoderPreviewCommand(streamConfig, s.rtspHost, s.deviceResolver, s.validationProvider)
 	if err != nil {
 		return "", false, err
 	}
