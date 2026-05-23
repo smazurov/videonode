@@ -23,6 +23,7 @@ import (
 	"github.com/smazurov/videonode/internal/metrics/exporters"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
+	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 	"github.com/smazurov/videonode/internal/streams/store"
 	"github.com/smazurov/videonode/internal/updater"
@@ -245,6 +246,22 @@ func main() {
 
 		streamService := streams.NewStreamService(serviceOpts)
 
+		// Construct the new pipeline.Pipeline alongside the legacy
+		// streamService. Today the pipeline is observable via
+		// GET /api/processes (read-only); future work routes API CRUD
+		// through pipeline.Apply / pipeline.Delete instead of through
+		// the legacy stream-processor stack. Spawning is on-demand —
+		// no producer/composer/encoder boots until a stream calls
+		// Pipeline.Apply, so wiring it here is zero-cost when unused.
+		nativePipeline := pipeline.New(pipeline.Config{
+			VNSourceBin:    native.V4L2Source,
+			VNComposerBin:  native.Composer,
+			VNSinkBin:      native.VNSink,
+			DRMDevice:      "/dev/dri/renderD128",
+			DeviceResolver: nil, // wired below once devices.Detector is available
+			EventBus:       eventBus,
+		}, logger)
+
 		// Load existing streams from TOML config into memory at startup
 		// This must happen after stream service is created so OBS callbacks are registered
 		// Runtime stream management should use CRUD APIs (not reload)
@@ -287,6 +304,7 @@ func main() {
 			PrometheusHandler:   promhttp.Handler(), // Prometheus metrics via promauto
 			UpdateService:       updateService,
 			ControlServer:       ctlServer,
+			ProcessesProvider:   nativePipeline,
 			StreamingRTSPPort:   opts.StreamingRTSPPort,
 			StreamingSRTPort:    opts.SRTAddr,
 		}

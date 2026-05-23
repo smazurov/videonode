@@ -8,7 +8,9 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"time"
 
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
 )
@@ -26,6 +28,10 @@ type Config struct {
 	// canonical /dev/videoN path. Returns empty string when the device
 	// can't be resolved; Pipeline.Apply surfaces that as an error.
 	DeviceResolver func(deviceID string) string
+
+	// EventBus, when non-nil, receives StageStateChangedEvent on every
+	// pool state transition. Nil = no events emitted (test path).
+	EventBus *events.Bus
 }
 
 // Pipeline is the post-rip assembler. One Pipeline owns the runtime
@@ -75,8 +81,40 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 		Logger:           logger,
 		CommandProvider:  p.commandFor,
 		ConfigureProcess: p.configureProcess,
+		OnStateChange:    p.onStateChange,
 	})
 	return p
+}
+
+// onStateChange forwards pool state transitions to the event bus as
+// StageStateChangedEvent (when a bus is configured). Kind/StreamID
+// come from the registered stage; lookup is best-effort — a stage that
+// was deleted between state-change and lookup just emits with empty
+// kind/stream_id.
+func (p *Pipeline) onStateChange(id string, oldState, newState process.State, err error) {
+	if p.cfg.EventBus == nil {
+		return
+	}
+	p.mu.Lock()
+	stage, ok := p.stages[id]
+	p.mu.Unlock()
+	ev := events.StageStateChangedEvent{
+		StageID:   id,
+		OldState:  string(oldState),
+		NewState:  string(newState),
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+	if ok {
+		ev.StageKind = stage.Kind().String()
+		ev.StreamID = stage.StreamID()
+	}
+	if err != nil {
+		ev.Error = err.Error()
+	}
+	if newState == process.StateRunning {
+		ev.PID = p.pool.GetStatus(id).PID
+	}
+	p.cfg.EventBus.Publish(ev)
 }
 
 // streamLock returns the per-stream mutex, creating one on first use.
@@ -286,7 +324,8 @@ func (p *Pipeline) commandFor(id string) (string, error) {
 
 // configureProcess is the pool's Configurer callback. Wires the
 // stage's LogParser + LogAttrs into the process.Process so each stage's
-// stderr lands in journald with the right module + structured fields.
+// stderr lands in journald with the right module + structured fields,
+// and tags the pool entry with the stage kind for /api/processes UIs.
 //
 // Passes slog.Attr through With() as the typed Attr (not key+Any()) so
 // non-scalar kinds (slog.Group, LogValuer) survive — Go's slog handles
@@ -298,6 +337,7 @@ func (p *Pipeline) configureProcess(id string, proc *process.Process) {
 	if !ok {
 		return
 	}
+	p.pool.SetKind(id, stage.Kind().String())
 	moduleLogger := logging.GetLogger(stage.Kind().String())
 	attrs := stage.LogAttrs()
 	if len(attrs) > 0 {
