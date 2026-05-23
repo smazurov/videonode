@@ -1,0 +1,150 @@
+# streams.toml — post-rip Stream shape
+#
+# Each [[streams]] entry is a single Stream. There is no separate "canvas"
+# concept anymore: a stream with more than one input IS the canvas. The
+# Composer stage is engaged automatically when either of:
+#   - len(inputs) > 1
+#   - one or more inputs has effects (e.g. perspective)
+# Otherwise the pipeline is Producer -> Encoder only.
+#
+# Stages: Producer (per unique device) -> Composer (optional) -> Encoder.
+
+# ---------------------------------------------------------------------------
+# Example 1 — Solo source, no effects.
+#   Producer -> Encoder (no Composer). The simplest case.
+# ---------------------------------------------------------------------------
+[[streams]]
+id = "cam-front"
+name = "Front camera"
+test_mode = false                # currently a no-op; surface preserved
+custom_encoder_args = ""         # empty = daemon builds encoder argv from [encoder]
+
+  [[streams.inputs]]
+  id = "inp1"
+  device = "usb-1-2"             # opaque device ref (USB bus-port or /dev/videoN)
+
+  # layout is optional at N=1 — daemon uses identity (full-frame) by default.
+  # Including it explicitly is allowed and ignored unless Composer engages.
+
+  [streams.audio]
+  devices = ["hw:CARD=USB,DEV=0"]
+  codec = "aac"
+  bitrate = "128k"
+  filters = ""                   # optional ffmpeg-style audio filter chain
+
+  [streams.encoder]
+  codec = "h264"                 # logical codec; backend picks h264_rkmpp / libx264 / ...
+  bitrate = "4M"
+  gop = 60                       # keyframe interval in frames
+  b_frames = 0
+  rate_control = "cbr"           # cbr | vbr | cqp
+  preset = "fast"                # backend-specific preset name
+
+  [[streams.publish]]
+  type = "rtsp"
+  url = "rtsp://localhost:8554/cam-front"
+
+
+# ---------------------------------------------------------------------------
+# Example 2 — Solo source with a perspective effect.
+#   Producer -> Composer -> Encoder. The effects map forces Composer at N=1.
+# ---------------------------------------------------------------------------
+[[streams]]
+id = "desk-keystone"
+name = "Desk camera (keystone corrected)"
+test_mode = false
+
+  [[streams.inputs]]
+  id = "inp1"
+  device = "usb-3-1"
+
+  # Effects are keyed by input id; presence of any effect engages Composer
+  # even when there is only one input.
+  [[streams.effects.inp1]]
+  type = "perspective"
+  # Source-image corners in clockwise order from top-left, in pixels.
+  corners = [[120, 80], [1820, 60], [1900, 1020], [60, 1000]]
+
+  [streams.audio]
+  devices = ["hw:CARD=USB,DEV=0"]
+  codec = "aac"
+  bitrate = "128k"
+
+  [streams.encoder]
+  codec = "h264"
+  bitrate = "6M"
+  gop = 60
+  b_frames = 0
+  rate_control = "cbr"
+  preset = "fast"
+
+  [[streams.publish]]
+  type = "rtsp"
+  url = "rtsp://localhost:8554/desk-keystone"
+
+
+# ---------------------------------------------------------------------------
+# Example 3 — Two-input canvas, side-by-side, dual publish (RTSP + SRT).
+#   Producer x2 -> Composer -> Encoder. Layout is required when N > 1.
+#   Audio mixes both ALSA inputs into a single output track.
+# ---------------------------------------------------------------------------
+[[streams]]
+id = "split-show"
+name = "Side-by-side cameras"
+test_mode = false
+
+# CustomEncoderArgs overrides only the encoder argv from -c:v onward.
+# The daemon always prepends the input fragment:
+#   vn-sink --socket <composer-or-producer.sock> | ffmpeg -f yuv4mpegpipe -i pipe:0
+# Leave empty to let the daemon build the encoder argv from [streams.encoder].
+custom_encoder_args = ""
+
+  [[streams.inputs]]
+  id = "left"
+  device = "usb-1-2"
+
+  [[streams.inputs]]
+  id = "right"
+  device = "usb-1-3"
+
+  # Layout: one entry per slot. Slot index references inputs by order above
+  # (slot 0 = first [[streams.inputs]], slot 1 = second, ...).
+  # X/Y/W/H are output-canvas pixels; canvas size is the bounding box.
+  [[streams.layout]]
+  slot = 0
+  x = 0
+  y = 0
+  w = 1920
+  h = 1080
+
+  [[streams.layout]]
+  slot = 1
+  x = 1920
+  y = 0
+  w = 1920
+  h = 1080
+
+  [streams.audio]
+  devices = [
+    "hw:CARD=USB,DEV=0",
+    "hw:CARD=USB_1,DEV=0",
+  ]
+  codec = "aac"
+  bitrate = "192k"
+  filters = "amix=inputs=2:duration=longest"
+
+  [streams.encoder]
+  codec = "h265"
+  bitrate = "12M"
+  gop = 120
+  b_frames = 2
+  rate_control = "vbr"
+  preset = "medium"
+
+  [[streams.publish]]
+  type = "rtsp"
+  url = "rtsp://localhost:8554/split-show"
+
+  [[streams.publish]]
+  type = "srt"
+  url = "srt://localhost:6001?streamid=split-show&latency=20000"
