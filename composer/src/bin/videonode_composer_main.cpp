@@ -38,6 +38,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -71,8 +72,9 @@ std::atomic<bool> g_running{true};
 int main(int argc, char** argv) {
     // Same hand-rolled --version dance as the other binaries: absl doesn't
     // own --version, and supervisors grep for the legacy spelling.
-    for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--version") == 0) {
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (std::strcmp(args[i], "--version") == 0) {
             std::printf("videonode-composer %s\n", vn::kVersion);
             return 0;
         }

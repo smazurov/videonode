@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -50,8 +51,8 @@ ssize_t fake_write(int /*fd*/, const void* buf, size_t len) {
         if (take > len)
             take = len;
     }
-    const auto* p = static_cast<const uint8_t*>(buf);
-    s.bytes.insert(s.bytes.end(), p, p + take);
+    const std::span<const uint8_t> in(static_cast<const uint8_t*>(buf), take);
+    s.bytes.insert(s.bytes.end(), in.begin(), in.end());
     return static_cast<ssize_t>(take);
 }
 

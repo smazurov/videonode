@@ -43,6 +43,7 @@ bool Y4mWriter::WriteHeader() {
     return WriteAll(std::span(reinterpret_cast<const uint8_t*>(hdr), static_cast<size_t>(n)));
 }
 
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 bool Y4mWriter::WriteFrameNV12(std::span<const uint8_t> y_plane, size_t y_stride,
                                std::span<const uint8_t> uv_plane, size_t uv_stride) {
     const size_t width = static_cast<size_t>(width_);
@@ -63,13 +64,16 @@ bool Y4mWriter::WriteFrameNV12(std::span<const uint8_t> y_plane, size_t y_stride
     if (chroma_scratch_.size() != u_size + v_size) {
         chroma_scratch_.assign(u_size + v_size, 0);
     }
-    uint8_t* u_dst_base = chroma_scratch_.data();
-    uint8_t* v_dst_base = chroma_scratch_.data() + u_size;
+    const std::span<uint8_t> scratch(chroma_scratch_);
+    const std::span<uint8_t> u_dst_all = scratch.subspan(0, u_size);
+    const std::span<uint8_t> v_dst_all = scratch.subspan(u_size, v_size);
     const size_t uv_pairs_per_row = width / 2;
     for (size_t row = 0; row < uv_rows; ++row) {
-        const uint8_t* src = uv_plane.data() + row * uv_stride;
-        uint8_t* u_dst = u_dst_base + row * uv_pairs_per_row;
-        uint8_t* v_dst = v_dst_base + row * uv_pairs_per_row;
+        const std::span<const uint8_t> src = uv_plane.subspan(row * uv_stride, uv_stride);
+        const std::span<uint8_t> u_dst =
+            u_dst_all.subspan(row * uv_pairs_per_row, uv_pairs_per_row);
+        const std::span<uint8_t> v_dst =
+            v_dst_all.subspan(row * uv_pairs_per_row, uv_pairs_per_row);
         for (size_t i = 0, j = 0; i < width; i += 2, ++j) {
             u_dst[j] = src[i];
             v_dst[j] = src[i + 1];
@@ -92,9 +96,9 @@ bool Y4mWriter::WriteFrameNV12(std::span<const uint8_t> y_plane, size_t y_stride
         }
     }
 
-    if (!WriteAll(std::span<const uint8_t>(u_dst_base, u_size)))
+    if (!WriteAll(std::span<const uint8_t>(u_dst_all)))
         return false;
-    if (!WriteAll(std::span<const uint8_t>(v_dst_base, v_size)))
+    if (!WriteAll(std::span<const uint8_t>(v_dst_all)))
         return false;
     return true;
 }

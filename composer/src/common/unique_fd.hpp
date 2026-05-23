@@ -101,7 +101,7 @@ template <typename Closer> class unique_fd_impl {
 
     explicit operator bool() const noexcept { return fd_ >= 0; }
 
-    bool ok() const noexcept { return fd_ >= 0; }
+    [[nodiscard]] bool ok() const noexcept { return fd_ >= 0; }
 
   private:
     int fd_ = -1;

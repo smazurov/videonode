@@ -37,6 +37,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <vector>
 
 namespace {
@@ -78,8 +79,9 @@ void dump_modifier_matrix(EGLDisplay dpy) {
 } // namespace
 
 int main(int argc, char** argv) {
-    const char* device = (argc > 1) ? argv[1] : "/dev/dri/renderD130";
-    const char* outpath = (argc > 2) ? argv[2] : "/tmp/egl-probe.ppm";
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    const char* device = (args.size() > 1) ? args[1] : "/dev/dri/renderD130";
+    const char* outpath = (args.size() > 2) ? args[2] : "/tmp/egl-probe.ppm";
     constexpr int W = 64;
     constexpr int H = 64;
 
@@ -149,24 +151,30 @@ int main(int argc, char** argv) {
     void* mapped = gbm_bo_map(bo, 0, 0, W, H, GBM_BO_TRANSFER_READ, &map_stride, &map_data);
     VN_CHECK(mapped, "gbm_bo_map");
 
-    FILE* f = std::fopen(outpath, "wb");
+    // Probe tool — keep PPM writer minimal. Bare FILE* is fine here; the
+    // owning-memory checks below are pacified with NOLINT.
+    FILE* f = std::fopen(outpath, "wb"); // NOLINT(cppcoreguidelines-owning-memory)
     VN_CHECK(f, "fopen(%s): %s", outpath, std::strerror(errno));
     std::fprintf(f, "P6\n%d %d\n255\n", W, H);
     int red_pixels = 0;
+    const std::span<const uint8_t> pixels(static_cast<const uint8_t*>(mapped),
+                                          static_cast<size_t>(map_stride) * H);
     for (int y = 0; y < H; ++y) {
-        uint8_t* row = (uint8_t*)mapped + y * map_stride;
+        const std::span<const uint8_t> row =
+            pixels.subspan(static_cast<size_t>(y) * map_stride, static_cast<size_t>(W) * 4);
         for (int x = 0; x < W; ++x) {
             // ARGB8888 in memory little-endian = BGRA bytes: B=row[0], G=row[1], R=row[2].
-            uint8_t b = row[x * 4 + 0];
-            uint8_t g = row[x * 4 + 1];
-            uint8_t r = row[x * 4 + 2];
+            const size_t off = static_cast<size_t>(x) * 4;
+            uint8_t b = row[off + 0];
+            uint8_t g = row[off + 1];
+            uint8_t r = row[off + 2];
             uint8_t out[3] = {r, g, b};
             std::fwrite(out, 1, 3, f);
             if (r >= 250 && g <= 5 && b <= 5)
                 red_pixels++;
         }
     }
-    std::fclose(f);
+    std::fclose(f); // NOLINT(cppcoreguidelines-owning-memory)
     gbm_bo_unmap(bo, map_data);
 
     int expected = W * H;

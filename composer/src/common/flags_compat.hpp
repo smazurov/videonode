@@ -22,6 +22,7 @@
 #include <absl/strings/string_view.h>
 
 #include <cstring>
+#include <span>
 
 namespace vn::flags {
 
@@ -43,20 +44,27 @@ inline void configure_help_filter() {
 }
 
 inline void normalize_argv(int argc, char** argv) {
-    for (int i = 1; i < argc; ++i) {
-        char* a = argv[i];
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    for (size_t i = 1; i < args.size(); ++i) {
+        char* a = args[i];
         if (a == nullptr)
             continue;
+        const size_t alen = std::strlen(a);
+        if (alen < 2)
+            continue;
+        const std::span<char> tok(a, alen);
         // POSIX `--` terminator: everything after this is positional.
-        if (a[0] == '-' && a[1] == '-' && a[2] == '\0')
+        if (tok.size() == 2 && tok[0] == '-' && tok[1] == '-')
             break;
-        if (a[0] != '-' || a[1] != '-')
+        if (tok[0] != '-' || tok[1] != '-')
             continue;
         // Rewrite hyphens to underscores only in the name portion (before
         // an `=` separator). Values are left alone.
-        for (char* p = a + 2; *p != '\0' && *p != '='; ++p) {
-            if (*p == '-')
-                *p = '_';
+        for (size_t j = 2; j < tok.size(); ++j) {
+            if (tok[j] == '=')
+                break;
+            if (tok[j] == '-')
+                tok[j] = '_';
         }
     }
 }

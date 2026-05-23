@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <span>
 #include <sys/prctl.h>
 #include <unistd.h>
 
@@ -32,8 +33,9 @@ int main(int argc, char** argv) {
     // absl::ParseCommandLine treats --version as an unknown flag (it only
     // owns --help / --helpfull / etc.). Intercept it before parsing so we
     // get the legacy `<binary> <version>` line that supervisors grep for.
-    for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--version") == 0) {
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (std::strcmp(args[i], "--version") == 0) {
             std::printf("videonode-source %s\n", vn::kVersion);
             return 0;
         }
