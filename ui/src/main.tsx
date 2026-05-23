@@ -59,13 +59,14 @@ const router = createBrowserRouter([
           </ProtectedRoute>
         ),
       },
+      // Legacy canvas-distinct routes: redirect to the unified
+      // create/edit flow (pipeline rip — canvases are streams with
+      // N>1 inputs, no separate UI surface). Edit route still hits
+      // CanvasRoute so existing multi-source streams can be edited
+      // until the StreamForm/CanvasForm merge lands.
       {
         path: "streams/canvas/new",
-        element: (
-          <ProtectedRoute>
-            <CanvasRoute />
-          </ProtectedRoute>
-        ),
+        element: <Navigate to="/streams/new" replace />,
       },
       {
         path: "streams/canvas/:streamId/edit",

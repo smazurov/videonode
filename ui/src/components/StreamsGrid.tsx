@@ -235,9 +235,11 @@ export function StreamsGrid({
                         >
                           <PlusIcon className="w-5 h-5 text-fg-subtle shrink-0" />
                           <div className="min-w-0">
-                            <div className="text-sm font-medium text-fg">Create Canvas</div>
+                            <div className="text-sm font-medium text-fg">
+                              Multi-source stream
+                            </div>
                             <div className="text-xs text-fg-subtle">
-                              Composite 1–4 streams
+                              Composite 1&ndash;4 sources (formerly &quot;canvas&quot;)
                             </div>
                           </div>
                         </button>
