@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -135,8 +136,107 @@ func TestEncoder_AudioInputArgsAppended(t *testing.T) {
 	}
 	argv, _, _ := e.Command()
 	cmd := argv[2]
-	if !strings.Contains(cmd, "-f alsa -i hw:0") || !strings.Contains(cmd, "-f alsa -i hw:1") {
-		t.Errorf("audio inputs missing in: %s", cmd)
+	if !strings.Contains(cmd, "-f alsa") || !strings.Contains(cmd, "-i hw:0") {
+		t.Errorf("audio input 0 missing in: %s", cmd)
+	}
+	if !strings.Contains(cmd, "-i hw:1") {
+		t.Errorf("audio input 1 missing in: %s", cmd)
+	}
+}
+
+func TestEncoder_MultiAudioEmitsSeparateTracks(t *testing.T) {
+	// Confirms the rip's amix bug is gone: N audio devices →
+	// N separate output tracks via -map "[a0]"...-map "[aN-1]".
+	e := &EncoderStage{
+		StreamID_: "multi-audio",
+		Media: MediaSource{
+			Video: ProducerFrameSource{Socket: "/tmp/sock"},
+			Audio: ALSADirectAudio{Config: AudioConfig{
+				Devices: []string{"hw:CARD=A,DEV=0", "hw:CARD=B,DEV=0", "hw:CARD=C,DEV=0"},
+			}},
+		},
+		Cfg:       EncoderConfig{Codec: "h264", Bitrate: "4M", GOP: 60},
+		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://x/multi"}},
+		VNSinkBin: "/usr/bin/vn-sink",
+	}
+	argv, _, err := e.Command()
+	if err != nil {
+		t.Fatalf("Command failed: %v", err)
+	}
+	cmd := argv[2]
+
+	// All 3 alsa devices declared as inputs with proper flags.
+	for _, dev := range []string{"hw:CARD=A,DEV=0", "hw:CARD=B,DEV=0", "hw:CARD=C,DEV=0"} {
+		if !strings.Contains(cmd, "-thread_queue_size 1024") {
+			t.Errorf("missing -thread_queue_size; want one per audio input: %s", cmd)
+		}
+		// Per-device assertion: ALSA hw devices have `=` which the
+		// shell-quoter wraps in single quotes. Match the bare device
+		// name (post-quote) rather than the literal argv form.
+		if !strings.Contains(cmd, dev) {
+			t.Errorf("device %s missing in: %s", dev, cmd)
+		}
+	}
+
+	// Per-track aresample filter chain — one [aK] label per device.
+	if !strings.Contains(cmd, "-filter_complex") {
+		t.Errorf("missing -filter_complex for aresample chain: %s", cmd)
+	}
+	for k := 0; k < 3; k++ {
+		label := fmt.Sprintf("[a%d]", k)
+		if !strings.Contains(cmd, label) {
+			t.Errorf("output label %s missing from filter_complex: %s", label, cmd)
+		}
+		mapArg := fmt.Sprintf(`-map '[a%d]'`, k)
+		if !strings.Contains(cmd, mapArg) && !strings.Contains(cmd, fmt.Sprintf(`-map [a%d]`, k)) {
+			t.Errorf("missing -map for track %d (looked for both quoted + bare): %s", k, cmd)
+		}
+	}
+
+	// Video stream gets an explicit map too (required once we add
+	// filter_complex; otherwise ffmpeg drops it).
+	if !strings.Contains(cmd, "-map 0:v") {
+		t.Errorf("missing -map 0:v for video: %s", cmd)
+	}
+
+	// One audio codec setting covers all tracks.
+	if !strings.Contains(cmd, "-c:a libopus") {
+		t.Errorf("missing -c:a libopus: %s", cmd)
+	}
+	if !strings.Contains(cmd, "-b:a 128k") {
+		t.Errorf("missing -b:a 128k: %s", cmd)
+	}
+
+	// Anti-regression for the rip's bug: no `amix=` filter (would
+	// mix the tracks into one).
+	if strings.Contains(cmd, "amix=") {
+		t.Errorf("REGRESSION: amix filter present — multi-audio should produce SEPARATE tracks, not a mix: %s", cmd)
+	}
+}
+
+func TestEncoder_NoAudioInputsOmitsFilterComplex(t *testing.T) {
+	// When the stream has zero audio devices, ffmpeg should pick the
+	// video stream automatically (no -filter_complex, no -map flags).
+	e := &EncoderStage{
+		StreamID_: "video-only",
+		Media: MediaSource{
+			Video: ProducerFrameSource{Socket: "/tmp/sock"},
+			Audio: ALSADirectAudio{Config: AudioConfig{Devices: nil}},
+		},
+		Cfg:       EncoderConfig{Codec: "h264"},
+		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://x/v"}},
+		VNSinkBin: "/usr/bin/vn-sink",
+	}
+	argv, _, _ := e.Command()
+	cmd := argv[2]
+	if strings.Contains(cmd, "-filter_complex") {
+		t.Errorf("unexpected -filter_complex for video-only stream: %s", cmd)
+	}
+	if strings.Contains(cmd, "-map") {
+		t.Errorf("unexpected -map for video-only stream (ffmpeg picks video automatically): %s", cmd)
+	}
+	if strings.Contains(cmd, "-c:a") {
+		t.Errorf("unexpected -c:a for video-only stream: %s", cmd)
 	}
 }
 
