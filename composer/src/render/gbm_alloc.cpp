@@ -1,8 +1,8 @@
 #include "src/render/gbm_alloc.hpp"
 
+#include "src/common/log_levels.hpp"
 #include "src/common/unique_fd.hpp"
 
-#include <cstdio>
 #include <drm_fourcc.h>
 #include <gbm.h>
 #include <memory>
@@ -38,29 +38,28 @@ gbm_bo* alloc_linear_(gbm_device* gbm, int w, int h, uint32_t fourcc) {
 Nv12Buf alloc(gbm_device* gbm, int width, int height) {
     Nv12Buf out;
     if (!gbm || width <= 0 || height <= 0 || (width & 1) || (height & 1)) {
-        std::fprintf(stderr, "gbm_alloc: invalid args (gbm=%p w=%d h=%d)\n", (void*)gbm, width,
-                     height);
+        vn::log::error("gbm_alloc: invalid args (gbm=%p w=%d h=%d)", (void*)gbm, width, height);
         return out;
     }
 
     // Y plane: R8 at full resolution.
     gbm_bo* y_bo = alloc_linear_(gbm, width, height, DRM_FORMAT_R8);
     if (!y_bo) {
-        std::fprintf(stderr, "gbm_alloc: gbm_bo_create R8 %dx%d failed (Y plane)\n", width, height);
+        vn::log::error("gbm_alloc: gbm_bo_create R8 %dx%d failed (Y plane)", width, height);
         return out;
     }
     // UV plane: GR88 at half resolution.
     gbm_bo* uv_bo = alloc_linear_(gbm, width / 2, height / 2, DRM_FORMAT_GR88);
     if (!uv_bo) {
-        std::fprintf(stderr, "gbm_alloc: gbm_bo_create GR88 %dx%d failed (UV plane)\n", width / 2,
-                     height / 2);
+        vn::log::error("gbm_alloc: gbm_bo_create GR88 %dx%d failed (UV plane)", width / 2,
+                       height / 2);
         gbm_bo_destroy(y_bo);
         return out;
     }
     vn::base::unique_fd y_fd(gbm_bo_get_fd(y_bo));
     vn::base::unique_fd uv_fd(gbm_bo_get_fd(uv_bo));
     if (!y_fd || !uv_fd) {
-        std::fprintf(stderr, "gbm_alloc: gbm_bo_get_fd y=%d uv=%d\n", y_fd.get(), uv_fd.get());
+        vn::log::error("gbm_alloc: gbm_bo_get_fd y=%d uv=%d", y_fd.get(), uv_fd.get());
         gbm_bo_destroy(y_bo);
         gbm_bo_destroy(uv_bo);
         return out;
