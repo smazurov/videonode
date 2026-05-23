@@ -24,30 +24,53 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <span>
 #include <thread>
 #include <vector>
 
 namespace {
 
-EGLImage import_nv12_(const egl_ctx::EglCtx& ctx, const ffmpeg_pipe_source::FrameView& v) {
-    egl_ctx::EglCtx::ImageDesc d;
-    d.fd = v.fd;
-    d.fourcc = DRM_FORMAT_NV12;
-    d.modifier = DRM_FORMAT_MOD_LINEAR;
-    d.width = v.width;
-    d.height = v.height;
-    d.plane0_offset = v.plane0_offset;
-    d.plane0_pitch = v.plane0_pitch;
-    d.plane1_offset = v.plane1_offset;
-    d.plane1_pitch = v.plane1_pitch;
-    return ctx.import_dmabuf(d);
+struct Nv12Image {
+    EGLImage y = EGL_NO_IMAGE;
+    EGLImage uv = EGL_NO_IMAGE;
+};
+
+Nv12Image import_nv12_(const egl_ctx::EglCtx& ctx, const ffmpeg_pipe_source::FrameView& v) {
+    Nv12Image im;
+    egl_ctx::EglCtx::ImageDesc dy;
+    dy.fd = v.fd;
+    dy.fourcc = DRM_FORMAT_R8;
+    dy.modifier = DRM_FORMAT_MOD_LINEAR;
+    dy.width = v.width;
+    dy.height = v.height;
+    dy.plane0_offset = v.plane0_offset;
+    dy.plane0_pitch = v.plane0_pitch;
+    im.y = ctx.import_dmabuf(dy);
+    if (im.y == EGL_NO_IMAGE)
+        return im;
+
+    egl_ctx::EglCtx::ImageDesc duv;
+    duv.fd = v.fd;
+    duv.fourcc = DRM_FORMAT_GR88;
+    duv.modifier = DRM_FORMAT_MOD_LINEAR;
+    duv.width = v.width / 2;
+    duv.height = v.height / 2;
+    duv.plane0_offset = v.plane1_offset;
+    duv.plane0_pitch = v.plane1_pitch;
+    im.uv = ctx.import_dmabuf(duv);
+    if (im.uv == EGL_NO_IMAGE) {
+        eglDestroyImage(ctx.display(), im.y);
+        im.y = EGL_NO_IMAGE;
+    }
+    return im;
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
-    int seconds = (argc > 1) ? std::atoi(argv[1]) : 5;
-    const char* out = (argc > 2) ? argv[2] : "/tmp/live-compose.ppm";
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    int seconds = (args.size() > 1) ? std::atoi(args[1]) : 5;
+    const char* out = (args.size() > 2) ? args[2] : "/tmp/live-compose.ppm";
     constexpr int Cw = 1920, Ch = 1080;
 
     // 1. Start V4L2 captures.
@@ -129,13 +152,13 @@ int main(int argc, char** argv) {
     // We cache EGLImages by source dma-buf fd: as long as the source keeps
     // ping-ponging through the same N dma_heap buffers, we only pay the
     // eglCreateImage cost N times total.
-    std::map<int, EGLImage> img_cache;
-    auto get_img = [&](const FrameView& v) -> EGLImage {
+    std::map<int, Nv12Image> img_cache;
+    auto get_img = [&](const FrameView& v) -> Nv12Image {
         auto it = img_cache.find(v.fd);
         if (it != img_cache.end())
             return it->second;
-        EGLImage im = import_nv12_(ctx, v);
-        if (im != EGL_NO_IMAGE)
+        Nv12Image im = import_nv12_(ctx, v);
+        if (im.y != EGL_NO_IMAGE && im.uv != EGL_NO_IMAGE)
             img_cache[v.fd] = im;
         return im;
     };
@@ -148,25 +171,27 @@ int main(int argc, char** argv) {
         auto a = hdmi.latest_frame();
         auto b = lyra.latest_frame();
 
-        EGLImage ia = get_img(a);
-        EGLImage ib = get_img(b);
+        Nv12Image ia = get_img(a);
+        Nv12Image ib = get_img(b);
 
         std::vector<gl_compose::SourceSlot> slots(2);
         // HDMI on the left, with the perspective unlock visible.
-        slots[0].src_image = ia;
+        slots[0].src_y_image = ia.y;
+        slots[0].src_uv_image = ia.uv;
         slots[0].x = 0;
         slots[0].y = 0;
         slots[0].w = 960;
         slots[0].h = 1080;
         slots[0].warp = {{1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, -0.3f, 1.0f}};
         // Lyra on the right, identity warp.
-        slots[1].src_image = ib;
+        slots[1].src_y_image = ib.y;
+        slots[1].src_uv_image = ib.uv;
         slots[1].x = 960;
         slots[1].y = 0;
         slots[1].w = 960;
         slots[1].h = 1080;
 
-        compose.render(slots);
+        VN_CHECK(compose.render(slots), "GlCompose::render");
         ++frames_rendered;
 
         // Tick at ~30Hz for the probe; a real composer would use a proper timer.
@@ -198,8 +223,10 @@ int main(int argc, char** argv) {
     std::fclose(f);
     gbm_bo_unmap(compose.canvas_bo(), mdata);
 
-    for (auto& kv : img_cache)
-        eglDestroyImage(ctx.display(), kv.second);
+    for (auto& kv : img_cache) {
+        eglDestroyImage(ctx.display(), kv.second.y);
+        eglDestroyImage(ctx.display(), kv.second.uv);
+    }
     lyra.stop();
     hdmi.stop();
 

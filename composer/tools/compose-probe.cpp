@@ -46,25 +46,37 @@ int main(int argc, char** argv) {
         fake_source::kBlue,
         fake_source::kYellow,
     };
-    // Single multi-plane NV12 EGLImage per source — matches the production
-    // gl_compose API. samplerExternalOES on the shader side does YUV→RGB.
-    EGLImage img[4] = {EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE};
+    // Two single-plane EGLImages per source (Y as R8, UV as GR88). Matches
+    // canvas_loop's production import path — samplerExternalOES on NV12 is
+    // unreliable on radeonsi, so the shader does YUV→RGB manually from two
+    // sampler2D uniforms.
+    EGLImage y_img[4] = {EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE};
+    EGLImage uv_img[4] = {EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE};
     for (int i = 0; i < 4; ++i) {
         VN_CHECK(src[i].init(Sw, Sh, colors[i]), "FakeSource::init");
-        egl_ctx::EglCtx::ImageDesc d;
-        d.fd = src[i].dmabuf_fd();
-        d.fourcc = DRM_FORMAT_NV12;
-        d.modifier = DRM_FORMAT_MOD_LINEAR;
-        d.width = Sw;
-        d.height = Sh;
-        d.plane0_offset = 0;
-        d.plane0_pitch = Sw;
-        d.plane1_offset = Sw * Sh;
-        d.plane1_pitch = Sw;
-        img[i] = ctx.import_dmabuf(d);
-        VN_CHECK(img[i] != EGL_NO_IMAGE, "import NV12 dmabuf");
+        egl_ctx::EglCtx::ImageDesc dy;
+        dy.fd = src[i].dmabuf_fd();
+        dy.fourcc = DRM_FORMAT_R8;
+        dy.modifier = DRM_FORMAT_MOD_LINEAR;
+        dy.width = Sw;
+        dy.height = Sh;
+        dy.plane0_offset = 0;
+        dy.plane0_pitch = Sw;
+        y_img[i] = ctx.import_dmabuf(dy);
+        VN_CHECK(y_img[i] != EGL_NO_IMAGE, "import Y plane (R8)");
+
+        egl_ctx::EglCtx::ImageDesc duv;
+        duv.fd = src[i].dmabuf_fd();
+        duv.fourcc = DRM_FORMAT_GR88;
+        duv.modifier = DRM_FORMAT_MOD_LINEAR;
+        duv.width = Sw / 2;
+        duv.height = Sh / 2;
+        duv.plane0_offset = Sw * Sh;
+        duv.plane0_pitch = Sw;
+        uv_img[i] = ctx.import_dmabuf(duv);
+        VN_CHECK(uv_img[i] != EGL_NO_IMAGE, "import UV plane (GR88)");
     }
-    printf("ok: 4 NV12 EGLImages imported\n");
+    printf("ok: 4 NV12 sources imported (Y+UV pairs)\n");
 
     gl_compose::GlCompose compose;
     VN_CHECK(compose.init(ctx, Cw, Ch), "GlCompose::init");
@@ -77,7 +89,8 @@ int main(int argc, char** argv) {
     std::vector<gl_compose::SourceSlot> slots(4);
     for (int i = 0; i < 4; ++i) {
         int row = i / 2, col = i % 2;
-        slots[i].src_image = img[i];
+        slots[i].src_y_image = y_img[i];
+        slots[i].src_uv_image = uv_img[i];
         slots[i].x = col * cell_w;
         slots[i].y = row * cell_h;
         slots[i].w = cell_w;
@@ -129,8 +142,10 @@ int main(int argc, char** argv) {
     gbm_bo_unmap(compose.canvas_bo(), map_data);
 
     // Cleanup.
-    for (int i = 0; i < 4; ++i)
-        eglDestroyImage(ctx.display(), img[i]);
+    for (int i = 0; i < 4; ++i) {
+        eglDestroyImage(ctx.display(), y_img[i]);
+        eglDestroyImage(ctx.display(), uv_img[i]);
+    }
 
     printf("PASS: 4-quad GPU compose at %dx%d, PPM at %s\n", Cw, Ch, out);
     return 0;
