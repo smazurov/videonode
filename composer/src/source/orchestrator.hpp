@@ -3,6 +3,10 @@
 // the binary entry point stays signal-handler-only. `Args` lives in
 // args.hpp so broadcast.hpp can reference it without depending on the
 // full orchestrator.
+//
+// CLI flags are declared with ABSL_FLAG inside orchestrator.cpp. The
+// binary calls absl::ParseCommandLine, then BuildArgsFromFlags() to
+// materialize an Args.
 #pragma once
 
 #include "src/source/args.hpp"
@@ -11,12 +15,9 @@
 
 namespace source {
 
-// Parse argv into Args. Returns false on unknown flag / missing value.
-// `--help` / `--version` call exit() directly.
-[[nodiscard]] bool parse_args(int argc, char** argv, Args& a);
-
-// Print usage to stdout. `d` supplies default values for the message.
-void print_help(const Args& d);
+// BuildArgsFromFlags reads the ABSL_FLAGs declared in orchestrator.cpp
+// and returns a populated Args. Call after absl::ParseCommandLine.
+[[nodiscard]] Args BuildArgsFromFlags();
 
 // Run the capture + broadcast loop until `running` goes false. Returns
 // process exit code (0 = ok, non-zero = startup failure).

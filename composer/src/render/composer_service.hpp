@@ -22,18 +22,17 @@ class World;
 namespace nativerpc {
 
 struct ComposerContext {
-    render::World* world = nullptr;         // mutated by handlers
-    std::atomic<bool>* running = nullptr;   // flipped false on Shutdown
-    std::string composer_id;                // returned by Describe
-    std::string version;                    // returned by Describe
+    render::World* world = nullptr;       // mutated by handlers
+    std::atomic<bool>* running = nullptr; // flipped false on Shutdown
+    std::string composer_id;              // returned by Describe
+    std::string version;                  // returned by Describe
 };
 
 class ComposerService final : public videonode::control::Composer::Service {
   public:
     explicit ComposerService(ComposerContext ctx);
 
-    grpc::Status Describe(grpc::ServerContext* ctx,
-                          const ::google::protobuf::Empty* req,
+    grpc::Status Describe(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                           ::videonode::control::NativeInfo* resp) override;
 
     grpc::Status SetCanvas(grpc::ServerContext* ctx,
@@ -60,8 +59,7 @@ class ComposerService final : public videonode::control::Composer::Service {
                                 const ::videonode::control::SetSourceStateRequest* req,
                                 ::google::protobuf::Empty* resp) override;
 
-    grpc::Status Shutdown(grpc::ServerContext* ctx,
-                          const ::google::protobuf::Empty* req,
+    grpc::Status Shutdown(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                           ::google::protobuf::Empty* resp) override;
 
   private:

@@ -34,6 +34,8 @@
 #include "src/render/csc_gles.hpp"
 #endif
 
+#include <absl/flags/flag.h>
+
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -48,6 +50,32 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+
+// CLI flags. Defaults match source::Args field defaults. Help text is the
+// counterpart to the old print_help() block; absl auto-formats it into
+// --help output (which also lists --version automatically).
+ABSL_FLAG(std::string, device, "/dev/video0", "V4L2 capture device path (/dev/videoN)");
+ABSL_FLAG(std::string, in_format, "",
+          "input pixel format: NV24/NV16/NV12/BGR3/YUYV/UYVY/MJPG (empty = auto)");
+ABSL_FLAG(int, in_width, 0, "input frame width when --in_format is set");
+ABSL_FLAG(int, in_height, 0, "input frame height when --in_format is set");
+ABSL_FLAG(int, in_fps, 0, "requested capture rate");
+ABSL_FLAG(int, buffers, 4, "V4L2 ring size");
+ABSL_FLAG(std::string, out_socket, "/tmp/videonode-source.sock",
+          "Unix socket to publish NV12 dma-bufs on");
+ABSL_FLAG(int, max_consumers, 16, "soft cap on concurrent consumers");
+ABSL_FLAG(int, seconds, 0, "stop after N seconds (0 = until SIGINT)");
+ABSL_FLAG(int, broadcast_fps, 60, "publish rate");
+ABSL_FLAG(int, placeholder_w, 1920, "placeholder canvas width");
+ABSL_FLAG(int, placeholder_h, 1080, "placeholder canvas height");
+ABSL_FLAG(std::string, grpc_listen, "",
+          "per-instance UDS where the source's gRPC server binds "
+          "(the daemon dials in). Omit for standalone");
+ABSL_FLAG(std::string, device_id, "",
+          "stable device ID advertised via Source.Describe() "
+          "(required when --grpc_listen is set)");
+ABSL_FLAG(std::string, alloc_drm_device, "/dev/dri/renderD128",
+          "DRM render node for the GBM allocator (host builds only; ignored on HAVE_RGA)");
 
 namespace source {
 
@@ -118,118 +146,24 @@ struct PlaceholderRing {
 
 } // namespace
 
-void print_help(const Args& d) {
-    printf("videonode-source — V4L2 capture → (RGA-CSC | JPEG-decode) → NV12 dma-buf → SCM_RIGHTS\n"
-           "  with event-driven placeholder when the source is absent or in flux.\n"
-           "\n"
-           "  --device PATH                 /dev/videoN (default %s)\n"
-           "  --in-format FMT               NV24/NV16/NV12/BGR3/YUYV/UYVY/MJPG (empty = auto)\n"
-           "  --in-width W / --in-height H  geometry for explicit format\n"
-           "  --in-fps N                    requested capture rate\n"
-           "  --buffers N                   V4L2 ring size (default %d)\n"
-           "  --out-socket PATH             Unix socket to publish NV12 dma-bufs on (default %s)\n"
-           "  --max-consumers N             soft cap on concurrent consumers (default %d)\n"
-           "  --seconds N                   stop after N seconds (default %d = until SIGINT)\n"
-           "  --broadcast-fps N             publish rate (default %d)\n"
-           "  --placeholder-w W             placeholder canvas width  (default %d)\n"
-           "  --placeholder-h H             placeholder canvas height (default %d)\n"
-           "  --grpc-listen PATH            per-instance UDS where the source's gRPC server\n"
-           "                                  binds (the daemon dials in). Omit for standalone.\n"
-           "  --device-id ID                stable device ID advertised via Source.Describe()\n",
-           d.device.c_str(), d.buffers, d.out_socket.c_str(), d.max_consumers, d.run_seconds,
-           d.broadcast_fps, d.placeholder_w, d.placeholder_h);
-}
-
-bool parse_args(int argc, char** argv, Args& a) {
-    auto eat = [&](int& i) -> const char* {
-        if (i + 1 >= argc)
-            return nullptr;
-        return argv[++i];
-    };
-    for (int i = 1; i < argc; ++i) {
-        std::string s = argv[i];
-        if (s == "--device") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.device = v;
-        } else if (s == "--in-format") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.in_format = v;
-        } else if (s == "--in-width") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.in_width = atoi(v);
-        } else if (s == "--in-height") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.in_height = atoi(v);
-        } else if (s == "--in-fps") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.in_fps = atoi(v);
-        } else if (s == "--buffers") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.buffers = atoi(v);
-        } else if (s == "--out-socket") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.out_socket = v;
-        } else if (s == "--max-consumers") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.max_consumers = atoi(v);
-        } else if (s == "--seconds") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.run_seconds = atoi(v);
-        } else if (s == "--broadcast-fps") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.broadcast_fps = atoi(v);
-        } else if (s == "--placeholder-w") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.placeholder_w = atoi(v);
-        } else if (s == "--placeholder-h") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.placeholder_h = atoi(v);
-        } else if (s == "--device-id") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.device_id = v;
-        } else if (s == "--grpc-listen") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.grpc_listen = v;
-        } else if (s == "-h" || s == "--help") {
-            print_help(a);
-            exit(0);
-        } else if (s == "--version") {
-            printf("videonode-source %s\n", vn::kVersion);
-            exit(0);
-        } else {
-            vn::log::error("videonode-source: unknown flag %s", s.c_str());
-            return false;
-        }
-    }
-    return true;
+Args BuildArgsFromFlags() {
+    Args a;
+    a.device = absl::GetFlag(FLAGS_device);
+    a.in_format = absl::GetFlag(FLAGS_in_format);
+    a.in_width = absl::GetFlag(FLAGS_in_width);
+    a.in_height = absl::GetFlag(FLAGS_in_height);
+    a.in_fps = absl::GetFlag(FLAGS_in_fps);
+    a.buffers = absl::GetFlag(FLAGS_buffers);
+    a.out_socket = absl::GetFlag(FLAGS_out_socket);
+    a.max_consumers = absl::GetFlag(FLAGS_max_consumers);
+    a.run_seconds = absl::GetFlag(FLAGS_seconds);
+    a.broadcast_fps = absl::GetFlag(FLAGS_broadcast_fps);
+    a.placeholder_w = absl::GetFlag(FLAGS_placeholder_w);
+    a.placeholder_h = absl::GetFlag(FLAGS_placeholder_h);
+    a.grpc_listen = absl::GetFlag(FLAGS_grpc_listen);
+    a.device_id = absl::GetFlag(FLAGS_device_id);
+    a.alloc_drm_device = absl::GetFlag(FLAGS_alloc_drm_device);
+    return a;
 }
 
 int Run(const Args& a_in, std::atomic<bool>& running) {
@@ -318,7 +252,6 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                           a.grpc_listen.c_str(), a.device_id.c_str());
         }
     }
-
 
     using clock = std::chrono::steady_clock;
     const auto broadcast_period =

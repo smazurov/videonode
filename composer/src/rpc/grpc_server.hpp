@@ -51,4 +51,4 @@ class GrpcServer {
     std::string uds_path_;
 };
 
-} // namespace grpc_server
+} // namespace nativerpc

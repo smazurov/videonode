@@ -66,9 +66,9 @@ enum class ChromaSiting : uint8_t {
     Jpeg = 2,  // chroma centered (MPEG-1 / JPEG)
 };
 
-constexpr uint32_t kMagic = 0x46554244;   // 'D','B','U','F' little-endian
+constexpr uint32_t kMagic = 0x46554244; // 'D','B','U','F' little-endian
 constexpr uint16_t kVersion = 1;
-constexpr size_t kMaxPlanes = 3;          // NV12 today, room for triplane
+constexpr size_t kMaxPlanes = 3; // NV12 today, room for triplane
 
 struct Header {
     uint32_t slot_index = 0;

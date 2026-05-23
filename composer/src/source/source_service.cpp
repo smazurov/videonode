@@ -70,8 +70,8 @@ grpc::Status SourceService::SetFormat(grpc::ServerContext* /*ctx*/,
         }
     }
     resp->set_applied(true);
-    vn::log::info("videonode-source: set_format via gRPC: %s %ux%u@%u",
-                  req->fourcc().c_str(), req->w(), req->h(), req->fps());
+    vn::log::info("videonode-source: set_format via gRPC: %s %ux%u@%u", req->fourcc().c_str(),
+                  req->w(), req->h(), req->fps());
     return grpc::Status::OK;
 }
 

@@ -22,12 +22,18 @@
 // The first frame announces dims + format on stderr so callers can size
 // the downstream ffmpeg invocation accordingly.
 
+#include "src/common/flags_compat.hpp"
 #include "src/common/log_levels.hpp"
+#include "src/common/signal.hpp"
 #include "src/ipc/scm_rights_source.hpp"
 #include "version.hpp"
 
+#include <absl/flags/flag.h>
+#include <absl/flags/parse.h>
+#include <absl/flags/usage.h>
+
+#include <atomic>
 #include <chrono>
-#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -39,12 +45,17 @@
 #include <unistd.h>
 #include <vector>
 
+ABSL_FLAG(std::string, socket, "",
+          "Unix socket exposed by videonode-source OR a videonode-composer --scm_out "
+          "(required)");
+ABSL_FLAG(bool, verbose, false, "log per-frame frame_idx/fd to stderr");
+ABSL_FLAG(int, poll_ms, 5, "sleep between consumer polls");
+ABSL_FLAG(int, settle_ms, 200, "delay after dial before reading");
+ABSL_FLAG(int, first_frame_timeout, 30, "seconds to wait for first frame");
+
 namespace {
 
-volatile std::sig_atomic_t g_running = 1;
-void on_sig(int) {
-    g_running = 0;
-}
+std::atomic<bool> g_running{true};
 
 // write_full retries until all bytes are flushed or the consumer closes.
 bool write_full(int fd, std::span<const uint8_t> buf) {
@@ -87,12 +98,12 @@ bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, std::vector<uint
     }
     const size_t y_size = width * height;
     const size_t uv_rows = height / 2;
-    const size_t uv_size = width * uv_rows;          // tightly-packed UV-out
-    const size_t uv_raw_bytes = uv_pitch * uv_rows;  // mmap'd region size
+    const size_t uv_size = width * uv_rows;         // tightly-packed UV-out
+    const size_t uv_raw_bytes = uv_pitch * uv_rows; // mmap'd region size
 
     // Map Y plane (possibly with the UV plane appended in single-fd mode).
-    const size_t y_map_size =
-        v.plane0_offset + y_pitch * height + (v.plane1_fd >= 0 ? 0 : uv_raw_bytes + v.plane1_offset);
+    const size_t y_map_size = v.plane0_offset + y_pitch * height +
+                              (v.plane1_fd >= 0 ? 0 : uv_raw_bytes + v.plane1_offset);
     void* y_map = ::mmap(nullptr, y_map_size, PROT_READ, MAP_SHARED, v.fd, 0);
     if (y_map == MAP_FAILED) {
         vn::log::error("videonode-sink: mmap y_fd=%d failed: %s", v.fd, strerror(errno));
@@ -242,64 +253,38 @@ struct Args {
     int first_frame_timeout_s = 30;
 };
 
-void print_help(const Args& d) {
-    fprintf(stderr,
-            "videonode-sink — stream frames from an SCM_RIGHTS socket to stdout.\n"
-            "\n"
-            "  --socket PATH                Unix socket exposed by videonode-source OR\n"
-            "                                 a videonode-composer --scm-out (required)\n"
-            "  -v, --verbose                log per-frame frame_idx/fd to stderr\n"
-            "  --poll-ms N                  sleep between consumer polls (default %d)\n"
-            "  --settle-ms N                delay after dial before reading (default %d)\n"
-            "  --first-frame-timeout N      seconds to wait for first frame (default %d)\n"
-            "\n"
-            "Output mode is auto-selected from the first frame's fourcc:\n"
-            "  NV12 / NV24 / NV16  → YUV4MPEG2 (NV12-only today; chroma → I420 on CPU).\n"
-            "                          Pipe to `ffmpeg -f yuv4mpegpipe -i pipe:0 ...`.\n"
-            "  BGRA / ARGB / etc.  → raw bytes per frame (no header).\n"
-            "                          Pipe to `ffmpeg -f rawvideo -pix_fmt bgra -s WxH "
-            "-framerate N -i pipe:0 ...`.\n"
-            "\n"
-            "Stderr announces the dims + format on the first frame.\n",
-            d.poll_ms, d.settle_ms, d.first_frame_timeout_s);
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
-    Args a;
-
     for (int i = 1; i < argc; ++i) {
-        std::string s = argv[i];
-        auto next = [&](std::string& dst) {
-            if (i + 1 < argc)
-                dst = argv[++i];
-        };
-        auto nexti = [&](int& dst) {
-            if (i + 1 < argc)
-                dst = std::atoi(argv[++i]);
-        };
-        if (s == "--socket")
-            next(a.socket_path);
-        else if (s == "-v" || s == "--verbose")
-            a.verbose = true;
-        else if (s == "--poll-ms")
-            nexti(a.poll_ms);
-        else if (s == "--settle-ms")
-            nexti(a.settle_ms);
-        else if (s == "--first-frame-timeout")
-            nexti(a.first_frame_timeout_s);
-        else if (s == "-h" || s == "--help") {
-            print_help(Args{});
+        if (std::strcmp(argv[i], "--version") == 0) {
+            std::printf("videonode-sink %s\n", vn::kVersion);
             return 0;
-        } else if (s == "--version") {
-            printf("videonode-sink %s\n", vn::kVersion);
-            return 0;
-        } else {
-            vn::log::error("videonode-sink: unknown arg %s (use --help)", s.c_str());
-            return 2;
         }
     }
+
+    absl::SetProgramUsageMessage(
+        "videonode-sink — stream frames from an SCM_RIGHTS socket to stdout.\n"
+        "\n"
+        "Output mode is auto-selected from the first frame's fourcc:\n"
+        "  NV12 / NV24 / NV16  → YUV4MPEG2 (NV12-only today; chroma → I420 on CPU).\n"
+        "                          Pipe to `ffmpeg -f yuv4mpegpipe -i pipe:0 ...`.\n"
+        "  BGRA / ARGB / etc.  → raw bytes per frame (no header).\n"
+        "                          Pipe to `ffmpeg -f rawvideo -pix_fmt bgra -s WxH "
+        "-framerate N -i pipe:0 ...`.\n"
+        "\n"
+        "Stderr announces the dims + format on the first frame.");
+    vn::flags::configure_help_filter();
+    vn::flags::normalize_argv(argc, argv);
+    absl::ParseCommandLine(argc, argv);
+
+    Args a;
+    a.socket_path = absl::GetFlag(FLAGS_socket);
+    a.verbose = absl::GetFlag(FLAGS_verbose);
+    a.poll_ms = absl::GetFlag(FLAGS_poll_ms);
+    a.settle_ms = absl::GetFlag(FLAGS_settle_ms);
+    a.first_frame_timeout_s = absl::GetFlag(FLAGS_first_frame_timeout);
+
     if (a.socket_path.empty()) {
         vn::log::error("videonode-sink: --socket PATH is required");
         return 2;
@@ -310,9 +295,7 @@ int main(int argc, char** argv) {
     // lines are visible to `tail -f` immediately.
     ::setvbuf(stderr, nullptr, _IOLBF, 0);
 
-    std::signal(SIGINT, on_sig);
-    std::signal(SIGTERM, on_sig);
-    std::signal(SIGPIPE, SIG_IGN);
+    vn::signal::install_shutdown(g_running);
 
     scm_rights_source::ScmRightsSource src;
     scm_rights_source::InitParams p;
@@ -332,7 +315,7 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> yplane, uplane, vplane;
     auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(a.first_frame_timeout_s);
-    while (g_running) {
+    while (g_running.load()) {
         auto v = src.latest_frame();
         if (v.fd < 0 || v.frame_idx == 0) {
             if (std::chrono::steady_clock::now() > deadline) {
@@ -365,8 +348,8 @@ int main(int argc, char** argv) {
             } else {
                 // Raw-bytes mode: no header. Downstream ffmpeg is invoked
                 // with -f rawvideo -pix_fmt <format> -s WxH -framerate N.
-                vn::log::info("videonode-sink: streaming raw %dx%d (fourcc=%s) from %s",
-                              v.width, v.height, v.format.c_str(), a.socket_path.c_str());
+                vn::log::info("videonode-sink: streaming raw %dx%d (fourcc=%s) from %s", v.width,
+                              v.height, v.format.c_str(), a.socket_path.c_str());
             }
             announced = true;
             announced_w = v.width;
@@ -377,8 +360,8 @@ int main(int argc, char** argv) {
                           static_cast<unsigned long long>(v.frame_idx), v.fd);
         }
         last_idx = v.frame_idx;
-        bool ok = yuv_mode ? emit_frame_nv12_y4m(v, yplane, uplane, vplane)
-                            : emit_frame_raw_bgra(v);
+        bool ok =
+            yuv_mode ? emit_frame_nv12_y4m(v, yplane, uplane, vplane) : emit_frame_raw_bgra(v);
         if (!ok)
             break;
     }
