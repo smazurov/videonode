@@ -1,11 +1,12 @@
 #include "src/capture/mpp_jpeg_dec.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <rockchip/rk_mpi.h>
 #include <rockchip/mpp_frame.h>
 #include <rockchip/mpp_packet.h>
 #include <rockchip/mpp_buffer.h>
 
-#include <cstdio>
 #include <cstring>
 #include <thread>
 #include <chrono>
@@ -58,7 +59,7 @@ bool MppJpegDec::init(int max_width, int max_height) {
 
     ret = mpp_create(&ctx, &mpi);
     if (ret != MPP_OK || !ctx || !mpi) {
-        fprintf(stderr, "mpp_jpeg_dec: mpp_create=%d\n", ret);
+        vn::log::error("mpp_jpeg_dec: mpp_create=%d", ret);
         return false;
     }
     ctx_ = ctx;
@@ -68,7 +69,7 @@ bool MppJpegDec::init(int max_width, int max_height) {
     MppFrameFormat fmt = MPP_FMT_YUV420SP;
     ret = mpi->control(ctx, MPP_DEC_SET_OUTPUT_FORMAT, &fmt);
     if (ret != MPP_OK) {
-        fprintf(stderr, "mpp_jpeg_dec: SET_OUTPUT_FORMAT=%d\n", ret);
+        vn::log::warn("mpp_jpeg_dec: SET_OUTPUT_FORMAT=%d", ret);
         // Continue: many MPP builds default to NV12 anyway. Log + go.
     }
 
@@ -76,12 +77,12 @@ bool MppJpegDec::init(int max_width, int max_height) {
     RK_U32 need_split = 0;
     ret = mpi->control(ctx, MPP_DEC_SET_PARSER_SPLIT_MODE, &need_split);
     if (ret != MPP_OK) {
-        fprintf(stderr, "mpp_jpeg_dec: SET_PARSER_SPLIT_MODE=%d\n", ret);
+        vn::log::warn("mpp_jpeg_dec: SET_PARSER_SPLIT_MODE=%d", ret);
     }
 
     ret = mpp_init(ctx, MPP_CTX_DEC, MPP_VIDEO_CodingMJPEG);
     if (ret != MPP_OK) {
-        fprintf(stderr, "mpp_jpeg_dec: mpp_init=%d\n", ret);
+        vn::log::error("mpp_jpeg_dec: mpp_init=%d", ret);
         mpp_destroy(ctx);
         ctx_ = nullptr;
         mpi_ = nullptr;
@@ -107,7 +108,7 @@ FrameRef MppJpegDec::decode(std::span<const uint8_t> jpeg) {
     MppPacket pkt = nullptr;
     MPP_RET ret = mpp_packet_init(&pkt, const_cast<uint8_t*>(jpeg.data()), jpeg.size());
     if (ret != MPP_OK || !pkt) {
-        fprintf(stderr, "mpp_jpeg_dec: packet_init=%d\n", ret);
+        vn::log::error("mpp_jpeg_dec: packet_init=%d", ret);
         return {};
     }
     // Mark end-of-stream so the decoder flushes this single JPEG immediately.
@@ -115,7 +116,7 @@ FrameRef MppJpegDec::decode(std::span<const uint8_t> jpeg) {
 
     ret = m->decode_put_packet(c, pkt);
     if (ret != MPP_OK) {
-        fprintf(stderr, "mpp_jpeg_dec: put_packet=%d\n", ret);
+        vn::log::error("mpp_jpeg_dec: put_packet=%d", ret);
         mpp_packet_deinit(&pkt);
         return {};
     }
@@ -127,7 +128,7 @@ FrameRef MppJpegDec::decode(std::span<const uint8_t> jpeg) {
         if (ret == MPP_OK && frame) {
             if (mpp_frame_get_info_change(frame)) {
                 if (info_change_handled) {
-                    fprintf(stderr, "mpp_jpeg_dec: info_change loop?\n");
+                    vn::log::error("mpp_jpeg_dec: info_change loop?");
                     mpp_frame_deinit(&frame);
                     break;
                 }
@@ -138,7 +139,7 @@ FrameRef MppJpegDec::decode(std::span<const uint8_t> jpeg) {
                 continue;
             }
             if (mpp_frame_get_errinfo(frame) || mpp_frame_get_discard(frame)) {
-                fprintf(stderr, "mpp_jpeg_dec: frame err/discard\n");
+                vn::log::warn("mpp_jpeg_dec: frame err/discard");
                 mpp_frame_deinit(&frame);
                 frame = nullptr;
                 break;
@@ -150,7 +151,7 @@ FrameRef MppJpegDec::decode(std::span<const uint8_t> jpeg) {
 
     mpp_packet_deinit(&pkt);
     if (!frame) {
-        fprintf(stderr, "mpp_jpeg_dec: no frame after %d retries\n", kMaxGetFrameRetries);
+        vn::log::error("mpp_jpeg_dec: no frame after %d retries", kMaxGetFrameRetries);
         return {};
     }
     return FrameRef(frame);

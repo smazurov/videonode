@@ -1,9 +1,9 @@
 #include "src/capture/source_probe.hpp"
 
 #include "src/capture/v4l2_capture.hpp"
+#include "src/common/log_levels.hpp"
 
 #include <cerrno>
-#include <cstdio>
 #include <linux/videodev2.h>
 
 namespace source_probe {
@@ -46,10 +46,9 @@ bool SourceProbe::attach() {
         s != v4l2::Streamer::DvTimingsState::OtherError) {
         has_dv_timings_ = true;
         apply_dv_timings_state(s);
-        fprintf(stderr, "source_probe: HDMI mode, dv_timings=%s\n", dv_timings_label(s));
+        vn::log::info("source_probe: HDMI mode, dv_timings=%s", dv_timings_label(s));
     } else {
-        fprintf(stderr, "source_probe: device has no DV timings, "
-                        "using DQBUF-only health\n");
+        vn::log::info("source_probe: device has no DV timings, using DQBUF-only health");
     }
     return true;
 }
@@ -111,7 +110,7 @@ void SourceProbe::apply_dv_timings_state(v4l2::Streamer::DvTimingsState s) {
         source_change_pending_ = false;
         consecutive_failures_ = 0;
     }
-    fprintf(stderr, "source_probe: dv_timings -> %s\n", dv_timings_label(s));
+    vn::log::info("source_probe: dv_timings -> %s", dv_timings_label(s));
 }
 
 void SourceProbe::note_dqbuf_success() {
