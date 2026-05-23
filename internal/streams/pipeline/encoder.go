@@ -11,7 +11,7 @@ import (
 )
 
 // EncoderStage is the per-stream Encoder process: `vn-sink | ffmpeg`.
-// vn-sink dials either the producer's SCM socket (NV12 → Y4M) or the
+// VN-sink dials either the producer's SCM socket (NV12 → Y4M) or the
 // composer's --scm-out socket (BGRA → raw), and pipes to ffmpeg which
 // encodes and publishes to the configured PublishTarget(s).
 //
@@ -37,9 +37,15 @@ func (e *EncoderStage) Kind() Kind { return KindEncoder }
 func (e *EncoderStage) StreamID() string { return e.StreamID_ }
 
 // Command builds the shell command `vn-sink --socket X | ffmpeg ...`.
-// vn-sink's auto-detection (NV12 → Y4M vs BGRA → raw) means the ffmpeg
+// VN-sink's auto-detection (NV12 → Y4M vs BGRA → raw) means the ffmpeg
 // input args differ per FrameSource kind; the rest of the encoder argv
 // is identical regardless of upstream source.
+//
+// When CustomEncoderArgs is non-empty the user-supplied string is
+// appended verbatim AFTER the daemon-owned input fragment (matching
+// the legacy CustomFFmpegCommand contract — full shell expansion,
+// quoting, etc.) The daemon prepends only `vn-sink --socket X |
+// ffmpeg <input args>`; the user owns everything from there.
 func (e *EncoderStage) Command() ([]string, []string, error) {
 	if e.Media.Video == nil {
 		return nil, nil, errors.New("encoder: media.video is nil")
@@ -50,38 +56,40 @@ func (e *EncoderStage) Command() ([]string, []string, error) {
 	if e.VNSinkBin == "" {
 		return nil, nil, errors.New("encoder: VNSinkBin path is required")
 	}
-	if len(e.Publish) == 0 {
+	if e.CustomEncoderArgs == "" && len(e.Publish) == 0 {
 		return nil, nil, errors.New("encoder: at least one PublishTarget is required")
 	}
 
 	sinkArgv := []string{e.VNSinkBin, "--socket", e.Media.Video.SocketPath()}
 
-	// Input fragment: daemon-owned. CustomEncoderArgs (when present)
-	// only overrides the encoder + output side, never the input.
-	ffmpegArgv := []string{
+	// Daemon-owned input fragment. Custom args (when present) take
+	// over from -c:v onward but never touch the input plumbing.
+	ffmpegHead := []string{
 		"ffmpeg",
 		"-hide_banner", "-loglevel", "warning",
 	}
-	ffmpegArgv = append(ffmpegArgv, videoInputArgs(e.Media.Video)...)
-
-	// Audio input fragment (multiple -i if N>1).
+	ffmpegHead = append(ffmpegHead, videoInputArgs(e.Media.Video)...)
 	if e.Media.Audio != nil {
-		ffmpegArgv = append(ffmpegArgv, e.Media.Audio.InputArgs()...)
+		ffmpegHead = append(ffmpegHead, e.Media.Audio.InputArgs()...)
 	}
 
+	var ffmpegCmd string
 	if e.CustomEncoderArgs != "" {
-		// User-owned tail. The split is whitespace-naive; users wanting
-		// argv with embedded whitespace should pre-escape — same contract
-		// as the legacy CustomFFmpegCommand.
-		ffmpegArgv = append(ffmpegArgv, splitShellWords(e.CustomEncoderArgs)...)
+		// Append user-owned tail as a raw shell string (verbatim). The
+		// user gets $VAR / $(cmd) / single-quoted runs / backticks —
+		// same contract as legacy CustomFFmpegCommand.
+		ffmpegCmd = shellJoinArgv(ffmpegHead) + " " + e.CustomEncoderArgs
 	} else {
-		ffmpegArgv = append(ffmpegArgv, encoderTailArgs(e.Cfg, e.Publish)...)
+		ffmpegFull := make([]string, 0, len(ffmpegHead)+8)
+		ffmpegFull = append(ffmpegFull, ffmpegHead...)
+		ffmpegFull = append(ffmpegFull, encoderTailArgs(e.Cfg, e.Publish)...)
+		ffmpegCmd = shellJoinArgv(ffmpegFull)
 	}
 
 	// Wrap as `/bin/sh -c "vn-sink ... | ffmpeg ..."` so the pipe is
 	// shell-managed. process.Pool supervises this as one entry; vn-sink
 	// + ffmpeg share a death (the encoder stage is one logical thing).
-	cmd := shellPipe(sinkArgv, ffmpegArgv)
+	cmd := shellJoinArgv(sinkArgv) + " | " + ffmpegCmd
 	return []string{"/bin/sh", "-c", cmd}, nil, nil
 }
 

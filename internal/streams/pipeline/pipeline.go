@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -47,6 +48,12 @@ type Pipeline struct {
 	// per-stream owned stage IDs (composer, encoder). Used by Delete()
 	// to find what to stop for a given stream.
 	owned map[string][]string
+	// per-stream mutex serializing Apply/Delete calls for the same
+	// stream. Different streams proceed in parallel. Prevents the
+	// replaceStage race where two concurrent Applies for the same id
+	// see IsRunning=false during a 10s Stop window and both spawn.
+	streamLocksMu sync.Mutex
+	streamLocks   map[string]*sync.Mutex
 }
 
 // New constructs a Pipeline. The pool is constructed internally so the
@@ -57,11 +64,12 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 		logger = logging.GetLogger("pipeline")
 	}
 	p := &Pipeline{
-		cfg:       cfg,
-		logger:    logger,
-		producers: NewProducerRegistry(),
-		stages:    make(map[string]Stage),
-		owned:     make(map[string][]string),
+		cfg:         cfg,
+		logger:      logger,
+		producers:   NewProducerRegistry(),
+		stages:      make(map[string]Stage),
+		owned:       make(map[string][]string),
+		streamLocks: make(map[string]*sync.Mutex),
 	}
 	p.pool = process.NewPool(&process.PoolOptions{
 		Logger:           logger,
@@ -71,15 +79,34 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 	return p
 }
 
+// streamLock returns the per-stream mutex, creating one on first use.
+// Two concurrent Apply (or Apply + Delete) calls for the same stream
+// serialize on this lock; different streams run in parallel.
+func (p *Pipeline) streamLock(streamID string) *sync.Mutex {
+	p.streamLocksMu.Lock()
+	defer p.streamLocksMu.Unlock()
+	if mu, ok := p.streamLocks[streamID]; ok {
+		return mu
+	}
+	mu := &sync.Mutex{}
+	p.streamLocks[streamID] = mu
+	return mu
+}
+
 // Apply reconciles the runtime state to match the given stream spec.
-// Idempotent. On error, partial state is left in place — caller can
-// retry or Delete the stream to clean up.
+// Idempotent. Serialized per-stream — two concurrent Apply calls for
+// the same stream queue; calls for different streams run in parallel.
+//
+// On producer-spawn failure: rolls back the just-made registry claims
+// before returning, so the next Apply (or a Delete) sees a consistent
+// view. Errors during composer / encoder spawn are NOT rolled back —
+// callers can retry Apply or Delete the stream to clean up.
 //
 // Flow:
 //  1. Compute the unique device set from stream.Inputs and Reconcile
 //     against ProducerRegistry. Spawn newly-claimed producers; stop
 //     producers whose refcount dropped to zero (this stream was the
-//     last holder).
+//     last holder). On spawn failure, release the new claims first.
 //  2. NeedsComposer(stream) decides whether a Composer process exists.
 //     If yes, ensure a ComposerStage is registered and started; build
 //     a ComposerFrameSource against its --scm-out socket. If no, tear
@@ -93,6 +120,9 @@ func (p *Pipeline) Apply(s Stream) error {
 	if s.ID == "" {
 		return errors.New("pipeline: stream.ID is required")
 	}
+	mu := p.streamLock(s.ID)
+	mu.Lock()
+	defer mu.Unlock()
 
 	// Resolve device paths up front so we fail fast on unknown devices.
 	devices := make([]string, 0, len(s.Inputs))
@@ -114,9 +144,18 @@ func (p *Pipeline) Apply(s Stream) error {
 	// Step 1: Reconcile producers.
 	delta := p.producers.Reconcile(s.ID, devices)
 	if err := p.ensureUdsDir(); err != nil {
+		// Roll back: the Reconcile already mutated the registry.
+		p.producers.ReleaseAll(s.ID)
 		return fmt.Errorf("pipeline: mkdir uds dir: %w", err)
 	}
 	if err := p.startNewProducers(delta.ToStart, devicePaths); err != nil {
+		// Roll back: the partially-applied delta would leak claims (the
+		// registry holds them but processes aren't running) AND the
+		// devices in delta.ToStop never get released. Replay both: drop
+		// the new claims, then process the original ToStop list since
+		// we never reached stopReleasedProducers below.
+		p.producers.Reconcile(s.ID, p.heldDevicesExcluding(s.ID, delta.ToStart))
+		p.stopReleasedProducers(delta.ToStop)
 		return err
 	}
 	p.stopReleasedProducers(delta.ToStop)
@@ -145,31 +184,77 @@ func (p *Pipeline) Apply(s Stream) error {
 	return nil
 }
 
+// heldDevicesExcluding returns the device set this consumer would
+// reconcile to in order to drop a specific subset. Used by Apply's
+// rollback path: when startNewProducers fails partway, we want to
+// release the new claims without touching pre-existing ones.
+func (p *Pipeline) heldDevicesExcluding(consumerID string, excluded []string) []string {
+	bad := make(map[string]struct{}, len(excluded))
+	for _, d := range excluded {
+		bad[d] = struct{}{}
+	}
+	all := p.producers.Devices()
+	out := make([]string, 0, len(all))
+	for dev := range all {
+		if _, drop := bad[dev]; drop {
+			continue
+		}
+		// Only keep devices this consumer actually holds — Devices()
+		// returns the global map, not per-consumer view.
+		if slices.Contains(p.producers.ConsumersOf(dev), consumerID) {
+			out = append(out, dev)
+		}
+	}
+	return out
+}
+
 // Delete tears down all stages owned by the stream and releases its
 // producer claims. Producers whose refcount drops to zero are stopped.
-// Safe for unknown streamIDs (no-op).
+// Safe for unknown streamIDs (no-op). Serialized per-stream with Apply.
+//
+// Stops are fanned out in goroutines because pool.Stop blocks up to
+// 10s per process; serial teardown of a 4-stage stream (composer +
+// encoder + 2 producers) would exceed an HTTP request timeout. Mirrors
+// pool.StopAll's fan-out pattern.
 func (p *Pipeline) Delete(streamID string) error {
 	if streamID == "" {
 		return nil
 	}
+	mu := p.streamLock(streamID)
+	mu.Lock()
+	defer mu.Unlock()
 
-	// Stop stream-owned stages first (composer + encoder).
+	// Collect stream-owned stages and released producers up front.
 	p.mu.Lock()
-	owned := p.owned[streamID]
+	owned := append([]string(nil), p.owned[streamID]...)
 	delete(p.owned, streamID)
 	p.mu.Unlock()
-	for _, id := range owned {
-		if err := p.pool.Stop(id); err != nil {
-			p.logger.Warn("Delete: pool.Stop failed", "id", id, "error", err)
-		}
-		p.mu.Lock()
-		delete(p.stages, id)
-		p.mu.Unlock()
+
+	delta := p.producers.ReleaseAll(streamID)
+
+	// Fan out all Stop calls (owned stages + dropped producers).
+	// Each Stop blocks independently; total wall time is bounded by
+	// the slowest single Stop.
+	stopIDs := make([]string, 0, len(owned)+len(delta.ToStop))
+	stopIDs = append(stopIDs, owned...)
+	for _, dev := range delta.ToStop {
+		stopIDs = append(stopIDs, ProducerPoolKey(dev))
 	}
 
-	// Release producer claims; stop any that dropped to zero.
-	delta := p.producers.ReleaseAll(streamID)
-	p.stopReleasedProducers(delta.ToStop)
+	var wg sync.WaitGroup
+	wg.Add(len(stopIDs))
+	for _, id := range stopIDs {
+		go func(id string) {
+			defer wg.Done()
+			if err := p.pool.Stop(id); err != nil {
+				p.logger.Warn("Delete: pool.Stop failed", "id", id, "error", err)
+			}
+			p.mu.Lock()
+			delete(p.stages, id)
+			p.mu.Unlock()
+		}(id)
+	}
+	wg.Wait()
 	return nil
 }
 
@@ -202,6 +287,10 @@ func (p *Pipeline) commandFor(id string) (string, error) {
 // configureProcess is the pool's Configurer callback. Wires the
 // stage's LogParser + LogAttrs into the process.Process so each stage's
 // stderr lands in journald with the right module + structured fields.
+//
+// Passes slog.Attr through With() as the typed Attr (not key+Any()) so
+// non-scalar kinds (slog.Group, LogValuer) survive — Go's slog handles
+// Attr-typed args specially.
 func (p *Pipeline) configureProcess(id string, proc *process.Process) {
 	p.mu.Lock()
 	stage, ok := p.stages[id]
@@ -209,13 +298,14 @@ func (p *Pipeline) configureProcess(id string, proc *process.Process) {
 	if !ok {
 		return
 	}
-	// Build a per-stage slog logger: module = stage kind, attrs = stage-specific.
 	moduleLogger := logging.GetLogger(stage.Kind().String())
-	// Apply the stage's attrs (stream_id, device, etc.) so journald
-	// queries like `journalctl MODULE=encoder STREAM_ID=cam-front`
-	// pull just this stream's encoder logs.
-	for _, a := range stage.LogAttrs() {
-		moduleLogger = moduleLogger.With(a.Key, a.Value.Any())
+	attrs := stage.LogAttrs()
+	if len(attrs) > 0 {
+		args := make([]any, len(attrs))
+		for i, a := range attrs {
+			args[i] = a
+		}
+		moduleLogger = moduleLogger.With(args...)
 	}
 	proc.SetLogParser(moduleLogger, stage.LogParser())
 }
@@ -288,7 +378,8 @@ func (p *Pipeline) stopComposerIfRunning(streamID string) {
 
 func (p *Pipeline) buildEncoder(s Stream, composerSock string) (*EncoderStage, error) {
 	var video FrameSource
-	if composerSock != "" {
+	switch {
+	case composerSock != "":
 		w, h := canvasDimsHint(s)
 		video = ComposerFrameSource{
 			Socket: composerSock,
@@ -296,9 +387,9 @@ func (p *Pipeline) buildEncoder(s Stream, composerSock string) (*EncoderStage, e
 			Height: h,
 			Fps:    parseFPSHintWithDefault(s, 30),
 		}
-	} else if len(s.Inputs) == 1 {
+	case len(s.Inputs) == 1:
 		video = ProducerFrameSource{Socket: SCMSocketPathFor(s.Inputs[0].Device)}
-	} else {
+	default:
 		return nil, errors.New("encoder build: 0 inputs and no composer — nothing to encode")
 	}
 
@@ -348,10 +439,8 @@ func (p *Pipeline) restartStage(stage Stage) error {
 }
 
 func (p *Pipeline) bindOwnedLocked(streamID, stageID string) {
-	for _, existing := range p.owned[streamID] {
-		if existing == stageID {
-			return
-		}
+	if slices.Contains(p.owned[streamID], stageID) {
+		return
 	}
 	p.owned[streamID] = append(p.owned[streamID], stageID)
 }
