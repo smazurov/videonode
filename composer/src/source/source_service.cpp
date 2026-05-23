@@ -1,6 +1,7 @@
 #include "src/source/source_service.hpp"
 
 #include "src/capture/source_probe.hpp"
+#include "src/common/log_levels.hpp"
 #include "src/source/args.hpp"
 #include "src/source/capture_session.hpp" // for v4l2_pix_fmt_
 
@@ -69,8 +70,8 @@ grpc::Status SourceService::SetFormat(grpc::ServerContext* /*ctx*/,
         }
     }
     resp->set_applied(true);
-    fprintf(stderr, "videonode-source: set_format via gRPC: %s %ux%u@%u\n",
-            req->fourcc().c_str(), req->w(), req->h(), req->fps());
+    vn::log::info("videonode-source: set_format via gRPC: %s %ux%u@%u",
+                  req->fourcc().c_str(), req->w(), req->h(), req->fps());
     return grpc::Status::OK;
 }
 

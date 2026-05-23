@@ -2,6 +2,8 @@
 
 #include "src/source/capture_session.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include "src/capture/jpeg_dec_turbo.hpp"
 #if defined(HAVE_MPP)
 #include "src/capture/mpp_jpeg_dec.hpp"
@@ -193,7 +195,7 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
         if (mpp) {
             s.jpeg = std::move(mpp);
             s.using_mpp = true;
-            fprintf(stderr, "videonode-source: MJPEG backend = MPP (HW)\n");
+            vn::log::info("videonode-source: MJPEG backend = MPP (HW)");
         } else {
             // TurboJPEG fallback. Allocate out_ring via nv12_buf + map
             // each slot for CPU writes; hand (y_fd, y_ptr) pairs to the
@@ -202,8 +204,8 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
             // GBM split layout doesn't satisfy — skipped on that backend
             // until the TurboJPEG path is split-aware.
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
-            fprintf(stderr, "videonode-source: TurboJPEG MJPEG decode not yet wired for "
-                            "GBM split-buffer backend; aborting capture\n");
+            vn::log::error("videonode-source: TurboJPEG MJPEG decode not yet wired for "
+                           "GBM split-buffer backend; aborting capture");
             s.cap.close();
             return false;
 #else
@@ -221,7 +223,7 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
             for (auto& buf : s.out_ring) {
                 auto m = nv12_buf::map_rw(buf);
                 if (!m.y) {
-                    fprintf(stderr, "videonode-source: map_rw out_ring fd=%d failed\n", buf.y_fd);
+                    vn::log::error("videonode-source: map_rw out_ring fd=%d failed", buf.y_fd);
                     s.cap.close();
                     return false;
                 }
@@ -239,7 +241,7 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
             }
             s.jpeg = std::move(tj);
             s.using_mpp = false;
-            fprintf(stderr, "videonode-source: MJPEG backend = TurboJPEG (SW)\n");
+            vn::log::info("videonode-source: MJPEG backend = TurboJPEG (SW)");
 #endif
         }
     } else {

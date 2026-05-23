@@ -154,12 +154,12 @@ int main(int argc, char** argv) {
             printf("videonode-sink %s\n", vn::kVersion);
             return 0;
         } else {
-            fprintf(stderr, "videonode-sink: unknown arg %s (use --help)\n", s.c_str());
+            vn::log::error("videonode-sink: unknown arg %s (use --help)", s.c_str());
             return 2;
         }
     }
     if (a.socket_path.empty()) {
-        fprintf(stderr, "videonode-sink: --socket PATH is required\n");
+        vn::log::error("videonode-sink: --socket PATH is required");
         return 2;
     }
 
@@ -177,8 +177,8 @@ int main(int argc, char** argv) {
     p.socket_path = a.socket_path;
     p.dial = true;
     if (!src.init(p) || !src.start()) {
-        fprintf(stderr, "videonode-sink: failed to dial %s (is videonode-source up?)\n",
-                a.socket_path.c_str());
+        vn::log::fatal("videonode-sink: failed to dial %s (is videonode-source up?)",
+                       a.socket_path.c_str());
         return 1;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(a.settle_ms));
@@ -193,8 +193,8 @@ int main(int argc, char** argv) {
         auto v = src.latest_frame();
         if (v.fd < 0 || v.frame_idx == 0) {
             if (std::chrono::steady_clock::now() > deadline) {
-                fprintf(stderr, "videonode-sink: timeout waiting for first frame on %s\n",
-                        a.socket_path.c_str());
+                vn::log::fatal("videonode-sink: timeout waiting for first frame on %s",
+                               a.socket_path.c_str());
                 src.stop();
                 return 1;
             }
@@ -207,22 +207,21 @@ int main(int argc, char** argv) {
         }
         if (!announced || v.width != announced_w || v.height != announced_h) {
             if (announced) {
-                fprintf(stderr,
-                        "videonode-sink: dimensions changed %dx%d → %dx%d; downstream ffmpeg "
-                        "likely needs restart\n",
-                        announced_w, announced_h, v.width, v.height);
+                vn::log::warn("videonode-sink: dimensions changed %dx%d → %dx%d; downstream ffmpeg "
+                              "likely needs restart",
+                              announced_w, announced_h, v.width, v.height);
             }
             if (!emit_y4m_header(v.width, v.height, 60, 1))
                 break;
-            fprintf(stderr, "videonode-sink: streaming Y4M %dx%d (I420 from NV12) from %s\n",
-                    v.width, v.height, a.socket_path.c_str());
+            vn::log::info("videonode-sink: streaming Y4M %dx%d (I420 from NV12) from %s",
+                          v.width, v.height, a.socket_path.c_str());
             announced = true;
             announced_w = v.width;
             announced_h = v.height;
         }
         if (a.verbose) {
-            fprintf(stderr, "videonode-sink: frame_idx=%llu fd=%d\n",
-                    static_cast<unsigned long long>(v.frame_idx), v.fd);
+            vn::log::info("videonode-sink: frame_idx=%llu fd=%d",
+                          static_cast<unsigned long long>(v.frame_idx), v.fd);
         }
         last_idx = v.frame_idx;
         if (!emit_frame(v, uplane, vplane))
@@ -230,6 +229,6 @@ int main(int argc, char** argv) {
     }
 
     src.stop();
-    fprintf(stderr, "videonode-sink: shutdown\n");
+    vn::log::info("videonode-sink: shutdown");
     return 0;
 }
