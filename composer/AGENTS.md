@@ -28,7 +28,7 @@ ctest --preset dev-tsan --output-on-failure
 # Lint
 cmake --build build/dev --target lint       # clang-format dry-run
 cmake --build build/dev --target format     # clang-format -i
-cmake --build build/dev --target tidy-diff  # clang-tidy on changed lines vs origin/main
+cmake --build build/dev --target tidy-diff  # clang-tidy on changed lines vs origin/native
 cmake --build build/dev --target tidy-all   # clang-tidy whole tree (slow)
 ```
 

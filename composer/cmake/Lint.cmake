@@ -52,8 +52,17 @@ if(ENABLE_CLANG_TIDY)
 endif()
 
 # clang-tidy targets. `tidy-diff` is the diff-aware default used during
-# refactoring — only lints lines changed vs origin/main, so existing legacy
-# violations don't block. `tidy-all` runs over the whole tree (slow).
+# refactoring — only lints lines changed vs ${TIDY_DIFF_BASE}, so existing
+# legacy violations don't block. `tidy-all` runs over the whole tree (slow).
+#
+# Default base is `origin/native` because the composer/ directory does not
+# exist on `origin/main`; diffing against main would surface the entire
+# composer tree as "new" and defeat the diff-aware target. Override with
+# -DTIDY_DIFF_BASE=origin/some-feature-branch when diffing against a
+# different base is desired.
+set(TIDY_DIFF_BASE "origin/native" CACHE STRING
+    "Git ref to diff against for tidy-diff (clang-tidy on changed lines).")
+
 find_program(CLANG_TIDY_BIN NAMES clang-tidy)
 find_program(CLANG_TIDY_DIFF
     NAMES clang-tidy-diff.py clang-tidy-diff
@@ -69,9 +78,9 @@ if(CLANG_TIDY_DIFF AND CLANG_TIDY_BIN)
     # `src/foo.cpp` which resolves correctly with cwd=composer. Wrapped in
     # `sh -c` so the shell handles the pipe.
     add_custom_target(tidy-diff
-        COMMAND sh -c "git -C '${CMAKE_SOURCE_DIR}/..' diff -U0 origin/main...HEAD -- composer/src composer/tools composer/tests | '${CLANG_TIDY_DIFF}' -p2 -path '${CMAKE_BINARY_DIR}' -clang-tidy-binary '${CLANG_TIDY_BIN}'"
+        COMMAND sh -c "git -C '${CMAKE_SOURCE_DIR}/..' diff -U0 ${TIDY_DIFF_BASE}...HEAD -- composer/src composer/tools composer/tests | '${CLANG_TIDY_DIFF}' -p2 -path '${CMAKE_BINARY_DIR}' -clang-tidy-binary '${CLANG_TIDY_BIN}'"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMENT "clang-tidy on lines changed vs origin/main"
+        COMMENT "clang-tidy on lines changed vs ${TIDY_DIFF_BASE}"
         VERBATIM USES_TERMINAL)
 else()
     add_custom_target(tidy-diff

@@ -114,7 +114,7 @@ jobs:
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Fetch base ref
-        run: git fetch --no-tags --depth=1 origin main
+        run: git fetch --no-tags --depth=1 origin native
       - name: Configure (dev — produces compile_commands.json)
         working-directory: composer
         run: cmake --preset dev
@@ -130,5 +130,5 @@ jobs:
           fi
           # -p2 strips `b/composer/` so paths resolve correctly with cwd=composer
           cd composer
-          git -C .. diff -U0 origin/main...HEAD -- composer/src composer/tools composer/tests \
+          git -C .. diff -U0 origin/native...HEAD -- composer/src composer/tools composer/tests \
             | python3 "$DIFF_SCRIPT" -p2 -path build/dev -clang-tidy-binary "$(command -v clang-tidy)"
