@@ -32,12 +32,14 @@ RIG=orangepi composer/scripts/build-on-rig.sh
 
 # 3. (Optional) cross-build Go supervisor and install over the canonical bin.
 #
-# The UI is embedded into the binary via `go:embed ui/dist`. If you
-# touched anything under `ui/src/`, you MUST `pnpm build` first or
-# the binary ships the stale pre-build assets (or fails to compile
-# when ui/dist doesn't exist yet). Safe to run unconditionally:
+# The UI is embedded into the binary via `go:embed ui/dist`, but ONLY
+# when the `ui_embed` build tag is set. Without `-tags ui_embed` the
+# fallback Handler() ships (just redirects every UI route to /docs);
+# the daemon is healthy but `/streams` etc. serve no React app. The
+# tag-gated embed wants `ui/dist/` to exist, so `pnpm build` is a
+# hard prerequisite (~5s). Safe to run all three unconditionally:
 cd ui && pnpm install --frozen-lockfile && pnpm build && cd ..
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/videonode-arm64 .
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags ui_embed -o /tmp/videonode-arm64 .
 # Direct scp over the live canonical binary fails with "Failure" when
 # the service is holding the text segment mapped. Stage to /tmp first,
 # then cp inside step 4 (which has the service stopped):
@@ -92,7 +94,7 @@ ssh orangepi 'coredumpctl info --no-pager | head -100; \
 - **`/tmp/smoke-vn/`** is a stale smoke-test scratch dir. If you find a supervisor running from `/tmp/smoke-vn/videonode`, kill it (`pkill -TERM -f /tmp/smoke-vn/videonode`), wait, then `rm -rf /tmp/smoke-vn`. Do not relaunch from there.
 - **Running processes hold old code.** A successful `cp` updates the binary on disk, but already-running processes keep their old text segment mapped. Confirm the new code is live by comparing `ps -o etime` for the supervisor + helpers against the binary mtime on the rig.
 - **HDMI source unstable** — `verify-from-dev.sh` against the HDMI stream will fail if the input has no signal lock. That is a source issue, not a deploy issue; the composer canvas stream (which falls back to placeholder rendering when sources are absent) is the more reliable verification target.
-- **UI is `go:embed`-bundled** — touching anything under `ui/src/` requires `cd ui && pnpm build` BEFORE `go build`, otherwise the binary ships the stale pre-build assets in `ui/dist/`. Safe to run the UI build unconditionally; it's ~5 seconds. The bare `go build` succeeds without it (existing `ui/dist/` from a prior build is fine), so the staleness is silent — you'll only notice by diffing the rendered HTML.
+- **UI is `go:embed`-bundled behind the `ui_embed` build tag** — `go build` WITHOUT `-tags ui_embed` compiles `ui/embed_fallback.go` instead of `ui/embed.go`, and `ui.Handler()` redirects every UI route to `/docs`. The daemon is healthy and the API works, but `/streams` etc. serve no React app — it looks like the UI was never built. Tag-gated `go build -tags ui_embed` requires `ui/dist/` to exist, so `cd ui && pnpm build` is a hard prerequisite. The bundled binary jumps from ~36 MB to ~40 MB when the embed actually lands; check `ls -la` on the staging file before deploying. Diff the served HTML via `curl http://localhost:8090/streams | grep '<title>'` — should be `<title>VideoNode</title>`, not a `Found` redirect blob.
 - **Auth on the canonical service** uses the `[auth] username/password` fields in `config.toml`, courtesy of `[auth] type = "basic"` (added 2026-05; pre-2026-05 the unset `type` defaulted to `linux`/PAM, which silently checked the system user `orangepi:orangepi` instead). Today's canonical creds: `pinball:pinball`. If a fresh install or a reverted config drops `type = "basic"`, the factory falls back to `linux` and `curl -u pinball:pinball` will return 401 — re-add `type = "basic"` to `[auth]` and restart. `curl -u <wrong>:<wrong>` returns a generic 401 with no hint about which backend rejected.
 
 ## Prerequisites
