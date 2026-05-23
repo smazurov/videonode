@@ -7,8 +7,6 @@ import {
   CodeBracketIcon,
   DocumentTextIcon,
   PencilSquareIcon,
-  PlayIcon,
-  StopIcon,
   TrashIcon,
   ViewfinderCircleIcon,
 } from '@heroicons/react/24/outline';
@@ -137,45 +135,6 @@ function RestartButton({
   );
 }
 
-function CanvasStateButton({ streamId }: { readonly streamId: string }) {
-  const stream = useStreamStore((state) => state.streamsById[streamId]);
-  const releaseCanvas = useStreamStore((state) => state.releaseCanvas);
-  const engageCanvas = useStreamStore((state) => state.engageCanvas);
-  const [isToggling, setIsToggling] = useState(false);
-
-  if (!stream?.canvas) return null;
-  const engaged = stream.enabled;
-
-  const handleToggle = async () => {
-    setIsToggling(true);
-    try {
-      if (engaged) {
-        await releaseCanvas(streamId);
-        toast.success('Canvas released — sources running standalone');
-      } else {
-        await engageCanvas(streamId);
-        toast.success('Canvas engaged');
-      }
-    } catch (error) {
-      console.error('Failed to toggle canvas:', error);
-      toast.error(engaged ? 'Failed to release canvas' : 'Failed to engage canvas');
-    } finally {
-      setIsToggling(false);
-    }
-  };
-
-  return (
-    <Button
-      theme="blank"
-      size="SM"
-      onClick={handleToggle}
-      disabled={isToggling}
-      title={engaged ? 'Release Canvas (resume sources standalone)' : 'Engage Canvas (claim sources)'}
-      LeadingIcon={engaged ? StopIcon : PlayIcon}
-    />
-  );
-}
-
 interface MoreActionsMenuProps {
   readonly streamId: string;
   readonly onDelete?: ((streamId: string) => void) | undefined;
@@ -262,7 +221,6 @@ export function StreamCardActions({
   return (
     <div className="flex items-center space-x-1">
       <EditButton streamId={streamId} />
-      <CanvasStateButton streamId={streamId} />
       <RestartButton
         streamId={streamId}
         onRequestPlayerRefresh={onRequestPlayerRefresh}

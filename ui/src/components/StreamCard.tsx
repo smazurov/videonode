@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Card } from './Card';
 import { WebRTCPlayer } from './webrtc';
 import { FFmpegCommandSheet } from './FFmpegCommandSheet';
@@ -6,7 +6,6 @@ import { PerspectiveSheet } from './PerspectiveSheet';
 import { StreamLogsSheet } from './StreamLogsSheet';
 import { StreamCardActions } from './StreamCardActions';
 import { StreamMetrics } from './StreamMetrics';
-import { CanvasMemberStreamCard } from './CanvasMemberStreamCard';
 import { buildStreamURL } from '../lib/api';
 import { Badge } from './Badge';
 import { useStreamStore } from '../hooks/useStreamStore';
@@ -26,6 +25,19 @@ interface StreamCardProps {
 export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, className = '' }: Readonly<StreamCardProps>) {
   // Subscribe directly to this stream - only re-renders when THIS stream changes
   const stream = useStreamStore((state) => state.streamsById[streamId]);
+  // Find canvas IDs that reference this stream as a source — the UI signal
+  // that a standalone source is being consumed by one or more canvases.
+  // Subscribe to the (stable-per-update) streamsById ref, derive locally via
+  // useMemo — returning a fresh array straight from a Zustand selector trips
+  // useSyncExternalStore's tearing check and re-renders forever.
+  const streamsById = useStreamStore((state) => state.streamsById);
+  const consumingCanvases = useMemo(() => {
+    const out: string[] = [];
+    for (const s of Object.values(streamsById)) {
+      if (s?.canvas?.source_streams?.includes(streamId)) out.push(s.stream_id);
+    }
+    return out;
+  }, [streamsById, streamId]);
 
   type OpenSheet = 'ffmpeg' | 'logs' | 'perspective' | null;
   const [openSheet, setOpenSheet] = useState<OpenSheet>(null);
@@ -44,12 +56,6 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
   // Guard against missing stream (e.g., after deletion)
   if (!stream) return null;
 
-  // Canvas members get a minimal dedicated card — none of the rtsp/srt URLs,
-  // metrics, ffmpeg command viewer, or restart controls apply while owned.
-  if (stream.owned_by) {
-    return <CanvasMemberStreamCard streamId={streamId} className={className} />;
-  }
-
   const canvas = stream.canvas;
   const sourceStreams = (canvas?.source_streams ?? []).filter((s): s is string => !!s);
 
@@ -59,9 +65,13 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-fg truncate flex items-center gap-2 min-w-0">
             <span className="truncate">{stream.stream_id}</span>
-            {stream.owned_by && (
-              <Badge tone="rtmp" title={`Device captured by canvas ${stream.owned_by}`}>
-                In canvas: {stream.owned_by}
+            {consumingCanvases.length > 0 && (
+              <Badge
+                tone="rtmp"
+                size="md"
+                title={`Shared with canvas ${consumingCanvases.join(', ')}`}
+              >
+                in {consumingCanvases.length === 1 ? consumingCanvases[0] : `${consumingCanvases.length} canvases`}
               </Badge>
             )}
           </h3>
@@ -77,8 +87,7 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
       </Card.Header>
 
       <Card.Content className="space-y-4">
-        {/* WebRTC Preview Area */}
-        {showVideo && !stream.owned_by && !(canvas && !stream.enabled) && (
+        {showVideo && stream.enabled && consumingCanvases.length === 0 && (
           <div className="aspect-video bg-surface-muted rounded-lg overflow-hidden">
             <WebRTCPlayer
               key={refreshKey}
@@ -88,9 +97,14 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
             />
           </div>
         )}
-        {canvas && !stream.enabled && (
+        {showVideo && !stream.enabled && (
           <div className="aspect-video bg-surface-muted rounded-lg overflow-hidden flex items-center justify-center text-fg-muted text-sm">
-            Canvas dormant — sources are running individually
+            Stream disabled
+          </div>
+        )}
+        {showVideo && stream.enabled && consumingCanvases.length > 0 && (
+          <div className="aspect-video bg-surface-muted rounded-lg overflow-hidden flex items-center justify-center text-fg-muted text-sm">
+            In canvas {consumingCanvases.join(', ')}
           </div>
         )}
 

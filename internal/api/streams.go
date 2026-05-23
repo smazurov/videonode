@@ -346,40 +346,6 @@ func (s *Server) registerStreamRoutes() {
 		return &struct{}{}, nil
 	})
 
-	// Release canvas (engaged → dormant)
-	huma.Register(s.api, huma.Operation{
-		OperationID: "release-canvas",
-		Method:      http.MethodPost,
-		Path:        "/api/streams/{stream_id}/canvas/release",
-		Summary:     "Release Canvas",
-		Description: "Stop a canvas and resume its sources as standalone streams. The canvas spec is preserved with Enabled=false.",
-		Tags:        []string{"streams"},
-		Errors:      []int{400, 401, 404, 500},
-		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct {
-		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Canvas stream identifier"`
-	},
-	) (*struct{}, error) {
-		return s.runCanvasToggle(ctx, input.StreamID, s.streamService.ReleaseCanvas, "released")
-	})
-
-	// Engage canvas (dormant → engaged)
-	huma.Register(s.api, huma.Operation{
-		OperationID: "engage-canvas",
-		Method:      http.MethodPost,
-		Path:        "/api/streams/{stream_id}/canvas/engage",
-		Summary:     "Engage Canvas",
-		Description: "Start a dormant canvas, claiming its sources from standalone playback.",
-		Tags:        []string{"streams"},
-		Errors:      []int{400, 401, 404, 500},
-		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct {
-		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Canvas stream identifier"`
-	},
-	) (*struct{}, error) {
-		return s.runCanvasToggle(ctx, input.StreamID, s.streamService.EngageCanvas, "engaged")
-	})
-
 	// Canvas layout preview (stateless)
 	huma.Register(s.api, huma.Operation{
 		OperationID: "canvas-layout-preview",
@@ -568,7 +534,6 @@ func (s *Server) domainToAPIStreamWithSpec(stream streams.Stream, config *stream
 			apiData.AudioDevice = config.FFmpeg.AudioDevice
 			apiData.Rotation = config.FFmpeg.Rotation
 			apiData.Enabled = stream.Enabled
-			apiData.OwnedBy = stream.OwnedBy
 		}
 
 		apiData.CustomFFmpegCmd = config.CustomFFmpegCommand
@@ -600,38 +565,6 @@ func (s *Server) domainToAPIStreamWithSpec(stream streams.Stream, config *stream
 	}
 
 	return apiData
-}
-
-// runCanvasToggle is the shared engaged↔dormant handler body: snapshot the canvas's
-// source list, invoke the service action, then publish update events for the canvas
-// and each source so the UI can refresh.
-func (s *Server) runCanvasToggle(
-	ctx context.Context,
-	streamID string,
-	action func(context.Context, string) error,
-	canvasAction string,
-) (*struct{}, error) {
-	var sources []string
-	if spec, gerr := s.streamService.GetStreamSpec(ctx, streamID); gerr == nil && spec.Canvas != nil {
-		sources = append(sources, spec.Canvas.SourceStreams...)
-	}
-
-	if err := action(ctx, streamID); err != nil {
-		return nil, s.mapStreamError(err)
-	}
-
-	if s.eventBus != nil {
-		if stream, gerr := s.streamService.GetStream(ctx, streamID); gerr == nil {
-			s.eventBus.Publish(events.StreamUpdatedEvent{
-				Stream:    s.domainToAPIStream(*stream),
-				Action:    canvasAction,
-				Timestamp: time.Now().Format(time.RFC3339),
-			})
-		}
-		s.emitSourceStreamUpdates(ctx, sources)
-	}
-
-	return &struct{}{}, nil
 }
 
 // emitSourceStreamUpdates publishes StreamUpdatedEvent for each unique source ID. Caller ensures eventBus is non-nil.

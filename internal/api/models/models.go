@@ -72,8 +72,6 @@ type StreamData struct {
 	Canvas        *CanvasData       `json:"canvas,omitempty" doc:"Canvas configuration for composite streams"`
 	Layout        *CanvasLayoutData `json:"layout,omitempty" doc:"Resolved canvas layout (slot + content rects). Populated for canvas streams."`
 	InputsEnabled map[string]bool   `json:"inputs_enabled,omitempty" doc:"Per-source-stream-ID enabled state (canvas streams only)"`
-	// OwnedBy is the canvas stream ID currently capturing this stream's device, if any.
-	OwnedBy string `json:"owned_by,omitempty" doc:"Canvas ID currently owning this stream (individual streams only)"`
 	// Vision and perspective
 	Perspective *PerspectiveData `json:"perspective,omitempty" doc:"Perspective correction corners"`
 	Vision      *VisionData      `json:"vision,omitempty" doc:"Vision pipeline config"`

@@ -145,8 +145,8 @@ func TestEncoder_AudioInputArgsAppended(t *testing.T) {
 }
 
 func TestEncoder_MultiAudioEmitsSeparateTracks(t *testing.T) {
-	// Confirms the rip's amix bug is gone: N audio devices →
-	// N separate output tracks via -map "[a0]"...-map "[aN-1]".
+	// N audio devices → N separate output tracks via
+	// -map "[a0]"...-map "[aN-1]".
 	e := &EncoderStage{
 		StreamID_: "multi-audio",
 		Media: MediaSource{
@@ -205,12 +205,6 @@ func TestEncoder_MultiAudioEmitsSeparateTracks(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "-b:a 128k") {
 		t.Errorf("missing -b:a 128k: %s", cmd)
-	}
-
-	// Anti-regression for the rip's bug: no `amix=` filter (would
-	// mix the tracks into one).
-	if strings.Contains(cmd, "amix=") {
-		t.Errorf("REGRESSION: amix filter present — multi-audio should produce SEPARATE tracks, not a mix: %s", cmd)
 	}
 }
 

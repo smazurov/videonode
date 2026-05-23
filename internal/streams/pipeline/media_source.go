@@ -127,8 +127,7 @@ type ALSADirectAudio struct {
 //
 // With 0 devices returns nil — the resulting stream is silent (no
 // audio track at all). NOT a mix — each device is its own output
-// track. The legacy `amix=inputs=N` filter the rip incorrectly
-// introduced is gone; see encoderTailArgs for the per-track map.
+// track; see encoderTailArgs for the per-track map.
 func (a ALSADirectAudio) InputArgs() []string {
 	if len(a.Config.Devices) == 0 {
 		return nil

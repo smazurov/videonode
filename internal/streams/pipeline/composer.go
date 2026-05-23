@@ -59,8 +59,8 @@ func (c *ComposerStage) SCMOutSocketPath() string {
 }
 
 // Command returns the videonode-composer argv. Always uses --scm-out
-// post-rip (no stdout-pipe mode in production), so encoder restart
-// doesn't kill the composer via EPIPE.
+// (no stdout-pipe mode in production), so encoder restart doesn't kill
+// the composer via EPIPE.
 func (c *ComposerStage) Command() ([]string, []string, error) {
 	if c.BinaryPath == "" {
 		return nil, nil, errors.New("composer: BinaryPath is required")

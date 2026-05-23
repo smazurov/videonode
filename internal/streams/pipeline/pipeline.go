@@ -34,7 +34,7 @@ type Config struct {
 	EventBus *events.Bus
 }
 
-// Pipeline is the post-rip assembler. One Pipeline owns the runtime
+// Pipeline is the stage assembler. One Pipeline owns the runtime
 // state for all streams: the ProducerRegistry (refcounted producers),
 // per-stream Composer + Encoder stage instances, and the process.Pool
 // that supervises every spawned binary.

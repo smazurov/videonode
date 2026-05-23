@@ -9,12 +9,10 @@ import VideoRoute from "./routes/video";
 import Streams from "./routes/streams";
 import CreateStream from "./routes/create-stream";
 import EditStream from "./routes/edit-stream";
-import CanvasRoute from "./routes/canvas";
 import Logs from "./routes/logs";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 
-// Create router with authentication
 const router = createBrowserRouter([
   {
     path: "/login",
@@ -59,23 +57,6 @@ const router = createBrowserRouter([
           </ProtectedRoute>
         ),
       },
-      // Legacy canvas-distinct routes: redirect to the unified
-      // create/edit flow (pipeline rip — canvases are streams with
-      // N>1 inputs, no separate UI surface). Edit route still hits
-      // CanvasRoute so existing multi-source streams can be edited
-      // until the StreamForm/CanvasForm merge lands.
-      {
-        path: "streams/canvas/new",
-        element: <Navigate to="/streams/new" replace />,
-      },
-      {
-        path: "streams/canvas/:streamId/edit",
-        element: (
-          <ProtectedRoute>
-            <CanvasRoute />
-          </ProtectedRoute>
-        ),
-      },
       {
         path: "logs",
         element: (
@@ -83,6 +64,10 @@ const router = createBrowserRouter([
             <Logs />
           </ProtectedRoute>
         ),
+      },
+      {
+        path: "*",
+        element: <Navigate to="/streams" replace />,
       }
     ]
   },
@@ -90,7 +75,7 @@ const router = createBrowserRouter([
 
 document.addEventListener("DOMContentLoaded", () => {
   const isDarkMode = document.documentElement.classList.contains('dark');
-  
+
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <>
       <RouterProvider router={router} />

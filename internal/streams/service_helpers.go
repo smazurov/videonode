@@ -36,14 +36,6 @@ func (s *service) getStreamSafe(streamID string) (*Stream, bool) {
 	return stream, exists
 }
 
-// parseCodecType converts a codec string to a CodecType.
-func parseCodecType(codec string) encoders.CodecType {
-	if codec == "h265" {
-		return encoders.CodecH265
-	}
-	return encoders.CodecH264
-}
-
 // copyStream creates a copy of a stream to prevent external mutation.
 func copyStream(stream *Stream) *Stream {
 	if stream == nil {
@@ -70,33 +62,6 @@ func makeEncoderSelector(logger logging.Logger, opts *ServiceOptions, repo Store
 		logger.Error("Failed to load validation data", "error", err)
 	}
 	return encoders.NewDefaultSelector(vm)
-}
-
-// makeEncoderSelectorFunc creates the encoder selector function for the processor.
-func makeEncoderSelectorFunc(encoderSelector encoders.Selector, logger logging.Logger) func(string, string, *types.QualityParams, string) *ffmpeg.Params {
-	return func(codec string, inputFormat string, qualityParams *types.QualityParams, encoderOverride string) *ffmpeg.Params {
-		// Convert codec string to CodecType
-		codecType := parseCodecType(codec)
-
-		// Select optimal encoder (or use override)
-		params, err := encoderSelector.SelectEncoder(codecType, inputFormat, qualityParams, encoderOverride)
-		if err != nil {
-			logger.Error("Failed to select encoder", "error", err)
-			// Return defaults
-			defaultParams := &ffmpeg.Params{}
-			switch {
-			case encoderOverride != "":
-				defaultParams.Encoder = encoderOverride
-			case codecType == encoders.CodecH265:
-				defaultParams.Encoder = "libx265"
-			default:
-				defaultParams.Encoder = "libx264"
-			}
-			return defaultParams
-		}
-
-		return params
-	}
 }
 
 // makeDeviceResolver creates the device resolver function for the processor.

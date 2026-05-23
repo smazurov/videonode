@@ -44,6 +44,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/{device_id}/format": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Capture Format
+         * @description Issue a runtime set_format command to the videonode-source for this device. The source will re-open the V4L2 device with the new format/resolution/fps while keeping all connected consumers attached.
+         */
+        post: operations["device-set-format"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/{device_id}/formats": {
         parameters: {
             query?: never;
@@ -314,46 +334,6 @@ export interface paths {
          * @description Partially update an existing video stream with new parameters
          */
         patch: operations["update-stream"];
-        trace?: never;
-    };
-    "/api/streams/{stream_id}/canvas/engage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Engage Canvas
-         * @description Start a dormant canvas, claiming its sources from standalone playback.
-         */
-        post: operations["engage-canvas"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/streams/{stream_id}/canvas/release": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Release Canvas
-         * @description Stop a canvas and resume its sources as standalone streams. The canvas spec is preserved with Enabled=false.
-         */
-        post: operations["release-canvas"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/streams/{stream_id}/ffmpeg": {
@@ -849,6 +829,47 @@ export interface components {
             /** @description Supported resolutions for the format */
             resolutions: components["schemas"]["Resolution"][] | null;
         };
+        DeviceSetFormatBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/DeviceSetFormatBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description 4-character V4L2 pixel format code
+             * @example YUYV
+             */
+            fourcc: string;
+            /**
+             * Format: int32
+             * @description Capture framerate; 0 = driver default
+             * @example 30
+             */
+            fps?: number;
+            /**
+             * Format: int32
+             * @description Capture height in pixels
+             * @example 1080
+             */
+            height: number;
+            /**
+             * Format: int32
+             * @description Capture width in pixels
+             * @example 1920
+             */
+            width: number;
+        };
+        DeviceSetFormatData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/DeviceSetFormatData.json
+             */
+            readonly $schema?: string;
+            /** @description True if the source accepted and applied the new format */
+            applied: boolean;
+        };
         EncoderData: {
             /**
              * Format: uri
@@ -970,7 +991,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "nv24" | "nv16" | "yuyv422" | "bgr24" | "rgb24" | "nv12" | "h264" | "mjpeg" | "yu12" | "yv12";
+            format_name: "h264" | "yu12" | "yv12" | "nv24" | "nv16" | "mjpeg" | "bgr24" | "rgb24" | "yuyv422" | "nv12";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1014,6 +1035,10 @@ export interface components {
              * @example ok
              */
             status: string;
+        };
+        HeartbeatEvent: {
+            /** @description Server time at heartbeat */
+            timestamp: string;
         };
         LogEntryEvent: {
             /** @description Structured log attributes */
@@ -1073,6 +1098,16 @@ export interface components {
         PerspectiveData: {
             /** @description Four corner points [[x,y],...] clockwise: top-left, top-right, bottom-right, bottom-left */
             corners: (number[] | null)[] | null;
+            /**
+             * Format: int64
+             * @description Height of the still frame the corners were marked on; used by the GPU compose path to normalize.
+             */
+            snapshot_height?: number;
+            /**
+             * Format: int64
+             * @description Width of the still frame the corners were marked on; used by the GPU compose path to normalize.
+             */
+            snapshot_width?: number;
         };
         Resolution: {
             /**
@@ -1100,6 +1135,94 @@ export interface components {
              * @example /api/snapshots/test.jpg
              */
             url: string;
+        };
+        SourceBroadcastInfo: {
+            /** Format: int32 */
+            last_seq: number;
+            /** Format: int64 */
+            placeholder_frames: number;
+            /** Format: int64 */
+            real_frames: number;
+            /** Format: int32 */
+            target_fps: number;
+        };
+        SourceConsumerEntry: {
+            /** Format: int64 */
+            evicted_at_frame?: number;
+            /** Format: int64 */
+            fd: number;
+            /** Format: int64 */
+            frames_dropped: number;
+            /** Format: int64 */
+            frames_sent: number;
+        };
+        SourceConsumersInfo: {
+            /** Format: int64 */
+            count: number;
+            evicted: components["schemas"]["SourceConsumerEntry"][] | null;
+            live: components["schemas"]["SourceConsumerEntry"][] | null;
+        };
+        SourceDeviceInfo: {
+            multiplanar: boolean;
+            path: string;
+        };
+        SourceFormatInfo: {
+            /** Format: int32 */
+            buffers: number;
+            fourcc: string;
+            /** Format: int32 */
+            fps: number;
+            /** Format: int32 */
+            h: number;
+            mode: string;
+            /** Format: int32 */
+            w: number;
+        };
+        SourceSignalInfo: {
+            cable_present: boolean;
+            dv_timings: string;
+            has_dv_timings: boolean;
+            signal_locked: boolean;
+        };
+        SourceStatusEvent: {
+            /** @description Stable device identifier the snapshot describes */
+            device_id: string;
+            /** @description Full status snapshot from the sidecar */
+            status: components["schemas"]["StatusParams"];
+            /** @description Server time when received */
+            timestamp: string;
+        };
+        StageStateChangedEvent: {
+            /** @description Error message when NewState is 'error' */
+            error?: string;
+            /** @description New process state */
+            new_state: string;
+            /** @description Prior process state */
+            old_state: string;
+            /**
+             * Format: int64
+             * @description OS pid when running; 0 otherwise
+             */
+            pid?: number;
+            /** @description Pool key, e.g. 'producer:hdmi0' or 'composer:cam-front' */
+            stage_id: string;
+            /** @description 'producer' | 'composer' | 'encoder' */
+            stage_kind: string;
+            /** @description User-facing stream this stage belongs to (empty for shared producers) */
+            stream_id: string;
+            /** @description RFC3339 server time */
+            timestamp: string;
+        };
+        StatusParams: {
+            broadcast: components["schemas"]["SourceBroadcastInfo"];
+            consumers: components["schemas"]["SourceConsumersInfo"];
+            device: components["schemas"]["SourceDeviceInfo"];
+            device_id: string;
+            format: components["schemas"]["SourceFormatInfo"];
+            health: string;
+            signal: components["schemas"]["SourceSignalInfo"];
+            /** Format: int64 */
+            ts_ms: number;
         };
         StreamCreatedEvent: {
             /**
@@ -1172,8 +1295,6 @@ export interface components {
             layout?: components["schemas"]["CanvasLayoutData"];
             /** @description FFmpeg option keys (e.g., vsync_passthrough, low_latency) */
             options?: string[] | null;
-            /** @description Canvas ID currently owning this stream (individual streams only) */
-            owned_by?: string;
             /** @description Perspective correction corners */
             perspective?: components["schemas"]["PerspectiveData"];
             /**
@@ -1587,6 +1708,87 @@ export interface operations {
             };
         };
     };
+    "device-set-format": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stable device identifier */
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceSetFormatBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceSetFormatData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "device-formats": {
         parameters: {
             query?: never;
@@ -1641,7 +1843,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "nv12" | "h264" | "mjpeg" | "yu12" | "yv12" | "nv24" | "nv16" | "yuyv422" | "bgr24" | "rgb24";
+                format_name?: "yv12" | "nv24" | "nv16" | "mjpeg" | "bgr24" | "rgb24" | "yuyv422" | "nv12" | "h264" | "yu12";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -1707,7 +1909,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "nv12" | "h264" | "mjpeg" | "yu12" | "yv12" | "nv24" | "nv16" | "yuyv422" | "bgr24" | "rgb24";
+                format_name?: "yuyv422" | "nv12" | "h264" | "yu12" | "yv12" | "nv24" | "nv16" | "mjpeg" | "bgr24" | "rgb24";
             };
             header?: never;
             path: {
@@ -1845,6 +2047,39 @@ export interface operations {
                          * @constant
                          */
                         event: "device-discovery";
+                        /** @description The event ID. */
+                        id?: number;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["HeartbeatEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "heartbeat";
+                        /** @description The event ID. */
+                        id?: number;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["SourceStatusEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "source-status";
+                        /** @description The event ID. */
+                        id?: number;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["StageStateChangedEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "stage-state-changed";
                         /** @description The event ID. */
                         id?: number;
                         /** @description The retry time in milliseconds. */
@@ -2435,138 +2670,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["StreamData"];
                 };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "engage-canvas": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Canvas stream identifier */
-                stream_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "release-canvas": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Canvas stream identifier */
-                stream_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Bad Request */
             400: {

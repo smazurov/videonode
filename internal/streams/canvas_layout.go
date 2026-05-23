@@ -256,7 +256,7 @@ func resolveRotation(canvas *CanvasConfig, src *StreamSpec, i int) int {
 // when unknown. Perspective doesn't change effective layout dims —
 // the warp lives inside the composer, the bounding rect is unchanged.
 // Inlined here after the legacy ffmpeg.EffectiveInputSize helper was
-// removed with composite.go in the pipeline rip.
+// removed with composite.go.
 func effectiveSizeForSource(canvas *CanvasConfig, src *StreamSpec, i int) (int, int) {
 	if src == nil {
 		return 0, 0
