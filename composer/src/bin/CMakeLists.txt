@@ -17,7 +17,7 @@ vn_add_executable(videonode-source
 # Pipe into ffmpeg for transcoding to RTSP.
 vn_add_executable(videonode-sink
     SOURCES videonode_sink_main.cpp
-    DEPS    scm_rights_source absl_bundle)
+    DEPS    scm_rights_source absl_bundle y4m_writer)
 
 # videonode-composer — Mali-GPU canvas compositor. Reads NV12 dma-bufs
 # from N videonode-source sockets, composes BGRA via EGL/GLES, writes the

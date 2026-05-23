@@ -16,28 +16,24 @@
 //
 // Output format is auto-selected from the first frame's fourcc:
 //   - NV*  (NV12, NV24, NV16) → emit YUV4MPEG2 (NV12 only today; chroma
-//                                deinterleave to I420 on CPU).
+//                                deinterleave to I420 on CPU via Y4mWriter).
 //   - BGRA / ARGB / etc.       → emit raw bytes per frame, no header.
 //
 // The first frame announces dims + format on stderr so callers can size
 // the downstream ffmpeg invocation accordingly.
 
-#include "src/common/flags_compat.hpp"
 #include "src/common/log_levels.hpp"
-#include "src/common/signal.hpp"
 #include "src/ipc/scm_rights_source.hpp"
+#include "src/process/y4m_writer.hpp"
 #include "version.hpp"
 
-#include <absl/flags/flag.h>
-#include <absl/flags/parse.h>
-#include <absl/flags/usage.h>
-
-#include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <span>
 #include <string>
 #include <sys/mman.h>
@@ -45,19 +41,15 @@
 #include <unistd.h>
 #include <vector>
 
-ABSL_FLAG(std::string, socket, "",
-          "Unix socket exposed by videonode-source OR a videonode-composer --scm_out "
-          "(required)");
-ABSL_FLAG(bool, verbose, false, "log per-frame frame_idx/fd to stderr");
-ABSL_FLAG(int, poll_ms, 5, "sleep between consumer polls");
-ABSL_FLAG(int, settle_ms, 200, "delay after dial before reading");
-ABSL_FLAG(int, first_frame_timeout, 30, "seconds to wait for first frame");
-
 namespace {
 
-std::atomic<bool> g_running{true};
+volatile std::sig_atomic_t g_running = 1;
+void on_sig(int) {
+    g_running = 0;
+}
 
 // write_full retries until all bytes are flushed or the consumer closes.
+// Used for the raw-BGRA path; the Y4M path lives in vn::process::Y4mWriter.
 bool write_full(int fd, std::span<const uint8_t> buf) {
     while (!buf.empty()) {
         ssize_t w = ::write(fd, buf.data(), buf.size());
@@ -73,18 +65,16 @@ bool write_full(int fd, std::span<const uint8_t> buf) {
     return true;
 }
 
-// emit_frame_nv12_y4m writes a YUV4MPEG2 FRAME (NV12 → I420 chroma
-// deinterleave on CPU). y4m stream header is written separately on
-// first frame.
+// emit_frame_nv12_y4m mmaps the producer's NV12 dma-buf(s) and hands plane
+// spans to the Y4mWriter for a YUV4MPEG2 FRAME.
 //
 // Honors the source's reported strides + plane layout:
 //   - plane0_pitch / plane1_pitch may be > width when the allocator
-//     pads rows (e.g. GBM tiled BOs); pack rows tightly when writing.
+//     pads rows (e.g. GBM tiled BOs); Y4mWriter packs rows tightly.
 //   - plane1_fd >= 0 → separate dma-buf for the UV plane; mmap each
 //     side independently. Otherwise UV lives in the same fd at
 //     plane1_offset (or contiguous after Y when plane1_offset==0).
-bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, std::vector<uint8_t>& yplane,
-                         std::vector<uint8_t>& uplane, std::vector<uint8_t>& vplane) {
+bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, vn::process::Y4mWriter& writer) {
     if (v.fd < 0 || v.width <= 0 || v.height <= 0)
         return true;
     const size_t width = size_t(v.width);
@@ -96,9 +86,7 @@ bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, std::vector<uint
                        y_pitch, uv_pitch, width);
         return true;
     }
-    const size_t y_size = width * height;
     const size_t uv_rows = height / 2;
-    const size_t uv_size = width * uv_rows;         // tightly-packed UV-out
     const size_t uv_raw_bytes = uv_pitch * uv_rows; // mmap'd region size
 
     // Map Y plane (possibly with the UV plane appended in single-fd mode).
@@ -132,41 +120,8 @@ bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, std::vector<uint
         uv_base = static_cast<const uint8_t*>(y_map) + uv_off;
     }
 
-    // Pack Y rows tightly (drop pitch padding).
-    if (yplane.size() != y_size) {
-        yplane.resize(y_size);
-    }
-    if (y_pitch == width) {
-        std::memcpy(yplane.data(), y_base, y_size);
-    } else {
-        for (size_t row = 0; row < height; ++row) {
-            std::memcpy(yplane.data() + row * width, y_base + row * y_pitch, width);
-        }
-    }
-
-    // Deinterleave NV12 UV → I420 U + V, honoring uv_pitch (row stride).
-    if (uplane.size() != uv_size / 2) {
-        uplane.resize(uv_size / 2);
-    }
-    if (vplane.size() != uv_size / 2) {
-        vplane.resize(uv_size / 2);
-    }
-    const size_t uv_pairs_per_row = width / 2; // U + V at half-res
-    for (size_t row = 0; row < uv_rows; ++row) {
-        const uint8_t* src = uv_base + row * uv_pitch;
-        uint8_t* u_dst = uplane.data() + row * uv_pairs_per_row;
-        uint8_t* v_dst = vplane.data() + row * uv_pairs_per_row;
-        for (size_t i = 0, j = 0; i < width; i += 2, ++j) {
-            u_dst[j] = src[i];
-            v_dst[j] = src[i + 1];
-        }
-    }
-
-    static constexpr uint8_t kFrameTag[] = {'F', 'R', 'A', 'M', 'E', '\n'};
-    bool ok = write_full(STDOUT_FILENO, std::span<const uint8_t>(kFrameTag)) &&
-              write_full(STDOUT_FILENO, std::span<const uint8_t>(yplane)) &&
-              write_full(STDOUT_FILENO, std::span<const uint8_t>(uplane)) &&
-              write_full(STDOUT_FILENO, std::span<const uint8_t>(vplane));
+    bool ok = writer.WriteFrameNV12(std::span<const uint8_t>(y_base, y_pitch * height), y_pitch,
+                                    std::span<const uint8_t>(uv_base, uv_raw_bytes), uv_pitch);
     if (uv_map != nullptr) {
         ::munmap(uv_map, uv_map_size);
     }
@@ -222,14 +177,6 @@ bool emit_frame_raw_bgra(const scm_rights_source::FrameView& v) {
     return true;
 }
 
-bool emit_y4m_header(int w, int h, int fps_num, int fps_den) {
-    char hdr[128];
-    int n = std::snprintf(hdr, sizeof(hdr), "YUV4MPEG2 W%d H%d F%d:%d Ip A1:1 C420\n", w, h,
-                          fps_num, fps_den);
-    return write_full(STDOUT_FILENO,
-                      std::span(reinterpret_cast<const uint8_t*>(hdr), static_cast<size_t>(n)));
-}
-
 // is_nv12_format returns true when fourcc names NV12 specifically.
 // Empty fourcc defaults to NV12 for back-compat with legacy senders.
 // NV16 (4:2:2) and NV24 (4:4:4) deliberately fall through to raw mode
@@ -253,38 +200,64 @@ struct Args {
     int first_frame_timeout_s = 30;
 };
 
+void print_help(const Args& d) {
+    fprintf(stderr,
+            "videonode-sink — stream frames from an SCM_RIGHTS socket to stdout.\n"
+            "\n"
+            "  --socket PATH                Unix socket exposed by videonode-source OR\n"
+            "                                 a videonode-composer --scm-out (required)\n"
+            "  -v, --verbose                log per-frame frame_idx/fd to stderr\n"
+            "  --poll-ms N                  sleep between consumer polls (default %d)\n"
+            "  --settle-ms N                delay after dial before reading (default %d)\n"
+            "  --first-frame-timeout N      seconds to wait for first frame (default %d)\n"
+            "\n"
+            "Output mode is auto-selected from the first frame's fourcc:\n"
+            "  NV12 / NV24 / NV16  → YUV4MPEG2 (NV12-only today; chroma → I420 on CPU).\n"
+            "                          Pipe to `ffmpeg -f yuv4mpegpipe -i pipe:0 ...`.\n"
+            "  BGRA / ARGB / etc.  → raw bytes per frame (no header).\n"
+            "                          Pipe to `ffmpeg -f rawvideo -pix_fmt bgra -s WxH "
+            "-framerate N -i pipe:0 ...`.\n"
+            "\n"
+            "Stderr announces the dims + format on the first frame.\n",
+            d.poll_ms, d.settle_ms, d.first_frame_timeout_s);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
+    Args a;
+
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--version") == 0) {
-            std::printf("videonode-sink %s\n", vn::kVersion);
+        std::string s = argv[i];
+        auto next = [&](std::string& dst) {
+            if (i + 1 < argc)
+                dst = argv[++i];
+        };
+        auto nexti = [&](int& dst) {
+            if (i + 1 < argc)
+                dst = std::atoi(argv[++i]);
+        };
+        if (s == "--socket")
+            next(a.socket_path);
+        else if (s == "-v" || s == "--verbose")
+            a.verbose = true;
+        else if (s == "--poll-ms")
+            nexti(a.poll_ms);
+        else if (s == "--settle-ms")
+            nexti(a.settle_ms);
+        else if (s == "--first-frame-timeout")
+            nexti(a.first_frame_timeout_s);
+        else if (s == "-h" || s == "--help") {
+            print_help(Args{});
             return 0;
+        } else if (s == "--version") {
+            printf("videonode-sink %s\n", vn::kVersion);
+            return 0;
+        } else {
+            vn::log::error("videonode-sink: unknown arg %s (use --help)", s.c_str());
+            return 2;
         }
     }
-
-    absl::SetProgramUsageMessage(
-        "videonode-sink — stream frames from an SCM_RIGHTS socket to stdout.\n"
-        "\n"
-        "Output mode is auto-selected from the first frame's fourcc:\n"
-        "  NV12 / NV24 / NV16  → YUV4MPEG2 (NV12-only today; chroma → I420 on CPU).\n"
-        "                          Pipe to `ffmpeg -f yuv4mpegpipe -i pipe:0 ...`.\n"
-        "  BGRA / ARGB / etc.  → raw bytes per frame (no header).\n"
-        "                          Pipe to `ffmpeg -f rawvideo -pix_fmt bgra -s WxH "
-        "-framerate N -i pipe:0 ...`.\n"
-        "\n"
-        "Stderr announces the dims + format on the first frame.");
-    vn::flags::configure_help_filter();
-    vn::flags::normalize_argv(argc, argv);
-    absl::ParseCommandLine(argc, argv);
-
-    Args a;
-    a.socket_path = absl::GetFlag(FLAGS_socket);
-    a.verbose = absl::GetFlag(FLAGS_verbose);
-    a.poll_ms = absl::GetFlag(FLAGS_poll_ms);
-    a.settle_ms = absl::GetFlag(FLAGS_settle_ms);
-    a.first_frame_timeout_s = absl::GetFlag(FLAGS_first_frame_timeout);
-
     if (a.socket_path.empty()) {
         vn::log::error("videonode-sink: --socket PATH is required");
         return 2;
@@ -295,7 +268,9 @@ int main(int argc, char** argv) {
     // lines are visible to `tail -f` immediately.
     ::setvbuf(stderr, nullptr, _IOLBF, 0);
 
-    vn::signal::install_shutdown(g_running);
+    std::signal(SIGINT, on_sig);
+    std::signal(SIGTERM, on_sig);
+    std::signal(SIGPIPE, SIG_IGN);
 
     scm_rights_source::ScmRightsSource src;
     scm_rights_source::InitParams p;
@@ -312,10 +287,10 @@ int main(int argc, char** argv) {
     bool announced = false;
     int announced_w = 0, announced_h = 0;
     bool yuv_mode = true; // decided on first frame from FrameView::format
-    std::vector<uint8_t> yplane, uplane, vplane;
+    std::unique_ptr<vn::process::Y4mWriter> y4m;
     auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(a.first_frame_timeout_s);
-    while (g_running.load()) {
+    while (g_running) {
         auto v = src.latest_frame();
         if (v.fd < 0 || v.frame_idx == 0) {
             if (std::chrono::steady_clock::now() > deadline) {
@@ -339,7 +314,9 @@ int main(int argc, char** argv) {
             }
             yuv_mode = is_nv12_format(v.format);
             if (yuv_mode) {
-                if (!emit_y4m_header(v.width, v.height, 60, 1))
+                y4m = std::make_unique<vn::process::Y4mWriter>(STDOUT_FILENO, v.width, v.height, 60,
+                                                               1);
+                if (!y4m->WriteHeader())
                     break;
                 vn::log::info("videonode-sink: streaming Y4M %dx%d (I420 from NV12 fourcc=%s) "
                               "from %s",
@@ -360,8 +337,7 @@ int main(int argc, char** argv) {
                           static_cast<unsigned long long>(v.frame_idx), v.fd);
         }
         last_idx = v.frame_idx;
-        bool ok =
-            yuv_mode ? emit_frame_nv12_y4m(v, yplane, uplane, vplane) : emit_frame_raw_bgra(v);
+        bool ok = yuv_mode ? emit_frame_nv12_y4m(v, *y4m) : emit_frame_raw_bgra(v);
         if (!ok)
             break;
     }
