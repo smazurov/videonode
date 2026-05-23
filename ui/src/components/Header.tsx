@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Button } from "./Button";
 import Container from "./Container";
+import { PipelineToggle } from "./PipelineToggle";
 import { cn } from "../utils";
 
 interface HeaderProps {
@@ -44,6 +45,8 @@ export function Header({ onLogout, className }: Readonly<HeaderProps>) {
 
           {/* Actions */}
           <div className="flex items-center space-x-3">
+            <PipelineToggle />
+
             {/* Logout button */}
             {onLogout && (
               <Button

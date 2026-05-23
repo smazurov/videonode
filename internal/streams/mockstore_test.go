@@ -11,8 +11,9 @@ import (
 // deleted process_manager_test.go so service_test.go still compiles
 // after the legacy file deletion.
 type mockStore struct {
-	mu      sync.RWMutex
-	streams map[string]StreamSpec
+	mu       sync.RWMutex
+	streams  map[string]StreamSpec
+	pipeline PipelineConfig
 }
 
 func (m *mockStore) Load() error { return nil }
@@ -63,5 +64,18 @@ func (m *mockStore) GetAllStreams() map[string]StreamSpec {
 func (m *mockStore) GetValidation() *types.ValidationResults { return nil }
 
 func (m *mockStore) UpdateValidation(*types.ValidationResults) error {
+	return nil
+}
+
+func (m *mockStore) GetPipeline() PipelineConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.pipeline
+}
+
+func (m *mockStore) SetPipeline(cfg PipelineConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pipeline = cfg
 	return nil
 }

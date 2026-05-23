@@ -29,8 +29,12 @@ func (s *service) LoadStreamsFromConfig() error {
 	}
 
 	if s.processManager != nil {
-		if err := s.processManager.StartAll(); err != nil {
-			s.logger.Warn("Some streams failed to start", "error", err)
+		if s.store.GetPipeline().Enabled {
+			if err := s.processManager.StartAll(); err != nil {
+				s.logger.Warn("Some streams failed to start", "error", err)
+			}
+		} else {
+			s.logger.Info("Pipeline master switch is off; skipping auto-start")
 		}
 	}
 

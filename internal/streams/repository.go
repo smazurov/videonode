@@ -13,4 +13,11 @@ type Store interface {
 	GetAllStreams() map[string]StreamSpec
 	GetValidation() *types.ValidationResults
 	UpdateValidation(validation *types.ValidationResults) error
+
+	// GetPipeline returns the daemon-wide pipeline master switch. When the
+	// table is absent in the underlying config, returns {Enabled: true} so
+	// existing installs preserve their auto-start behavior.
+	GetPipeline() PipelineConfig
+	// SetPipeline writes the daemon-wide pipeline master switch and persists.
+	SetPipeline(cfg PipelineConfig) error
 }

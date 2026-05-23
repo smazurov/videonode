@@ -352,6 +352,9 @@ func (s *Server) registerRoutes() {
 	// Stream endpoints
 	s.registerStreamRoutes()
 
+	// Pipeline master switch endpoints
+	s.registerPipelineRoutes()
+
 	// Pipeline processes endpoint (no-op when provider is nil — daemon
 	// without the new pipeline foundation wired).
 	RegisterProcessesRoutes(s.api, s.options.ProcessesProvider)
