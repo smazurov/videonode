@@ -8,6 +8,7 @@
 //
 // Usage: ./live-compose-probe [seconds] [out.ppm]
 
+#include "src/common/probe_check.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/process/ffmpeg_pipe_source.hpp"
 #include "src/render/gl_compose.hpp"
@@ -25,14 +26,6 @@
 #include <map>
 #include <thread>
 #include <vector>
-
-#define CHECK(expr, msg)                                                                           \
-    do {                                                                                           \
-        if (!(expr)) {                                                                             \
-            fprintf(stderr, "FAIL: %s\n", msg);                                                    \
-            return 1;                                                                              \
-        }                                                                                          \
-    } while (0)
 
 namespace {
 
@@ -75,8 +68,8 @@ int main(int argc, char** argv) {
     pl.fps = 30;
     // -thread_queue_size 1024 in front of -i is the canonical UVC stability fix.
     pl.extra_input_args = {"-thread_queue_size", "1024"};
-    CHECK(lyra.init(pl), "lyra init");
-    CHECK(lyra.start(), "lyra start");
+    VN_CHECK(lyra.init(pl), "lyra init");
+    VN_CHECK(lyra.start(), "lyra start");
 
     auto lyra_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (std::chrono::steady_clock::now() < lyra_deadline) {
@@ -99,16 +92,16 @@ int main(int argc, char** argv) {
     ph.height = 2160;
     ph.fps = 30;
     ph.extra_input_args = {"-thread_queue_size", "1024"};
-    CHECK(hdmi.init(ph), "hdmi init");
-    CHECK(hdmi.start(), "hdmi start");
+    VN_CHECK(hdmi.init(ph), "hdmi init");
+    VN_CHECK(hdmi.start(), "hdmi start");
 
     fprintf(stderr, "ok: captures started (lyra then hdmi)\n");
 
     // 2. EGL + compose.
     egl_ctx::EglCtx ctx;
-    CHECK(ctx.init("/dev/dri/renderD130"), "EglCtx::init");
+    VN_CHECK(ctx.init("/dev/dri/renderD130"), "EglCtx::init");
     gl_compose::GlCompose compose;
-    CHECK(compose.init(ctx, Cw, Ch), "GlCompose::init");
+    VN_CHECK(compose.init(ctx, Cw, Ch), "GlCompose::init");
     fprintf(stderr, "ok: GLES compose canvas %dx%d on Mali\n", Cw, Ch);
 
     // 3. Wait for first frame from each source (up to 10s).
@@ -191,9 +184,9 @@ int main(int argc, char** argv) {
     void* mdata = nullptr;
     void* mapped =
         gbm_bo_map(compose.canvas_bo(), 0, 0, Cw, Ch, GBM_BO_TRANSFER_READ, &stride, &mdata);
-    CHECK(mapped, "gbm_bo_map canvas");
+    VN_CHECK(mapped, "gbm_bo_map canvas");
     FILE* f = std::fopen(out, "wb");
-    CHECK(f, "fopen PPM");
+    VN_CHECK(f, "fopen PPM");
     std::fprintf(f, "P6\n%d %d\n255\n", Cw, Ch);
     for (int y = 0; y < Ch; ++y) {
         uint8_t* row = (uint8_t*)mapped + y * stride;

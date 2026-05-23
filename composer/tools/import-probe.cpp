@@ -12,6 +12,7 @@
 //
 // Usage: ./import-probe [device] [src_w] [src_h]
 
+#include "src/common/probe_check.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/render/fake_source.hpp"
 #include "src/ipc/dma_heap.hpp"
@@ -29,22 +30,6 @@
 #include <cstring>
 #include <sys/mman.h>
 #include <unistd.h>
-
-#define CHECK(expr, msg)                                                                           \
-    do {                                                                                           \
-        if (!(expr)) {                                                                             \
-            fprintf(stderr, "FAIL: %s\n", msg);                                                    \
-            return 1;                                                                              \
-        }                                                                                          \
-    } while (0)
-#define GL_CHECK(label)                                                                            \
-    do {                                                                                           \
-        GLenum _e = glGetError();                                                                  \
-        if (_e != GL_NO_ERROR) {                                                                   \
-            fprintf(stderr, "FAIL: %s gl=0x%x\n", label, _e);                                      \
-            return 1;                                                                              \
-        }                                                                                          \
-    } while (0)
 
 // Vertex shader: a full-screen triangle (one big triangle is faster than two).
 static const char* kVS = R"(
@@ -96,14 +81,14 @@ int main(int argc, char** argv) {
 
     egl_ctx::EglCtx ctx;
     fprintf(stderr, "[trace] before init\n");
-    CHECK(ctx.init(dev), "EglCtx::init");
+    VN_CHECK(ctx.init(dev), "EglCtx::init");
     fprintf(stderr, "[trace] after init, before glGetString\n");
     const GLubyte* renderer = glGetString(GL_RENDERER);
     printf("ok: EGL renderer=%s\n", renderer ? (const char*)renderer : "<null>");
 
     // 1. Synthetic NV12 source.
     fake_source::FakeSource src;
-    CHECK(src.init(W, H, fake_source::kRed), "FakeSource::init");
+    VN_CHECK(src.init(W, H, fake_source::kRed), "FakeSource::init");
     src.tick(10); // square at sweep position 10*4=40 px from left
     printf("ok: synth src %dx%d fd=%d\n", W, H, src.dmabuf_fd());
 
@@ -119,7 +104,7 @@ int main(int argc, char** argv) {
     desc.plane1_offset = W * H;
     desc.plane1_pitch = W;
     EGLImage src_img = ctx.import_dmabuf(desc);
-    CHECK(src_img != EGL_NO_IMAGE, "import NV12 dmabuf");
+    VN_CHECK(src_img != EGL_NO_IMAGE, "import NV12 dmabuf");
     printf("ok: imported NV12 EGLImage\n");
 
     // 3. Bind to GL_TEXTURE_EXTERNAL_OES.
@@ -132,7 +117,7 @@ int main(int argc, char** argv) {
     glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     auto glEGLImageTargetTexture2DOES_ =
         (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
-    CHECK(glEGLImageTargetTexture2DOES_, "no glEGLImageTargetTexture2DOES");
+    VN_CHECK(glEGLImageTargetTexture2DOES_, "no glEGLImageTargetTexture2DOES");
     glEGLImageTargetTexture2DOES_(GL_TEXTURE_EXTERNAL_OES, src_img);
     GL_CHECK("bind NV12 to external texture");
     printf("ok: bound NV12 EGLImage to GL_TEXTURE_EXTERNAL_OES\n");
@@ -140,7 +125,7 @@ int main(int argc, char** argv) {
     // 4. Destination FBO backed by an RGBA GBM dma-buf so we can read pixels.
     gbm_bo* fbo_bo = gbm_bo_create(ctx.gbm(), W, H, GBM_FORMAT_ARGB8888,
                                    GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
-    CHECK(fbo_bo, "gbm_bo_create FBO");
+    VN_CHECK(fbo_bo, "gbm_bo_create FBO");
     uint32_t fbo_stride = gbm_bo_get_stride(fbo_bo);
     int fbo_fd = gbm_bo_get_fd(fbo_bo);
 
@@ -153,7 +138,7 @@ int main(int argc, char** argv) {
     fbo_desc.plane0_offset = 0;
     fbo_desc.plane0_pitch = fbo_stride;
     EGLImage fbo_img = ctx.import_dmabuf(fbo_desc);
-    CHECK(fbo_img != EGL_NO_IMAGE, "import RGBA FBO dmabuf");
+    VN_CHECK(fbo_img != EGL_NO_IMAGE, "import RGBA FBO dmabuf");
 
     GLuint rbo;
     glGenRenderbuffers(1, &rbo);
@@ -161,7 +146,7 @@ int main(int argc, char** argv) {
     auto glEGLImageTargetRenderbufferStorageOES_ =
         (PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC)eglGetProcAddress(
             "glEGLImageTargetRenderbufferStorageOES");
-    CHECK(glEGLImageTargetRenderbufferStorageOES_, "no glEGLImageTargetRenderbufferStorageOES");
+    VN_CHECK(glEGLImageTargetRenderbufferStorageOES_, "no glEGLImageTargetRenderbufferStorageOES");
     glEGLImageTargetRenderbufferStorageOES_(GL_RENDERBUFFER, fbo_img);
     GL_CHECK("bind FBO RBO storage");
 
@@ -169,13 +154,13 @@ int main(int argc, char** argv) {
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
-    CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
-          "framebuffer incomplete");
+    VN_CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
+             "framebuffer incomplete");
 
     // 5. Program + draw.
     GLuint vs = compile_shader(GL_VERTEX_SHADER, kVS);
     GLuint fs = compile_shader(GL_FRAGMENT_SHADER, kFS);
-    CHECK(vs && fs, "shader compile");
+    VN_CHECK(vs && fs, "shader compile");
     GLuint prog = glCreateProgram();
     glAttachShader(prog, vs);
     glAttachShader(prog, fs);
@@ -213,7 +198,7 @@ int main(int argc, char** argv) {
     uint32_t map_stride = 0;
     void* map_data = nullptr;
     void* mapped = gbm_bo_map(fbo_bo, 0, 0, W, H, GBM_BO_TRANSFER_READ, &map_stride, &map_data);
-    CHECK(mapped, "gbm_bo_map");
+    VN_CHECK(mapped, "gbm_bo_map");
 
     // Source had a 200x200 red square at column sweep=10*4=40, row (H-200)/2.
     // Sample one pixel inside that square at (~140, H/2) to confirm it's reddish.

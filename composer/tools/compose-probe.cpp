@@ -9,6 +9,7 @@
 //    creates a slight keystone — the perspective-unlock demonstration).
 // 7. tick() all 4 sources, render frame, dump RGBA canvas to PPM.
 
+#include "src/common/probe_check.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/render/fake_source.hpp"
 #include "src/render/gl_compose.hpp"
@@ -24,14 +25,6 @@
 #include <cstdlib>
 #include <vector>
 
-#define CHECK(expr, msg)                                                                           \
-    do {                                                                                           \
-        if (!(expr)) {                                                                             \
-            fprintf(stderr, "FAIL: %s\n", msg);                                                    \
-            return 1;                                                                              \
-        }                                                                                          \
-    } while (0)
-
 int main(int argc, char** argv) {
     int frame_idx = (argc > 1) ? std::atoi(argv[1]) : 60;
     int Cw = (argc > 2) ? std::atoi(argv[2]) : 1280;
@@ -43,7 +36,7 @@ int main(int argc, char** argv) {
     const char* dev = std::getenv("VN_DRM_DEVICE");
     if (!dev)
         dev = "/dev/dri/renderD128";
-    CHECK(ctx.init(dev), "EglCtx::init");
+    VN_CHECK(ctx.init(dev), "EglCtx::init");
     printf("ok: renderer=%s\n", glGetString(GL_RENDERER));
 
     fake_source::FakeSource src[4];
@@ -57,7 +50,7 @@ int main(int argc, char** argv) {
     // gl_compose API. samplerExternalOES on the shader side does YUV→RGB.
     EGLImage img[4] = {EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE, EGL_NO_IMAGE};
     for (int i = 0; i < 4; ++i) {
-        CHECK(src[i].init(Sw, Sh, colors[i]), "FakeSource::init");
+        VN_CHECK(src[i].init(Sw, Sh, colors[i]), "FakeSource::init");
         egl_ctx::EglCtx::ImageDesc d;
         d.fd = src[i].dmabuf_fd();
         d.fourcc = DRM_FORMAT_NV12;
@@ -69,12 +62,12 @@ int main(int argc, char** argv) {
         d.plane1_offset = Sw * Sh;
         d.plane1_pitch = Sw;
         img[i] = ctx.import_dmabuf(d);
-        CHECK(img[i] != EGL_NO_IMAGE, "import NV12 dmabuf");
+        VN_CHECK(img[i] != EGL_NO_IMAGE, "import NV12 dmabuf");
     }
     printf("ok: 4 NV12 EGLImages imported\n");
 
     gl_compose::GlCompose compose;
-    CHECK(compose.init(ctx, Cw, Ch), "GlCompose::init");
+    VN_CHECK(compose.init(ctx, Cw, Ch), "GlCompose::init");
     printf("ok: GlCompose canvas %dx%d stride=%u fd=%d\n", Cw, Ch, compose.canvas_stride(),
            compose.canvas_dmabuf_fd());
 
@@ -111,7 +104,7 @@ int main(int argc, char** argv) {
 
     for (int i = 0; i < 4; ++i)
         src[i].tick(frame_idx);
-    CHECK(compose.render(slots), "render");
+    VN_CHECK(compose.render(slots), "render");
     compose.finish();
     printf("ok: rendered frame %d\n", frame_idx);
 
@@ -120,10 +113,10 @@ int main(int argc, char** argv) {
     void* map_data = nullptr;
     void* mapped =
         gbm_bo_map(compose.canvas_bo(), 0, 0, Cw, Ch, GBM_BO_TRANSFER_READ, &stride, &map_data);
-    CHECK(mapped, "gbm_bo_map canvas");
+    VN_CHECK(mapped, "gbm_bo_map canvas");
 
     FILE* f = std::fopen(out, "wb");
-    CHECK(f, "fopen PPM");
+    VN_CHECK(f, "fopen PPM");
     std::fprintf(f, "P6\n%d %d\n255\n", Cw, Ch);
     for (int y = 0; y < Ch; ++y) {
         uint8_t* row = (uint8_t*)mapped + y * stride;
