@@ -324,8 +324,12 @@ func (p *Pipeline) commandFor(id string) (string, error) {
 
 // configureProcess is the pool's Configurer callback. Wires the
 // stage's LogParser + LogAttrs into the process.Process so each stage's
-// stderr lands in journald with the right module + structured fields,
-// and tags the pool entry with the stage kind for /api/processes UIs.
+// stderr lands in journald with the right module + structured fields.
+//
+// Does NOT call back into Pool methods that take Pool's mu — this is
+// invoked from inside pool.startProcess which already holds it.
+// Snapshot reads stage kind from the Pipeline's stages map, so
+// Info.Kind on the pool side isn't load-bearing for /api/processes.
 //
 // Passes slog.Attr through With() as the typed Attr (not key+Any()) so
 // non-scalar kinds (slog.Group, LogValuer) survive — Go's slog handles
@@ -337,7 +341,6 @@ func (p *Pipeline) configureProcess(id string, proc *process.Process) {
 	if !ok {
 		return
 	}
-	p.pool.SetKind(id, stage.Kind().String())
 	moduleLogger := logging.GetLogger(stage.Kind().String())
 	attrs := stage.LogAttrs()
 	if len(attrs) > 0 {
