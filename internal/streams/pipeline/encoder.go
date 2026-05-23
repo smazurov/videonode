@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/process"
@@ -124,9 +125,13 @@ func (e *EncoderStage) Command() ([]string, []string, error) {
 		// same contract as legacy CustomFFmpegCommand.
 		ffmpegCmd = shellJoinArgv(ffmpegHead) + " " + e.CustomEncoderArgs
 	} else {
-		ffmpegFull := make([]string, 0, len(ffmpegHead)+8)
+		audioCount := 0
+		if alsa, ok := e.Media.Audio.(ALSADirectAudio); ok {
+			audioCount = len(alsa.Config.Devices)
+		}
+		ffmpegFull := make([]string, 0, len(ffmpegHead)+12+4*audioCount)
 		ffmpegFull = append(ffmpegFull, ffmpegHead...)
-		ffmpegFull = append(ffmpegFull, encoderTailArgs(e.Cfg, e.Publish)...)
+		ffmpegFull = append(ffmpegFull, encoderTailArgs(e.Cfg, e.Publish, audioCount)...)
 		ffmpegCmd = shellJoinArgv(ffmpegFull)
 	}
 
@@ -183,8 +188,23 @@ func videoInputArgs(fs FrameSource) []string {
 // encoderTailArgs maps the backend-agnostic EncoderConfig + Publish
 // targets to ffmpeg's `-c:v ... -f rtsp <url>` tail. Picks a backend
 // encoder name based on Codec; today defaults to rkmpp variants for
-// h264/h265. Future work threads a probed-encoder argument through.
-func encoderTailArgs(cfg EncoderConfig, publish []PublishTarget) []string {
+// h264/h265.
+//
+// audioCount is the number of ALSA inputs that precede the encoder
+// (each declared via `-f alsa -i hw:X,Y`). For audioCount > 0 we
+// emit:
+//   - a `-filter_complex` with one aresample chain per audio input
+//     (matches legacy composite.go: prevents A/V drift on long runs)
+//   - explicit `-map 0:v` + `-map "[aN]"` per track so each input
+//     becomes its own OUTPUT TRACK (NOT mixed)
+//   - one `-c:a libopus -b:a 128k -ar 48000` covering all tracks
+//
+// Mixing semantics (what we explicitly do NOT do): the rip incorrectly
+// introduced an `amix=inputs=N:duration=longest` filter, collapsing
+// N audio devices to one track. Legacy behavior + the API doc on
+// `CanvasConfig.AudioDevices` says "one output audio track per
+// entry"; that is what this function emits.
+func encoderTailArgs(cfg EncoderConfig, publish []PublishTarget, audioCount int) []string {
 	encName := encoderNameFor(cfg.Codec)
 	bitrate := cfg.Bitrate
 	if bitrate == "" {
@@ -199,29 +219,59 @@ func encoderTailArgs(cfg EncoderConfig, publish []PublishTarget) []string {
 		rcMode = "vbr"
 	}
 
-	args := []string{
+	args := make([]string, 0, 16+4*audioCount)
+
+	// Audio: aresample per input + explicit map for each output track.
+	// Must come before -c:v so ffmpeg knows the stream selection
+	// before the encoder picks them up. Skipped entirely when no
+	// audio inputs were attached.
+	if audioCount > 0 {
+		args = append(args, "-filter_complex", buildAudioFilterComplex(audioCount))
+		args = append(args, "-map", "0:v")
+		for k := 0; k < audioCount; k++ {
+			args = append(args, "-map", fmt.Sprintf("[a%d]", k))
+		}
+	}
+
+	args = append(args,
 		"-c:v", encName,
 		"-rc_mode", rcModeFFmpeg(rcMode),
 		"-b:v", bitrate,
 		"-g", strconv.Itoa(gop),
 		"-bf", strconv.Itoa(cfg.BFrames),
 		"-bsf:v", "dump_extra=freq=keyframe",
-	}
+	)
 
-	// For audio, default to AAC passthrough when an audio input is
-	// present (the encoder stage's audio mux is the same regardless of
-	// publish target). Bitrate/codec come from AudioConfig but the
-	// MediaSource layer set the input args — here we just pick the
-	// audio encoder if the caller wants one. Today: copy is wrong
-	// (input is raw PCM), so emit aac always when there's audio.
-	// TODO: derive from AudioConfig once it's plumbed in here.
+	if audioCount > 0 {
+		args = append(args, "-c:a", "libopus", "-b:a", "128k", "-ar", "48000")
+	}
 
 	args = append(args, "-rtsp_transport", "tcp")
-	for i, pt := range publish {
+	for _, pt := range publish {
 		args = append(args, "-f", publishFFmpegFormat(pt.Type), pt.URL)
-		_ = i
 	}
 	return args
+}
+
+// buildAudioFilterComplex returns the `-filter_complex` value that
+// applies aresample per audio input. Audio inputs are at ffmpeg
+// indices [1, audioCount] (video is input 0). Output labels are
+// [a0]..[aN-1] for the per-track map references.
+//
+// The aresample params (`async=1:min_hard_comp=0.100000:first_pts=0`)
+// match what legacy composite.go used — they soften A/V drift over
+// long streams without dropping samples.
+func buildAudioFilterComplex(audioCount int) string {
+	var b strings.Builder
+	for k := 0; k < audioCount; k++ {
+		if k > 0 {
+			b.WriteString(";")
+		}
+		// ffmpeg input index = k+1 (input 0 is video from pipe:0)
+		fmt.Fprintf(&b, "[%d:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a%d]",
+			k+1, k)
+	}
+	return b.String()
 }
 
 // encoderNameFor maps a backend-agnostic codec name to today's default

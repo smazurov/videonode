@@ -112,17 +112,37 @@ type ALSADirectAudio struct {
 	Config AudioConfig
 }
 
-// InputArgs returns the `-f alsa -i <dev>` fragment(s). With a single
-// device, one `-i`; with N devices, N `-i` plus the audio filter chain
-// in the encoder's `-filter_complex` (caller's responsibility — this
-// only returns the inputs).
+// InputArgs returns one ffmpeg input fragment per audio device.
+// Each device produces one OUTPUT TRACK in the published stream;
+// the `-map` flags that select per-track outputs live in
+// encoderTailArgs (caller's responsibility — this fn returns just
+// the input declarations).
+//
+// Per-input flags match legacy composite.go's pattern:
+//   - `-thread_queue_size 1024` — large enough that ALSA reader
+//     doesn't drop packets during the encoder's startup latency
+//   - `-sample_fmt s16 -ar 48000 -ac 2` — pin format so downstream
+//     filter graph has predictable params (independent of what the
+//     ALSA driver decides to negotiate)
+//
+// With 0 devices returns nil — the resulting stream is silent (no
+// audio track at all). NOT a mix — each device is its own output
+// track. The legacy `amix=inputs=N` filter the rip incorrectly
+// introduced is gone; see encoderTailArgs for the per-track map.
 func (a ALSADirectAudio) InputArgs() []string {
 	if len(a.Config.Devices) == 0 {
 		return nil
 	}
-	out := make([]string, 0, 3*len(a.Config.Devices))
+	out := make([]string, 0, 14*len(a.Config.Devices))
 	for _, dev := range a.Config.Devices {
-		out = append(out, "-f", "alsa", "-i", dev)
+		out = append(out,
+			"-thread_queue_size", "1024",
+			"-f", "alsa",
+			"-sample_fmt", "s16",
+			"-ar", "48000",
+			"-ac", "2",
+			"-i", dev,
+		)
 	}
 	return out
 }

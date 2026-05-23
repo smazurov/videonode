@@ -211,13 +211,11 @@ func specToPipelineStream(spec StreamSpec, rtspHost string) pipeline.Stream {
 				H:    slotH,
 			})
 		}
-		for _, audio := range spec.Canvas.AudioDevices {
-			s.Audio.Devices = append(s.Audio.Devices, audio)
-		}
-		if len(spec.Canvas.AudioDevices) > 1 {
-			s.Audio.Filters = fmt.Sprintf("amix=inputs=%d:duration=longest",
-				len(spec.Canvas.AudioDevices))
-		}
+		// Audio: one OUTPUT TRACK per device (NOT mixed). The encoder
+		// stage emits per-track -map flags in encoderTailArgs; the
+		// previous rip-introduced amix filter was a bug that
+		// collapsed N tracks to one.
+		s.Audio.Devices = append(s.Audio.Devices, spec.Canvas.AudioDevices...)
 	default:
 		// Single source → one input, identity layout, perspective effect
 		// on the single input id.
