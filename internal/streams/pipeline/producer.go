@@ -118,7 +118,7 @@ func SCMSocketPathFor(deviceID string) string {
 const NativeUdsDir = "/tmp/videonode-native"
 
 // GrpcSocketPathFor builds the per-instance gRPC UDS path the daemon
-// allocates before spawning a native binary. kind is "source" or
+// allocates before spawning a native binary. Kind is "source" or
 // "composer"; id is the device-id or composer-id.
 func GrpcSocketPathFor(kind, id string) string {
 	return filepath.Join(NativeUdsDir, kind+"-"+sanitizeForFilename(id)+".sock")

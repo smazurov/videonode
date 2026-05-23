@@ -2,14 +2,10 @@ package pipeline
 
 import "strings"
 
-// shellPipe joins two argv lists into a single `/bin/sh -c "A | B"`
-// payload. Used by EncoderStage to wrap `vn-sink | ffmpeg` as one
-// pool entry. Both argv are shell-quoted to survive paths with spaces
-// or special chars.
-func shellPipe(left, right []string) string {
-	return shellJoinArgv(left) + " | " + shellJoinArgv(right)
-}
-
+// shellJoinArgv joins an argv slice into a single shell-quoted command
+// string. Used by EncoderStage when composing `vn-sink | ffmpeg` and
+// when building the daemon-owned input fragment that's prepended to a
+// user's CustomEncoderArgs verbatim shell tail.
 func shellJoinArgv(argv []string) string {
 	parts := make([]string, len(argv))
 	for i, a := range argv {
@@ -18,6 +14,10 @@ func shellJoinArgv(argv []string) string {
 	return strings.Join(parts, " ")
 }
 
+// shellQuote returns s safe to embed in a /bin/sh -c command line.
+// Strings free of shell-special characters pass through unquoted; the
+// rest are wrapped in single quotes with embedded single-quotes
+// escaped via the standard '\” dance.
 func shellQuote(s string) string {
 	if s == "" {
 		return "''"
@@ -26,31 +26,4 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// splitShellWords is a whitespace-naive splitter used for parsing
-// CustomEncoderArgs. Same contract as the legacy CustomFFmpegCommand:
-// callers escape their own argv with embedded whitespace. For now we
-// honor double-quoted runs as one word; nothing more sophisticated.
-func splitShellWords(s string) []string {
-	var out []string
-	var cur strings.Builder
-	inQuote := false
-	for _, r := range s {
-		switch {
-		case r == '"':
-			inQuote = !inQuote
-		case (r == ' ' || r == '\t') && !inQuote:
-			if cur.Len() > 0 {
-				out = append(out, cur.String())
-				cur.Reset()
-			}
-		default:
-			cur.WriteRune(r)
-		}
-	}
-	if cur.Len() > 0 {
-		out = append(out, cur.String())
-	}
-	return out
 }

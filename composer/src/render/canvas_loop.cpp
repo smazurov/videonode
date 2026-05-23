@@ -215,6 +215,11 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
     int canvas_dmabuf_fd = -1; // dup of canvas BO fd; closed on shutdown
     uint64_t broadcast_frame_idx = 0;
     auto next_consumer_prune = std::chrono::steady_clock::now();
+    // Track consumer-count transitions so a fanout-tolerant composer
+    // still surfaces "all consumers dropped" — without this signal an
+    // encoder crash leaves the composer rendering into the void with
+    // no log to correlate against.
+    int prev_consumer_count = 0;
     if (!scm_out_path.empty()) {
         scm_out = std::make_unique<scm_rights_producer::ScmRightsProducer>();
         scm_rights_producer::InitParams pp;
@@ -427,9 +432,21 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
         // Periodic consumer-list reap in SCM mode. broadcast() catches
         // EPIPE drops on the next send, but if a consumer dies during a
         // pause (no frames being broadcast) the dead entry hangs around
-        // until the next broadcast. Reap on a steady 1 s tick.
+        // until the next broadcast. Reap on a steady 1 s tick, and log
+        // any N→0 transition so an encoder crash is visible at the
+        // composer side without requiring journal-correlation across
+        // two binaries.
         if (scm_out && std::chrono::steady_clock::now() >= next_consumer_prune) {
             (void)scm_out->prune_dead_consumers();
+            int cur = scm_out->consumer_count();
+            if (cur == 0 && prev_consumer_count > 0) {
+                vn::log::warn("canvas_loop: all SCM consumers dropped (was %d); "
+                              "composer still rendering, waiting for re-dial",
+                              prev_consumer_count);
+            } else if (cur > 0 && prev_consumer_count == 0) {
+                vn::log::info("canvas_loop: SCM consumer connected (count=%d)", cur);
+            }
+            prev_consumer_count = cur;
             next_consumer_prune = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         }
 

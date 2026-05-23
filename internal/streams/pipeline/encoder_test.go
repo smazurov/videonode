@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -76,7 +77,7 @@ func TestEncoder_CustomEncoderArgsReplacesEncoderTail(t *testing.T) {
 			Video: ProducerFrameSource{Socket: "/tmp/sock"},
 		},
 		CustomEncoderArgs: "-c:v libx264 -preset ultrafast -f rtsp rtsp://localhost:8554/cam",
-		Publish:           []PublishTarget{{Type: "rtsp", URL: "ignored-because-custom"}},
+		Publish:           []PublishTarget{}, // empty publish is OK when custom args provide their own output
 		VNSinkBin:         "/usr/bin/vn-sink",
 	}
 	argv, _, err := e.Command()
@@ -90,9 +91,34 @@ func TestEncoder_CustomEncoderArgsReplacesEncoderTail(t *testing.T) {
 	if strings.Contains(cmd, "h264_rkmpp") {
 		t.Errorf("default encoder leaked through despite custom args: %s", cmd)
 	}
-	// Daemon-owned input fragment still present (custom args don't touch input).
 	if !strings.Contains(cmd, "vn-sink --socket /tmp/sock") {
 		t.Errorf("input fragment dropped: %s", cmd)
+	}
+}
+
+func TestEncoder_CustomEncoderArgsPassedVerbatim(t *testing.T) {
+	// Shell expansion ($HOSTNAME, $(date)) must survive the round-trip.
+	// Legacy CustomFFmpegCommand contract: user gets full shell.
+	e := &EncoderStage{
+		StreamID_: "cam",
+		Media: MediaSource{
+			Video: ProducerFrameSource{Socket: "/tmp/sock"},
+		},
+		CustomEncoderArgs: `-metadata title="$HOSTNAME stream" -filter_complex "[0:v]scale=1280:720[v]" -map "[v]" -f rtsp rtsp://x/y`,
+		VNSinkBin:         "/usr/bin/vn-sink",
+	}
+	argv, _, err := e.Command()
+	if err != nil {
+		t.Fatalf("Command failed: %v", err)
+	}
+	cmd := argv[2]
+	// User's literal $HOSTNAME survives intact so /bin/sh -c can expand it.
+	if !strings.Contains(cmd, `$HOSTNAME`) {
+		t.Errorf("shell variable lost in: %s", cmd)
+	}
+	// User's double-quoted filter graph survives intact.
+	if !strings.Contains(cmd, `"[0:v]scale=1280:720[v]"`) {
+		t.Errorf("quoted filter graph lost in: %s", cmd)
 	}
 }
 
@@ -134,7 +160,7 @@ func TestEncoder_RejectsEmptyPublish(t *testing.T) {
 
 func TestEncoder_ReconfigureRequiresRestart(t *testing.T) {
 	e := &EncoderStage{}
-	if err := e.Reconfigure(nil); err != ErrRequiresRestart {
+	if err := e.Reconfigure(nil); !errors.Is(err, ErrRequiresRestart) {
 		t.Errorf("expected ErrRequiresRestart, got %v", err)
 	}
 }

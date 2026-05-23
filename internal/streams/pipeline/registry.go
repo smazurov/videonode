@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -128,6 +129,7 @@ func (r *ProducerRegistry) ConsumersOf(device string) []string {
 	for id := range set {
 		out = append(out, id)
 	}
+	sort.Strings(out)
 	return out
 }
 

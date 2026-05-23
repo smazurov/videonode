@@ -65,33 +65,101 @@ bool write_full(int fd, std::span<const uint8_t> buf) {
 // emit_frame_nv12_y4m writes a YUV4MPEG2 FRAME (NV12 → I420 chroma
 // deinterleave on CPU). y4m stream header is written separately on
 // first frame.
-bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, std::vector<uint8_t>& uplane,
-                         std::vector<uint8_t>& vplane) {
+//
+// Honors the source's reported strides + plane layout:
+//   - plane0_pitch / plane1_pitch may be > width when the allocator
+//     pads rows (e.g. GBM tiled BOs); pack rows tightly when writing.
+//   - plane1_fd >= 0 → separate dma-buf for the UV plane; mmap each
+//     side independently. Otherwise UV lives in the same fd at
+//     plane1_offset (or contiguous after Y when plane1_offset==0).
+bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, std::vector<uint8_t>& yplane,
+                         std::vector<uint8_t>& uplane, std::vector<uint8_t>& vplane) {
     if (v.fd < 0 || v.width <= 0 || v.height <= 0)
         return true;
-    size_t y_size = size_t(v.width) * v.height;
-    size_t uv_size = y_size / 2;
-    void* m = ::mmap(nullptr, y_size + uv_size, PROT_READ, MAP_SHARED, v.fd, 0);
-    if (m == MAP_FAILED) {
-        vn::log::error("videonode-sink: mmap fd=%d failed: %s", v.fd, strerror(errno));
+    const size_t width = size_t(v.width);
+    const size_t height = size_t(v.height);
+    const size_t y_pitch = v.plane0_pitch ? v.plane0_pitch : width;
+    const size_t uv_pitch = v.plane1_pitch ? v.plane1_pitch : width;
+    if (y_pitch < width || uv_pitch < width) {
+        vn::log::error("videonode-sink: NV12 stride < width (y=%zu uv=%zu w=%zu); dropping frame",
+                       y_pitch, uv_pitch, width);
         return true;
     }
-    const auto* y = static_cast<const uint8_t*>(m);
-    const auto* uv = y + y_size;
-    if (uplane.size() != uv_size / 2)
-        uplane.resize(uv_size / 2);
-    if (vplane.size() != uv_size / 2)
-        vplane.resize(uv_size / 2);
-    for (size_t i = 0, j = 0; i < uv_size; i += 2, ++j) {
-        uplane[j] = uv[i];
-        vplane[j] = uv[i + 1];
+    const size_t y_size = width * height;
+    const size_t uv_rows = height / 2;
+    const size_t uv_size = width * uv_rows;          // tightly-packed UV-out
+    const size_t uv_raw_bytes = uv_pitch * uv_rows;  // mmap'd region size
+
+    // Map Y plane (possibly with the UV plane appended in single-fd mode).
+    const size_t y_map_size =
+        v.plane0_offset + y_pitch * height + (v.plane1_fd >= 0 ? 0 : uv_raw_bytes + v.plane1_offset);
+    void* y_map = ::mmap(nullptr, y_map_size, PROT_READ, MAP_SHARED, v.fd, 0);
+    if (y_map == MAP_FAILED) {
+        vn::log::error("videonode-sink: mmap y_fd=%d failed: %s", v.fd, strerror(errno));
+        return true;
     }
+    const auto* y_base = static_cast<const uint8_t*>(y_map) + v.plane0_offset;
+
+    // Map UV plane: separate fd, or same fd at plane1_offset.
+    void* uv_map = nullptr;
+    size_t uv_map_size = 0;
+    const uint8_t* uv_base = nullptr;
+    if (v.plane1_fd >= 0) {
+        uv_map_size = v.plane1_offset + uv_raw_bytes;
+        uv_map = ::mmap(nullptr, uv_map_size, PROT_READ, MAP_SHARED, v.plane1_fd, 0);
+        if (uv_map == MAP_FAILED) {
+            vn::log::error("videonode-sink: mmap uv_fd=%d failed: %s", v.plane1_fd,
+                           strerror(errno));
+            ::munmap(y_map, y_map_size);
+            return true;
+        }
+        uv_base = static_cast<const uint8_t*>(uv_map) + v.plane1_offset;
+    } else {
+        // Single-fd NV12: UV starts at v.plane1_offset, or right after Y
+        // when plane1_offset is the default zero.
+        size_t uv_off = v.plane1_offset ? v.plane1_offset : v.plane0_offset + y_pitch * height;
+        uv_base = static_cast<const uint8_t*>(y_map) + uv_off;
+    }
+
+    // Pack Y rows tightly (drop pitch padding).
+    if (yplane.size() != y_size) {
+        yplane.resize(y_size);
+    }
+    if (y_pitch == width) {
+        std::memcpy(yplane.data(), y_base, y_size);
+    } else {
+        for (size_t row = 0; row < height; ++row) {
+            std::memcpy(yplane.data() + row * width, y_base + row * y_pitch, width);
+        }
+    }
+
+    // Deinterleave NV12 UV → I420 U + V, honoring uv_pitch (row stride).
+    if (uplane.size() != uv_size / 2) {
+        uplane.resize(uv_size / 2);
+    }
+    if (vplane.size() != uv_size / 2) {
+        vplane.resize(uv_size / 2);
+    }
+    const size_t uv_pairs_per_row = width / 2; // U + V at half-res
+    for (size_t row = 0; row < uv_rows; ++row) {
+        const uint8_t* src = uv_base + row * uv_pitch;
+        uint8_t* u_dst = uplane.data() + row * uv_pairs_per_row;
+        uint8_t* v_dst = vplane.data() + row * uv_pairs_per_row;
+        for (size_t i = 0, j = 0; i < width; i += 2, ++j) {
+            u_dst[j] = src[i];
+            v_dst[j] = src[i + 1];
+        }
+    }
+
     static constexpr uint8_t kFrameTag[] = {'F', 'R', 'A', 'M', 'E', '\n'};
     bool ok = write_full(STDOUT_FILENO, std::span<const uint8_t>(kFrameTag)) &&
-              write_full(STDOUT_FILENO, std::span(y, y_size)) &&
+              write_full(STDOUT_FILENO, std::span<const uint8_t>(yplane)) &&
               write_full(STDOUT_FILENO, std::span<const uint8_t>(uplane)) &&
               write_full(STDOUT_FILENO, std::span<const uint8_t>(vplane));
-    ::munmap(m, y_size + uv_size);
+    if (uv_map != nullptr) {
+        ::munmap(uv_map, uv_map_size);
+    }
+    ::munmap(y_map, y_map_size);
     if (!ok) {
         vn::log::info("videonode-sink: stdout closed, exiting");
         return false;
@@ -110,6 +178,16 @@ bool emit_frame_raw_bgra(const scm_rights_source::FrameView& v) {
         return true;
     const size_t row_bytes = size_t(v.width) * 4;
     const size_t stride = v.plane0_pitch ? v.plane0_pitch : row_bytes;
+    // Reject obviously-malformed pitches — a producer reporting
+    // stride < row_bytes would cause our row loop to read past each
+    // row boundary into the next row's prefix, producing sheared
+    // output. Treat as a recoverable frame-drop (return true =
+    // continue with next frame) rather than exit.
+    if (stride < row_bytes) {
+        vn::log::error("videonode-sink: BGRA stride %zu < row_bytes %zu (width=%d); dropping frame",
+                       stride, row_bytes, v.width);
+        return true;
+    }
     const size_t map_size = v.plane0_offset + stride * v.height;
     void* m = ::mmap(nullptr, map_size, PROT_READ, MAP_SHARED, v.fd, 0);
     if (m == MAP_FAILED) {
@@ -141,11 +219,15 @@ bool emit_y4m_header(int w, int h, int fps_num, int fps_den) {
                       std::span(reinterpret_cast<const uint8_t*>(hdr), static_cast<size_t>(n)));
 }
 
-// is_yuv_nv_format returns true when fourcc names an NV* (NV12/NV24/NV16)
-// planar-luma + interleaved-chroma format consumable by the Y4M path.
+// is_nv12_format returns true when fourcc names NV12 specifically.
 // Empty fourcc defaults to NV12 for back-compat with legacy senders.
-bool is_yuv_nv_format(const std::string& fourcc) {
-    return fourcc.empty() || (fourcc.size() == 4 && fourcc[0] == 'N' && fourcc[1] == 'V');
+// NV16 (4:2:2) and NV24 (4:4:4) deliberately fall through to raw mode
+// even though their fourccs start with "NV" — the Y4M path's chroma
+// layout is hardcoded to 4:2:0 and would under-map and mis-classify
+// the chroma plane otherwise. Future work: a real NV16/NV24 Y4M path
+// (CHROMA422 / CHROMA444 in the YUV4MPEG2 header).
+bool is_nv12_format(const std::string& fourcc) {
+    return fourcc.empty() || fourcc == "NV12";
 }
 
 } // namespace
@@ -247,7 +329,7 @@ int main(int argc, char** argv) {
     bool announced = false;
     int announced_w = 0, announced_h = 0;
     bool yuv_mode = true; // decided on first frame from FrameView::format
-    std::vector<uint8_t> uplane, vplane;
+    std::vector<uint8_t> yplane, uplane, vplane;
     auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(a.first_frame_timeout_s);
     while (g_running) {
@@ -272,7 +354,7 @@ int main(int argc, char** argv) {
                               "likely needs restart",
                               announced_w, announced_h, v.width, v.height);
             }
-            yuv_mode = is_yuv_nv_format(v.format);
+            yuv_mode = is_nv12_format(v.format);
             if (yuv_mode) {
                 if (!emit_y4m_header(v.width, v.height, 60, 1))
                     break;
@@ -295,7 +377,8 @@ int main(int argc, char** argv) {
                           static_cast<unsigned long long>(v.frame_idx), v.fd);
         }
         last_idx = v.frame_idx;
-        bool ok = yuv_mode ? emit_frame_nv12_y4m(v, uplane, vplane) : emit_frame_raw_bgra(v);
+        bool ok = yuv_mode ? emit_frame_nv12_y4m(v, yplane, uplane, vplane)
+                            : emit_frame_raw_bgra(v);
         if (!ok)
             break;
     }
