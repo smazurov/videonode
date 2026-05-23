@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
@@ -11,6 +12,83 @@ import (
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
+
+// buildEncoderPreviewCommand returns the same shell command the
+// Pipeline's EncoderStage would emit for this spec, without spawning
+// anything. Used by GetFFmpegCommand / the /api/streams/{id}/ffmpeg
+// debug endpoint to surface the current expected argv.
+//
+// Honors the same CustomEncoderArgs / inline-composer / producer-direct
+// routing the live Apply path uses, so the preview matches reality.
+func buildEncoderPreviewCommand(
+	spec StreamSpec,
+	rtspHost string,
+	deviceResolver func(string) string,
+) (string, error) {
+	ps := specToPipelineStream(spec, rtspHost)
+	if spec.Canvas != nil {
+		for i := range ps.Inputs {
+			if src, ok := lookupStoreDeviceFromResolver(spec.Canvas.SourceStreams, i, deviceResolver); ok {
+				ps.Inputs[i].Device = src
+			}
+		}
+	} else if deviceResolver != nil && len(ps.Inputs) > 0 && ps.Inputs[0].Device == "" {
+		ps.Inputs[0].Device = deviceResolver(spec.Device)
+	}
+
+	var video pipeline.FrameSource
+	switch {
+	case pipeline.NeedsComposer(ps):
+		w, h := composerCanvasDims(ps)
+		composerID := pipeline.ComposerIDFor(spec.ID)
+		video = pipeline.InlineComposerFrameSource{
+			ComposerBin: "videonode-composer",
+			DRMDevice:   "/dev/dri/renderD128",
+			GrpcUds:     pipeline.GrpcSocketPathFor("composer", composerID),
+			ComposerID:  composerID,
+			Width:       w, Height: h, Fps: 30,
+		}
+	case len(ps.Inputs) == 1:
+		video = pipeline.ProducerFrameSource{
+			Socket: pipeline.SCMSocketPathFor(ps.Inputs[0].Device),
+		}
+	default:
+		return "", fmt.Errorf("buildEncoderPreviewCommand: stream %s has no inputs", spec.ID)
+	}
+
+	enc := &pipeline.EncoderStage{
+		StreamID_: spec.ID,
+		Media: pipeline.MediaSource{
+			Video: video,
+			Audio: pipeline.ALSADirectAudio{Config: ps.Audio},
+		},
+		Cfg:               ps.Encoder,
+		Publish:           ps.Publish,
+		CustomEncoderArgs: ps.CustomEncoderArgs,
+		VNSinkBin:         "vn-sink",
+	}
+	argv, _, err := enc.Command()
+	if err != nil {
+		return "", err
+	}
+	if len(argv) >= 3 && argv[0] == "/bin/sh" {
+		return argv[2], nil
+	}
+	return strings.Join(argv, " "), nil
+}
+
+// lookupStoreDeviceFromResolver is a tiny helper for resolving the
+// i-th canvas source's device. Returns ("", false) when out-of-bounds.
+func lookupStoreDeviceFromResolver(
+	sources []string,
+	i int,
+	resolver func(string) string,
+) (string, bool) {
+	if i < 0 || i >= len(sources) || resolver == nil {
+		return "", false
+	}
+	return sources[i], true
+}
 
 // pipelineProcessManager implements the StreamProcessManager interface
 // using internal/streams/pipeline as the supervisor. Replaces the

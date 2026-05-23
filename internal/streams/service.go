@@ -48,14 +48,14 @@ type ServiceOptions struct {
 
 type service struct {
 	store              Store
-	processor          *processor
-	canvasProcessor    *canvasProcessor
 	streams            map[string]*Stream
 	streamsMutex       sync.RWMutex
 	processManager     StreamProcessManager
 	encoderSelector    encoders.Selector
 	validationProvider types.ValidationProvider
 	eventBus           *events.Bus
+	deviceResolver     func(string) string
+	rtspHost           string
 	logger             logging.Logger
 }
 
@@ -73,58 +73,27 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		panic("Store is required in ServiceOptions")
 	}
 
-	processor := newProcessor(repo)
-	processor.rtspHost = resolveRTSPHost(opts.RTSPPort)
-
 	encoderSelector := makeEncoderSelector(logger, opts, repo)
-	encoderSelectorFunc := makeEncoderSelectorFunc(encoderSelector, logger)
+	rtspHost := resolveRTSPHost(opts.RTSPPort)
 	deviceResolverFunc := makeDeviceResolver(logger)
-	processor.setEncoderSelector(encoderSelectorFunc)
-	processor.setDeviceResolver(deviceResolverFunc)
-
-	cp := newCanvasProcessor(repo)
-	cp.encoderSelector = encoderSelectorFunc
-	cp.deviceResolver = deviceResolverFunc
-	cp.defaultVisionFPS = opts.VisionDefaultFPS
-	cp.native = opts.Native
-	cp.rtspHost = resolveRTSPHost(opts.RTSPPort)
-
-	processor.native = opts.Native
 
 	svc := &service{
 		store:              repo,
-		processor:          processor,
-		canvasProcessor:    cp,
 		streams:            make(map[string]*Stream),
 		encoderSelector:    encoderSelector,
 		validationProvider: NewValidationService(repo),
+		deviceResolver:     deviceResolverFunc,
+		rtspHost:           rtspHost,
 		logger:             logger,
 	}
-
-	// Wire up processor's access to runtime state
-	processor.setStreamStateGetter(svc.getStreamSafe)
-	cp.getStreamState = svc.getStreamSafe
-
-	// Apply options
 	svc.eventBus = opts.EventBus
 
-	// Initialize process manager
-	if opts.ProcessManager != nil {
-		svc.processManager = opts.ProcessManager
-	} else {
-		svc.processManager = NewStreamProcessManager(&ProcessManagerOptions{
-			Store:           repo,
-			Processor:       processor,
-			CanvasProcessor: cp,
-			EventBus:        opts.EventBus,
-			Native:          opts.Native,
-			ControlServer:   opts.ControlServer,
-		})
+	if opts.ProcessManager == nil {
+		logger.Error("ServiceOptions.ProcessManager is required " +
+			"(legacy auto-construction removed in pipeline rip)")
+		panic("ServiceOptions.ProcessManager is required")
 	}
-
-	// Wire up processor's access to crash state
-	processor.setIsCrashed(svc.processManager.IsCrashed)
-	cp.isCrashed = svc.processManager.IsCrashed
+	svc.processManager = opts.ProcessManager
 
 	return svc
 }
@@ -140,7 +109,7 @@ func (s *service) CreateStream(ctx context.Context, params StreamCreateParams) (
 // createSingleStream creates a single-camera stream.
 func (s *service) createSingleStream(_ context.Context, params StreamCreateParams) (*Stream, error) {
 	// Validate device ID using processor's device resolver
-	devicePath := s.processor.deviceResolver(params.DeviceID)
+	devicePath := s.deviceResolver(params.DeviceID)
 	if devicePath == "" {
 		return nil, NewStreamError(ErrCodeDeviceNotFound,
 			fmt.Sprintf("device %s not found or not available", params.DeviceID), nil)
@@ -853,33 +822,23 @@ func (s *service) ValidationProvider() types.ValidationProvider {
 }
 
 // GetFFmpegCommand returns (command, isCustom, err) for a stream.
-func (s *service) GetFFmpegCommand(_ context.Context, streamID string, encoderOverride string) (string, bool, error) {
+// Post-rip: builds a transient pipeline.EncoderStage from the stored
+// spec and asks it for the same argv it would generate at Pool.Start
+// time. CustomFFmpegCommand short-circuits to verbatim shell.
+// encoderOverride is accepted for API back-compat but is now a no-op —
+// the encoder is picked by the Pipeline's backend probe, not per-call.
+func (s *service) GetFFmpegCommand(_ context.Context, streamID string, _ string) (string, bool, error) {
 	streamConfig, exists := s.store.GetStream(streamID)
 	if !exists {
 		return "", false, NewStreamError(ErrCodeStreamNotFound,
 			fmt.Sprintf("stream %s not found", streamID), nil)
 	}
-
-	stream, hasState := s.getStreamSafe(streamID)
-	enabled := false
-	if hasState {
-		enabled = stream.Enabled
-	}
-
-	if enabled && streamConfig.CustomFFmpegCommand != "" {
+	if streamConfig.CustomFFmpegCommand != "" {
 		return streamConfig.CustomFFmpegCommand, true, nil
 	}
-
-	var processed *ProcessedStream
-	var procErr error
-	if streamConfig.Canvas != nil {
-		processed, procErr = s.canvasProcessor.processStream(streamID)
-	} else {
-		processed, procErr = s.processor.processStreamWithEncoder(streamID, encoderOverride)
+	cmd, err := buildEncoderPreviewCommand(streamConfig, s.rtspHost, s.deviceResolver)
+	if err != nil {
+		return "", false, err
 	}
-	if procErr != nil {
-		return "", false, procErr
-	}
-
-	return processed.FFmpegCommand, false, nil
+	return cmd, false, nil
 }
