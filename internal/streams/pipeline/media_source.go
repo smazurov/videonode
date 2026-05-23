@@ -53,10 +53,10 @@ type ProducerFrameSource struct {
 	Socket string
 }
 
-func (p ProducerFrameSource) Kind() FrameKind     { return FrameKindNV12Y4M }
-func (p ProducerFrameSource) SocketPath() string  { return p.Socket }
-func (p ProducerFrameSource) Dims() (int, int)    { return 0, 0 }
-func (p ProducerFrameSource) FPS() int            { return 0 }
+func (p ProducerFrameSource) Kind() FrameKind    { return FrameKindNV12Y4M }
+func (p ProducerFrameSource) SocketPath() string { return p.Socket }
+func (p ProducerFrameSource) Dims() (int, int)   { return 0, 0 }
+func (p ProducerFrameSource) FPS() int           { return 0 }
 
 // ComposerFrameSource — encoder dialing a composer's --scm-out socket
 // (the N>1-or-effects path). Composer emits BGRA, vn-sink passes bytes
@@ -68,10 +68,10 @@ type ComposerFrameSource struct {
 	Fps    int
 }
 
-func (c ComposerFrameSource) Kind() FrameKind     { return FrameKindBGRARaw }
-func (c ComposerFrameSource) SocketPath() string  { return c.Socket }
-func (c ComposerFrameSource) Dims() (int, int)    { return c.Width, c.Height }
-func (c ComposerFrameSource) FPS() int            { return c.Fps }
+func (c ComposerFrameSource) Kind() FrameKind    { return FrameKindBGRARaw }
+func (c ComposerFrameSource) SocketPath() string { return c.Socket }
+func (c ComposerFrameSource) Dims() (int, int)   { return c.Width, c.Height }
+func (c ComposerFrameSource) FPS() int           { return c.Fps }
 
 // AudioSource emits the encoder's audio-input argv fragment. Today the
 // only impl is ALSADirectAudio (opens ALSA from the ffmpeg process);
