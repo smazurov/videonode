@@ -17,14 +17,12 @@ export function Header({ onLogout, className }: Readonly<HeaderProps>) {
         <div className="flex items-center justify-between h-16">
           {/* Logo and branding */}
           <div className="flex items-center space-x-8">
-            <Link to="/" className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-accent rounded-sm flex items-center justify-center">
-                <span className="text-accent-fg font-bold text-sm">VN</span>
-              </div>
-              <span className="text-xl font-bold text-fg">
+            <div className="flex items-center space-x-2">
+              <PipelineToggle />
+              <Link to="/" className="text-xl font-bold text-fg">
                 VideoNode
-              </span>
-            </Link>
+              </Link>
+            </div>
 
             {/* Navigation */}
             <nav className="flex items-center space-x-4">
@@ -45,8 +43,6 @@ export function Header({ onLogout, className }: Readonly<HeaderProps>) {
 
           {/* Actions */}
           <div className="flex items-center space-x-3">
-            <PipelineToggle />
-
             {/* Logout button */}
             {onLogout && (
               <Button
