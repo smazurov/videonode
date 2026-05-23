@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"maps"
 	"sync"
 
 	"github.com/smazurov/videonode/internal/types"
@@ -55,9 +56,7 @@ func (m *mockStore) GetAllStreams() map[string]StreamSpec {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make(map[string]StreamSpec, len(m.streams))
-	for k, v := range m.streams {
-		out[k] = v
-	}
+	maps.Copy(out, m.streams)
 	return out
 }
 

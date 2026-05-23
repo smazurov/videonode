@@ -26,19 +26,9 @@ export interface StreamDataSlice {
   getStreamById: (streamId: string) => StreamData | undefined;
 }
 
-// Canvas streams sort first; within each group, alphabetical by id. Keeps the
-// grid stable whether ordering came from a full refetch or a single addStream
-// from an SSE event.
-function sortStreamIds(
-  ids: string[],
-  byId: Record<string, StreamData>,
-): string[] {
-  return [...ids].sort((a, b) => {
-    const aCanvas = byId[a]?.canvas ? 0 : 1;
-    const bCanvas = byId[b]?.canvas ? 0 : 1;
-    if (aCanvas !== bCanvas) return aCanvas - bCanvas;
-    return a.localeCompare(b);
-  });
+// Alphabetical by id — keeps grid stable across refetches + SSE addStream.
+function sortStreamIds(ids: string[]): string[] {
+  return [...ids].sort((a, b) => a.localeCompare(b));
 }
 
 export const createStreamDataSlice: StateCreator<
@@ -57,7 +47,7 @@ export const createStreamDataSlice: StateCreator<
     for (const stream of streamData.streams ?? []) {
       byId[stream.stream_id] = stream;
     }
-    const ids = sortStreamIds(Object.keys(byId), byId);
+    const ids = sortStreamIds(Object.keys(byId));
     set((state) => {
       // Preserve metrics for streams that still exist; only drop metrics for
       // deleted streams. Wiping wholesale flashes empty stats on every
@@ -80,8 +70,8 @@ export const createStreamDataSlice: StateCreator<
       const existed = !!state.streamsById[stream.stream_id];
       const streamsById = { ...state.streamsById, [stream.stream_id]: stream };
       const nextIds = existed
-        ? sortStreamIds(state.streamIds, streamsById)
-        : sortStreamIds([...state.streamIds, stream.stream_id], streamsById);
+        ? sortStreamIds(state.streamIds)
+        : sortStreamIds([...state.streamIds, stream.stream_id]);
       return {
         streamIds: nextIds,
         streamsById,

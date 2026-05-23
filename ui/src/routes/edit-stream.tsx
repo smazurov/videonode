@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { StreamForm } from '../components/StreamForm';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { Button } from '../components/Button';
@@ -12,7 +12,9 @@ export default function EditStream() {
   const { streamId } = useParams<{ streamId: string }>();
   const { logout } = useAuthStore();
 
-  const streamData = useStreamStore((state) => (streamId ? state.streamsById[streamId] : undefined));
+  const streamData = useStreamStore((state) =>
+    streamId ? state.streamsById[streamId] : undefined,
+  );
   const lastUpdated = useStreamStore((state) => state.lastUpdated);
   const fetchStreams = useStreamStore((state) => state.fetchStreams);
 
@@ -36,11 +38,6 @@ export default function EditStream() {
     );
   }
 
-  // Canvas streams use the dedicated canvas route.
-  if (streamData.canvas) {
-    return <Navigate to={`/streams/canvas/${streamId}/edit`} replace />;
-  }
-
   const handleSuccess = async () => {
     navigate('/streams');
   };
@@ -57,18 +54,20 @@ export default function EditStream() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 Edit Stream: {streamData.stream_id}
-                <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                  Single Camera
-                </span>
               </h1>
               <p className="text-gray-600 dark:text-gray-300 mt-1">
-                Update the configuration for this video stream
+                Update the configuration for this stream
               </p>
             </div>
             <Button theme="light" onClick={handleCancel} size="SM" text="Back to Streams" />
           </div>
 
-          <StreamForm initialData={streamData} onSuccess={handleSuccess} onCancel={handleCancel} />
+          <StreamForm
+            key={streamData.stream_id}
+            initialData={streamData}
+            onSuccess={handleSuccess}
+            onCancel={handleCancel}
+          />
         </div>
       </DashboardLayout.MainContent>
     </DashboardLayout>

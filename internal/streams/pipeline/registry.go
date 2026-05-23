@@ -16,8 +16,8 @@ import (
 // The registry owns no process lifecycle by itself — it returns the
 // delta (devices to start, devices to stop) and the Pipeline drives
 // process.Pool calls based on those. Keeping the diff math centralized
-// here means every caller (Apply, RestartCanvas, ReleaseCanvas, Stop)
-// stops computing their own deltas inline.
+// here means every caller (Apply, Restart, Stop) stops computing
+// their own deltas inline.
 type ProducerRegistry struct {
 	mu        sync.Mutex
 	consumers map[string]map[string]struct{} // device → set of stream IDs holding it

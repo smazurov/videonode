@@ -1,11 +1,11 @@
-// Package api: /api/processes — operator-visible view of the pipeline's
-// supervised processes (Producer / Composer / Encoder stages). Replaces
-// ad-hoc journalctl correlation with a single REST surface that joins
-// pool state + stage kind + producer refcounts.
-//
-// Endpoint surface is intentionally read-only for now; stop/restart
-// actions land in a follow-up once authorization semantics are agreed.
 package api
+
+// /api/processes — operator-visible view of the pipeline's supervised
+// processes (Producer / Composer / Encoder stages). Joins pool state +
+// stage kind + producer refcounts on a single REST surface.
+//
+// Endpoint surface is read-only; stop/restart actions land in a
+// follow-up once authorization semantics are agreed.
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-// Package pipeline is the post-rip stream pipeline model.
+// Package pipeline owns the stream pipeline model.
 //
 // One Stream → at most three supervised processes: Producer (per unique
 // device, refcounted across streams) → Composer (optional, present when
@@ -88,14 +88,13 @@ type Effect struct {
 }
 
 // AudioConfig is the per-stream audio routing. Devices are ALSA device
-// names; each entry produces ONE separate output audio track in the
-// published stream (NOT mixed). RTSP/SRT/MPEG-TS all carry multi-track
-// audio; SDP advertises one m=audio line per track. Filters is an
-// optional shared filter chain; rarely used (the encoder stage already
-// emits a per-track aresample chain for A/V drift mitigation).
-// Codec/Bitrate select the encode params (today: shared libopus 128k
-// 48kHz covering every track; per-track codec override is future
-// work).
+// names; each entry produces one output audio track in the published
+// stream. RTSP/SRT/MPEG-TS all carry multi-track audio; SDP advertises
+// one m=audio line per track. Filters is an optional shared filter
+// chain; rarely used (the encoder stage already emits a per-track
+// aresample chain for A/V drift mitigation). Codec/Bitrate select the
+// encode params (today: shared libopus 128k 48kHz covering every track;
+// per-track codec override is future work).
 type AudioConfig struct {
 	Devices []string `toml:"devices,omitempty" json:"devices,omitempty"`
 	Codec   string   `toml:"codec,omitempty" json:"codec,omitempty"`

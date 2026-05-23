@@ -194,16 +194,10 @@ func videoInputArgs(fs FrameSource) []string {
 // (each declared via `-f alsa -i hw:X,Y`). For audioCount > 0 we
 // emit:
 //   - a `-filter_complex` with one aresample chain per audio input
-//     (matches legacy composite.go: prevents A/V drift on long runs)
-//   - explicit `-map 0:v` + `-map "[aN]"` per track so each input
-//     becomes its own OUTPUT TRACK (NOT mixed)
+//     (prevents A/V drift on long runs)
+//   - explicit `-map 0:v` + `-map "[aN]"` per track, so each input
+//     becomes its own output track
 //   - one `-c:a libopus -b:a 128k -ar 48000` covering all tracks
-//
-// Mixing semantics (what we explicitly do NOT do): the rip incorrectly
-// introduced an `amix=inputs=N:duration=longest` filter, collapsing
-// N audio devices to one track. Legacy behavior + the API doc on
-// `CanvasConfig.AudioDevices` says "one output audio track per
-// entry"; that is what this function emits.
 func encoderTailArgs(cfg EncoderConfig, publish []PublishTarget, audioCount int) []string {
 	encName := encoderNameFor(cfg.Codec)
 	bitrate := cfg.Bitrate

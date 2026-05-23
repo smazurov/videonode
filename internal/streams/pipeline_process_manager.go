@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,9 +114,10 @@ type pipelineProcessManager struct {
 // internal/streams/pipeline. The pipeline is configured from
 // opts.Native + opts.ControlServer + the daemon's device resolver.
 //
-// rtspPort accepts the same shape as ServiceOptions.RTSPPort — empty,
-// ":8654", "host:port" — and is normalized via resolveRTSPHost() (the
-// helper that powers the legacy GPU compose path's ffmpeg sink URL).
+// The rtspPort parameter accepts the same shape as
+// ServiceOptions.RTSPPort — empty, ":8654", "host:port" — and is
+// normalized via resolveRTSPHost() (the helper that powers the legacy
+// GPU compose path's ffmpeg sink URL).
 func NewPipelineProcessManager(
 	pipe *pipeline.Pipeline,
 	store Store,
@@ -183,7 +185,7 @@ func specToPipelineStream(spec StreamSpec, rtspHost string) pipeline.Stream {
 		s.ForceComposer = true
 		// Canvas → N inputs, layout from the canvas's SourceStreams + a
 		// trivial side-by-side default. The legacy ComputeCanvasLayout
-		// solver derived per-source rects; the rip simplifies to "place
+		// solver derived per-source rects; this path simplifies to "place
 		// each source full-width in a uniform stack" pending the
 		// layout-solver port (follow-up).
 		w := spec.Canvas.Width
@@ -211,10 +213,6 @@ func specToPipelineStream(spec StreamSpec, rtspHost string) pipeline.Stream {
 				H:    slotH,
 			})
 		}
-		// Audio: one OUTPUT TRACK per device (NOT mixed). The encoder
-		// stage emits per-track -map flags in encoderTailArgs; the
-		// previous rip-introduced amix filter was a bug that
-		// collapsed N tracks to one.
 		s.Audio.Devices = append(s.Audio.Devices, spec.Canvas.AudioDevices...)
 	default:
 		// Single source → one input, identity layout, perspective effect
@@ -261,7 +259,7 @@ func (m *pipelineProcessManager) resolveCanvasSource(srcID string) string {
 
 // applySpec converts spec to a pipeline.Stream (resolving canvas
 // sources via the store) and calls Pipeline.Apply. Used by Start +
-// Restart + RestartCanvas. When a composer is engaged, kicks off a
+// Restart. When a composer is engaged, kicks off a
 // goroutine that registers the composer with pipelinectl and pushes
 // the initial config (set_canvas / set_source / set_layout / etc.)
 // after the composer's gRPC UDS becomes ready.
@@ -456,19 +454,6 @@ func (m *pipelineProcessManager) Restart(streamID string) error {
 	return m.Start(streamID)
 }
 
-// RestartCanvas mirrors Restart in the unified model — canvases are
-// just streams with len(Inputs) > 1, no separate restart path.
-func (m *pipelineProcessManager) RestartCanvas(canvasID string) error {
-	return m.Restart(canvasID)
-}
-
-// ReleaseCanvas is a no-op in the unified model. The legacy
-// engage/release distinction is gone; canvases are always engaged
-// while their spec is in the store. To stop a canvas, call Stop.
-func (m *pipelineProcessManager) ReleaseCanvas(_ string) error {
-	return nil
-}
-
 // GetStatus returns a snapshot of the stream's encoder stage (the
 // always-present stage). Falls back to idle if not running.
 func (m *pipelineProcessManager) GetStatus(streamID string) (*ProcessInfo, error) {
@@ -492,7 +477,6 @@ func (m *pipelineProcessManager) StartAll() error {
 	all := m.store.GetAllStreams()
 	var errs []error
 	for id, spec := range all {
-		spec := spec
 		if err := m.applySpec(spec); err != nil {
 			m.logger.Warn("StartAll: apply failed", "stream_id", id, "error", err)
 			errs = append(errs, err)
@@ -583,15 +567,7 @@ func (m *pipelineProcessManager) PushComposerPerspective(
 		return false, nil
 	}
 	composerID := streamID + "-composer"
-	// Best-effort check that a composer is connected before pushing.
-	connected := false
-	for _, id := range m.controlServer.ConnectedComposers() {
-		if id == composerID {
-			connected = true
-			break
-		}
-	}
-	if !connected {
+	if !slices.Contains(m.controlServer.ConnectedComposers(), composerID) {
 		return false, nil
 	}
 	effects := []pipelinectl.EffectParams{}

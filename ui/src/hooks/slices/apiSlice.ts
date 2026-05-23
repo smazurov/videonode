@@ -11,8 +11,6 @@ export interface APISlice {
   createStream: (request: StreamRequestData) => Promise<StreamData>;
   updateStream: (streamId: string, data: Partial<StreamRequestData>) => Promise<StreamData>;
   deleteStream: (streamId: string) => Promise<void>;
-  releaseCanvas: (streamId: string) => Promise<void>;
-  engageCanvas: (streamId: string) => Promise<void>;
 }
 
 export const createAPISlice: StateCreator<
@@ -97,39 +95,4 @@ export const createAPISlice: StateCreator<
     }
   },
 
-  releaseCanvas: async (streamId) => {
-    const { setError } = get();
-
-    try {
-      unwrap(
-        await api.POST("/api/streams/{stream_id}/canvas/release", {
-          params: { path: { stream_id: streamId } },
-        }),
-        'Failed to release canvas',
-      );
-      setError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to release canvas';
-      setError(message);
-      throw error;
-    }
-  },
-
-  engageCanvas: async (streamId) => {
-    const { setError } = get();
-
-    try {
-      unwrap(
-        await api.POST("/api/streams/{stream_id}/canvas/engage", {
-          params: { path: { stream_id: streamId } },
-        }),
-        'Failed to engage canvas',
-      );
-      setError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to engage canvas';
-      setError(message);
-      throw error;
-    }
-  },
 });

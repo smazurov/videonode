@@ -15,7 +15,7 @@ const (
 	TypeStreamMetrics
 	TypeLogEntry
 	TypeStreamCrashed
-	TypeCanvasRestarted // deprecated: post-rip there is no canvas-as-distinct-entity
+	TypeCanvasRestarted // deprecated: canvases are streams with N>1 inputs, no separate type
 	TypeHeartbeat
 	TypeSourceStatus
 	TypeStageStateChanged // per-stage (Producer/Composer/Encoder) lifecycle event
@@ -161,8 +161,8 @@ func (e CanvasRestartedEvent) Type() uint32 { return TypeCanvasRestarted }
 // StageStateChangedEvent fires when a pipeline stage (Producer,
 // Composer, or Encoder) transitions in or out of Running. Replaces the
 // stream-level StreamStateChangedEvent for callers that care about
-// per-stage health (process-manager UI, alerting). Both events fire
-// during the rip — old subscribers can ignore this; new ones prefer it.
+// per-stage health (process-manager UI, alerting). Both events fire —
+// old subscribers can ignore this; new ones prefer it.
 type StageStateChangedEvent struct {
 	StreamID  string `json:"stream_id" doc:"User-facing stream this stage belongs to (empty for shared producers)"`
 	StageID   string `json:"stage_id" doc:"Pool key, e.g. 'producer:hdmi0' or 'composer:cam-front'"`

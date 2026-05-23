@@ -1,8 +1,3 @@
-// Package streams: small helpers extracted from the deleted legacy
-// processor files (resolveRTSPHost was in canvas_processor_gpu.go,
-// getSocketPath was in processor.go). Both are pure functions still
-// referenced by the surviving service/setup code; lifting them here
-// lets the legacy files go without breaking the build.
 package streams
 
 import (

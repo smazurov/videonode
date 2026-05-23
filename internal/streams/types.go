@@ -17,10 +17,6 @@ type StreamService interface {
 	SetEnabled(ctx context.Context, streamID string, enabled bool) (bool, error)
 	DeleteStream(ctx context.Context, streamID string) error
 	RestartStream(ctx context.Context, streamID string) error
-	// ReleaseCanvas stops a canvas and resumes its sources as standalone streams (canvas spec preserved, Enabled=false).
-	ReleaseCanvas(ctx context.Context, streamID string) error
-	// EngageCanvas starts a dormant canvas, claiming its sources.
-	EngageCanvas(ctx context.Context, streamID string) error
 	GetStream(ctx context.Context, streamID string) (*Stream, error)
 	GetStreamSpec(ctx context.Context, streamID string) (*StreamSpec, error)
 	ListStreams(ctx context.Context) ([]Stream, error)
@@ -59,8 +55,6 @@ type Stream struct {
 	ProgressSocket string          `json:"-"`
 	Collector      StreamCollector `json:"-"`
 	InputsEnabled  map[string]bool `json:"inputs_enabled,omitempty"` // canvas streams only
-
-	OwnedBy string `json:"owned_by,omitempty"` // canvas ID currently owning this stream's device
 }
 
 // StreamCreateParams contains parameters for creating a new stream.

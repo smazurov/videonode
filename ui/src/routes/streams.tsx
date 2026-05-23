@@ -99,10 +99,6 @@ export default function Streams() {
     navigate('/streams/new');
   }, [navigate]);
 
-  const handleCreateCanvas = useCallback(() => {
-    navigate('/streams/canvas/new');
-  }, [navigate]);
-
   const handleLogout = useCallback(() => {
     logout();
   }, [logout]);
@@ -123,7 +119,6 @@ export default function Streams() {
           onRefresh={fetchStreams}
           onDeleteStream={handleDeleteStream}
           onCreateStream={handleCreateStream}
-          onCreateCanvas={handleCreateCanvas}
         />
       </DashboardLayout.MainContent>
     </DashboardLayout>
