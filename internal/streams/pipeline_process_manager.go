@@ -8,10 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smazurov/videonode/internal/encoders"
+	"github.com/smazurov/videonode/internal/encoders/validation"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
+	"github.com/smazurov/videonode/internal/types"
 )
 
 // buildEncoderPreviewCommand returns the same shell command the
@@ -25,8 +28,10 @@ func buildEncoderPreviewCommand(
 	spec StreamSpec,
 	rtspHost string,
 	deviceResolver func(string) string,
+	provider types.ValidationProvider,
 ) (string, error) {
 	ps := specToPipelineStream(spec, rtspHost)
+	ps.Encoder.EncoderName = resolveEncoderName(ps.Encoder.Codec, provider)
 	if spec.Canvas != nil {
 		for i := range ps.Inputs {
 			if src, ok := lookupStoreDeviceFromResolver(spec.Canvas.SourceStreams, i, deviceResolver); ok {
@@ -107,7 +112,11 @@ type pipelineProcessManager struct {
 	store         Store
 	controlServer *pipelinectl.Manager
 	rtspHost      string // resolved host:port for the RTSP publish URL
-	logger        logging.Logger
+	// validation provides probe results so the encoder name resolves to
+	// what the host actually supports (libx264 on a dev box, h264_rkmpp
+	// on RK3588). Built from store via NewValidationService.
+	validation types.ValidationProvider
+	logger     logging.Logger
 }
 
 // NewPipelineProcessManager constructs a StreamProcessManager backed by
@@ -129,8 +138,33 @@ func NewPipelineProcessManager(
 		store:         store,
 		controlServer: controlServer,
 		rtspHost:      resolveRTSPHost(rtspPort),
+		validation:    NewValidationService(store),
 		logger:        logging.GetLogger("pipeline_pm"),
 	}
+}
+
+// resolveEncoderName returns the ffmpeg encoder name for a logical codec
+// ("h264"/"h265") using a layered fallback:
+//  1. Preloaded validation data (most accurate — confirms the encoder
+//     actually works with our input formats). Empty when
+//     `videonode validate-encoders` hasn't been run yet.
+//  2. Probe ffmpeg's compiled encoders (`ffmpeg -encoders`). Reflects
+//     what's actually installed without needing prior validation.
+//     Critical for fresh daemons on rkmpp-only ffmpeg builds where
+//     "libx264" would crash with "Unrecognized option 'tune'".
+//  3. Hard-coded software fallback. Last resort; we'd rather pick a
+//     stale-but-plausible HW encoder than promise libx264 on a build
+//     that doesn't have it.
+func resolveEncoderName(codec string, provider types.ValidationProvider) string {
+	if codec == "" {
+		codec = "h264"
+	}
+	if provider != nil {
+		if cfg, err := encoders.MapAPICodec(codec, provider); err == nil && cfg != nil {
+			return cfg.EncoderName
+		}
+	}
+	return validation.AutodetectEncoder(codec)
 }
 
 // specToPipelineStream converts a StreamSpec (canvas-or-source dichotomy)
@@ -265,6 +299,7 @@ func (m *pipelineProcessManager) resolveCanvasSource(srcID string) string {
 // after the composer's gRPC UDS becomes ready.
 func (m *pipelineProcessManager) applySpec(spec StreamSpec) error {
 	ps := specToPipelineStream(spec, m.rtspHost)
+	ps.Encoder.EncoderName = resolveEncoderName(ps.Encoder.Codec, m.validation)
 	if spec.Canvas != nil {
 		for i := range ps.Inputs {
 			ps.Inputs[i].Device = m.resolveCanvasSource(ps.Inputs[i].ID)

@@ -13,7 +13,7 @@ func TestEncoder_NV12_Y4M_BuildsYuv4mpegpipeInput(t *testing.T) {
 		Media: MediaSource{
 			Video: ProducerFrameSource{Socket: "/tmp/vn-bus-cam.sock"},
 		},
-		Cfg:       EncoderConfig{Codec: "h264", Bitrate: "4M", GOP: 60},
+		Cfg:       EncoderConfig{Codec: "h264", EncoderName: "h264_rkmpp", Bitrate: "4M", GOP: 60},
 		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://localhost:8554/cam-front"}},
 		VNSinkBin: "/usr/local/bin/vn-sink",
 	}
@@ -48,7 +48,7 @@ func TestEncoder_BGRA_RawBuildsRawvideoInput(t *testing.T) {
 				Width:  3840, Height: 1080, Fps: 30,
 			},
 		},
-		Cfg:       EncoderConfig{Codec: "h265", Bitrate: "12M"},
+		Cfg:       EncoderConfig{Codec: "h265", EncoderName: "hevc_rkmpp", Bitrate: "12M"},
 		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://localhost:8554/canvas-1"}},
 		VNSinkBin: "/usr/local/bin/vn-sink",
 	}
@@ -68,6 +68,34 @@ func TestEncoder_BGRA_RawBuildsRawvideoInput(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "-c:v hevc_rkmpp") {
 		t.Errorf("expected hevc_rkmpp encoder in: %s", cmd)
+	}
+}
+
+func TestEncoder_FallsBackToLibx264WhenEncoderNameEmpty(t *testing.T) {
+	// Regression guard for the host stream failure that motivated this
+	// refactor: an unresolved EncoderName must NOT pick h264_rkmpp on a
+	// host where it doesn't exist. pipelineProcessManager normally fills
+	// EncoderName via the validation provider; if it ever forgets, this
+	// test catches the regression at unit-test time.
+	e := &EncoderStage{
+		StreamID_: "host-cam",
+		Media: MediaSource{
+			Video: ProducerFrameSource{Socket: "/tmp/sock"},
+		},
+		Cfg:       EncoderConfig{Codec: "h264"}, // EncoderName intentionally empty
+		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://x/y"}},
+		VNSinkBin: "/usr/bin/vn-sink",
+	}
+	argv, _, err := e.Command()
+	if err != nil {
+		t.Fatalf("Command failed: %v", err)
+	}
+	cmd := argv[2]
+	if !strings.Contains(cmd, "-c:v libx264") {
+		t.Errorf("expected libx264 fallback; got: %s", cmd)
+	}
+	if strings.Contains(cmd, "h264_rkmpp") {
+		t.Errorf("hardcoded rkmpp leaked through; got: %s", cmd)
 	}
 }
 
