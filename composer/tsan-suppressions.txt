@@ -1,0 +1,9 @@
+# ThreadSanitizer suppressions for the composer/ test suite.
+#
+# Currently empty — added so the dev-tsan testPreset's TSAN_OPTIONS can
+# reference a stable path even before any suppressions are needed.
+# Add entries here if TSan reports races inside third-party libraries
+# (Mesa, libdrm, libgrpc) that aren't bugs in composer/ code.
+#
+# Format: race:<substring> / mutex:<substring> / called_from_lib:<dso>
+# See https://github.com/google/sanitizers/wiki/ThreadSanitizerSuppressions
