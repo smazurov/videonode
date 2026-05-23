@@ -10,14 +10,14 @@
 # on Fedora).
 vn_add_executable(videonode-source
     SOURCES videonode_source_main.cpp
-    DEPS    orchestrator)
+    DEPS    orchestrator absl_bundle)
 
 # videonode-sink — single-stream NV12 carrier. Dials a videonode-source SCM
 # socket, mmaps each incoming dma-buf and writes the NV12 bytes to stdout.
 # Pipe into ffmpeg for transcoding to RTSP.
 vn_add_executable(videonode-sink
     SOURCES videonode_sink_main.cpp
-    DEPS    scm_rights_source)
+    DEPS    scm_rights_source absl_bundle)
 
 # videonode-composer — Mali-GPU canvas compositor. Reads NV12 dma-bufs
 # from N videonode-source sockets, composes BGRA via EGL/GLES, writes the
@@ -26,5 +26,5 @@ if(HAVE_GBM)
     vn_add_executable(videonode-composer
         SOURCES videonode_composer_main.cpp
         DEPS    canvas_loop world composer_service grpc_server
-                egl_ctx gl_compose gles_bundle)
+                egl_ctx gl_compose gles_bundle absl_bundle)
 endif()

@@ -19,6 +19,7 @@ vn_add_library(orchestrator
                 scm_rights_producer dmabuf_header dma_heap
                 jpeg_dec_turbo
                 source_service grpc_server vn_proto
+                absl_bundle
                 Threads::Threads)
 if(HAVE_RGA)
     target_compile_definitions(orchestrator PRIVATE HAVE_RGA=1)
