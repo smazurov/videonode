@@ -67,6 +67,15 @@ format = "text"
 # Module-specific levels: streams, streaming, devices, encoders, capture, api, webrtc
 ```
 
+### Stream shape (post pipeline-rip)
+
+A stream is a single `[[streams]]` entry with 1..N inputs. Canvases are no longer a distinct concept — a "canvas" is just a stream with multiple inputs. The internal Composer stage engages automatically when `len(inputs) > 1` OR any input has an effect (e.g. perspective). See [`examples/streams-new-shape.toml`](examples/streams-new-shape.toml) for three worked examples (solo, solo + effect, two-input canvas with dual publish).
+
+Two field-level notes:
+
+- `test_mode = true` — currently a no-op. The surface (Go field, API, UI toggle) is preserved for follow-up work that adds an RPC to `videonode-source` for device-less test pattern emission. Setting it today yields no functional output.
+- `custom_encoder_args` — when non-empty, replaces the daemon-generated encoder argv from `-c:v` onward. The daemon always prepends the input fragment (`vn-sink --socket X | ffmpeg -f yuv4mpegpipe -i pipe:0` for NV12, `-f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0` for BGRA composer output) so user-supplied args can't break the plumbing.
+
 ## Playback
 
 ### WebRTC

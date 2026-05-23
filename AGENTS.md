@@ -110,6 +110,16 @@ Available integration tests:
 
 ## Architecture
 
+### Pipeline model (post pipeline-rip)
+
+Each stream is `Producer → Composer (optional) → Encoder`. There is no separate canvas concept — a "canvas" is a stream with `len(inputs) > 1`. The Composer stage engages automatically when `len(inputs) > 1` OR any input has an effect (e.g. perspective); otherwise the encoder dials the producer's SCM socket directly.
+
+- **Producer** (one per unique device, refcounted across streams) — `videonode-source`. Captures V4L2 frames, broadcasts NV12 dma-bufs via SCM_RIGHTS to N consumers.
+- **Composer** (optional, one per stream) — `videonode-composer`. Reads N producer SCM sockets, GLES-composites onto a BGRA canvas, broadcasts the canvas dma-buf via SCM_RIGHTS (`--scm-out PATH`). When unset, falls back to legacy stdout BGRA pipe.
+- **Encoder** (always, one per stream) — `vn-sink | ffmpeg`. vn-sink dials either the producer's SCM (NV12 → YUV4MPEG2) or the composer's SCM (BGRA → raw rawvideo) and pipes to ffmpeg.
+
+User-facing config: a single `[[streams]]` entry per stream — no canvas-as-distinct-entity. See `examples/streams-new-shape.toml`.
+
 ### Application Structure
 - **CLI Framework**: Uses Huma v2 with humacli for command-line interface and API server
 - **API Server**: Huma v2 API with native Go 1.22+ routing, serves RESTful endpoints with OpenAPI documentation at `/docs`
