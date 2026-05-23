@@ -252,17 +252,24 @@ func resolveRotation(canvas *CanvasConfig, src *StreamSpec, i int) int {
 	return base
 }
 
-// effectiveSizeForSource returns natural dims after perspective+rotation+crop; (0,0) when unknown.
+// effectiveSizeForSource returns natural dims after rotation; (0,0)
+// when unknown. Perspective doesn't change effective layout dims —
+// the warp lives inside the composer, the bounding rect is unchanged.
+// Inlined here after the legacy ffmpeg.EffectiveInputSize helper was
+// removed with composite.go in the pipeline rip.
 func effectiveSizeForSource(canvas *CanvasConfig, src *StreamSpec, i int) (int, int) {
 	if src == nil {
 		return 0, 0
 	}
-	rot := resolveRotation(canvas, src, i)
-	var persp *ffmpeg.PerspectiveConfig
-	if src.Perspective != nil {
-		persp = src.Perspective
+	w, h, err := ffmpeg.ParseResolution(src.FFmpeg.Resolution)
+	if err != nil {
+		return 0, 0
 	}
-	return ffmpeg.EffectiveInputSize(src.FFmpeg.Resolution, rot, persp, 0, 0)
+	rot := resolveRotation(canvas, src, i)
+	if rot == 90 || rot == 270 {
+		return h, w
+	}
+	return w, h
 }
 
 // ComputeCanvasLayout resolves slots and content rects for a canvas spec. Pure function.
