@@ -105,16 +105,21 @@ bool ScmRightsSource::start() {
 
 void ScmRightsSource::stop() {
     stop_requested_.store(true);
-    // Shutdown reads on client to wake any blocked recvmsg. We don't
-    // release the fd here — unique_fd will close it after the thread joins.
+    // Shutdown the listen + client sockets to unblock any pending accept
+    // (in a concurrent start()) or recvmsg (in our worker). We do NOT
+    // call .reset() here — that would race with a concurrent start()
+    // reading listen_fd_/client_fd_. The destructor handles fd lifetime;
+    // callers that start() from another thread must join() that thread
+    // before destroying the ScmRightsSource.
+    if (listen_fd_) {
+        ::shutdown(listen_fd_.get(), SHUT_RDWR);
+    }
     if (client_fd_) {
         ::shutdown(client_fd_.get(), SHUT_RDWR);
     }
     if (thread_.joinable())
         thread_.join();
 
-    client_fd_.reset();
-    listen_fd_.reset();
     // Only unlink the path in listen mode — in dial mode we don't own it.
     if (!params_.dial && !params_.socket_path.empty()) {
         ::unlink(params_.socket_path.c_str());
