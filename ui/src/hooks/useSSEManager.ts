@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { components } from '../lib/api.generated';
 import { SSEClient, type SSEStatus } from '../lib/api';
+import { useDeviceStore } from './useDeviceStore';
 
 type StreamCreatedEvent = components["schemas"]["StreamCreatedEvent"];
 type StreamUpdatedEvent = components["schemas"]["StreamUpdatedEvent"];
@@ -101,6 +102,10 @@ function setupGlobalSSE(): void {
     for (const handler of globalStreamStateHandlers) {
       handler(event);
     }
+  });
+
+  globalClient.on('device-discovery', () => {
+    void useDeviceStore.getState().fetchDevices();
   });
 
   globalClient.connect();
