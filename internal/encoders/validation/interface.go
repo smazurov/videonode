@@ -31,7 +31,7 @@ func compiledEncoderList() []string {
 		}
 		// `ffmpeg -encoders` prints "V..... h264_rkmpp Rockchip H.264 encoder ..."
 		// per line after a banner. Extract the second column.
-		for _, line := range strings.Split(string(out), "\n") {
+		for line := range strings.SplitSeq(string(out), "\n") {
 			fields := strings.Fields(line)
 			if len(fields) < 2 {
 				continue
@@ -145,12 +145,7 @@ func isEncoderCompiled(encoderName string) bool {
 // ffmpeg; subsequent calls hit the cache) since the answer is fixed for
 // the lifetime of the daemon.
 func IsEncoderCompiled(encoderName string) bool {
-	for _, e := range compiledEncoderList() {
-		if e == encoderName {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(compiledEncoderList(), encoderName)
 }
 
 // AutodetectEncoder picks the best ffmpeg encoder for a logical codec
