@@ -24,6 +24,24 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Lint & fix**: `cd ui && pnpm lint:fix`
 - **Type check**: `cd ui && pnpm typecheck`
 
+### Native binaries (C++, host)
+
+The Go daemon spawns `videonode-source`, `videonode-sink`, and
+`videonode-composer` from `~/.local/bin/` (see defaults in `main.go`).
+`process-compose` / `air` won't see your C++ changes until you install
+them there. **Any time you build C++ in `composer/`, also install:**
+
+```bash
+cmake --preset dev                                # if not configured
+cmake --build --preset dev
+cmake --install composer/build/dev                # writes to ~/.local/bin
+```
+
+Verify with `ls -l ~/.local/bin/videonode-{source,sink,composer}` —
+mtimes should match the build. Sanitizer presets (`dev-asan`, `dev-tsan`)
+build into separate dirs; install from those only when deliberately
+running the daemon against an instrumented binary.
+
 
 ## Code Style Guidelines
 
