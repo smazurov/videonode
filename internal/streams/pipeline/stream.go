@@ -47,6 +47,15 @@ type Stream struct {
 	// args cannot break the data-plane plumbing.
 	CustomEncoderArgs string `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
 
+	// ForceComposer asks NeedsComposer to engage the Composer stage
+	// regardless of input count or effects. Used by the legacy
+	// canvas-API translation layer to preserve the "canvas always has
+	// a composer" expectation (existing smoke + UI flows depend on a
+	// composer being live the moment a canvas is created). Native-only
+	// streams created through the new shape leave this false and let
+	// NeedsComposer pick from input count + effects.
+	ForceComposer bool `toml:"force_composer,omitempty" json:"force_composer,omitempty"`
+
 	CreatedAt time.Time `toml:"created_at" json:"created_at"`
 	UpdatedAt time.Time `toml:"updated_at" json:"updated_at"`
 }

@@ -15,10 +15,13 @@ func TestSnapshot_EmitsAllStagesWithKinds(t *testing.T) {
 		},
 		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/c"}},
 	}))
-	// Wait until all four expected pool entries have shown up Running.
+	// Wait until all three expected pool entries are Running. Composer
+	// runs as a child of the encoder shell pipe (inline mode), so no
+	// separate composer:canvas pool entry — only producer:d1, producer:d2,
+	// encoder:canvas live in the pool.
 	for _, want := range []string{
 		"producer:d1", "producer:d2",
-		"composer:canvas", "encoder:canvas",
+		"encoder:canvas",
 	} {
 		if !waitRunning(p, want) {
 			t.Fatalf("setup: %s not running", want)
@@ -26,8 +29,8 @@ func TestSnapshot_EmitsAllStagesWithKinds(t *testing.T) {
 	}
 
 	views := p.Snapshot()
-	if len(views) != 4 {
-		t.Fatalf("Snapshot len = %d, want 4: %+v", len(views), views)
+	if len(views) != 3 {
+		t.Fatalf("Snapshot len = %d, want 3: %+v", len(views), views)
 	}
 
 	byID := map[string]ProcessView{}
@@ -56,15 +59,13 @@ func TestSnapshot_EmitsAllStagesWithKinds(t *testing.T) {
 		}
 	}
 
-	// Composer + encoder rows expose stream_id.
-	for _, key := range []string{"composer:canvas", "encoder:canvas"} {
-		v := byID[key]
-		if v.StreamID != "canvas" {
-			t.Errorf("%s stream_id = %q, want canvas", key, v.StreamID)
-		}
-		if v.PID == 0 {
-			t.Errorf("%s should have a PID", key)
-		}
+	// Encoder row exposes stream_id.
+	enc := byID["encoder:canvas"]
+	if enc.StreamID != "canvas" {
+		t.Errorf("encoder stream_id = %q, want canvas", enc.StreamID)
+	}
+	if enc.PID == 0 {
+		t.Errorf("encoder should have a PID")
 	}
 
 	// Sorted output.

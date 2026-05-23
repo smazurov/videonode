@@ -101,6 +101,14 @@ func makeEncoderSelectorFunc(encoderSelector encoders.Selector, logger logging.L
 
 // makeDeviceResolver creates the device resolver function for the processor.
 func makeDeviceResolver(logger logging.Logger) func(string) string {
+	return MakeDeviceResolver(logger)
+}
+
+// MakeDeviceResolver is the exported variant used by the pipeline
+// package's Pipeline.Config (which lives outside the streams package).
+// Returns a function mapping opaque device ids to canonical /dev/videoN
+// paths, or "" when resolution fails.
+func MakeDeviceResolver(logger logging.Logger) func(string) string {
 	return func(deviceID string) string {
 		devicePath, err := devices.ResolveDevicePath(deviceID)
 		if err != nil {
