@@ -4,6 +4,7 @@
 #include "src/common/flags_compat.hpp"
 #include "src/common/signal.hpp"
 #include "src/source/orchestrator.hpp"
+#include "src/source/orchestrator_flags.hpp"
 #include "version.hpp"
 
 #include <absl/flags/parse.h>
