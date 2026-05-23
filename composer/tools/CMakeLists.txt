@@ -7,7 +7,7 @@ vn_add_probe(dma-probe         DEPS dma_heap)
 vn_add_probe(source-probe      DEPS dma_heap fake_source)
 
 if(HAVE_GBM)
-    vn_add_probe(egl-probe             DEPS gles_bundle)
+    vn_add_probe(egl-probe             DEPS egl_ctx gles_bundle)
     vn_add_probe(import-probe          DEPS dma_heap fake_source egl_ctx gles_bundle)
     # compose-probe and live-compose-probe use the old single-EGLImage NV12
     # gl_compose API; they're temporarily disabled while gl_compose runs the
