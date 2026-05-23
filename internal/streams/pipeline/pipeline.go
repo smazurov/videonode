@@ -162,6 +162,9 @@ func (p *Pipeline) Apply(s Stream) error {
 	mu.Lock()
 	defer mu.Unlock()
 
+	if p.cfg.DeviceResolver == nil {
+		return errors.New("pipeline: Config.DeviceResolver is nil")
+	}
 	// Resolve device paths up front so we fail fast on unknown devices.
 	devices := make([]string, 0, len(s.Inputs))
 	devicePaths := make(map[string]string, len(s.Inputs))
@@ -199,19 +202,17 @@ func (p *Pipeline) Apply(s Stream) error {
 	p.stopReleasedProducers(delta.ToStop)
 
 	// Step 2: Composer engage/disengage.
-	composerSock := ""
-	if NeedsComposer(s) {
-		comp := p.ensureComposer(s)
-		if err := p.startStage(comp); err != nil {
-			return fmt.Errorf("pipeline: start composer %s: %w", comp.ID(), err)
-		}
-		composerSock = comp.SCMOutSocketPath()
-	} else {
-		p.stopComposerIfRunning(s.ID)
-	}
+	// Inline-composer mode: composer is bundled into the encoder shell
+	// pipe (`composer | ffmpeg`) instead of running as a separate pool
+	// entry. Works around the GBM-allocated-BGRA cross-process mmap
+	// kernel limitation (vn-sink reports ENOSYS on the dma-buf fd).
+	// Composer's gRPC control plane still works the same — daemon
+	// dials the UDS regardless of who's its parent.
+	p.stopComposerIfRunning(s.ID) // no separate composer pool entry today
 
-	// Step 3: Build / restart the encoder.
-	enc, err := p.buildEncoder(s, composerSock)
+	// Step 3: Build / restart the encoder. Inline composer is wired
+	// inside buildEncoder when NeedsComposer(s).
+	enc, err := p.buildEncoderInline(s)
 	if err != nil {
 		return fmt.Errorf("pipeline: build encoder %s: %w", s.ID, err)
 	}
@@ -220,6 +221,40 @@ func (p *Pipeline) Apply(s Stream) error {
 		return fmt.Errorf("pipeline: start encoder %s: %w", enc.ID(), err)
 	}
 	return nil
+}
+
+// buildEncoderInline picks the right FrameSource:
+//   - NeedsComposer(s): InlineComposerFrameSource (composer is a child
+//     of the encoder shell pipe; daemon orchestrates via gRPC UDS)
+//   - else: ProducerFrameSource (vn-sink dials producer SCM directly)
+func (p *Pipeline) buildEncoderInline(s Stream) (*EncoderStage, error) {
+	var video FrameSource
+	switch {
+	case NeedsComposer(s):
+		w, h := canvasDimsHint(s)
+		composerID := ComposerIDFor(s.ID)
+		video = InlineComposerFrameSource{
+			ComposerBin: p.cfg.VNComposerBin,
+			DRMDevice:   p.cfg.DRMDevice,
+			GrpcUds:     GrpcSocketPathFor("composer", composerID),
+			ComposerID:  composerID,
+			Width:       w,
+			Height:      h,
+			Fps:         parseFPSHintWithDefault(s, 30),
+		}
+	case len(s.Inputs) == 1:
+		video = ProducerFrameSource{Socket: SCMSocketPathFor(s.Inputs[0].Device)}
+	default:
+		return nil, errors.New("encoder build: 0 inputs and no composer — nothing to encode")
+	}
+	return &EncoderStage{
+		StreamID_:         s.ID,
+		Media:             MediaSource{Video: video, Audio: ALSADirectAudio{Config: s.Audio}},
+		Cfg:               s.Encoder,
+		Publish:           s.Publish,
+		CustomEncoderArgs: s.CustomEncoderArgs,
+		VNSinkBin:         p.cfg.VNSinkBin,
+	}, nil
 }
 
 // heldDevicesExcluding returns the device set this consumer would

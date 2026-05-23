@@ -121,7 +121,9 @@ func TestPipeline_NeedsComposerPickerDecidesTopology(t *testing.T) {
 		t.Error("producer for dev-a should be running")
 	}
 
-	// Two-input stream → composer expected
+	// Two-input stream → composer expected (inline composer mode: the
+	// composer process runs as a child of encoder:two's shell pipe, so
+	// no separate composer:two pool entry, but encoder:two should be up).
 	if err := p.Apply(Stream{
 		ID: "two",
 		Inputs: []InputRef{
@@ -132,8 +134,11 @@ func TestPipeline_NeedsComposerPickerDecidesTopology(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("two Apply: %v", err)
 	}
-	if !waitRunning(p, ComposerPoolKey("two")) {
-		t.Error("composer should be running for N=2 stream")
+	if !waitRunning(p, "encoder:two") {
+		t.Error("encoder for two should be running")
+	}
+	if p.Pool().IsRunning(ComposerPoolKey("two")) {
+		t.Error("composer should NOT be a separate pool entry in inline mode")
 	}
 }
 
@@ -183,17 +188,12 @@ func TestPipeline_DeleteStopsComposerAndEncoder(t *testing.T) {
 		},
 		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/c"}},
 	}))
-	if !waitRunning(p, "composer:canvas") {
-		t.Fatal("setup: composer should be running")
-	}
+	// Inline-composer mode: no separate composer:canvas pool entry.
 	if !waitRunning(p, "encoder:canvas") {
 		t.Fatal("setup: encoder should be running")
 	}
 	must(t, p.Delete("canvas"))
-	if p.Pool().IsRunning("composer:canvas") {
-		t.Error("composer should be stopped post-Delete")
-	}
-	if waitRunning(p, "encoder:canvas") {
+	if p.Pool().IsRunning("encoder:canvas") {
 		t.Error("encoder should be stopped post-Delete")
 	}
 }

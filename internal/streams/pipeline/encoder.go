@@ -36,6 +36,41 @@ func (e *EncoderStage) Kind() Kind { return KindEncoder }
 // StreamID returns the user-facing stream id.
 func (e *EncoderStage) StreamID() string { return e.StreamID_ }
 
+// composerInlineArgv returns the argv that should be the FIRST half of
+// the shell pipe when the encoder bundles its own composer (inline
+// composer mode). Returns nil for non-inline FrameSources.
+//
+// Seeds the composer's pre-ready canvas with --canvas-w / --canvas-h
+// so the very first frame emitted matches what ffmpeg's `-s WxH` is
+// expecting on the receive side. Without that, composer defaults to
+// 1280x720 BGRA frames, ffmpeg parses them at 1920x1080-byte windows,
+// and produces no valid output until the daemon's SetCanvas RPC lands
+// (which can take longer than the smoke window allows).
+func composerInlineArgv(fs FrameSource) []string {
+	icfs, ok := fs.(InlineComposerFrameSource)
+	if !ok {
+		return nil
+	}
+	fps := icfs.Fps
+	if fps <= 0 {
+		fps = 30
+	}
+	argv := []string{
+		icfs.ComposerBin,
+		"--drm-device", icfs.DRMDevice,
+		"--grpc-listen", icfs.GrpcUds,
+		"--composer-id", icfs.ComposerID,
+		"--target-fps", strconv.Itoa(fps),
+	}
+	if icfs.Width > 0 && icfs.Height > 0 {
+		argv = append(argv,
+			"--canvas-w", strconv.Itoa(icfs.Width),
+			"--canvas-h", strconv.Itoa(icfs.Height),
+		)
+	}
+	return argv
+}
+
 // Command builds the shell command `vn-sink --socket X | ffmpeg ...`.
 // VN-sink's auto-detection (NV12 → Y4M vs BGRA → raw) means the ffmpeg
 // input args differ per FrameSource kind; the rest of the encoder argv
@@ -50,17 +85,26 @@ func (e *EncoderStage) Command() ([]string, []string, error) {
 	if e.Media.Video == nil {
 		return nil, nil, errors.New("encoder: media.video is nil")
 	}
-	if e.Media.Video.SocketPath() == "" {
-		return nil, nil, errors.New("encoder: media.video has no socket path")
-	}
-	if e.VNSinkBin == "" {
-		return nil, nil, errors.New("encoder: VNSinkBin path is required")
-	}
 	if e.CustomEncoderArgs == "" && len(e.Publish) == 0 {
 		return nil, nil, errors.New("encoder: at least one PublishTarget is required")
 	}
 
-	sinkArgv := []string{e.VNSinkBin, "--socket", e.Media.Video.SocketPath()}
+	// Inline-composer mode: encoder spawns composer as the first half
+	// of the shell pipe. Skip vn-sink entirely; composer writes BGRA
+	// rawvideo to its stdout which the encoder ffmpeg consumes.
+	inlineArgv := composerInlineArgv(e.Media.Video)
+	var sinkArgv []string
+	if inlineArgv != nil {
+		sinkArgv = inlineArgv
+	} else {
+		if e.Media.Video.SocketPath() == "" {
+			return nil, nil, errors.New("encoder: media.video has no socket path")
+		}
+		if e.VNSinkBin == "" {
+			return nil, nil, errors.New("encoder: VNSinkBin path is required")
+		}
+		sinkArgv = []string{e.VNSinkBin, "--socket", e.Media.Video.SocketPath()}
+	}
 
 	// Daemon-owned input fragment. Custom args (when present) take
 	// over from -c:v onward but never touch the input plumbing.

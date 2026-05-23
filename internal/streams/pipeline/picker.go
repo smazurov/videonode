@@ -13,6 +13,9 @@ package pipeline
 // Encoder restart — the encoder's input topology changes between
 // producer-NV12-Y4M and composer-BGRA-raw).
 func NeedsComposer(s Stream) bool {
+	if s.ForceComposer {
+		return true
+	}
 	if len(s.Inputs) > 1 {
 		return true
 	}

@@ -73,6 +73,28 @@ func (c ComposerFrameSource) SocketPath() string { return c.Socket }
 func (c ComposerFrameSource) Dims() (int, int)   { return c.Width, c.Height }
 func (c ComposerFrameSource) FPS() int           { return c.Fps }
 
+// InlineComposerFrameSource — encoder spawns composer as a child
+// process in its shell pipe (`composer | ffmpeg`) instead of dialing
+// a separate composer's SCM socket. Used as a fallback on kernels
+// where the GBM-allocated BGRA dma-buf can't be mmap'd cross-process
+// (vn-sink reports ENOSYS). The composer's gRPC control plane still
+// works the same way — daemon dials the UDS regardless of who's the
+// composer's parent process.
+type InlineComposerFrameSource struct {
+	ComposerBin string
+	DRMDevice   string
+	GrpcUds     string
+	ComposerID  string
+	Width       int
+	Height      int
+	Fps         int
+}
+
+func (i InlineComposerFrameSource) Kind() FrameKind    { return FrameKindBGRARaw }
+func (i InlineComposerFrameSource) SocketPath() string { return "" }
+func (i InlineComposerFrameSource) Dims() (int, int)   { return i.Width, i.Height }
+func (i InlineComposerFrameSource) FPS() int           { return i.Fps }
+
 // AudioSource emits the encoder's audio-input argv fragment. Today the
 // only impl is ALSADirectAudio (opens ALSA from the ffmpeg process);
 // future audio fanout via the producer adds a sibling impl without

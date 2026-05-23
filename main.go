@@ -233,34 +233,36 @@ func main() {
 		}
 
 		// Create stream service
+		// Construct pipeline.Pipeline as the canonical process supervisor.
+		// Replaces the legacy streamProcessManager + processor +
+		// canvasProcessor + producerManager stack with a unified
+		// Producer→Composer→Encoder model. The legacy stack is gone;
+		// existing /api/streams CRUD flows through Pipeline via
+		// pipelineProcessManager (the translation layer).
+		nativePipeline := pipeline.New(pipeline.Config{
+			VNSourceBin:    native.V4L2Source,
+			VNComposerBin:  native.Composer,
+			VNSinkBin:      native.VNSink,
+			DRMDevice:      "/dev/dri/renderD128",
+			DeviceResolver: streams.MakeDeviceResolver(logger),
+			EventBus:       eventBus,
+		}, logger)
+
 		serviceOpts := &streams.ServiceOptions{
 			Store:            streamStore,
 			EventBus:         eventBus,
 			VisionDefaultFPS: opts.VisionDefaultFPS,
 			Native:           native,
 			RTSPPort:         opts.StreamingRTSPPort,
+			ProcessManager: streams.NewPipelineProcessManager(
+				nativePipeline, streamStore, ctlServer, opts.StreamingRTSPPort,
+			),
 		}
 		if ctlServer != nil {
 			serviceOpts.ControlServer = ctlServer
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)
-
-		// Construct the new pipeline.Pipeline alongside the legacy
-		// streamService. Today the pipeline is observable via
-		// GET /api/processes (read-only); future work routes API CRUD
-		// through pipeline.Apply / pipeline.Delete instead of through
-		// the legacy stream-processor stack. Spawning is on-demand —
-		// no producer/composer/encoder boots until a stream calls
-		// Pipeline.Apply, so wiring it here is zero-cost when unused.
-		nativePipeline := pipeline.New(pipeline.Config{
-			VNSourceBin:    native.V4L2Source,
-			VNComposerBin:  native.Composer,
-			VNSinkBin:      native.VNSink,
-			DRMDevice:      "/dev/dri/renderD128",
-			DeviceResolver: nil, // wired below once devices.Detector is available
-			EventBus:       eventBus,
-		}, logger)
 
 		// Load existing streams from TOML config into memory at startup
 		// This must happen after stream service is created so OBS callbacks are registered

@@ -23,6 +23,7 @@
 #include "src/render/composer_service.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/render/world.hpp"
+#include "src/rpc/composer_rpc.hpp"
 #include "src/rpc/grpc_server.hpp"
 #include "version.hpp"
 
@@ -55,6 +56,14 @@ struct Args {
     std::string scm_out;
     int run_seconds = 0; // 0 = until SIGINT / stdout EPIPE
     int target_fps = 30; // pre-ready tick rate; once ready, snapshot.canvas_fps wins
+    // canvas_w / canvas_h are the pre-ready canvas dims, overriding
+    // the built-in 1280x720 default. When the daemon's SetCanvas RPC
+    // lands, snapshot dims take over — but until then, downstream
+    // ffmpeg consumers reading at `-s WxH` need composer to emit at
+    // those dims from the very first frame, or the byte stream is
+    // misaligned and ffmpeg produces no valid output.
+    int canvas_w = 0;
+    int canvas_h = 0;
 };
 
 void print_help(const Args& d) {
@@ -73,6 +82,10 @@ void print_help(const Args& d) {
            "closes)\n"
            "  --target-fps N         pre-ready (no canvas yet) tick rate (default %d); once daemon\n"
            "                           sends SetCanvas the snapshot's canvas_fps takes over\n"
+           "  --canvas-w W           seed canvas width (default 1280); daemon's SetCanvas can\n"
+           "                           override. Set when downstream ffmpeg consumes at fixed\n"
+           "                           dims (-s WxH) to avoid first-frame size mismatches.\n"
+           "  --canvas-h H           seed canvas height (default 720); see --canvas-w.\n"
            "  --version              print version and exit\n"
            "\n"
            "Output modes (pick exactly one path):\n"
@@ -120,6 +133,10 @@ int main(int argc, char** argv) {
             i = eat_int(i, a.run_seconds);
         else if (s == "--target-fps")
             i = eat_int(i, a.target_fps);
+        else if (s == "--canvas-w")
+            i = eat_int(i, a.canvas_w);
+        else if (s == "--canvas-h")
+            i = eat_int(i, a.canvas_h);
         else if (s == "-h" || s == "--help") {
             print_help(d);
             return 0;
@@ -166,6 +183,23 @@ int main(int argc, char** argv) {
         vn::log::warn("videonode-composer: control plane disabled "
                       "(missing --grpc-listen / --composer-id) — "
                       "composer will render black until SIGINT");
+    }
+
+    // Seed the World with the requested pre-ready canvas dims so the
+    // very first frame is the correct size for the downstream encoder.
+    // SetCanvas RPC from the daemon will later refresh these if it
+    // disagrees. Required for inline-composer mode where the encoder's
+    // ffmpeg input is invoked with `-s WxH` matching these dims.
+    if (a.canvas_w > 0 && a.canvas_h > 0) {
+        composer_rpc::SetCanvasRequest seed;
+        seed.w = uint32_t(a.canvas_w);
+        seed.h = uint32_t(a.canvas_h);
+        seed.fps = uint32_t(a.target_fps);
+        composer_rpc::ParseError seed_err;
+        if (!world.apply_set_canvas(seed, seed_err)) {
+            vn::log::warn("videonode-composer: seed canvas %dx%d rejected: %s",
+                          a.canvas_w, a.canvas_h, seed_err.message.c_str());
+        }
     }
 
     int frames =
