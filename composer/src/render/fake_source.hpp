@@ -49,7 +49,7 @@ class FakeSource {
     // sweeps horizontally over ~3 seconds at 30fps.
     void tick(int frame_idx);
 
-    int dmabuf_fd() const { return buf_.fd; }
+    int dmabuf_fd() const { return buf_.fd.get(); }
     int width() const { return w_; }
     int height() const { return h_; }
     size_t size() const { return buf_.size; }

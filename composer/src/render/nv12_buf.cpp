@@ -176,8 +176,8 @@ Buffer Allocator::alloc(int width, int height) {
         impl->bo = dmaheap::alloc(dmaheap::kHeapSystem, sz);
     if (!impl->bo.valid())
         return out;
-    out.y_fd = impl->bo.fd;
-    out.uv_fd = impl->bo.fd; // same fd, different offsets
+    out.y_fd = impl->bo.fd.get();
+    out.uv_fd = impl->bo.fd.get(); // same fd, different offsets
     out.y_offset = 0;
     out.uv_offset = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
     out.y_pitch = static_cast<uint32_t>(width);

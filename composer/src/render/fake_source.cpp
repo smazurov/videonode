@@ -27,10 +27,10 @@ bool FakeSource::init(int width, int height, Color square_color, std::string_vie
     color_ = square_color;
 
     // Initialize to all-black so the first frame is well-defined even before tick().
-    dmaheap::sync_start(buf_.fd, dmaheap::SyncDir::Write);
+    dmaheap::sync_start(buf_.fd.get(), dmaheap::SyncDir::Write);
     std::memset(map_, 16, static_cast<size_t>(w_) * h_);                // Y plane = 16 (black)
     std::memset(map_ + w_ * h_, 128, static_cast<size_t>(w_) * h_ / 2); // UV plane = neutral
-    dmaheap::sync_end(buf_.fd, dmaheap::SyncDir::Write);
+    dmaheap::sync_end(buf_.fd.get(), dmaheap::SyncDir::Write);
     return true;
 }
 
@@ -84,7 +84,7 @@ void FakeSource::tick(int frame_idx) {
     std::span<uint8_t> y_plane(map_, y_size);
     std::span<uint8_t> uv_plane(map_ + y_size, uv_size);
 
-    dmaheap::sync_start(buf_.fd, dmaheap::SyncDir::Write);
+    dmaheap::sync_start(buf_.fd.get(), dmaheap::SyncDir::Write);
 
     // Reset to black background.
     std::memset(y_plane.data(), 16, y_plane.size());
@@ -107,7 +107,7 @@ void FakeSource::tick(int frame_idx) {
     fill_y(y_plane, w_, h_, 0, 0, bar_w, 24, color_.y);
     fill_uv(uv_plane, w_, h_, 0, 0, bar_w, 24, color_.u, color_.v);
 
-    dmaheap::sync_end(buf_.fd, dmaheap::SyncDir::Write);
+    dmaheap::sync_end(buf_.fd.get(), dmaheap::SyncDir::Write);
 }
 
 } // namespace fake_source
