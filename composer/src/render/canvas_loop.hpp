@@ -28,6 +28,7 @@
 #pragma once
 
 #include <atomic>
+#include <string>
 
 namespace egl_ctx {
 class EglCtx;
@@ -39,14 +40,23 @@ class World;
 namespace render {
 
 // Render at the target frame rate until `running` goes false, the
-// composer's stdout closes (EPIPE), or `run_seconds` (if non-zero)
-// elapses.
+// composer's stdout closes (EPIPE in stdout mode) or all SCM consumers
+// hang up after running once (SCM mode is fanout-tolerant), or
+// `run_seconds` (if non-zero) elapses.
 //
 // `target_fps` is the loop's tick rate; `world.snapshot().canvas_fps`
 // is preferred once ready, but until then we tick at this rate.
 //
+// `scm_out_path` selects the output mode:
+//   - empty       → legacy: BGRA bytes go to stdout (pipe to ffmpeg)
+//   - non-empty   → SCM_RIGHTS: listen on the path, broadcast canvas
+//                   dma-buf fd + dmabuf_header::Header to all consumers
+//                   (vn-sink → ffmpeg, etc.). Decouples composer lifetime
+//                   from any one consumer; encoder restart no longer kills
+//                   the composer via EPIPE.
+//
 // Returns the number of frames rendered (placeholder + real).
 int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
-                  std::atomic<bool>& running);
+                  std::atomic<bool>& running, const std::string& scm_out_path = "");
 
 } // namespace render

@@ -89,11 +89,13 @@ if(HAVE_GBM)
         SOURCES gl_compose.cpp
         PUBLIC_DEPS egl_ctx gles_bundle)
 
-    # canvas_loop: composer compose-render-stdout loop, extracted from
-    # videonode_composer_main.cpp so the binary stays argv-only. Reads
-    # state from `world` (mutated by the gRPC service handlers on their
-    # own thread). Owns ScmRightsSource per slot internally.
+    # canvas_loop: composer compose-render-stdout-or-SCM loop, extracted
+    # from videonode_composer_main.cpp so the binary stays argv-only.
+    # Reads state from `world` (mutated by the gRPC service handlers on
+    # their own thread). Owns ScmRightsSource per slot (consumer side)
+    # plus an optional ScmRightsProducer for SCM canvas output.
     vn_add_library(canvas_loop
         SOURCES canvas_loop.cpp
-        PUBLIC_DEPS gl_compose egl_ctx scm_rights_source world gbm_alloc)
+        PUBLIC_DEPS gl_compose egl_ctx scm_rights_source scm_rights_producer dmabuf_header world
+                    gbm_alloc)
 endif()
