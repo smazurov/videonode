@@ -23,10 +23,12 @@
 // the downstream ffmpeg invocation accordingly.
 
 #include "src/common/log_levels.hpp"
+#include "src/common/signal.hpp"
 #include "src/ipc/scm_rights_source.hpp"
 #include "src/process/y4m_writer.hpp"
 #include "version.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
@@ -43,10 +45,7 @@
 
 namespace {
 
-volatile std::sig_atomic_t g_running = 1;
-void on_sig(int) {
-    g_running = 0;
-}
+std::atomic<bool> g_running{true};
 
 // write_full retries until all bytes are flushed or the consumer closes.
 // Used for the raw-BGRA path; the Y4M path lives in vn::process::Y4mWriter.
@@ -268,9 +267,7 @@ int main(int argc, char** argv) {
     // lines are visible to `tail -f` immediately.
     ::setvbuf(stderr, nullptr, _IOLBF, 0);
 
-    std::signal(SIGINT, on_sig);
-    std::signal(SIGTERM, on_sig);
-    std::signal(SIGPIPE, SIG_IGN);
+    vn::signal::install_shutdown(g_running);
 
     scm_rights_source::ScmRightsSource src;
     scm_rights_source::InitParams p;
@@ -290,7 +287,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<vn::process::Y4mWriter> y4m;
     auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(a.first_frame_timeout_s);
-    while (g_running) {
+    while (g_running.load()) {
         auto v = src.latest_frame();
         if (v.fd < 0 || v.frame_idx == 0) {
             if (std::chrono::steady_clock::now() > deadline) {
