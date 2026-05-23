@@ -43,8 +43,8 @@ Nv12Image import_nv12_(const egl_ctx::EglCtx& ctx, const ffmpeg_pipe_source::Fra
     dy.modifier = DRM_FORMAT_MOD_LINEAR;
     dy.width = v.width;
     dy.height = v.height;
-    dy.plane0_offset = v.plane0_offset;
-    dy.plane0_pitch = v.plane0_pitch;
+    dy.plane0_offset = static_cast<int>(v.plane0_offset);
+    dy.plane0_pitch = static_cast<int>(v.plane0_pitch);
     im.y = ctx.import_dmabuf(dy);
     if (im.y == EGL_NO_IMAGE)
         return im;
@@ -55,8 +55,8 @@ Nv12Image import_nv12_(const egl_ctx::EglCtx& ctx, const ffmpeg_pipe_source::Fra
     duv.modifier = DRM_FORMAT_MOD_LINEAR;
     duv.width = v.width / 2;
     duv.height = v.height / 2;
-    duv.plane0_offset = v.plane1_offset;
-    duv.plane0_pitch = v.plane1_pitch;
+    duv.plane0_offset = static_cast<int>(v.plane1_offset);
+    duv.plane0_pitch = static_cast<int>(v.plane1_pitch);
     im.uv = ctx.import_dmabuf(duv);
     if (im.uv == EGL_NO_IMAGE) {
         eglDestroyImage(ctx.display(), im.y);
