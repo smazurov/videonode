@@ -1,9 +1,10 @@
 #include "src/rpc/grpc_server.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <grpcpp/grpcpp.h>
 
 #include <cerrno>
-#include <cstdio>
 #include <cstring>
 #include <unistd.h>
 
@@ -15,10 +16,9 @@ GrpcServer::~GrpcServer() {
     Shutdown();
 }
 
-bool GrpcServer::Start(const std::string& uds_path,
-                       const std::vector<grpc::Service*>& services) {
+bool GrpcServer::Start(const std::string& uds_path, const std::vector<grpc::Service*>& services) {
     if (uds_path.empty()) {
-        fprintf(stderr, "grpc_server: empty uds path\n");
+        vn::log::error("grpc_server: empty uds path");
         return false;
     }
     // Best-effort unlink of a stale socket. If a real server is listening
@@ -26,8 +26,8 @@ bool GrpcServer::Start(const std::string& uds_path,
     // crash after an unclean shutdown.
     if (::access(uds_path.c_str(), F_OK) == 0) {
         if (::unlink(uds_path.c_str()) != 0) {
-            fprintf(stderr, "grpc_server: unlink(%s) failed: %s\n", uds_path.c_str(),
-                    std::strerror(errno));
+            vn::log::warn("grpc_server: unlink(%s) failed: %s", uds_path.c_str(),
+                          std::strerror(errno));
             // continue anyway — bind will tell us if it's a real problem
         }
     }
@@ -39,7 +39,7 @@ bool GrpcServer::Start(const std::string& uds_path,
     }
     server_ = builder.BuildAndStart();
     if (!server_) {
-        fprintf(stderr, "grpc_server: BuildAndStart failed on %s\n", uds_path.c_str());
+        vn::log::error("grpc_server: BuildAndStart failed on %s", uds_path.c_str());
         return false;
     }
     uds_path_ = uds_path;
@@ -49,7 +49,7 @@ bool GrpcServer::Start(const std::string& uds_path,
         server_->Wait();
         running_.store(false);
     });
-    fprintf(stderr, "grpc_server: listening on unix:%s\n", uds_path.c_str());
+    vn::log::info("grpc_server: listening on unix:%s", uds_path.c_str());
     return true;
 }
 

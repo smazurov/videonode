@@ -1,12 +1,13 @@
 #include "src/render/gl_compose.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <EGL/eglext.h>
 #include <GLES2/gl2ext.h>
 #include <drm_fourcc.h>
 #include <gbm.h>
 #include <unistd.h>
 
-#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -79,7 +80,7 @@ GLuint compile_(GLenum type, std::string_view src) {
     if (!ok) {
         char log[1024];
         glGetShaderInfoLog(s, sizeof(log), nullptr, log);
-        fprintf(stderr, "gl_compose: shader compile fail: %s\n", log);
+        vn::log::error("gl_compose: shader compile fail: %s", log);
         glDeleteShader(s);
         return 0;
     }
@@ -106,7 +107,7 @@ bool GlCompose::build_program_(std::string_view vs_src, std::string_view fs_src)
     if (!linked) {
         char log[1024];
         glGetProgramInfoLog(prog_, sizeof(log), nullptr, log);
-        fprintf(stderr, "gl_compose: program link fail: %s\n", log);
+        vn::log::error("gl_compose: program link fail: %s", log);
         return false;
     }
 
@@ -118,7 +119,7 @@ bool GlCompose::build_program_(std::string_view vs_src, std::string_view fs_src)
     loc_src_uv_ = glGetUniformLocation(prog_, "u_src_uv");
     if (attr_pos_ < 0 || attr_uv_ < 0 || loc_canvas_size_ < 0 || loc_warp_ < 0 || loc_src_y_ < 0 ||
         loc_src_uv_ < 0) {
-        fprintf(stderr, "gl_compose: attribute/uniform location missing\n");
+        vn::log::error("gl_compose: attribute/uniform location missing");
         return false;
     }
     return true;
@@ -128,7 +129,7 @@ bool GlCompose::make_canvas_(int w, int h) {
     canvas_bo_ = gbm_bo_create(ctx_->gbm(), w, h, GBM_FORMAT_ARGB8888,
                                GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
     if (!canvas_bo_) {
-        fprintf(stderr, "gl_compose: gbm_bo_create canvas %dx%d\n", w, h);
+        vn::log::error("gl_compose: gbm_bo_create canvas %dx%d", w, h);
         return false;
     }
     canvas_stride_ = gbm_bo_get_stride(canvas_bo_);
@@ -144,7 +145,7 @@ bool GlCompose::make_canvas_(int w, int h) {
     d.plane0_pitch = canvas_stride_;
     canvas_img_ = ctx_->import_dmabuf(d);
     if (canvas_img_ == EGL_NO_IMAGE) {
-        fprintf(stderr, "gl_compose: canvas import_dmabuf\n");
+        vn::log::error("gl_compose: canvas import_dmabuf");
         return false;
     }
 
@@ -152,7 +153,7 @@ bool GlCompose::make_canvas_(int w, int h) {
     glBindRenderbuffer(GL_RENDERBUFFER, rbo_);
     pfn_image_to_rb(GL_RENDERBUFFER, canvas_img_);
     if (glGetError() != GL_NO_ERROR) {
-        fprintf(stderr, "gl_compose: image->RBO\n");
+        vn::log::error("gl_compose: image->RBO");
         return false;
     }
 
@@ -160,7 +161,7 @@ bool GlCompose::make_canvas_(int w, int h) {
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo_);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        fprintf(stderr, "gl_compose: canvas FBO incomplete\n");
+        vn::log::error("gl_compose: canvas FBO incomplete");
         return false;
     }
     return true;
@@ -176,7 +177,7 @@ bool GlCompose::init(egl_ctx::EglCtx& ctx, int canvas_w, int canvas_h) {
     pfn_image_to_rb = (PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC)eglGetProcAddress(
         "glEGLImageTargetRenderbufferStorageOES");
     if (!pfn_image_to_tex || !pfn_image_to_rb) {
-        fprintf(stderr, "gl_compose: missing GL_OES_EGL_image_external entry points\n");
+        vn::log::error("gl_compose: missing GL_OES_EGL_image_external entry points");
         return false;
     }
 
@@ -279,7 +280,7 @@ bool GlCompose::render(const std::vector<SourceSlot>& slots) {
 
     GLenum e = glGetError();
     if (e != GL_NO_ERROR) {
-        fprintf(stderr, "gl_compose: glError 0x%x\n", e);
+        vn::log::error("gl_compose: glError 0x%x", e);
         return false;
     }
     return true;

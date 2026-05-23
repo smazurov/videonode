@@ -1,8 +1,8 @@
 #include "src/render/nv12_buf.hpp"
 
+#include "src/common/log_levels.hpp"
 #include "src/ipc/dma_heap.hpp"
 
-#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <sys/mman.h>
@@ -106,7 +106,7 @@ Allocator::~Allocator() = default;
 bool Allocator::init(gbm_device* gbm) {
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
     if (!gbm) {
-        std::fprintf(stderr, "nv12_buf: gbm backend requires a gbm_device\n");
+        vn::log::error("nv12_buf: gbm backend requires a gbm_device");
         return false;
     }
     gbm_ = gbm;
@@ -121,7 +121,7 @@ bool Allocator::init(gbm_device* gbm) {
 Buffer Allocator::alloc(int width, int height) {
     Buffer out;
     if (!gbm_) {
-        std::fprintf(stderr, "nv12_buf::alloc: gbm backend not initialized\n");
+        vn::log::error("nv12_buf::alloc: gbm backend not initialized");
         return out;
     }
     auto impl = std::make_unique<GbmImpl>();

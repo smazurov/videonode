@@ -1,8 +1,9 @@
 #include "src/process/child_process.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <cerrno>
 #include <csignal>
-#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <spawn.h>
@@ -17,7 +18,7 @@ SpawnResult spawn(const std::string& program, const std::vector<std::string>& ar
                   Direction direction) {
     int pipefd[2];
     if (::pipe2(pipefd, O_CLOEXEC) < 0) {
-        fprintf(stderr, "child_process: pipe2: %s\n", strerror(errno));
+        vn::log::error("child_process: pipe2: %s", strerror(errno));
         return {};
     }
     int read_end = pipefd[0];
@@ -62,7 +63,7 @@ SpawnResult spawn(const std::string& program, const std::vector<std::string>& ar
 
     if (rc != 0) {
         ::close(parent_end);
-        fprintf(stderr, "child_process: posix_spawnp(%s): %s\n", program.c_str(), strerror(rc));
+        vn::log::error("child_process: posix_spawnp(%s): %s", program.c_str(), strerror(rc));
         return {};
     }
     return {.pid = pid, .pipe_fd = parent_end};

@@ -1,7 +1,8 @@
 #include "src/render/egl_ctx.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <cerrno>
-#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <gbm.h>
@@ -14,8 +15,7 @@ namespace {
 
 #define DIE_F(...)                                                                                 \
     do {                                                                                           \
-        fprintf(stderr, "egl_ctx: " __VA_ARGS__);                                                  \
-        fprintf(stderr, "\n");                                                                     \
+        vn::log::error("egl_ctx: " __VA_ARGS__);                                                   \
         return false;                                                                              \
     } while (0)
 
@@ -138,8 +138,8 @@ EGLImage EglCtx::import_dmabuf(const ImageDesc& d) const {
     EGLImage img = eglCreateImage(dpy_, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT,
                                   (EGLClientBuffer) nullptr, attrs);
     if (img == EGL_NO_IMAGE) {
-        fprintf(stderr, "egl_ctx: eglCreateImage failed (fourcc=0x%08x w=%d h=%d)\n", d.fourcc,
-                d.width, d.height);
+        vn::log::error("egl_ctx: eglCreateImage failed (fourcc=0x%08x w=%d h=%d)", d.fourcc,
+                       d.width, d.height);
     }
     return img;
 }

@@ -1,7 +1,8 @@
 #include "src/render/fake_source.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <algorithm>
-#include <cstdio>
 #include <cstring>
 #include <span>
 
@@ -9,7 +10,7 @@ namespace fake_source {
 
 bool FakeSource::init(int width, int height, Color square_color, std::string_view heap_name) {
     if (width <= 0 || height <= 0 || (width & 1) || (height & 1)) {
-        fprintf(stderr, "fake_source: invalid dims %dx%d (must be even)\n", width, height);
+        vn::log::error("fake_source: invalid dims %dx%d (must be even)", width, height);
         return false;
     }
     size_t size = static_cast<size_t>(width) * height * 3 / 2;
