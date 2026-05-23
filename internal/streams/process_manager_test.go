@@ -53,6 +53,16 @@ func (m *mockPool) IsRunning(id string) bool {
 	defer m.mu.Unlock()
 	return m.runningIDs[id]
 }
+func (m *mockPool) SetKind(_, _ string) {}
+func (m *mockPool) IDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.runningIDs))
+	for id := range m.runningIDs {
+		out = append(out, id)
+	}
+	return out
+}
 func (m *mockPool) StopAll() {}
 
 func newTestManager(pool process.Pool) *streamProcessManager {

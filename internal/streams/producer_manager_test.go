@@ -46,6 +46,8 @@ func (p *recPool) Stop(id string) error {
 func (p *recPool) Restart(_ string) error            { return nil }
 func (p *recPool) IsRunning(_ string) bool           { return false }
 func (p *recPool) GetStatus(id string) *process.Info { return &process.Info{ID: id} }
+func (p *recPool) SetKind(_, _ string)               {}
+func (p *recPool) IDs() []string                     { return nil }
 func (p *recPool) StopAll()                          {}
 
 func sampleSpec(deviceID, path string) ProducerSpec {
