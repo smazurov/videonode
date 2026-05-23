@@ -11,6 +11,7 @@
 // downstream (the daemon already knows the dims it asked the source for,
 // so this is purely a sanity log).
 
+#include "src/common/log_levels.hpp"
 #include "src/ipc/scm_rights_source.hpp"
 #include "version.hpp"
 
@@ -60,7 +61,7 @@ bool emit_frame(const scm_rights_source::FrameView& v, std::vector<uint8_t>& upl
     size_t uv_size = y_size / 2;
     void* m = ::mmap(nullptr, y_size + uv_size, PROT_READ, MAP_SHARED, v.fd, 0);
     if (m == MAP_FAILED) {
-        fprintf(stderr, "videonode-sink: mmap fd=%d failed: %s\n", v.fd, strerror(errno));
+        vn::log::error("videonode-sink: mmap fd=%d failed: %s", v.fd, strerror(errno));
         return true;
     }
     const auto* y = static_cast<const uint8_t*>(m);
@@ -80,7 +81,7 @@ bool emit_frame(const scm_rights_source::FrameView& v, std::vector<uint8_t>& upl
               write_full(STDOUT_FILENO, std::span<const uint8_t>(vplane));
     ::munmap(m, y_size + uv_size);
     if (!ok) {
-        fprintf(stderr, "videonode-sink: stdout closed, exiting\n");
+        vn::log::info("videonode-sink: stdout closed, exiting");
         return false;
     }
     return true;
