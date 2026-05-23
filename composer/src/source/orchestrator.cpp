@@ -22,6 +22,7 @@
 
 #include "control/common.pb.h"
 #include "src/capture/source_probe.hpp"
+#include "src/common/log_levels.hpp"
 #include "src/render/nv12_buf.hpp"
 #include "src/render/placeholder_painter.hpp"
 #include "src/rpc/grpc_server.hpp"
@@ -224,7 +225,7 @@ bool parse_args(int argc, char** argv, Args& a) {
             printf("videonode-source %s\n", vn::kVersion);
             exit(0);
         } else {
-            fprintf(stderr, "videonode-source: unknown flag %s\n", s.c_str());
+            vn::log::error("videonode-source: unknown flag %s", s.c_str());
             return false;
         }
     }
@@ -246,35 +247,34 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     // allocator has the right device.
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
     if (!csc_gles::init()) {
-        fprintf(stderr, "videonode-source: csc_gles::init failed; cannot bring up Mesa CSC backend "
-                        "(needed for the GBM allocator's gbm_device)\n");
+        vn::log::fatal("videonode-source: csc_gles::init failed; cannot bring up Mesa CSC backend "
+                       "(needed for the GBM allocator's gbm_device)");
         return 1;
     }
     gbm_device* alloc_gbm = csc_gles::gbm_device_for_io();
     if (alloc_gbm == nullptr) {
-        fprintf(stderr, "videonode-source: csc_gles::gbm_device_for_io returned null\n");
+        vn::log::fatal("videonode-source: csc_gles::gbm_device_for_io returned null");
         return 1;
     }
     nv12_buf::Allocator allocator;
     if (!allocator.init(alloc_gbm)) {
-        fprintf(stderr, "videonode-source: nv12_buf::Allocator::init failed\n");
+        vn::log::fatal("videonode-source: nv12_buf::Allocator::init failed");
         return 1;
     }
 #else
     nv12_buf::Allocator allocator;
     if (!allocator.init()) {
-        fprintf(stderr, "videonode-source: nv12_buf::Allocator::init failed\n");
+        vn::log::fatal("videonode-source: nv12_buf::Allocator::init failed");
         return 1;
     }
 #endif
 
     PlaceholderRing ph;
     if (!ph.init(allocator, a.placeholder_w, a.placeholder_h, a.device)) {
-        fprintf(stderr, "videonode-source: failed to allocate placeholder ring\n");
+        vn::log::fatal("videonode-source: failed to allocate placeholder ring");
         return 1;
     }
-    fprintf(stderr, "videonode-source: placeholder %dx%d ready\n", a.placeholder_w,
-            a.placeholder_h);
+    vn::log::info("videonode-source: placeholder %dx%d ready", a.placeholder_w, a.placeholder_h);
 
     scm_rights_producer::ScmRightsProducer prod;
     scm_rights_producer::InitParams pp;
@@ -288,7 +288,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     if (try_open_capture(cap, a, allocator)) {
         probe.attach();
     } else {
-        fprintf(stderr, "videonode-source: capture not ready at startup\n");
+        vn::log::warn("videonode-source: capture not ready at startup");
     }
 
     // Control plane: --grpc-listen + --device-id together bring up an
@@ -310,12 +310,12 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     if (grpc_enabled) {
         std::vector<grpc::Service*> services = {&grpc_svc};
         if (!grpc_srv.Start(a.grpc_listen, services)) {
-            fprintf(stderr, "videonode-source: gRPC server failed to start on %s\n",
-                    a.grpc_listen.c_str());
+            vn::log::fatal("videonode-source: gRPC server failed to start on %s",
+                           a.grpc_listen.c_str());
             grpc_enabled = false;
         } else {
-            fprintf(stderr, "videonode-source: grpc server listening on %s (id=%s)\n",
-                    a.grpc_listen.c_str(), a.device_id.c_str());
+            vn::log::info("videonode-source: grpc server listening on %s (id=%s)",
+                          a.grpc_listen.c_str(), a.device_id.c_str());
         }
     }
 
@@ -504,10 +504,9 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                             next_broadcast = clock::now() + broadcast_period;
                         }
                         if (!cap.cap.queue_buffer(df.index)) {
-                            fprintf(stderr,
-                                    "videonode-source: QBUF failed (idx=%u errno=%d); "
-                                    "kernel ring depth reduced, continuing\n",
-                                    df.index, errno);
+                            vn::log::warn("videonode-source: QBUF failed (idx=%u errno=%d); "
+                                          "kernel ring depth reduced, continuing",
+                                          df.index, errno);
                         }
                     } else {
                         int e = errno;
@@ -537,7 +536,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         source_probe::Health h = probe.health();
         bool health_changed = (h != prev_health);
         if (health_changed) {
-            fprintf(stderr, "videonode-source: state -> %s\n", source_probe::status_text(h));
+            vn::log::info("videonode-source: state -> %s", source_probe::status_text(h));
             prev_health = h;
         }
 
@@ -598,9 +597,9 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         }
     }
 
-    fprintf(stderr, "videonode-source: shutting down (real=%llu placeholder=%llu)\n",
-            static_cast<unsigned long long>(real_frame_idx),
-            static_cast<unsigned long long>(ph.tick_idx));
+    vn::log::info("videonode-source: shutting down (real=%llu placeholder=%llu)",
+                  static_cast<unsigned long long>(real_frame_idx),
+                  static_cast<unsigned long long>(ph.tick_idx));
     if (grpc_enabled) {
         grpc_svc.StopStreams();
         grpc_srv.Shutdown();
@@ -608,8 +607,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     prod.stop();
     if (cap.active) {
         if (!cap.cap.stream_off()) {
-            fprintf(stderr, "videonode-source: STREAMOFF failed during shutdown (errno=%d)\n",
-                    errno);
+            vn::log::error("videonode-source: STREAMOFF failed during shutdown (errno=%d)", errno);
         }
         teardown_session_(cap);
     }
