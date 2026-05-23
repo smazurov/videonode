@@ -29,6 +29,11 @@ type StreamService interface {
 	// Process management
 	GetProcessManager() StreamProcessManager
 
+	// Pipeline master switch
+	StartPipeline(ctx context.Context) (bool, error)
+	StopPipeline(ctx context.Context) (bool, error)
+	PipelineEnabled() bool
+
 	// Device event handling
 	BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string)
 
@@ -90,4 +95,11 @@ type StreamUpdateParams struct {
 	Rotation            int
 
 	Enabled *bool // runtime state, applied only when non-nil; not persisted
+}
+
+// PipelineConfig is the persisted, daemon-wide pipeline master switch.
+// When Enabled is false, no stream processes are auto-started on boot
+// regardless of per-stream Enabled state.
+type PipelineConfig struct {
+	Enabled bool `toml:"enabled" json:"enabled"`
 }

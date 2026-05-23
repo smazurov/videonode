@@ -19,6 +19,7 @@ const (
 	TypeHeartbeat
 	TypeSourceStatus
 	TypeStageStateChanged // per-stage (Producer/Composer/Encoder) lifecycle event
+	TypePipelineStateChanged
 )
 
 // SourceStatusEvent carries a status snapshot published by a
@@ -176,3 +177,13 @@ type StageStateChangedEvent struct {
 
 // Type returns the event type identifier for StageStateChangedEvent.
 func (e StageStateChangedEvent) Type() uint32 { return TypeStageStateChanged }
+
+// PipelineStateChangedEvent fires when the daemon-wide pipeline master
+// switch is toggled. UI uses it to keep the start/stop button in sync.
+type PipelineStateChangedEvent struct {
+	Enabled   bool   `json:"enabled" example:"true" doc:"Whether the pipeline master switch is on"`
+	Timestamp string `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+}
+
+// Type returns the event type identifier for PipelineStateChangedEvent.
+func (e PipelineStateChangedEvent) Type() uint32 { return TypePipelineStateChanged }

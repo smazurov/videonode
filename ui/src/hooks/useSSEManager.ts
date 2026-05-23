@@ -9,6 +9,7 @@ type StreamDeletedEvent = components["schemas"]["StreamDeletedEvent"];
 type StreamMetricsEvent = components["schemas"]["StreamMetricsEvent"];
 type StreamStateChangedEvent = components["schemas"]["StreamStateChangedEvent"];
 type CanvasRestartedEvent = components["schemas"]["CanvasRestartedEvent"];
+type PipelineStateChangedEvent = components["schemas"]["PipelineStateChangedEvent"];
 
 export type TaggedStreamCreatedEvent = StreamCreatedEvent & { type: 'stream-created' };
 export type TaggedStreamUpdatedEvent = StreamUpdatedEvent & { type: 'stream-updated' };
@@ -27,6 +28,7 @@ interface SSEManagerOptions {
   onStreamLifecycleEvent?: (event: StreamLifecycleEvent) => void;
   onStreamMetricsEvent?: (event: StreamMetricsEvent) => void;
   onStreamStateEvent?: (event: TaggedStreamStateChangedEvent) => void;
+  onPipelineStateEvent?: (event: PipelineStateChangedEvent) => void;
   onConnectionStatusChange?: (status: ConnectionStatus) => void;
 }
 
@@ -38,6 +40,7 @@ const globalConnectionHandlers = new Set<(status: ConnectionStatus) => void>();
 const globalStreamLifecycleHandlers = new Set<(event: StreamLifecycleEvent) => void>();
 const globalStreamMetricsHandlers = new Set<(event: StreamMetricsEvent) => void>();
 export const globalStreamStateHandlers = new Set<(event: TaggedStreamStateChangedEvent) => void>();
+const globalPipelineStateHandlers = new Set<(event: PipelineStateChangedEvent) => void>();
 
 function mapStatus(status: SSEStatus): ConnectionStatus {
   switch (status) {
@@ -108,6 +111,12 @@ function setupGlobalSSE(): void {
     void useDeviceStore.getState().fetchDevices();
   });
 
+  globalClient.on('pipeline-state-changed', (data) => {
+    for (const handler of globalPipelineStateHandlers) {
+      handler(data);
+    }
+  });
+
   globalClient.connect();
 }
 
@@ -119,7 +128,7 @@ function disconnectGlobalSSE(): void {
 }
 
 export function useSSEManager(options: SSEManagerOptions = {}) {
-  const { onStreamLifecycleEvent, onStreamMetricsEvent, onStreamStateEvent, onConnectionStatusChange } = options;
+  const { onStreamLifecycleEvent, onStreamMetricsEvent, onStreamStateEvent, onPipelineStateEvent, onConnectionStatusChange } = options;
 
   useEffect(() => {
     if (onConnectionStatusChange) {
@@ -133,6 +142,9 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
     }
     if (onStreamStateEvent) {
       globalStreamStateHandlers.add(onStreamStateEvent);
+    }
+    if (onPipelineStateEvent) {
+      globalPipelineStateHandlers.add(onPipelineStateEvent);
     }
 
     setupGlobalSSE();
@@ -150,15 +162,19 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
       if (onStreamStateEvent) {
         globalStreamStateHandlers.delete(onStreamStateEvent);
       }
+      if (onPipelineStateEvent) {
+        globalPipelineStateHandlers.delete(onPipelineStateEvent);
+      }
 
       if (globalConnectionHandlers.size === 0 &&
           globalStreamLifecycleHandlers.size === 0 &&
           globalStreamMetricsHandlers.size === 0 &&
-          globalStreamStateHandlers.size === 0) {
+          globalStreamStateHandlers.size === 0 &&
+          globalPipelineStateHandlers.size === 0) {
         disconnectGlobalSSE();
       }
     };
-  }, [onStreamLifecycleEvent, onStreamMetricsEvent, onStreamStateEvent, onConnectionStatusChange]);
+  }, [onStreamLifecycleEvent, onStreamMetricsEvent, onStreamStateEvent, onPipelineStateEvent, onConnectionStatusChange]);
 
   return {
     disconnect: disconnectGlobalSSE,
