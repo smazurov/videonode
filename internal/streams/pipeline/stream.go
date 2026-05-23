@@ -102,11 +102,15 @@ type AudioConfig struct {
 	Filters string   `toml:"filters,omitempty" json:"filters,omitempty"`
 }
 
-// EncoderConfig is the backend-agnostic encoder hint. The concrete
-// EncoderStage maps Codec ("h264"/"h265"/"av1") to a backend-specific
-// encoder name (h264_rkmpp, libx264, etc.) based on probe results.
+// EncoderConfig is the backend-agnostic encoder hint. Codec is the
+// logical codec ("h264"/"h265"/"av1"); EncoderName, when set by the
+// caller (typically pipelineProcessManager via encoders.MapAPICodec),
+// is the resolved ffmpeg encoder ("libx264", "h264_rkmpp", ...). When
+// EncoderName is empty the EncoderStage falls back to a software default
+// for the codec.
 type EncoderConfig struct {
 	Codec       string `toml:"codec,omitempty" json:"codec,omitempty"`
+	EncoderName string `toml:"encoder_name,omitempty" json:"encoder_name,omitempty"`
 	Bitrate     string `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
 	GOP         int    `toml:"gop,omitempty" json:"gop,omitempty"`
 	BFrames     int    `toml:"b_frames,omitempty" json:"b_frames,omitempty"`

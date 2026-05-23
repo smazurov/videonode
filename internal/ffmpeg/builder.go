@@ -25,11 +25,21 @@ func stripHWAccelFlags(args []string) []string {
 	return out
 }
 
+// commandHead returns the ffmpeg base prefix. Strips `-nostdin` when the
+// caller is feeding ffmpeg via a stdin pipe (InputPipe), otherwise uses
+// Base() as-is so v4l2 / lavfi callers keep their current head.
+func commandHead(p *Params) string {
+	if p.InputPipe != nil {
+		return strings.Replace(Base(), " -nostdin", "", 1)
+	}
+	return Base()
+}
+
 // BuildCommand builds an FFmpeg command from structured parameters.
 func BuildCommand(p *Params) string {
 	var cmd strings.Builder
 
-	cmd.WriteString(Base())
+	cmd.WriteString(commandHead(p))
 
 	// Perspective is SW-only; strip -hwaccel so decode runs in CPU. -vaapi_device/init_hw_device stay for hwupload.
 	args := p.GlobalArgs
@@ -40,7 +50,8 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" " + arg)
 	}
 
-	if p.OverlayText != "" {
+	switch {
+	case p.OverlayText != "":
 		cmd.WriteString(" -re")
 		cmd.WriteString(" -f lavfi")
 
@@ -56,7 +67,9 @@ func BuildCommand(p *Params) string {
 			testSrc += ":rate=30"
 		}
 		cmd.WriteString(" -i \"" + testSrc + "\"")
-	} else {
+	case p.InputPipe != nil:
+		writePipeInput(&cmd, p.InputPipe)
+	default:
 		cmd.WriteString(" -f v4l2")
 
 		ApplyOptionsToCommand(p.Options, &cmd)
@@ -73,16 +86,20 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -i " + p.DevicePath)
 	}
 
-	hasAudio := p.AudioDevice != ""
-	if hasAudio {
+	// Audio inputs + maps. Two modes:
+	//   - AudioInputs (multi): one ALSA -i per entry, filter_complex with
+	//     aresample per input, one output track per input
+	//   - AudioDevice (single, back-compat): existing behavior verbatim
+	switch {
+	case len(p.AudioInputs) > 0:
+		writeMultiAudioInputs(&cmd, p.AudioInputs)
+	case p.AudioDevice != "":
 		if p.OverlayText != "" {
 			cmd.WriteString(" -f lavfi -i \"sine=frequency=1000:sample_rate=48000\"")
 		} else {
 			cmd.WriteString(" -thread_queue_size 1024")
 
-			hasWallclock := slices.Contains(p.Options, OptionWallclockWithGenpts)
-
-			if hasWallclock {
+			if slices.Contains(p.Options, OptionWallclockWithGenpts) {
 				cmd.WriteString(" -use_wallclock_as_timestamps 1 -fflags +genpts+igndts")
 			}
 
@@ -103,6 +120,13 @@ func BuildCommand(p *Params) string {
 
 	if p.AudioFilters != "" {
 		cmd.WriteString(" -af " + p.AudioFilters)
+	}
+
+	// Multi-audio uses filter_complex (aresample per input + per-track map).
+	// Must come after global timing flags but before -c:v so ffmpeg sees
+	// the stream selection before the encoder picks them up.
+	if len(p.AudioInputs) > 0 {
+		writeMultiAudioFilterComplex(&cmd, len(p.AudioInputs))
 	}
 
 	var videoFilterChain []string
@@ -237,7 +261,7 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -bsf:v dump_extra=freq=keyframe")
 	}
 
-	if p.AudioDevice != "" {
+	if p.AudioDevice != "" || len(p.AudioInputs) > 0 {
 		cmd.WriteString(" -c:a libopus -b:a 128k -ar 48000")
 	}
 
@@ -245,14 +269,150 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -progress unix://" + p.ProgressSocket)
 	}
 
-	if strings.HasPrefix(p.OutputURL, "rtsp://") {
+	// Outputs: multi-target mode (Outputs slice) supersedes single
+	// OutputURL. Both modes pick mux flags by transport type.
+	switch {
+	case len(p.Outputs) > 0:
+		writeOutputs(&cmd, p.Outputs)
+	case strings.HasPrefix(p.OutputURL, "rtsp://"):
 		cmd.WriteString(" -rtsp_transport tcp -f rtsp " + p.OutputURL)
-	} else {
+	default:
 		cmd.WriteString(" -muxdelay 0 -muxpreload 0 -flush_packets 1 -f mpegts " + p.OutputURL)
 	}
 
 	if p.VisionEnabled {
 		cmd.WriteString(" -map \"[rawout]\" -f rawvideo -pix_fmt nv12 pipe:3")
+	}
+
+	return cmd.String()
+}
+
+// writePipeInput emits the `-f <muxer> [-pix_fmt -s -framerate] -i pipe:0`
+// fragment for the InputPipe case. Y4M is self-describing; rawvideo
+// needs explicit pix_fmt + dims + framerate.
+func writePipeInput(cmd *strings.Builder, pi *PipeInput) {
+	switch pi.Format {
+	case "rawvideo":
+		cmd.WriteString(" -f rawvideo")
+		if pi.PixelFormat != "" {
+			cmd.WriteString(" -pix_fmt " + pi.PixelFormat)
+		}
+		if pi.Width > 0 && pi.Height > 0 {
+			fmt.Fprintf(cmd, " -s %dx%d", pi.Width, pi.Height)
+		}
+		if pi.FPS > 0 {
+			fmt.Fprintf(cmd, " -framerate %d", pi.FPS)
+		}
+		cmd.WriteString(" -i pipe:0")
+	case "yuv4mpegpipe", "":
+		cmd.WriteString(" -f yuv4mpegpipe -i pipe:0")
+	default:
+		cmd.WriteString(" -f " + pi.Format + " -i pipe:0")
+	}
+}
+
+// writeMultiAudioInputs emits one `-thread_queue_size ... -f alsa ... -i <dev>`
+// fragment per device. Maps are emitted later via writeMultiAudioFilterComplex.
+func writeMultiAudioInputs(cmd *strings.Builder, devices []string) {
+	for _, dev := range devices {
+		cmd.WriteString(" -thread_queue_size 1024")
+		cmd.WriteString(" -f alsa -sample_fmt s16 -ar 48000 -ac 2")
+		cmd.WriteString(" -i " + dev)
+	}
+}
+
+// writeMultiAudioFilterComplex emits the filter_complex aresample chain
+// plus the per-output map flags for N audio inputs. Inputs are at ffmpeg
+// indices [1..N] (video is input 0).
+func writeMultiAudioFilterComplex(cmd *strings.Builder, audioCount int) {
+	var fc strings.Builder
+	for k := range audioCount {
+		if k > 0 {
+			fc.WriteString(";")
+		}
+		fmt.Fprintf(&fc, "[%d:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a%d]", k+1, k)
+	}
+	cmd.WriteString(" -filter_complex " + fc.String())
+	cmd.WriteString(" -map 0:v")
+	for k := range audioCount {
+		fmt.Fprintf(cmd, " -map [a%d]", k)
+	}
+}
+
+// writeOutputs emits one output fragment per OutputTarget. Per-format
+// tail flags (rtsp_transport, mpegts mux delays) are applied per output.
+func writeOutputs(cmd *strings.Builder, outs []OutputTarget) {
+	rtspEmitted := false
+	for _, o := range outs {
+		switch o.Type {
+		case "rtsp":
+			if !rtspEmitted {
+				cmd.WriteString(" -rtsp_transport tcp")
+				rtspEmitted = true
+			}
+			cmd.WriteString(" -f rtsp " + o.URL)
+		case "srt", "mpegts":
+			cmd.WriteString(" -muxdelay 0 -muxpreload 0 -flush_packets 1 -f mpegts " + o.URL)
+		case "hls":
+			cmd.WriteString(" -f hls " + o.URL)
+		default:
+			cmd.WriteString(" -f " + o.Type + " " + o.URL)
+		}
+	}
+}
+
+// BuildInputArgs returns just the ffmpeg head (base flags + global args +
+// input + audio inputs) as a single shell-ready string. The pipeline's
+// CustomEncoderArgs path uses this to compose `head + " " + custom_tail`.
+func BuildInputArgs(p *Params) string {
+	var cmd strings.Builder
+	cmd.WriteString(commandHead(p))
+
+	args := p.GlobalArgs
+	if p.Perspective != nil {
+		args = stripHWAccelFlags(args)
+	}
+	for _, arg := range args {
+		cmd.WriteString(" " + arg)
+	}
+
+	switch {
+	case p.OverlayText != "":
+		cmd.WriteString(" -re -f lavfi")
+		testSrc := "testsrc2"
+		if p.Resolution != "" {
+			testSrc += "=size=" + p.Resolution
+		} else {
+			testSrc += "=size=1920x1080"
+		}
+		if p.FPS != "" {
+			testSrc += ":rate=" + p.FPS
+		} else {
+			testSrc += ":rate=30"
+		}
+		cmd.WriteString(" -i \"" + testSrc + "\"")
+	case p.InputPipe != nil:
+		writePipeInput(&cmd, p.InputPipe)
+	default:
+		cmd.WriteString(" -f v4l2")
+		ApplyOptionsToCommand(p.Options, &cmd)
+		if p.InputFormat != "" {
+			cmd.WriteString(" -input_format " + p.InputFormat)
+		}
+		if p.Resolution != "" {
+			cmd.WriteString(" -video_size " + p.Resolution)
+		}
+		if p.FPS != "" {
+			cmd.WriteString(" -framerate " + p.FPS)
+		}
+		cmd.WriteString(" -i " + p.DevicePath)
+	}
+
+	switch {
+	case len(p.AudioInputs) > 0:
+		writeMultiAudioInputs(&cmd, p.AudioInputs)
+	case p.AudioDevice != "":
+		cmd.WriteString(" -thread_queue_size 1024 -f alsa -sample_fmt s16 -ar 48000 -ac 2 -i " + p.AudioDevice)
 	}
 
 	return cmd.String()
