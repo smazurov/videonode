@@ -18,6 +18,7 @@
 // slot, we render a solid-black BGRA frame at a default 1280×720@30 so
 // the downstream pipe stays alive.
 
+#include "src/common/log_levels.hpp"
 #include "src/render/canvas_loop.hpp"
 #include "src/render/composer_service.hpp"
 #include "src/render/egl_ctx.hpp"
@@ -47,28 +48,40 @@ struct Args {
     // = standalone (renders solid black until SIGINT).
     std::string grpc_listen;
     std::string composer_id;
+    // SCM_RIGHTS output socket. Empty = legacy stdout mode (BGRA bytes
+    // piped to ffmpeg). Non-empty = listen and broadcast canvas dma-buf
+    // fds to N consumers; encoder process restart no longer kills the
+    // composer via EPIPE.
+    std::string scm_out;
     int run_seconds = 0; // 0 = until SIGINT / stdout EPIPE
     int target_fps = 30; // pre-ready tick rate; once ready, snapshot.canvas_fps wins
 };
 
 void print_help(const Args& d) {
-    printf("videonode-composer — daemon-driven BGRA canvas writer.\n"
+    printf("videonode-composer — daemon-driven canvas writer (stdout or SCM_RIGHTS).\n"
            "\n"
            "  --drm-device PATH      DRM render node (default %s)\n"
            "  --grpc-listen PATH     per-instance UDS the composer's gRPC server binds;\n"
            "                           the daemon dials in. Required for live config.\n"
            "  --composer-id ID       stable identifier advertised via Composer.Describe()\n"
            "                           (required when --grpc-listen is set)\n"
+           "  --scm-out PATH         listen on PATH and broadcast canvas dma-buf fd +\n"
+           "                           dmabuf_header::Header to all SCM consumers.\n"
+           "                           Mutually exclusive with stdout-mode in practice —\n"
+           "                           when set, stdout is no longer written.\n"
            "  --seconds N            run length in seconds (default %d = until SIGINT / stdout "
            "closes)\n"
            "  --target-fps N         pre-ready (no canvas yet) tick rate (default %d); once daemon\n"
            "                           sends SetCanvas the snapshot's canvas_fps takes over\n"
            "  --version              print version and exit\n"
            "\n"
-           "Stdout: raw BGRA bytes at canvas_w*canvas_h*4 per frame. Pipe to\n"
-           "ffmpeg with `-f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0 …`\n"
-           "(W/H/N come from the daemon's SetCanvas push — pick matching values\n"
-           "in the downstream ffmpeg invocation).\n",
+           "Output modes (pick exactly one path):\n"
+           "  stdout (default): raw BGRA bytes at canvas_w*canvas_h*4 per frame.\n"
+           "    Pipe to `ffmpeg -f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0 …`.\n"
+           "    Composer dies via EPIPE if ffmpeg exits.\n"
+           "  --scm-out PATH: SCM_RIGHTS broadcast of canvas dma-buf fd. Consumers dial\n"
+           "    the socket (vn-sink, snapshot, etc.). Composer stays up across consumer\n"
+           "    restarts.\n",
            d.drm_device.c_str(), d.run_seconds, d.target_fps);
 }
 
@@ -101,6 +114,8 @@ int main(int argc, char** argv) {
             i = eat_str(i, a.composer_id);
         else if (s == "--grpc-listen")
             i = eat_str(i, a.grpc_listen);
+        else if (s == "--scm-out")
+            i = eat_str(i, a.scm_out);
         else if (s == "--seconds")
             i = eat_int(i, a.run_seconds);
         else if (s == "--target-fps")
@@ -112,7 +127,7 @@ int main(int argc, char** argv) {
             printf("videonode-composer %s\n", vn::kVersion);
             return 0;
         } else if (!s.empty() && s[0] == '-') {
-            fprintf(stderr, "unknown flag: %s (use --help)\n", s.c_str());
+            vn::log::error("videonode-composer: unknown flag: %s (use --help)", s.c_str());
             return 2;
         }
     }
@@ -141,20 +156,23 @@ int main(int argc, char** argv) {
         grpc_svc = std::make_unique<nativerpc::ComposerService>(std::move(gctx));
         std::vector<grpc::Service*> services = {grpc_svc.get()};
         if (!grpc_srv.Start(a.grpc_listen, services)) {
-            fprintf(stderr, "FATAL: gRPC server failed to start on %s\n", a.grpc_listen.c_str());
+            vn::log::fatal("videonode-composer: gRPC server failed to start on %s",
+                           a.grpc_listen.c_str());
             return 1;
         }
-        fprintf(stderr, "ok: grpc server listening on %s id=%s\n", a.grpc_listen.c_str(),
-                a.composer_id.c_str());
+        vn::log::info("videonode-composer: grpc server listening on %s id=%s",
+                      a.grpc_listen.c_str(), a.composer_id.c_str());
     } else {
-        fprintf(stderr, "WARN: control plane disabled (missing --grpc-listen / --composer-id) — "
-                        "composer will render black until SIGINT\n");
+        vn::log::warn("videonode-composer: control plane disabled "
+                      "(missing --grpc-listen / --composer-id) — "
+                      "composer will render black until SIGINT");
     }
 
-    int frames = render::RunCanvasLoop(ctx, world, a.target_fps, a.run_seconds, g_running);
+    int frames =
+        render::RunCanvasLoop(ctx, world, a.target_fps, a.run_seconds, g_running, a.scm_out);
 
     grpc_srv.Shutdown();
 
-    fprintf(stderr, "PASS: %d frames composed\n", frames);
+    vn::log::info("videonode-composer: %d frames composed", frames);
     return 0;
 }
