@@ -149,6 +149,7 @@ type Options struct {
 	RawSnapshotProvider recording.RawSnapshotProvider // Raw vision pipe snapshot provider
 	RecordingDir        string                        // Directory for snapshot images
 	ControlServer       *pipelinectl.Manager          // Optional control plane for native sidecars
+	ProcessesProvider   ProcessesProvider             // Optional: enables GET /api/processes when set
 	// StreamingRTSPPort is the daemon's RTSP listen address as configured
 	// at startup (":8554" by default). Used in API responses (rtsp_url
 	// field) so clients dial the actual published port, not a hardcoded
@@ -350,6 +351,10 @@ func (s *Server) registerRoutes() {
 
 	// Stream endpoints
 	s.registerStreamRoutes()
+
+	// Pipeline processes endpoint (no-op when provider is nil — daemon
+	// without the new pipeline foundation wired).
+	RegisterProcessesRoutes(s.api, s.options.ProcessesProvider)
 
 	// Options endpoints
 	s.registerOptionsRoutes()

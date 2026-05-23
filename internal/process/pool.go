@@ -27,6 +27,15 @@ type Pool interface {
 	// IsRunning checks if a process is currently running.
 	IsRunning(id string) bool
 
+	// SetKind tags a managed process with a free-form classifier
+	// (returned via Info.Kind). Used by the Pipeline to expose stage
+	// kind ("producer"/"composer"/"encoder") to operator UIs without
+	// id-string parsing. No-op for unknown ids.
+	SetKind(id, kind string)
+
+	// IDs returns a snapshot of currently-tracked process ids.
+	IDs() []string
+
 	// StopAll gracefully stops all running processes.
 	StopAll()
 }
@@ -35,6 +44,7 @@ type Pool interface {
 type managedProcess struct {
 	proc         *Process
 	id           string
+	kind         string
 	state        State
 	startedAt    time.Time
 	restartCount int
@@ -211,13 +221,45 @@ func (p *pool) GetStatus(id string) *Info {
 		return &Info{ID: id, State: StateIdle}
 	}
 
+	pid := 0
+	if mp.proc != nil && mp.proc.cmd != nil && mp.proc.cmd.Process != nil {
+		pid = mp.proc.cmd.Process.Pid
+	}
 	return &Info{
 		ID:           id,
+		Kind:         mp.kind,
 		State:        mp.state,
+		PID:          pid,
 		StartedAt:    mp.startedAt,
 		RestartCount: mp.restartCount,
 		LastError:    mp.lastError,
 	}
+}
+
+// SetKind sets the free-form classifier surfaced via Info.Kind for a
+// given pool id. Used by Pipeline to tag each managed process with its
+// stage kind ("producer" / "composer" / "encoder") so /api/processes
+// can group rows without inspecting the id string. No-op for unknown
+// ids; safe to call before or after Start.
+func (p *pool) SetKind(id, kind string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if mp, ok := p.processes[id]; ok {
+		mp.kind = kind
+	}
+}
+
+// IDs returns a snapshot of currently-tracked process ids (regardless
+// of state). Used by Pipeline.Snapshot and the process-manager UI to
+// enumerate without holding the pool lock externally.
+func (p *pool) IDs() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make([]string, 0, len(p.processes))
+	for id := range p.processes {
+		out = append(out, id)
+	}
+	return out
 }
 
 // IsRunning checks if a process is currently running.
