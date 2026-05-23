@@ -31,7 +31,10 @@ func buildEncoderPreviewCommand(
 	provider types.ValidationProvider,
 ) (string, error) {
 	ps := specToPipelineStream(spec, rtspHost)
-	ps.Encoder.EncoderName = resolveEncoderName(ps.Encoder.Codec, provider)
+	r := resolveEncoder(ps.Encoder.Codec, provider)
+	ps.Encoder.EncoderName = r.Name
+	ps.Encoder.GlobalArgs = r.GlobalArgs
+	ps.Encoder.VideoFilters = r.VideoFilters
 	if spec.Canvas != nil {
 		for i := range ps.Inputs {
 			if src, ok := lookupStoreDeviceFromResolver(spec.Canvas.SourceStreams, i, deviceResolver); ok {
@@ -143,28 +146,43 @@ func NewPipelineProcessManager(
 	}
 }
 
-// resolveEncoderName returns the ffmpeg encoder name for a logical codec
-// ("h264"/"h265") using a layered fallback:
-//  1. Preloaded validation data (most accurate — confirms the encoder
-//     actually works with our input formats). Empty when
-//     `videonode validate-encoders` hasn't been run yet.
+// resolvedEncoder bundles the encoder name with the extra plumbing
+// some HW backends need (vaapi: -vaapi_device + format=nv12,hwupload;
+// rkmpp: hwaccel flags). The pipeline forwards all three to
+// ffmpeg.Params so the encoder isn't picked without the args it needs.
+type resolvedEncoder struct {
+	Name         string
+	GlobalArgs   []string
+	VideoFilters string
+}
+
+// resolveEncoder returns the ffmpeg encoder + supporting args for a
+// logical codec ("h264"/"h265") using a layered fallback:
+//  1. Preloaded validation data — yields the encoder name plus the
+//     backend-specific GlobalArgs / VideoFilters needed to make it run
+//     (the validator knows what -vaapi_device etc. each backend wants).
 //  2. Probe ffmpeg's compiled encoders (`ffmpeg -encoders`). Reflects
-//     what's actually installed without needing prior validation.
-//     Critical for fresh daemons on rkmpp-only ffmpeg builds where
-//     "libx264" would crash with "Unrecognized option 'tune'".
-//  3. Hard-coded software fallback. Last resort; we'd rather pick a
-//     stale-but-plausible HW encoder than promise libx264 on a build
-//     that doesn't have it.
-func resolveEncoderName(codec string, provider types.ValidationProvider) string {
+//     what's actually installed without prior validation. Returns only
+//     the encoder name — no supporting args, since the probe doesn't
+//     know what setup each backend needs. Picks libx264/libx265 in
+//     preference to vaapi (which needs setup we don't emit) so the
+//     stream actually starts on bare-default hosts.
+//  3. Hard-coded software fallback.
+func resolveEncoder(codec string, provider types.ValidationProvider) resolvedEncoder {
 	if codec == "" {
 		codec = "h264"
 	}
 	if provider != nil {
 		if cfg, err := encoders.MapAPICodec(codec, provider); err == nil && cfg != nil {
-			return cfg.EncoderName
+			r := resolvedEncoder{Name: cfg.EncoderName}
+			if cfg.Settings != nil {
+				r.GlobalArgs = append([]string(nil), cfg.Settings.GlobalArgs...)
+				r.VideoFilters = cfg.Settings.VideoFilters
+			}
+			return r
 		}
 	}
-	return validation.AutodetectEncoder(codec)
+	return resolvedEncoder{Name: validation.AutodetectEncoder(codec)}
 }
 
 // specToPipelineStream converts a StreamSpec (canvas-or-source dichotomy)
@@ -299,7 +317,10 @@ func (m *pipelineProcessManager) resolveCanvasSource(srcID string) string {
 // after the composer's gRPC UDS becomes ready.
 func (m *pipelineProcessManager) applySpec(spec StreamSpec) error {
 	ps := specToPipelineStream(spec, m.rtspHost)
-	ps.Encoder.EncoderName = resolveEncoderName(ps.Encoder.Codec, m.validation)
+	r := resolveEncoder(ps.Encoder.Codec, m.validation)
+	ps.Encoder.EncoderName = r.Name
+	ps.Encoder.GlobalArgs = r.GlobalArgs
+	ps.Encoder.VideoFilters = r.VideoFilters
 	if spec.Canvas != nil {
 		for i := range ps.Inputs {
 			ps.Inputs[i].Device = m.resolveCanvasSource(ps.Inputs[i].ID)

@@ -131,11 +131,13 @@ func (e *EncoderStage) Command() ([]string, []string, error) {
 // populated struct.
 func (e *EncoderStage) buildFFmpegParams() *ffmpeg.Params {
 	p := &ffmpeg.Params{
-		InputPipe: pipeInputFor(e.Media.Video),
-		Encoder:   e.Cfg.EncoderName,
-		Bitrate:   e.Cfg.Bitrate,
-		GOP:       e.Cfg.GOP,
-		BFrames:   e.Cfg.BFrames,
+		InputPipe:    pipeInputFor(e.Media.Video),
+		Encoder:      e.Cfg.EncoderName,
+		GlobalArgs:   append([]string(nil), e.Cfg.GlobalArgs...),
+		VideoFilters: e.Cfg.VideoFilters,
+		Bitrate:      e.Cfg.Bitrate,
+		GOP:          e.Cfg.GOP,
+		BFrames:      e.Cfg.BFrames,
 	}
 	if p.Encoder == "" {
 		p.Encoder = "libx264"
