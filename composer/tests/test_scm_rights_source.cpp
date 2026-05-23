@@ -3,9 +3,10 @@
 // the "daemon" by directly using scm_socket::SendMessage on the client
 // side; the receiver under test is ScmRightsSource on the server side.
 
+#include "src/common/unique_fd.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 #include "src/ipc/scm_rights_source.hpp"
 #include "src/ipc/scm_socket.hpp"
-#include "src/ipc/dmabuf_header.hpp"
 
 #include <gtest/gtest.h>
 
@@ -18,6 +19,8 @@
 
 namespace {
 
+using vn::base::unique_fd;
+
 std::string make_tempdir_socket(const char* prefix) {
     char tmpl[] = "/tmp/scm_src_test.XXXXXX";
     int fd = ::mkstemp(tmpl);
@@ -26,12 +29,12 @@ std::string make_tempdir_socket(const char* prefix) {
     return std::string(tmpl) + "-" + prefix + ".sock";
 }
 
-int make_tempfile(uint8_t byte) {
+unique_fd make_tempfile(uint8_t byte) {
     char tmpl[] = "/tmp/scm_src_payload.XXXXXX";
-    int fd = ::mkstemp(tmpl);
+    unique_fd fd(::mkstemp(tmpl));
     ::unlink(tmpl);
-    ::write(fd, &byte, 1);
-    ::fsync(fd);
+    ::write(fd.get(), &byte, 1);
+    ::fsync(fd.get());
     return fd;
 }
 
@@ -49,8 +52,8 @@ TEST(ScmRightsSource, EndToEndSinglePlane) {
     std::thread daemon([sock]() {
         // Give the server a moment to call accept (start() runs after init()).
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        int c = scm_socket::ConnectClient(sock);
-        if (c < 0) {
+        unique_fd c = scm_socket::ConnectClient(sock);
+        if (!c) {
             fprintf(stderr, "daemon connect: %s\n", strerror(errno));
             return;
         }
@@ -64,15 +67,13 @@ TEST(ScmRightsSource, EndToEndSinglePlane) {
         h.plane_offsets = {0};
         h.frame_idx = 42;
 
-        int payload = make_tempfile(0xAB);
-        EXPECT_TRUE(scm_socket::SendMessage(c, h, {payload}));
+        unique_fd payload = make_tempfile(0xAB);
+        EXPECT_TRUE(scm_socket::SendMessage(c.get(), h, {payload.get()}));
 
         // Hold the connection open briefly so the receiver has time
-        // to read; then close. The receiver's thread will see EOF
-        // and exit.
+        // to read; then close (unique_fd destructors do that on return).
+        // The receiver's thread will see EOF and exit.
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        ::close(c);
-        ::close(payload);
     });
 
     EXPECT_TRUE(src.start());
