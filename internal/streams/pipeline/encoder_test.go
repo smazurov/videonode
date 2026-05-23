@@ -71,6 +71,41 @@ func TestEncoder_BGRA_RawBuildsRawvideoInput(t *testing.T) {
 	}
 }
 
+func TestEncoder_ForwardsGlobalArgsAndVideoFilters(t *testing.T) {
+	// Regression guard for the host vaapi crash: when the validation
+	// provider yields h264_vaapi, the supporting -vaapi_device GlobalArg
+	// and `format=nv12,hwupload` VideoFilters must reach ffmpeg.Params
+	// or ffmpeg dies trying to scale BGRA into vaapi without a hwupload.
+	e := &EncoderStage{
+		StreamID_: "vaapi-cam",
+		Media: MediaSource{
+			Video: ComposerFrameSource{Socket: "/tmp/sock", Width: 1920, Height: 1080, Fps: 30},
+		},
+		Cfg: EncoderConfig{
+			Codec:        "h264",
+			EncoderName:  "h264_vaapi",
+			GlobalArgs:   []string{"-vaapi_device", "/dev/dri/renderD128"},
+			VideoFilters: "format=nv12,hwupload",
+		},
+		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://x/y"}},
+		VNSinkBin: "/usr/bin/vn-sink",
+	}
+	argv, _, err := e.Command()
+	if err != nil {
+		t.Fatalf("Command failed: %v", err)
+	}
+	cmd := argv[2]
+	if !strings.Contains(cmd, "-vaapi_device /dev/dri/renderD128") {
+		t.Errorf("missing vaapi_device global arg: %s", cmd)
+	}
+	if !strings.Contains(cmd, "-vf format=nv12,hwupload") {
+		t.Errorf("missing video filter chain: %s", cmd)
+	}
+	if !strings.Contains(cmd, "-c:v h264_vaapi") {
+		t.Errorf("missing h264_vaapi encoder: %s", cmd)
+	}
+}
+
 func TestEncoder_FallsBackToLibx264WhenEncoderNameEmpty(t *testing.T) {
 	// Regression guard for the host stream failure that motivated this
 	// refactor: an unresolved EncoderName must NOT pick h264_rkmpp on a
