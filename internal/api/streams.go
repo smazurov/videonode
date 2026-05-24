@@ -74,6 +74,9 @@ func (s *Server) registerStreamRoutes() {
 				Timestamp: time.Now().Format(time.RFC3339),
 			})
 		}
+		if s.streamEntity != nil {
+			s.streamEntity.PublishCreated(apiStream)
+		}
 		return &models.StreamResponse{Body: apiStream}, nil
 	})
 
@@ -110,6 +113,9 @@ func (s *Server) registerStreamRoutes() {
 				Timestamp: time.Now().Format(time.RFC3339),
 			})
 		}
+		if s.streamEntity != nil {
+			s.streamEntity.PublishUpdated(apiStream)
+		}
 		return &models.StreamResponse{Body: apiStream}, nil
 	})
 
@@ -136,6 +142,9 @@ func (s *Server) registerStreamRoutes() {
 				Action:    "deleted",
 				Timestamp: time.Now().Format(time.RFC3339),
 			})
+		}
+		if s.streamEntity != nil {
+			s.streamEntity.PublishDeleted(input.StreamID)
 		}
 
 		return &struct{}{}, nil
@@ -178,13 +187,17 @@ func (s *Server) registerStreamRoutes() {
 			return nil, s.mapStreamError(err)
 		}
 
-		if s.eventBus != nil {
-			if st, gerr := s.streamService.Get(ctx, input.StreamID); gerr == nil {
+		if st, gerr := s.streamService.Get(ctx, input.StreamID); gerr == nil {
+			apiStream := s.streamToAPI(*st)
+			if s.eventBus != nil {
 				s.eventBus.Publish(events.StreamUpdatedEvent{
-					Stream:    s.streamToAPI(*st),
+					Stream:    apiStream,
 					Action:    "restarted",
 					Timestamp: time.Now().Format(time.RFC3339),
 				})
+			}
+			if s.streamEntity != nil {
+				s.streamEntity.PublishUpdated(apiStream)
 			}
 		}
 

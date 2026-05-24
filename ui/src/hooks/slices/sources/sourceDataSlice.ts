@@ -2,15 +2,26 @@ import { StateCreator } from 'zustand';
 
 import type { Source } from '../types';
 import { SourceStore } from '../../useSourceStore';
+import { assertNever, type EntityAction } from '../../entityTypes';
 
 export interface SourceDataSlice {
   sourceIds: string[];
   sourcesById: Record<string, Source>;
+  // Live runtime slots populated by EntityEvent action=status|metrics|consumers.
+  // Components select narrowly: useSourceStore(s => s.statusById[id]).
+  statusById: Record<string, unknown>;
+  metricsById: Record<string, unknown>;
+  consumersById: Record<string, unknown>;
 
   setSources: (sources: Source[] | null | undefined) => void;
   addSource: (source: Source) => void;
   removeSource: (sourceId: string) => void;
   getSourceById: (sourceId: string) => Source | undefined;
+  applyEntityEvent: (
+    action: EntityAction,
+    id: string,
+    payload: unknown,
+  ) => void;
 }
 
 function sortIds(ids: string[]): string[] {
@@ -25,6 +36,9 @@ export const createSourceDataSlice: StateCreator<
 > = (set, get) => ({
   sourceIds: [],
   sourcesById: {},
+  statusById: {},
+  metricsById: {},
+  consumersById: {},
 
   setSources: (sources) => {
     const byId: Record<string, Source> = {};
@@ -67,4 +81,34 @@ export const createSourceDataSlice: StateCreator<
   },
 
   getSourceById: (sourceId) => get().sourcesById[sourceId],
+
+  applyEntityEvent: (action, id, payload) => {
+    const { addSource, removeSource } = get();
+    switch (action) {
+      case 'created':
+      case 'updated':
+        if (payload) addSource(payload as Source);
+        return;
+      case 'deleted':
+        removeSource(id);
+        return;
+      case 'status':
+        set((state) => ({
+          statusById: { ...state.statusById, [id]: payload },
+        }));
+        return;
+      case 'metrics':
+        set((state) => ({
+          metricsById: { ...state.metricsById, [id]: payload },
+        }));
+        return;
+      case 'consumers':
+        set((state) => ({
+          consumersById: { ...state.consumersById, [id]: payload },
+        }));
+        return;
+      default:
+        assertNever(action);
+    }
+  },
 });

@@ -44,23 +44,27 @@ func NewSourceService(opts SourceServiceOptions) api.SourceService {
 	}
 }
 
-// List returns all configured sources.
+// List returns all configured sources, each with Consumers denormalized.
 func (s *sourceService) List(_ context.Context) ([]api.Source, error) {
 	entries := s.store.ListSourceEntities()
 	out := make([]api.Source, len(entries))
 	for i, e := range entries {
 		out[i] = sourceToAPI(e)
+		out[i].Consumers = s.findReferences(e.ID)
 	}
 	return out, nil
 }
 
-// Get returns one source by id.
+// Get returns one source by id, with Consumers denormalized so a single
+// `entity{type:source}` SSE event carries the full picture (no
+// client-side joins).
 func (s *sourceService) Get(_ context.Context, id string) (*api.Source, error) {
 	src, ok := s.store.GetSourceEntity(id)
 	if !ok {
 		return nil, &api.SourceNotFoundError{SourceID: id}
 	}
 	out := sourceToAPI(src)
+	out.Consumers = s.findReferences(id)
 	return &out, nil
 }
 

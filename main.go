@@ -142,6 +142,12 @@ func main() {
 		// Create event bus for in-process event handling
 		eventBus := events.New()
 
+		// Entity registry: drives the uniform SSE entity envelope and
+		// (Step 2) the auto-publish HTTP middleware. Constructed here
+		// because every service that registers an entity needs to dial
+		// into the same registry instance the API server reads from.
+		eventRegistry := events.NewRegistry(eventBus)
+
 		// Set up log callback to publish log entries to event bus for SSE streaming
 		logging.SetLogCallback(func(entry logging.LogEntry) {
 			eventBus.Publish(events.LogEntryEvent{
@@ -335,6 +341,7 @@ func main() {
 			ComposerService:        composerSvc,
 			ValidationProvider:     validationProvider,
 			EventBus:               eventBus,
+			EventRegistry:          eventRegistry,
 			WebRTCManager:          webrtcManager,
 			StreamProvider:         streamingServer,
 			SourceSnapshotProvider: nativePipeline,
@@ -353,6 +360,17 @@ func main() {
 		}
 
 		server := api.NewServer(apiOpts)
+
+		// Self-check the entity registry against the actual Huma route
+		// table. Fails fast on common wiring mistakes: a registered
+		// entity with no CRUD routes (forgot RegisterEntityRoutes), or
+		// a CRUD route with no events.Register call (forgot to wire a
+		// new entity into the registry). The error message names the
+		// missing call so future contributors don't have to grep.
+		if err := eventRegistry.SelfCheck(context.Background(), server); err != nil {
+			logger.Error("entity registry self-check failed", "error", err)
+			os.Exit(1)
+		}
 
 		// Create SSE exporter if enabled
 		if opts.SSEEnabled {

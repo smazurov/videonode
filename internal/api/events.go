@@ -42,6 +42,11 @@ func (s *Server) registerSSERoutes() {
 			"composer-deleted":        events.ComposerDeletedEvent{},
 			"composer-layout-changed": events.ComposerLayoutChangedEvent{},
 			"heartbeat":               events.HeartbeatEvent{},
+			// Uniform entity envelope: the per-entity events above are
+			// kept during the dual-publish migration; this single type
+			// is the long-term home for all lifecycle/status/metrics/
+			// consumers events. UI discriminates on (entity_type, action).
+			"entity": events.EntityEvent{},
 		}
 
 		// Add OBS events for this endpoint
@@ -68,6 +73,7 @@ func (s *Server) registerSSERoutes() {
 			events.SubscribeToChannel[events.ComposerUpdatedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.ComposerDeletedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.ComposerLayoutChangedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.EntityEvent](s.eventBus, eventCh),
 		}
 		defer func() {
 			for _, unsub := range unsubscribers {

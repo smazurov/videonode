@@ -11,11 +11,18 @@ import "time"
 //
 // Exactly one of Device or TestMode must be set; the daemon rejects both
 // empty or both populated.
+//
+// Consumers is the denormalized cross-entity rollup — every composer
+// and stream currently referencing this source. Computed server-side
+// on every Get/List so the UI never needs to join across stores;
+// auto-republished when a stream or composer ref changes via the
+// events.OnLifecycle dependency graph.
 type SourceData struct {
 	SourceID  string            `json:"id" example:"hdmi-slides" doc:"Stable source identifier (kebab-case)"`
 	Device    string            `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Empty when test_mode is true."`
 	TestMode  bool              `json:"test_mode,omitempty" example:"false" doc:"When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device."`
 	Format    *SourceFormatBody `json:"format,omitempty" doc:"Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate."`
+	Consumers []SourceReference `json:"consumers,omitempty" doc:"Composers and streams currently referencing this source. Server-denormalized; auto-republished when references change."`
 	CreatedAt time.Time         `json:"created_at,omitzero" doc:"When the source record was created"`
 	UpdatedAt time.Time         `json:"updated_at,omitzero" doc:"When the source record was last updated"`
 }
@@ -87,8 +94,9 @@ const (
 
 // SourceReference identifies an entity still using a source. Surfaced
 // through the standard huma error envelope as ErrorDetail entries
-// (Location = "<kind>:<id>") when DELETE returns 409.
+// (Location = "<kind>:<id>") when DELETE returns 409, and via the
+// denormalized SourceData.Consumers field on every Get/List response.
 type SourceReference struct {
-	Kind SourceReferenceKind
-	ID   string
+	Kind SourceReferenceKind `json:"kind" example:"composer" doc:"composer | stream"`
+	ID   string              `json:"id" example:"main-scene" doc:"Referencing entity identifier"`
 }
