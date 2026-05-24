@@ -1,0 +1,70 @@
+version = 1
+max_slots = 9
+
+[ports.http]
+base = 8090
+step = 10
+
+[ports.rtsp]
+base = 8554
+step = 10
+
+[ports.srt]
+base = 6001
+step = 10
+
+[spawn]
+build = "go build -o ${TESTENV_DIR}/videonode ."
+command = "${TESTENV_DIR}/videonode"
+health_url = "http://localhost:${TESTENV_PORT_HTTP}/api/health"
+health_timeout = "15s"
+health_auth = "testenv:testenv"
+
+[spawn.env]
+VIDEONODE_SERVER_PORT = ":${TESTENV_PORT_HTTP}"
+VIDEONODE_STREAMING_RTSP_PORT = ":${TESTENV_PORT_RTSP}"
+VIDEONODE_SRT_ADDR = ":${TESTENV_PORT_SRT}"
+VIDEONODE_SRT_ENABLED = "true"
+VIDEONODE_STREAMS_CONFIG_FILE = "${TESTENV_DIR}/streams.toml"
+VIDEONODE_RECORDING_DATA_DIR = "${TESTENV_DIR}/recording"
+VIDEONODE_AUTH_TYPE = "basic"
+VIDEONODE_AUTH_USERNAME = "testenv"
+VIDEONODE_AUTH_PASSWORD = "testenv"
+VIDEONODE_UPDATE_ENABLED = "false"
+VIDEONODE_FEATURES_LED_CONTROL = "false"
+VIDEONODE_METRICS_SSE_ENABLED = "true"
+
+[[spawn.files]]
+path = "${TESTENV_DIR}/streams.toml"
+content = """
+version = 2
+
+[[sources]]
+id = "${TESTENV_ENV_ID}-src"
+test_mode = true
+width = 1280
+height = 720
+fps = 30
+
+[[streams]]
+id = "${TESTENV_ENV_ID}-stream"
+upstream = "source:${TESTENV_ENV_ID}-src"
+
+[streams.encoder]
+codec = "h264"
+bitrate_kbps = 2000
+preset = "veryfast"
+"""
+
+[[hooks.block]]
+match = "videonode.+(-p :|--srt-addr|--streaming-rtsp-port)|nohup.+videonode|\\./videonode.+2>&1.+&|\\./tmp/main.+&"
+message = "Use `testenv up` instead of spawning videonode manually."
+
+[[hooks.block]]
+match = "cmake --install"
+cwd_match = ".claude/worktrees/"
+message = "Don't install native binaries from a worktree — testenv uses the worktree's local build."
+
+[[hooks.warn]]
+match = "(pkill|killall).+videonode|kill.+videonode"
+message = "Consider `testenv down` to cleanly release the env and leases."
