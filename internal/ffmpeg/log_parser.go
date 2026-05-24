@@ -3,8 +3,13 @@ package ffmpeg
 import "strings"
 
 // ParseLogLevel extracts the level from "[level] msg" or "[component] [level] msg" ffmpeg output.
+// Also recognizes the glog/absl-style "LEVEL: msg" prefix that libraries like
+// absl::ParseCommandLine emit on stderr without going through vn::log.
 func ParseLogLevel(line string) (level, msg string) {
 	if len(line) < 3 || line[0] != '[' {
+		if lvl, rest, ok := parseGlogPrefix(line); ok {
+			return lvl, rest
+		}
 		return "info", line
 	}
 
@@ -32,6 +37,34 @@ func ParseLogLevel(line string) (level, msg string) {
 	}
 
 	return "info", line
+}
+
+// parseGlogPrefix matches glog/absl-style "LEVEL: msg" output (e.g. the
+// "ERROR: Unknown command line flag ..." line absl prints when flag parsing
+// fails). Returns the mapped slog level, the message without the prefix,
+// and ok=true on a match.
+func parseGlogPrefix(line string) (level, msg string, ok bool) {
+	colon := strings.Index(line, ": ")
+	if colon <= 0 {
+		return "", "", false
+	}
+	tag := line[:colon]
+	for i := 0; i < len(tag); i++ {
+		if tag[i] < 'A' || tag[i] > 'Z' {
+			return "", "", false
+		}
+	}
+	switch tag {
+	case "FATAL":
+		return "fatal", line[colon+2:], true
+	case "ERROR":
+		return "error", line[colon+2:], true
+	case "WARNING", "WARN":
+		return "warning", line[colon+2:], true
+	case "INFO":
+		return "info", line[colon+2:], true
+	}
+	return "", "", false
 }
 
 func isLogLevel(s string) bool {

@@ -10,9 +10,9 @@ import (
 )
 
 // ProducerStage is the per-Source `videonode-source` process. Keyed by
-// SourceID (1:1 with Source.ID). Captures V4L2 frames (or a built-in
-// test-pattern when TestMode is set) and broadcasts NV12 dma-bufs via
-// SCM_RIGHTS to N consumers.
+// SourceID (1:1 with Source.ID). Captures V4L2 frames (or runs in
+// device-less placeholder mode when TestMode is set) and broadcasts
+// NV12 dma-bufs via SCM_RIGHTS to N consumers.
 //
 // Sharing happens at the SCM data-plane level: any number of composers
 // or encoders dial SCMSocketPathFor(sourceID) to fan out. The Pipeline's
@@ -24,7 +24,7 @@ import (
 type ProducerStage struct {
 	SourceID   string // logical source identity from Source.ID
 	DevicePath string // resolved /dev/videoN path; empty when TestMode is true
-	TestMode   bool   // swaps argv to --test-pattern when true
+	TestMode   bool   // omits --device so the source runs in placeholder mode
 	BinaryPath string // path to videonode-source binary
 	// GrpcUds is the per-instance gRPC UDS the daemon dials for control
 	// plane RPCs (SetFormat / Snapshot / status subscription).
@@ -63,9 +63,7 @@ func (p *ProducerStage) Command() ([]string, []string, error) {
 	}
 
 	argv := []string{p.BinaryPath}
-	if p.TestMode {
-		argv = append(argv, "--test-pattern")
-	} else {
+	if !p.TestMode {
 		argv = append(argv, "--device", p.DevicePath)
 	}
 	argv = append(argv, "--out-socket", p.SCMSocketPath())

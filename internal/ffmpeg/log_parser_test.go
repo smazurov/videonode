@@ -57,6 +57,30 @@ func TestParseLogLevel(t *testing.T) {
 			wantLevel: "info",
 			wantMsg:   "",
 		},
+		{
+			name:      "absl unknown flag error",
+			input:     "ERROR: Unknown command line flag 'test_pattern'",
+			wantLevel: "error",
+			wantMsg:   "Unknown command line flag 'test_pattern'",
+		},
+		{
+			name:      "glog fatal",
+			input:     "FATAL: assertion failed",
+			wantLevel: "fatal",
+			wantMsg:   "assertion failed",
+		},
+		{
+			name:      "glog warning",
+			input:     "WARNING: deprecated",
+			wantLevel: "warning",
+			wantMsg:   "deprecated",
+		},
+		{
+			name:      "colon in non-level word stays info",
+			input:     "Stream mapping: 0 -> 1",
+			wantLevel: "info",
+			wantMsg:   "Stream mapping: 0 -> 1",
+		},
 	}
 
 	for _, tt := range tests {
