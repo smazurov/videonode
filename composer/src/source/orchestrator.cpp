@@ -25,7 +25,7 @@
 #include "src/source/source_service.hpp"
 #include "version.hpp"
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
-#include "src/render/csc_gles.hpp"
+#include "src/render/csc_placebo.hpp"
 #endif
 
 #include <atomic>
@@ -61,11 +61,17 @@ vn::snapshot::FrameRef make_frame_ref_(const jpeg_dec::DecodedNv12& d, uint64_t 
     r.height = static_cast<uint32_t>(d.height);
     r.pitch_y = d.y_pitch;
     r.pitch_uv = d.uv_pitch;
-    r.planes[0] = {d.fd, d.y_offset, d.y_pitch, static_cast<size_t>(d.width),
-                   static_cast<size_t>(d.height)};
+    r.planes[0] = {.fd = d.fd,
+                   .offset = d.y_offset,
+                   .pitch = d.y_pitch,
+                   .row_bytes = static_cast<size_t>(d.width),
+                   .rows = static_cast<size_t>(d.height)};
     const int uv_fd = d.plane1_fd >= 0 ? d.plane1_fd : d.fd;
-    r.planes[1] = {uv_fd, d.uv_offset, d.uv_pitch, static_cast<size_t>(d.width),
-                   static_cast<size_t>(d.height) / 2};
+    r.planes[1] = {.fd = uv_fd,
+                   .offset = d.uv_offset,
+                   .pitch = d.uv_pitch,
+                   .row_bytes = static_cast<size_t>(d.width),
+                   .rows = static_cast<size_t>(d.height) / 2};
     r.frame_idx = frame_idx;
     r.captured_at_ns = monotonic_ns_();
     return r;
@@ -159,18 +165,18 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     // no RGA) the GBM allocator MUST share csc_gles's gbm_device —
     // radeonsi rejects cross-gbm_device dma-buf imports as renderbuffer
     // storage, so allocating against a sibling device produces FBO-
-    // incomplete and no frames flow. csc_gles::init() lazy-creates its
+    // incomplete and no frames flow. csc_placebo::init() lazy-creates its
     // EGL+GBM stack on first call; we force-init eagerly here so the
     // allocator has the right device.
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
-    if (!csc_gles::init()) {
-        vn::log::fatal("videonode-source: csc_gles::init failed; cannot bring up Mesa CSC backend "
+    if (!csc_placebo::init()) {
+        vn::log::fatal("videonode-source: csc_placebo::init failed; cannot bring up Mesa CSC backend "
                        "(needed for the GBM allocator's gbm_device)");
         return 1;
     }
-    gbm_device* alloc_gbm = csc_gles::gbm_device_for_io();
+    gbm_device* alloc_gbm = csc_placebo::gbm_device_for_io();
     if (alloc_gbm == nullptr) {
-        vn::log::fatal("videonode-source: csc_gles::gbm_device_for_io returned null");
+        vn::log::fatal("videonode-source: csc_placebo::gbm_device_for_io returned null");
         return 1;
     }
     nv12_buf::Allocator allocator;

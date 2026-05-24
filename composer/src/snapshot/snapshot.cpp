@@ -15,13 +15,14 @@ void* default_mmap_(int fd, size_t length, off_t offset) {
 
 // Pack `rows` rows of `row_bytes` from `src` (pitch-strided) into `dst`
 // (tight-packed). pitch == row_bytes short-circuits to a single memcpy.
-void pack_rows_(const uint8_t* src, size_t pitch, uint8_t* dst, size_t row_bytes, size_t rows) {
+void pack_rows_(std::span<const uint8_t> src, size_t pitch, std::span<uint8_t> dst,
+                size_t row_bytes, size_t rows) {
     if (pitch == row_bytes) {
-        std::memcpy(dst, src, row_bytes * rows);
+        std::memcpy(dst.data(), src.data(), row_bytes * rows);
         return;
     }
     for (size_t r = 0; r < rows; ++r) {
-        std::memcpy(dst + r * row_bytes, src + r * pitch, row_bytes);
+        std::memcpy(dst.subspan(r * row_bytes).data(), src.subspan(r * pitch).data(), row_bytes);
     }
 }
 
@@ -44,8 +45,9 @@ bool MmapAndPack(const Plane& plane, std::span<uint8_t> dst, size_t dst_offset, 
     if (mapped == MAP_FAILED || mapped == nullptr)
         return false;
 
-    const auto* src = static_cast<const uint8_t*>(mapped) + plane.offset;
-    pack_rows_(src, plane.pitch, dst.data() + dst_offset, plane.row_bytes, plane.rows);
+    auto map_span = std::span(static_cast<const uint8_t*>(mapped), map_size);
+    pack_rows_(map_span.subspan(plane.offset), plane.pitch, dst.subspan(dst_offset),
+               plane.row_bytes, plane.rows);
 
     ::munmap(mapped, map_size);
     return true;

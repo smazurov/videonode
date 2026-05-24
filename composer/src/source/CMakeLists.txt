@@ -29,12 +29,7 @@ if(HAVE_MPP)
     target_link_libraries(orchestrator PUBLIC mpp_jpeg_dec)
     target_compile_definitions(orchestrator PRIVATE HAVE_MPP=1)
 endif()
-if(HAVE_GBM AND NOT HAVE_RGA)
-    # nv12_buf::Allocator::init needs a gbm_device on this backend.
-    # source::Run reuses csc_gles's gbm_device so that allocated dma-bufs
-    # can be imported as renderbuffer storage by csc_gles's EGL context
-    # (radeonsi rejects cross-gbm_device renderbuffer imports — see
-    # gh#6).
+if(HAVE_PLACEBO AND HAVE_GBM AND NOT HAVE_RGA)
     target_compile_definitions(orchestrator PRIVATE HAVE_GBM=1)
-    target_link_libraries(orchestrator PUBLIC csc_gles gles_bundle)
+    target_link_libraries(orchestrator PUBLIC csc_placebo gles_bundle placebo_bundle)
 endif()

@@ -59,13 +59,13 @@ if(HAVE_RGA)
     target_compile_definitions(csc PRIVATE HAVE_RGA=1)
 endif()
 
-# csc_gles: GLES2 two-pass NV24→NV12 backend. Validated by tools/csc-probe.
-if(HAVE_GLES_CSC)
-    vn_add_library(csc_gles
-        SOURCES csc_gles.cpp
-        PUBLIC_DEPS egl_ctx gles_bundle)
-    target_link_libraries(csc PUBLIC csc_gles)
-    target_compile_definitions(csc PRIVATE HAVE_GLES_CSC=1)
+# csc_placebo: libplacebo NV24→NV12 backend. Replaces csc_gles.
+if(HAVE_PLACEBO AND HAVE_GBM)
+    vn_add_library(csc_placebo
+        SOURCES csc_placebo.cpp
+        PUBLIC_DEPS egl_ctx gles_bundle placebo_bundle)
+    target_link_libraries(csc PUBLIC csc_placebo)
+    target_compile_definitions(csc PRIVATE HAVE_PLACEBO_CSC=1)
 endif()
 
 # ───────────────────────────────────────────────── GLES libs (need GBM)
@@ -85,9 +85,11 @@ if(HAVE_GBM)
         SOURCES format_dispatch.cpp
         PUBLIC_DEPS egl_ctx)
 
-    vn_add_library(gl_compose
-        SOURCES gl_compose.cpp
-        PUBLIC_DEPS egl_ctx gles_bundle)
+    if(HAVE_PLACEBO)
+        vn_add_library(pl_compose
+            SOURCES pl_compose.cpp
+            PUBLIC_DEPS egl_ctx gles_bundle placebo_bundle)
+    endif()
 
     # canvas_loop: composer compose-render-stdout-or-SCM loop, extracted
     # from videonode_composer_main.cpp so the binary stays argv-only.
@@ -96,6 +98,6 @@ if(HAVE_GBM)
     # plus an optional ScmRightsProducer for SCM canvas output.
     vn_add_library(canvas_loop
         SOURCES canvas_loop.cpp
-        PUBLIC_DEPS gl_compose egl_ctx scm_rights_source scm_rights_producer dmabuf_header world
+        PUBLIC_DEPS pl_compose egl_ctx scm_rights_source scm_rights_producer dmabuf_header world
                     gbm_alloc composer_service vn_snapshot)
 endif()

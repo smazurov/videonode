@@ -38,19 +38,12 @@ if(HAVE_GBM)
     vn_add_test(format_dispatch DEPS format_dispatch              LABELS render)
 endif()
 
-# csc_gles is only compiled when HAVE_GLES_CSC; the test allocates dma-buf
-# storage via GBM directly. SetUp() GTEST_SKIPs the body when no DRM
-# render node is reachable (headless CI), so the test self-quiesces.
-if(HAVE_GLES_CSC AND HAVE_GBM)
-    vn_add_test(csc_gles
-        DEPS csc csc_gles egl_ctx gles_bundle
-        LABELS render)
-
-    # Regression for the all-green-frame bug: TurboJPEG decodes into an
-    # nv12_buf slot via held CPU mmap; a separate consumer mmap of the
-    # same dma-buf fd reads stale (zero) bytes because the source path
-    # never unmaps or sync_end's the slot before broadcasting.
+# Regression for the all-green-frame bug: TurboJPEG decodes into an
+# nv12_buf slot via held CPU mmap; a separate consumer mmap of the
+# same dma-buf fd reads stale (zero) bytes because the source path
+# never unmaps or sync_end's the slot before broadcasting.
+if(HAVE_PLACEBO AND HAVE_GBM)
     vn_add_test(jpeg_dec_dmabuf_visibility
-        DEPS jpeg_dec_turbo nv12_buf csc_gles egl_ctx gles_bundle PkgConfig::TURBOJPEG
+        DEPS jpeg_dec_turbo nv12_buf csc_placebo egl_ctx gles_bundle placebo_bundle PkgConfig::TURBOJPEG
         LABELS capture)
 endif()

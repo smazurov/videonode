@@ -73,7 +73,7 @@ TEST(MmapAndPack, PitchEqualsWidth) {
     const int fd = make_memfd_with(src);
     ASSERT_GE(fd, 0);
 
-    vn::snapshot::Plane p{fd, 0, 8, 8, 4};
+    vn::snapshot::Plane p{.fd = fd, .offset = 0, .pitch = 8, .row_bytes = 8, .rows = 4};
     std::vector<uint8_t> dst(32);
     EXPECT_TRUE(vn::snapshot::MmapAndPack(p, dst, 0));
     EXPECT_EQ(dst, packed_expected_(4, 8, 3));
@@ -86,7 +86,7 @@ TEST(MmapAndPack, PitchExceedsWidth) {
     const int fd = make_memfd_with(src);
     ASSERT_GE(fd, 0);
 
-    vn::snapshot::Plane p{fd, 0, 11, 5, 3};
+    vn::snapshot::Plane p{.fd = fd, .offset = 0, .pitch = 11, .row_bytes = 5, .rows = 3};
     std::vector<uint8_t> dst(15);
     EXPECT_TRUE(vn::snapshot::MmapAndPack(p, dst, 0));
     EXPECT_EQ(dst, packed_expected_(3, 5, 9));
@@ -98,7 +98,7 @@ TEST(MmapAndPack, RejectsPitchSmallerThanRowBytes) {
     const int fd = make_memfd_with(src);
     ASSERT_GE(fd, 0);
 
-    vn::snapshot::Plane p{fd, 0, /*pitch=*/4, /*row_bytes=*/8, /*rows=*/2};
+    vn::snapshot::Plane p{.fd = fd, .offset = 0, .pitch = 4, .row_bytes = 8, .rows = 2};
     std::vector<uint8_t> dst(16, 0x55);
     EXPECT_FALSE(vn::snapshot::MmapAndPack(p, dst, 0));
     for (auto b : dst)
@@ -107,7 +107,7 @@ TEST(MmapAndPack, RejectsPitchSmallerThanRowBytes) {
 }
 
 TEST(MmapAndPack, RejectsBadFd) {
-    vn::snapshot::Plane p{-1, 0, 4, 4, 1};
+    vn::snapshot::Plane p{.fd = -1, .offset = 0, .pitch = 4, .row_bytes = 4, .rows = 1};
     std::vector<uint8_t> dst(4);
     EXPECT_FALSE(vn::snapshot::MmapAndPack(p, dst, 0));
 }
@@ -117,7 +117,7 @@ TEST(MmapAndPack, RejectsSmallDst) {
     const int fd = make_memfd_with(src);
     ASSERT_GE(fd, 0);
 
-    vn::snapshot::Plane p{fd, 0, 8, 8, 4};
+    vn::snapshot::Plane p{.fd = fd, .offset = 0, .pitch = 8, .row_bytes = 8, .rows = 4};
     std::vector<uint8_t> dst(8); // need 32, have 8
     EXPECT_FALSE(vn::snapshot::MmapAndPack(p, dst, 0));
     ::close(fd);
@@ -134,7 +134,7 @@ TEST(MmapAndPack, OffsetRespected) {
     const int fd = make_memfd_with(src);
     ASSERT_GE(fd, 0);
 
-    vn::snapshot::Plane p{fd, /*offset=*/24, 7, 5, 3};
+    vn::snapshot::Plane p{.fd = fd, .offset = 24, .pitch = 7, .row_bytes = 5, .rows = 3};
     std::vector<uint8_t> dst(15);
     EXPECT_TRUE(vn::snapshot::MmapAndPack(p, dst, 0));
     EXPECT_EQ(dst, packed_expected_(3, 5, 17));
@@ -146,7 +146,7 @@ TEST(MmapAndPack, FailingMmapReturnsFalse) {
     const int fd = make_memfd_with(src);
     ASSERT_GE(fd, 0);
 
-    vn::snapshot::Plane p{fd, 0, 8, 8, 4};
+    vn::snapshot::Plane p{.fd = fd, .offset = 0, .pitch = 8, .row_bytes = 8, .rows = 4};
     std::vector<uint8_t> dst(32);
     EXPECT_FALSE(vn::snapshot::MmapAndPack(p, dst, 0, &failing_mmap));
     ::close(fd);
@@ -180,8 +180,8 @@ TEST(LatestFrameHolder, RoundTripNv12SinglePlanedFd) {
     ref.height = H;
     ref.pitch_y = W;
     ref.pitch_uv = W;
-    ref.planes[0] = {fd, 0, W, W, H};            // Y
-    ref.planes[1] = {fd, y_bytes, W, W, H / 2};  // UV
+    ref.planes[0] = {.fd = fd, .offset = 0, .pitch = W, .row_bytes = W, .rows = H};            // Y
+    ref.planes[1] = {.fd = fd, .offset = y_bytes, .pitch = W, .row_bytes = W, .rows = H / 2};  // UV
     ref.frame_idx = 42;
     ref.captured_at_ns = 1'000'000;
 
@@ -225,8 +225,8 @@ TEST(LatestFrameHolder, RoundTripNv12PaddedPitch) {
     ref.height = H;
     ref.pitch_y = static_cast<uint32_t>(y_pitch);
     ref.pitch_uv = static_cast<uint32_t>(uv_pitch);
-    ref.planes[0] = {fd, 0, y_pitch, W, H};
-    ref.planes[1] = {fd, y_src.size(), uv_pitch, W, H / 2};
+    ref.planes[0] = {.fd = fd, .offset = 0, .pitch = y_pitch, .row_bytes = W, .rows = H};
+    ref.planes[1] = {.fd = fd, .offset = y_src.size(), .pitch = uv_pitch, .row_bytes = W, .rows = H / 2};
 
     vn::snapshot::LatestFrameHolder h;
     h.Update(ref);
@@ -238,7 +238,7 @@ TEST(LatestFrameHolder, RoundTripNv12PaddedPitch) {
     auto expected_y = packed_expected_(H, W, 0x10);
     auto expected_uv = packed_expected_(H / 2, W, 0x80);
     EXPECT_EQ(0, std::memcmp(out.bytes.data(), expected_y.data(), expected_y.size()));
-    EXPECT_EQ(0, std::memcmp(out.bytes.data() + expected_y.size(), expected_uv.data(),
+    EXPECT_EQ(0, std::memcmp(&out.bytes[expected_y.size()], expected_uv.data(),
                              expected_uv.size()));
     ::close(fd);
 }
@@ -257,7 +257,7 @@ TEST(LatestFrameHolder, RoundTripBgra) {
     ref.width = W;
     ref.height = H;
     ref.pitch_y = static_cast<uint32_t>(pitch);
-    ref.planes[0] = {fd, 0, pitch, row_bytes, H};
+    ref.planes[0] = {.fd = fd, .offset = 0, .pitch = pitch, .row_bytes = row_bytes, .rows = H};
 
     vn::snapshot::LatestFrameHolder h;
     h.Update(ref);
@@ -289,8 +289,8 @@ TEST(LatestFrameHolder, UpdateOverwrites) {
         r.height = H;
         r.pitch_y = W;
         r.pitch_uv = W;
-        r.planes[0] = {fd, 0, W, W, H};
-        r.planes[1] = {fd, W * H, W, W, H / 2};
+        r.planes[0] = {.fd = fd, .offset = 0, .pitch = W, .row_bytes = W, .rows = H};
+        r.planes[1] = {.fd = fd, .offset = W * H, .pitch = W, .row_bytes = W, .rows = H / 2};
         r.frame_idx = idx;
         return r;
     };
@@ -316,7 +316,7 @@ TEST(LatestFrameHolder, MmapFailureLeavesRefIntact) {
     ref.width = 2;
     ref.height = 2;
     ref.pitch_y = 8;
-    ref.planes[0] = {fd, 0, 8, 8, 2};
+    ref.planes[0] = {.fd = fd, .offset = 0, .pitch = 8, .row_bytes = 8, .rows = 2};
 
     vn::snapshot::LatestFrameHolder h;
     h.Update(ref);
@@ -355,8 +355,8 @@ TEST(LatestFrameHolder, ConcurrentUpdateAndSnapshot) {
             r.height = H;
             r.pitch_y = W;
             r.pitch_uv = W;
-            r.planes[0] = {fd, 0, W, W, H};
-            r.planes[1] = {fd, W * H, W, W, H / 2};
+            r.planes[0] = {.fd = fd, .offset = 0, .pitch = W, .row_bytes = W, .rows = H};
+            r.planes[1] = {.fd = fd, .offset = W * H, .pitch = W, .row_bytes = W, .rows = H / 2};
             r.frame_idx = i;
             h.Update(r);
             last_published.store(i, std::memory_order_release);

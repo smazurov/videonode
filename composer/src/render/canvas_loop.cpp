@@ -7,12 +7,10 @@
 #include "src/render/composer_service.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/render/gbm_alloc.hpp"
-#include "src/render/gl_compose.hpp"
+#include "src/render/pl_compose.hpp"
 #include "src/render/world.hpp"
 #include "src/snapshot/snapshot.hpp"
 
-#include <EGL/egl.h>
-#include <GLES2/gl2.h>
 #include <drm_fourcc.h>
 #include <gbm.h>
 #include <poll.h>
@@ -35,47 +33,6 @@ namespace render {
 
 namespace {
 
-constexpr uint64_t kModInvalid = (uint64_t{1} << 56) - 1;
-
-// Two single-plane EGLImages per NV12 frame. See the old canvas_loop's
-// comment chain (preserved here in spirit): radeonsi/amdgpu wants
-// single-plane R8 + GR88 imports with MOD_INVALID, not a multi-plane
-// import. Same path Panthor accepts.
-struct SourceImagePair {
-    EGLImage y = EGL_NO_IMAGE;
-    EGLImage uv = EGL_NO_IMAGE;
-};
-
-SourceImagePair import_frame_(const egl_ctx::EglCtx& ctx, const scm_rights_source::FrameView& v) {
-    SourceImagePair p;
-    if (v.fd < 0 || v.plane1_fd < 0 || v.width <= 0 || v.height <= 0)
-        return p;
-    egl_ctx::EglCtx::ImageDesc dy;
-    dy.fd = v.fd;
-    dy.fourcc = DRM_FORMAT_R8;
-    dy.modifier = kModInvalid;
-    dy.width = v.width;
-    dy.height = v.height;
-    dy.plane0_offset = v.plane0_offset;
-    dy.plane0_pitch = v.plane0_pitch ? v.plane0_pitch : uint32_t(v.width);
-    p.y = ctx.import_dmabuf(dy);
-    if (p.y == EGL_NO_IMAGE)
-        return p;
-    egl_ctx::EglCtx::ImageDesc duv;
-    duv.fd = v.plane1_fd;
-    duv.fourcc = DRM_FORMAT_GR88;
-    duv.modifier = kModInvalid;
-    duv.width = v.width / 2;
-    duv.height = v.height / 2;
-    duv.plane0_offset = v.plane1_offset;
-    duv.plane0_pitch = v.plane1_pitch ? v.plane1_pitch : uint32_t(v.width);
-    p.uv = ctx.import_dmabuf(duv);
-    if (p.uv == EGL_NO_IMAGE) {
-        eglDestroyImage(ctx.display(), p.y);
-        p.y = EGL_NO_IMAGE;
-    }
-    return p;
-}
 
 bool write_full_(int fd, std::span<const uint8_t> buf) {
     while (!buf.empty()) {
@@ -203,6 +160,7 @@ bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_
 int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
                   std::atomic<bool>& running, const std::string& scm_out_path,
                   RenderStats* stats, nativerpc::ComposerService* composer_svc) {
+    (void)ctx; // pl_compose manages its own EGL context
     auto start = std::chrono::steady_clock::now();
     int frames_rendered = 0;
     // fps_observed is a sliding 1-second sample: count frames between
@@ -212,9 +170,7 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
     auto next_fps_sample = start + std::chrono::seconds(1);
     int frames_at_last_sample = 0;
 
-    // gl_compose is constructed lazily on the first ready snapshot, since
-    // we don't know the canvas dims until the daemon's set_canvas lands.
-    std::unique_ptr<gl_compose::GlCompose> compose;
+    std::unique_ptr<pl_compose::PlCompose> compose;
     int compose_w = 0, compose_h = 0;
 
     // Optional SCM_RIGHTS output producer. nullptr → legacy stdout mode.
@@ -241,18 +197,6 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
     }
 
     std::map<std::string, LiveSource> live_sources;
-    std::map<int, SourceImagePair> img_cache;
-    auto get_img = [&](const scm_rights_source::FrameView& v) -> SourceImagePair {
-        if (v.fd < 0)
-            return {};
-        auto it = img_cache.find(v.fd);
-        if (it != img_cache.end())
-            return it->second;
-        SourceImagePair p = import_frame_(ctx, v);
-        if (p.y != EGL_NO_IMAGE && p.uv != EGL_NO_IMAGE)
-            img_cache[v.fd] = p;
-        return p;
-    };
 
     auto period = [&](int fps) {
         return std::chrono::nanoseconds(fps > 0 ? 1'000'000'000LL / fps : 1'000'000'000LL / 30);
@@ -291,11 +235,21 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
             continue;
         }
 
-        // Lazy gl_compose init on first ready snapshot.
+        // Lazy pl_compose init on first ready snapshot.
         if (!compose) {
-            compose = std::make_unique<gl_compose::GlCompose>();
-            if (!compose->init(ctx, int(snap.canvas_w), int(snap.canvas_h))) {
-                vn::log::error("canvas_loop: gl_compose init %dx%d failed", int(snap.canvas_w),
+            compose = std::make_unique<pl_compose::PlCompose>();
+            // Use the same DRM device the egl_ctx was opened on.
+            const char* drm_candidates[] = {
+                "/dev/dri/renderD128", "/dev/dri/renderD129", "/dev/dri/renderD130"};
+            bool inited = false;
+            for (const char* d : drm_candidates) {
+                if (compose->init(d, int(snap.canvas_w), int(snap.canvas_h))) {
+                    inited = true;
+                    break;
+                }
+            }
+            if (!inited) {
+                vn::log::error("canvas_loop: pl_compose init %dx%d failed", int(snap.canvas_w),
                                int(snap.canvas_h));
                 compose.reset();
                 next_tick += period(target_fps);
@@ -336,12 +290,10 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
 
         reconcile_sources_(live_sources, snap.slots);
 
-        // Build SourceSlots for the GLES compose call. One per layout
-        // entry whose slot has a live source AND a frame in hand.
-        std::vector<gl_compose::SourceSlot> render_slots;
+        // Build SourceSlots for the pl_compose render call.
+        std::vector<pl_compose::SourceSlot> render_slots;
         render_slots.reserve(snap.layout.size());
         for (const auto& rect : snap.layout) {
-            // Find binding for this layout slot.
             auto bit = std::find_if(snap.slots.begin(), snap.slots.end(),
                                     [&](const SlotBinding& b) { return b.slot == rect.slot; });
             if (bit == snap.slots.end())
@@ -352,34 +304,26 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
             auto fv = lit->second.src->latest_frame();
             if (fv.fd < 0 || fv.frame_idx == 0)
                 continue;
-            SourceImagePair imgs = get_img(fv);
-            if (imgs.y == EGL_NO_IMAGE || imgs.uv == EGL_NO_IMAGE)
+            if (fv.plane1_fd < 0 || fv.width <= 0 || fv.height <= 0)
                 continue;
 
-            gl_compose::SourceSlot s;
-            s.src_y_image = imgs.y;
-            s.src_uv_image = imgs.uv;
+            pl_compose::SourceSlot s;
+            s.src_y_fd = fv.fd;
+            s.src_uv_fd = fv.plane1_fd;
+            s.src_w = fv.width;
+            s.src_h = fv.height;
+            s.src_y_pitch = fv.plane0_pitch ? int(fv.plane0_pitch) : fv.width;
+            s.src_uv_pitch = fv.plane1_pitch ? int(fv.plane1_pitch) : fv.width;
             s.x = rect.x;
             s.y = rect.y;
             s.w = rect.w;
             s.h = rect.h;
-            // Pick the warp by source_id. Identity if the source is in
-            // placeholder state OR no perspective has been set.
             auto sit = snap.source_states.find(bit->source_id);
             if (sit != snap.source_states.end()) {
                 const auto& ss = sit->second;
                 if (ss.state != "placeholder" && ss.has_perspective) {
-                    s.warp.m[0] = ss.warp[0];
-                    s.warp.m[1] = ss.warp[1];
-                    s.warp.m[2] = ss.warp[2];
-                    s.warp.m[3] = ss.warp[3];
-                    s.warp.m[4] = ss.warp[4];
-                    s.warp.m[5] = ss.warp[5];
-                    s.warp.m[6] = ss.warp[6];
-                    s.warp.m[7] = ss.warp[7];
-                    s.warp.m[8] = ss.warp[8];
+                    std::memcpy(s.warp.m, ss.warp.data(), 9 * sizeof(float));
                 }
-                // else: identity (struct default)
             }
             render_slots.push_back(s);
         }
@@ -412,8 +356,11 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
                 r.width = static_cast<uint32_t>(compose_w);
                 r.height = static_cast<uint32_t>(compose_h);
                 r.pitch_y = stride;
-                r.planes[0] = {canvas_dmabuf_fd, 0, stride, size_t(compose_w) * 4,
-                               size_t(compose_h)};
+                r.planes[0] = {.fd = canvas_dmabuf_fd,
+                               .offset = 0,
+                               .pitch = stride,
+                               .row_bytes = size_t(compose_w) * 4,
+                               .rows = size_t(compose_h)};
                 r.frame_idx = broadcast_frame_idx;
                 r.captured_at_ns = static_cast<uint64_t>(
                     std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -507,12 +454,6 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
     for (auto& [_, ls] : live_sources)
         if (ls.src)
             ls.src->stop();
-    for (auto& [_, p] : img_cache) {
-        if (p.y != EGL_NO_IMAGE)
-            eglDestroyImage(ctx.display(), p.y);
-        if (p.uv != EGL_NO_IMAGE)
-            eglDestroyImage(ctx.display(), p.uv);
-    }
     if (scm_out)
         scm_out->stop();
     if (canvas_dmabuf_fd >= 0)
