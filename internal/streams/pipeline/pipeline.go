@@ -417,8 +417,10 @@ func (p *Pipeline) pushComposerConfig(c Composer, udsPath string) {
 			return mgr.SendSetEffects(ctx, composerID, pipelinectl.SetEffectsParams{
 				SourceID: sourceID,
 				Effects: []pipelinectl.EffectParams{{
-					Type:    effect.Type,
-					Corners: effect.Corners,
+					Type:           effect.Type,
+					Corners:        effect.Corners,
+					SnapshotWidth:  effect.SnapshotW,
+					SnapshotHeight: effect.SnapshotH,
 				}},
 			})
 		}) {
@@ -493,8 +495,10 @@ func (p *Pipeline) UpdateComposerEffect(id, inputRef string, effect *Effect) err
 	params := pipelinectl.SetEffectsParams{SourceID: sourceID}
 	if effect != nil {
 		params.Effects = []pipelinectl.EffectParams{{
-			Type:    effect.Type,
-			Corners: effect.Corners,
+			Type:           effect.Type,
+			Corners:        effect.Corners,
+			SnapshotWidth:  effect.SnapshotW,
+			SnapshotHeight: effect.SnapshotH,
 		}}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -60,9 +60,16 @@ type LayoutSlot struct {
 // Effect is a per-input transformation applied by the composer. Today
 // only "perspective" is implemented; new types tag-union via Type and
 // extend with their own fields.
+//
+// SnapshotW/SnapshotH define the pixel-coordinate space the Corners
+// quad is expressed in — typically the source's native resolution as
+// captured by the snapshot UI. The composer normalizes corners to UV
+// by dividing by these dims, so both must be > 0 for perspective.
 type Effect struct {
-	Type    string    `toml:"type" json:"type"`
-	Corners [4][2]int `toml:"corners,omitempty" json:"corners,omitempty"`
+	Type      string    `toml:"type" json:"type"`
+	Corners   [4][2]int `toml:"corners,omitempty" json:"corners,omitempty"`
+	SnapshotW int       `toml:"snapshot_w,omitempty" json:"snapshot_w,omitempty"`
+	SnapshotH int       `toml:"snapshot_h,omitempty" json:"snapshot_h,omitempty"`
 }
 
 // ComposerStage is the per-Composer supervised `videonode-composer`

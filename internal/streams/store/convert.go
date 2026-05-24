@@ -62,7 +62,12 @@ func composerFromV2(v V2Composer) streams.Composer {
 		for i, in := range v.Inputs {
 			c.Inputs[i] = streams.ComposerInput{Ref: in.Ref}
 			if in.Effect != nil {
-				e := streams.ComposerEffect{Type: in.Effect.Type, Corners: in.Effect.Corners}
+				e := streams.ComposerEffect{
+					Type:      in.Effect.Type,
+					Corners:   in.Effect.Corners,
+					SnapshotW: in.Effect.SnapshotW,
+					SnapshotH: in.Effect.SnapshotH,
+				}
 				c.Inputs[i].Effect = &e
 			}
 		}
@@ -88,7 +93,12 @@ func composerToV2(c streams.Composer) V2Composer {
 		for i, in := range c.Inputs {
 			v.Inputs[i] = V2ComposerInput{Ref: in.Ref}
 			if in.Effect != nil {
-				e := V2Effect{Type: in.Effect.Type, Corners: in.Effect.Corners}
+				e := V2Effect{
+					Type:      in.Effect.Type,
+					Corners:   in.Effect.Corners,
+					SnapshotW: in.Effect.SnapshotW,
+					SnapshotH: in.Effect.SnapshotH,
+				}
 				v.Inputs[i].Effect = &e
 			}
 		}
