@@ -15,6 +15,7 @@ type HookCmd struct {
 	SessionStart   HookSessionStartCmd   `cmd:"session-start" help:"SessionStart hook: reap + inject inventory context."`
 	SessionEnd     HookSessionEndCmd     `cmd:"session-end" help:"SessionEnd hook: release session envs."`
 	PreToolUse     HookPreToolUseCmd     `cmd:"pre-tool-use" help:"PreToolUse hook: steer Claude toward testenv."`
+	PostToolUse    HookPostToolUseCmd    `cmd:"post-tool-use" help:"PostToolUse hook: track worktree on EnterWorktree."`
 	WorktreeRemove HookWorktreeRemoveCmd `cmd:"worktree-remove" help:"WorktreeRemove hook: release envs from deleted worktree."`
 }
 
@@ -63,6 +64,13 @@ func (c *HookPreToolUseCmd) Run(_ *Context) error {
 	if d.Block {
 		os.Exit(2)
 	}
+	return nil
+}
+
+type HookPostToolUseCmd struct{}
+
+func (c *HookPostToolUseCmd) Run(ctx *Context) error {
+	envctl.EvalPostToolUse(os.Stdin, ctx.StatePath)
 	return nil
 }
 

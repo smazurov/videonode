@@ -82,7 +82,7 @@ func TestInstallIdempotent(t *testing.T) {
 	}
 
 	// Verify: settings.json has all four hook events.
-	expectedEvents := []string{"SessionStart", "SessionEnd", "PreToolUse", "WorktreeRemove"}
+	expectedEvents := []string{"SessionStart", "SessionEnd", "PreToolUse", "PostToolUse", "WorktreeRemove"}
 	for _, event := range expectedEvents {
 		if hooks[event] == nil {
 			t.Errorf("settings.json missing hook event %s", event)
