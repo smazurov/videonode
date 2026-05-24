@@ -34,7 +34,7 @@ func buildEncoderPreviewCommand(
 
 	r := resolveEncoder(spec.FFmpeg.Codec, provider)
 	enc := &pipeline.EncoderStage{
-		StreamID_: spec.ID,
+		OwnerStreamID: spec.ID,
 		Media: pipeline.MediaSource{
 			Video: video,
 			Audio: pipeline.ALSADirectAudio{Config: audioFromSpec(spec)},

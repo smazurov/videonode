@@ -114,7 +114,7 @@ func TestEncoder_DanglingUpstreamRefIsError(t *testing.T) {
 
 func TestEncoderStage_NV12_Y4M_BuildsYuv4mpegpipeInput(t *testing.T) {
 	e := &EncoderStage{
-		StreamID_: "cam-front",
+		OwnerStreamID: "cam-front",
 		Media: MediaSource{
 			Video: ProducerFrameSource{Socket: "/tmp/vn-bus-cam.sock"},
 		},
@@ -141,7 +141,7 @@ func TestEncoderStage_NV12_Y4M_BuildsYuv4mpegpipeInput(t *testing.T) {
 
 func TestEncoderStage_BGRA_RawBuildsRawvideoInput(t *testing.T) {
 	e := &EncoderStage{
-		StreamID_: "canvas-1",
+		OwnerStreamID: "canvas-1",
 		Media: MediaSource{
 			Video: ComposerFrameSource{
 				Socket: "/tmp/vn-bus-composer-canvas-1.sock",
@@ -172,7 +172,7 @@ func TestEncoderStage_BGRA_RawBuildsRawvideoInput(t *testing.T) {
 
 func TestEncoderStage_CustomEncoderArgsReplacesTail(t *testing.T) {
 	e := &EncoderStage{
-		StreamID_: "cam",
+		OwnerStreamID: "cam",
 		Media: MediaSource{
 			Video: ProducerFrameSource{Socket: "/tmp/sock"},
 		},
@@ -194,7 +194,7 @@ func TestEncoderStage_CustomEncoderArgsReplacesTail(t *testing.T) {
 
 func TestEncoderStage_AudioInputsAppendedPerDevice(t *testing.T) {
 	e := &EncoderStage{
-		StreamID_: "cam",
+		OwnerStreamID: "cam",
 		Media: MediaSource{
 			Video: ProducerFrameSource{Socket: "/tmp/sock"},
 			Audio: ALSADirectAudio{Config: AudioConfig{Devices: []string{"hw:0", "hw:1"}}},
