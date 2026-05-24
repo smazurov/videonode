@@ -4,10 +4,12 @@
 #include "src/ipc/dmabuf_header.hpp"
 #include "src/ipc/scm_rights_producer.hpp"
 #include "src/ipc/scm_rights_source.hpp"
+#include "src/render/composer_service.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/render/gbm_alloc.hpp"
 #include "src/render/gl_compose.hpp"
 #include "src/render/world.hpp"
+#include "src/snapshot/snapshot.hpp"
 
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
@@ -200,7 +202,7 @@ bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_
 
 int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
                   std::atomic<bool>& running, const std::string& scm_out_path,
-                  RenderStats* stats) {
+                  RenderStats* stats, nativerpc::ComposerService* composer_svc) {
     auto start = std::chrono::steady_clock::now();
     int frames_rendered = 0;
     // fps_observed is a sliding 1-second sample: count frames between
@@ -404,6 +406,21 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
             // fresh frame the moment they dial in.
             (void)broadcast_canvas_(*scm_out, canvas_dmabuf_fd, compose_w, compose_h, stride,
                                     broadcast_frame_idx);
+            if (composer_svc) {
+                vn::snapshot::FrameRef r{};
+                r.format = vn::snapshot::Format::Bgra;
+                r.width = static_cast<uint32_t>(compose_w);
+                r.height = static_cast<uint32_t>(compose_h);
+                r.pitch_y = stride;
+                r.planes[0] = {canvas_dmabuf_fd, 0, stride, size_t(compose_w) * 4,
+                               size_t(compose_h)};
+                r.frame_idx = broadcast_frame_idx;
+                r.captured_at_ns = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch())
+                        .count());
+                composer_svc->UpdateLatestCanvas(r);
+            }
         } else {
             // stdout mode: gbm_bo_map under the process-wide lock —
             // concurrent calls from any other gbm_alloc::* user must not

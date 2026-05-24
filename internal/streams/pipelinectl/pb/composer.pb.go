@@ -22,6 +22,132 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type ComposerSnapshotRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ComposerSnapshotRequest) Reset() {
+	*x = ComposerSnapshotRequest{}
+	mi := &file_control_composer_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ComposerSnapshotRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ComposerSnapshotRequest) ProtoMessage() {}
+
+func (x *ComposerSnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_control_composer_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ComposerSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*ComposerSnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_control_composer_proto_rawDescGZIP(), []int{0}
+}
+
+type ComposerSnapshotResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Tight-packed BGRA pixels: width * height * 4 bytes.
+	Bgra   []byte `protobuf:"bytes,1,opt,name=bgra,proto3" json:"bgra,omitempty"`
+	Width  uint32 `protobuf:"varint,2,opt,name=width,proto3" json:"width,omitempty"`
+	Height uint32 `protobuf:"varint,3,opt,name=height,proto3" json:"height,omitempty"`
+	// Source dma-buf pitch (>= width*4) — reported for callers that want
+	// to know about padding the source had. The `bgra` bytes themselves
+	// are always width-packed.
+	Pitch uint32 `protobuf:"varint,4,opt,name=pitch,proto3" json:"pitch,omitempty"`
+	// Monotonically increasing index of the rendered frame.
+	FrameIdx uint64 `protobuf:"varint,5,opt,name=frame_idx,json=frameIdx,proto3" json:"frame_idx,omitempty"`
+	// CLOCK_MONOTONIC nanoseconds at the moment Update stashed the ref.
+	CapturedAtNs  uint64 `protobuf:"varint,6,opt,name=captured_at_ns,json=capturedAtNs,proto3" json:"captured_at_ns,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ComposerSnapshotResponse) Reset() {
+	*x = ComposerSnapshotResponse{}
+	mi := &file_control_composer_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ComposerSnapshotResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ComposerSnapshotResponse) ProtoMessage() {}
+
+func (x *ComposerSnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_control_composer_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ComposerSnapshotResponse.ProtoReflect.Descriptor instead.
+func (*ComposerSnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_control_composer_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ComposerSnapshotResponse) GetBgra() []byte {
+	if x != nil {
+		return x.Bgra
+	}
+	return nil
+}
+
+func (x *ComposerSnapshotResponse) GetWidth() uint32 {
+	if x != nil {
+		return x.Width
+	}
+	return 0
+}
+
+func (x *ComposerSnapshotResponse) GetHeight() uint32 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
+func (x *ComposerSnapshotResponse) GetPitch() uint32 {
+	if x != nil {
+		return x.Pitch
+	}
+	return 0
+}
+
+func (x *ComposerSnapshotResponse) GetFrameIdx() uint64 {
+	if x != nil {
+		return x.FrameIdx
+	}
+	return 0
+}
+
+func (x *ComposerSnapshotResponse) GetCapturedAtNs() uint64 {
+	if x != nil {
+		return x.CapturedAtNs
+	}
+	return 0
+}
+
 type ComposerStats struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Total frames the canvas loop has produced since the process started,
@@ -42,7 +168,7 @@ type ComposerStats struct {
 
 func (x *ComposerStats) Reset() {
 	*x = ComposerStats{}
-	mi := &file_control_composer_proto_msgTypes[0]
+	mi := &file_control_composer_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -54,7 +180,7 @@ func (x *ComposerStats) String() string {
 func (*ComposerStats) ProtoMessage() {}
 
 func (x *ComposerStats) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[0]
+	mi := &file_control_composer_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67,7 +193,7 @@ func (x *ComposerStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComposerStats.ProtoReflect.Descriptor instead.
 func (*ComposerStats) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{0}
+	return file_control_composer_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ComposerStats) GetFramesRendered() uint64 {
@@ -123,7 +249,7 @@ type SetCanvasRequest struct {
 
 func (x *SetCanvasRequest) Reset() {
 	*x = SetCanvasRequest{}
-	mi := &file_control_composer_proto_msgTypes[1]
+	mi := &file_control_composer_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -135,7 +261,7 @@ func (x *SetCanvasRequest) String() string {
 func (*SetCanvasRequest) ProtoMessage() {}
 
 func (x *SetCanvasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[1]
+	mi := &file_control_composer_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -148,7 +274,7 @@ func (x *SetCanvasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetCanvasRequest.ProtoReflect.Descriptor instead.
 func (*SetCanvasRequest) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{1}
+	return file_control_composer_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SetCanvasRequest) GetW() uint32 {
@@ -189,7 +315,7 @@ type SetSourceRequest struct {
 
 func (x *SetSourceRequest) Reset() {
 	*x = SetSourceRequest{}
-	mi := &file_control_composer_proto_msgTypes[2]
+	mi := &file_control_composer_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -201,7 +327,7 @@ func (x *SetSourceRequest) String() string {
 func (*SetSourceRequest) ProtoMessage() {}
 
 func (x *SetSourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[2]
+	mi := &file_control_composer_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -214,7 +340,7 @@ func (x *SetSourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSourceRequest.ProtoReflect.Descriptor instead.
 func (*SetSourceRequest) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{2}
+	return file_control_composer_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SetSourceRequest) GetSlot() string {
@@ -268,7 +394,7 @@ type ClearSourceRequest struct {
 
 func (x *ClearSourceRequest) Reset() {
 	*x = ClearSourceRequest{}
-	mi := &file_control_composer_proto_msgTypes[3]
+	mi := &file_control_composer_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -280,7 +406,7 @@ func (x *ClearSourceRequest) String() string {
 func (*ClearSourceRequest) ProtoMessage() {}
 
 func (x *ClearSourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[3]
+	mi := &file_control_composer_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -293,7 +419,7 @@ func (x *ClearSourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClearSourceRequest.ProtoReflect.Descriptor instead.
 func (*ClearSourceRequest) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{3}
+	return file_control_composer_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ClearSourceRequest) GetSlot() string {
@@ -317,7 +443,7 @@ type LayoutSlot struct {
 
 func (x *LayoutSlot) Reset() {
 	*x = LayoutSlot{}
-	mi := &file_control_composer_proto_msgTypes[4]
+	mi := &file_control_composer_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -329,7 +455,7 @@ func (x *LayoutSlot) String() string {
 func (*LayoutSlot) ProtoMessage() {}
 
 func (x *LayoutSlot) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[4]
+	mi := &file_control_composer_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -342,7 +468,7 @@ func (x *LayoutSlot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LayoutSlot.ProtoReflect.Descriptor instead.
 func (*LayoutSlot) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{4}
+	return file_control_composer_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *LayoutSlot) GetSlot() string {
@@ -389,7 +515,7 @@ type SetLayoutRequest struct {
 
 func (x *SetLayoutRequest) Reset() {
 	*x = SetLayoutRequest{}
-	mi := &file_control_composer_proto_msgTypes[5]
+	mi := &file_control_composer_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -401,7 +527,7 @@ func (x *SetLayoutRequest) String() string {
 func (*SetLayoutRequest) ProtoMessage() {}
 
 func (x *SetLayoutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[5]
+	mi := &file_control_composer_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -414,7 +540,7 @@ func (x *SetLayoutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetLayoutRequest.ProtoReflect.Descriptor instead.
 func (*SetLayoutRequest) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{5}
+	return file_control_composer_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SetLayoutRequest) GetSlots() []*LayoutSlot {
@@ -438,7 +564,7 @@ type PerspectiveEffectParams struct {
 
 func (x *PerspectiveEffectParams) Reset() {
 	*x = PerspectiveEffectParams{}
-	mi := &file_control_composer_proto_msgTypes[6]
+	mi := &file_control_composer_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -450,7 +576,7 @@ func (x *PerspectiveEffectParams) String() string {
 func (*PerspectiveEffectParams) ProtoMessage() {}
 
 func (x *PerspectiveEffectParams) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[6]
+	mi := &file_control_composer_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -463,7 +589,7 @@ func (x *PerspectiveEffectParams) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PerspectiveEffectParams.ProtoReflect.Descriptor instead.
 func (*PerspectiveEffectParams) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{6}
+	return file_control_composer_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PerspectiveEffectParams) GetCorners() []int32 {
@@ -499,7 +625,7 @@ type Effect struct {
 
 func (x *Effect) Reset() {
 	*x = Effect{}
-	mi := &file_control_composer_proto_msgTypes[7]
+	mi := &file_control_composer_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -511,7 +637,7 @@ func (x *Effect) String() string {
 func (*Effect) ProtoMessage() {}
 
 func (x *Effect) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[7]
+	mi := &file_control_composer_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -524,7 +650,7 @@ func (x *Effect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Effect.ProtoReflect.Descriptor instead.
 func (*Effect) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{7}
+	return file_control_composer_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Effect) GetType() string {
@@ -552,7 +678,7 @@ type SetEffectsRequest struct {
 
 func (x *SetEffectsRequest) Reset() {
 	*x = SetEffectsRequest{}
-	mi := &file_control_composer_proto_msgTypes[8]
+	mi := &file_control_composer_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -564,7 +690,7 @@ func (x *SetEffectsRequest) String() string {
 func (*SetEffectsRequest) ProtoMessage() {}
 
 func (x *SetEffectsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[8]
+	mi := &file_control_composer_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -577,7 +703,7 @@ func (x *SetEffectsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetEffectsRequest.ProtoReflect.Descriptor instead.
 func (*SetEffectsRequest) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{8}
+	return file_control_composer_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SetEffectsRequest) GetSourceId() string {
@@ -605,7 +731,7 @@ type SetSourceStateRequest struct {
 
 func (x *SetSourceStateRequest) Reset() {
 	*x = SetSourceStateRequest{}
-	mi := &file_control_composer_proto_msgTypes[9]
+	mi := &file_control_composer_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -617,7 +743,7 @@ func (x *SetSourceStateRequest) String() string {
 func (*SetSourceStateRequest) ProtoMessage() {}
 
 func (x *SetSourceStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_control_composer_proto_msgTypes[9]
+	mi := &file_control_composer_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -630,7 +756,7 @@ func (x *SetSourceStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSourceStateRequest.ProtoReflect.Descriptor instead.
 func (*SetSourceStateRequest) Descriptor() ([]byte, []int) {
-	return file_control_composer_proto_rawDescGZIP(), []int{9}
+	return file_control_composer_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SetSourceStateRequest) GetSourceId() string {
@@ -651,7 +777,15 @@ var File_control_composer_proto protoreflect.FileDescriptor
 
 const file_control_composer_proto_rawDesc = "" +
 	"\n" +
-	"\x16control/composer.proto\x12\x11videonode.control\x1a\x1bgoogle/protobuf/empty.proto\x1a\x14control/common.proto\"\xd7\x01\n" +
+	"\x16control/composer.proto\x12\x11videonode.control\x1a\x1bgoogle/protobuf/empty.proto\x1a\x14control/common.proto\"\x19\n" +
+	"\x17ComposerSnapshotRequest\"\xb5\x01\n" +
+	"\x18ComposerSnapshotResponse\x12\x12\n" +
+	"\x04bgra\x18\x01 \x01(\fR\x04bgra\x12\x14\n" +
+	"\x05width\x18\x02 \x01(\rR\x05width\x12\x16\n" +
+	"\x06height\x18\x03 \x01(\rR\x06height\x12\x14\n" +
+	"\x05pitch\x18\x04 \x01(\rR\x05pitch\x12\x1b\n" +
+	"\tframe_idx\x18\x05 \x01(\x04R\bframeIdx\x12$\n" +
+	"\x0ecaptured_at_ns\x18\x06 \x01(\x04R\fcapturedAtNs\"\xd7\x01\n" +
 	"\rComposerStats\x12'\n" +
 	"\x0fframes_rendered\x18\x01 \x01(\x04R\x0eframesRendered\x12!\n" +
 	"\ffps_observed\x18\x02 \x01(\x01R\vfpsObserved\x12\x19\n" +
@@ -696,7 +830,7 @@ const file_control_composer_proto_rawDesc = "" +
 	"\aeffects\x18\x02 \x03(\v2\x19.videonode.control.EffectR\aeffects\"J\n" +
 	"\x15SetSourceStateRequest\x12\x1b\n" +
 	"\tsource_id\x18\x01 \x01(\tR\bsourceId\x12\x14\n" +
-	"\x05state\x18\x02 \x01(\tR\x05state2\x9b\x05\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state2\x80\x06\n" +
 	"\bComposer\x12A\n" +
 	"\bDescribe\x12\x16.google.protobuf.Empty\x1a\x1d.videonode.control.NativeInfo\x12H\n" +
 	"\tSetCanvas\x12#.videonode.control.SetCanvasRequest\x1a\x16.google.protobuf.Empty\x12H\n" +
@@ -706,7 +840,8 @@ const file_control_composer_proto_rawDesc = "" +
 	"\n" +
 	"SetEffects\x12$.videonode.control.SetEffectsRequest\x1a\x16.google.protobuf.Empty\x12R\n" +
 	"\x0eSetSourceState\x12(.videonode.control.SetSourceStateRequest\x1a\x16.google.protobuf.Empty\x12D\n" +
-	"\bGetStats\x12\x16.google.protobuf.Empty\x1a .videonode.control.ComposerStats\x12:\n" +
+	"\bGetStats\x12\x16.google.protobuf.Empty\x1a .videonode.control.ComposerStats\x12c\n" +
+	"\bSnapshot\x12*.videonode.control.ComposerSnapshotRequest\x1a+.videonode.control.ComposerSnapshotResponse\x12:\n" +
 	"\bShutdown\x12\x16.google.protobuf.Empty\x1a\x16.google.protobuf.EmptyBIZGgithub.com/smazurov/videonode/internal/streams/pipelinectl/pb;controlpbb\x06proto3"
 
 var (
@@ -721,45 +856,49 @@ func file_control_composer_proto_rawDescGZIP() []byte {
 	return file_control_composer_proto_rawDescData
 }
 
-var file_control_composer_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_control_composer_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_control_composer_proto_goTypes = []any{
-	(*ComposerStats)(nil),           // 0: videonode.control.ComposerStats
-	(*SetCanvasRequest)(nil),        // 1: videonode.control.SetCanvasRequest
-	(*SetSourceRequest)(nil),        // 2: videonode.control.SetSourceRequest
-	(*ClearSourceRequest)(nil),      // 3: videonode.control.ClearSourceRequest
-	(*LayoutSlot)(nil),              // 4: videonode.control.LayoutSlot
-	(*SetLayoutRequest)(nil),        // 5: videonode.control.SetLayoutRequest
-	(*PerspectiveEffectParams)(nil), // 6: videonode.control.PerspectiveEffectParams
-	(*Effect)(nil),                  // 7: videonode.control.Effect
-	(*SetEffectsRequest)(nil),       // 8: videonode.control.SetEffectsRequest
-	(*SetSourceStateRequest)(nil),   // 9: videonode.control.SetSourceStateRequest
-	(*emptypb.Empty)(nil),           // 10: google.protobuf.Empty
-	(*NativeInfo)(nil),              // 11: videonode.control.NativeInfo
+	(*ComposerSnapshotRequest)(nil),  // 0: videonode.control.ComposerSnapshotRequest
+	(*ComposerSnapshotResponse)(nil), // 1: videonode.control.ComposerSnapshotResponse
+	(*ComposerStats)(nil),            // 2: videonode.control.ComposerStats
+	(*SetCanvasRequest)(nil),         // 3: videonode.control.SetCanvasRequest
+	(*SetSourceRequest)(nil),         // 4: videonode.control.SetSourceRequest
+	(*ClearSourceRequest)(nil),       // 5: videonode.control.ClearSourceRequest
+	(*LayoutSlot)(nil),               // 6: videonode.control.LayoutSlot
+	(*SetLayoutRequest)(nil),         // 7: videonode.control.SetLayoutRequest
+	(*PerspectiveEffectParams)(nil),  // 8: videonode.control.PerspectiveEffectParams
+	(*Effect)(nil),                   // 9: videonode.control.Effect
+	(*SetEffectsRequest)(nil),        // 10: videonode.control.SetEffectsRequest
+	(*SetSourceStateRequest)(nil),    // 11: videonode.control.SetSourceStateRequest
+	(*emptypb.Empty)(nil),            // 12: google.protobuf.Empty
+	(*NativeInfo)(nil),               // 13: videonode.control.NativeInfo
 }
 var file_control_composer_proto_depIdxs = []int32{
-	4,  // 0: videonode.control.SetLayoutRequest.slots:type_name -> videonode.control.LayoutSlot
-	6,  // 1: videonode.control.Effect.perspective:type_name -> videonode.control.PerspectiveEffectParams
-	7,  // 2: videonode.control.SetEffectsRequest.effects:type_name -> videonode.control.Effect
-	10, // 3: videonode.control.Composer.Describe:input_type -> google.protobuf.Empty
-	1,  // 4: videonode.control.Composer.SetCanvas:input_type -> videonode.control.SetCanvasRequest
-	2,  // 5: videonode.control.Composer.SetSource:input_type -> videonode.control.SetSourceRequest
-	3,  // 6: videonode.control.Composer.ClearSource:input_type -> videonode.control.ClearSourceRequest
-	5,  // 7: videonode.control.Composer.SetLayout:input_type -> videonode.control.SetLayoutRequest
-	8,  // 8: videonode.control.Composer.SetEffects:input_type -> videonode.control.SetEffectsRequest
-	9,  // 9: videonode.control.Composer.SetSourceState:input_type -> videonode.control.SetSourceStateRequest
-	10, // 10: videonode.control.Composer.GetStats:input_type -> google.protobuf.Empty
-	10, // 11: videonode.control.Composer.Shutdown:input_type -> google.protobuf.Empty
-	11, // 12: videonode.control.Composer.Describe:output_type -> videonode.control.NativeInfo
-	10, // 13: videonode.control.Composer.SetCanvas:output_type -> google.protobuf.Empty
-	10, // 14: videonode.control.Composer.SetSource:output_type -> google.protobuf.Empty
-	10, // 15: videonode.control.Composer.ClearSource:output_type -> google.protobuf.Empty
-	10, // 16: videonode.control.Composer.SetLayout:output_type -> google.protobuf.Empty
-	10, // 17: videonode.control.Composer.SetEffects:output_type -> google.protobuf.Empty
-	10, // 18: videonode.control.Composer.SetSourceState:output_type -> google.protobuf.Empty
-	0,  // 19: videonode.control.Composer.GetStats:output_type -> videonode.control.ComposerStats
-	10, // 20: videonode.control.Composer.Shutdown:output_type -> google.protobuf.Empty
-	12, // [12:21] is the sub-list for method output_type
-	3,  // [3:12] is the sub-list for method input_type
+	6,  // 0: videonode.control.SetLayoutRequest.slots:type_name -> videonode.control.LayoutSlot
+	8,  // 1: videonode.control.Effect.perspective:type_name -> videonode.control.PerspectiveEffectParams
+	9,  // 2: videonode.control.SetEffectsRequest.effects:type_name -> videonode.control.Effect
+	12, // 3: videonode.control.Composer.Describe:input_type -> google.protobuf.Empty
+	3,  // 4: videonode.control.Composer.SetCanvas:input_type -> videonode.control.SetCanvasRequest
+	4,  // 5: videonode.control.Composer.SetSource:input_type -> videonode.control.SetSourceRequest
+	5,  // 6: videonode.control.Composer.ClearSource:input_type -> videonode.control.ClearSourceRequest
+	7,  // 7: videonode.control.Composer.SetLayout:input_type -> videonode.control.SetLayoutRequest
+	10, // 8: videonode.control.Composer.SetEffects:input_type -> videonode.control.SetEffectsRequest
+	11, // 9: videonode.control.Composer.SetSourceState:input_type -> videonode.control.SetSourceStateRequest
+	12, // 10: videonode.control.Composer.GetStats:input_type -> google.protobuf.Empty
+	0,  // 11: videonode.control.Composer.Snapshot:input_type -> videonode.control.ComposerSnapshotRequest
+	12, // 12: videonode.control.Composer.Shutdown:input_type -> google.protobuf.Empty
+	13, // 13: videonode.control.Composer.Describe:output_type -> videonode.control.NativeInfo
+	12, // 14: videonode.control.Composer.SetCanvas:output_type -> google.protobuf.Empty
+	12, // 15: videonode.control.Composer.SetSource:output_type -> google.protobuf.Empty
+	12, // 16: videonode.control.Composer.ClearSource:output_type -> google.protobuf.Empty
+	12, // 17: videonode.control.Composer.SetLayout:output_type -> google.protobuf.Empty
+	12, // 18: videonode.control.Composer.SetEffects:output_type -> google.protobuf.Empty
+	12, // 19: videonode.control.Composer.SetSourceState:output_type -> google.protobuf.Empty
+	2,  // 20: videonode.control.Composer.GetStats:output_type -> videonode.control.ComposerStats
+	1,  // 21: videonode.control.Composer.Snapshot:output_type -> videonode.control.ComposerSnapshotResponse
+	12, // 22: videonode.control.Composer.Shutdown:output_type -> google.protobuf.Empty
+	13, // [13:23] is the sub-list for method output_type
+	3,  // [3:13] is the sub-list for method input_type
 	3,  // [3:3] is the sub-list for extension type_name
 	3,  // [3:3] is the sub-list for extension extendee
 	0,  // [0:3] is the sub-list for field type_name
@@ -777,7 +916,7 @@ func file_control_composer_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_control_composer_proto_rawDesc), len(file_control_composer_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

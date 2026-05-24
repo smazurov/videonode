@@ -25,7 +25,7 @@ vn_add_library(world
 # World::apply_*. Daemon dials in over the per-instance UDS.
 vn_add_library(composer_service
     SOURCES composer_service.cpp
-    PUBLIC_DEPS world vn_proto grpc_server)
+    PUBLIC_DEPS world vn_proto grpc_server vn_snapshot)
 
 # nv12_buf: backend-agnostic NV12 output buffer abstraction used by
 # videonode-source. dma_heap single-buffer when HAVE_RGA (rig path); GBM
@@ -97,5 +97,5 @@ if(HAVE_GBM)
     vn_add_library(canvas_loop
         SOURCES canvas_loop.cpp
         PUBLIC_DEPS gl_compose egl_ctx scm_rights_source scm_rights_producer dmabuf_header world
-                    gbm_alloc)
+                    gbm_alloc composer_service vn_snapshot)
 endif()

@@ -37,6 +37,9 @@ class EglCtx;
 namespace render {
 class World;
 }
+namespace nativerpc {
+class ComposerService;
+}
 
 namespace render {
 
@@ -73,9 +76,14 @@ struct RenderStats {
 // tick. Pass nullptr when no observer is wired up (smoke tests, no-gRPC
 // diagnostic runs).
 //
+// `composer_svc` (optional) receives a FrameRef pointing at the latest
+// canvas dma-buf after each SCM broadcast. The service holds the ref so
+// its Snapshot RPC can mmap+pack on demand instead of paying per frame.
+// Pass nullptr when no gRPC server is wired up.
+//
 // Returns the number of frames rendered (placeholder + real).
 int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
                   std::atomic<bool>& running, const std::string& scm_out_path = "",
-                  RenderStats* stats = nullptr);
+                  RenderStats* stats = nullptr, nativerpc::ComposerService* composer_svc = nullptr);
 
 } // namespace render

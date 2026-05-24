@@ -156,8 +156,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    int frames =
-        render::RunCanvasLoop(ctx, world, target_fps, run_seconds, g_running, scm_out, &render_stats);
+    int frames = render::RunCanvasLoop(ctx, world, target_fps, run_seconds, g_running, scm_out,
+                                       &render_stats, grpc_svc.get());
 
     grpc_srv.Shutdown();
 

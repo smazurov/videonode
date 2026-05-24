@@ -28,6 +28,7 @@ const (
 	Composer_SetEffects_FullMethodName     = "/videonode.control.Composer/SetEffects"
 	Composer_SetSourceState_FullMethodName = "/videonode.control.Composer/SetSourceState"
 	Composer_GetStats_FullMethodName       = "/videonode.control.Composer/GetStats"
+	Composer_Snapshot_FullMethodName       = "/videonode.control.Composer/Snapshot"
 	Composer_Shutdown_FullMethodName       = "/videonode.control.Composer/Shutdown"
 )
 
@@ -67,6 +68,11 @@ type ComposerClient interface {
 	// intended for periodic polling by the daemon. Process uptime lives
 	// in the Go process supervisor and is not duplicated here.
 	GetStats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ComposerStats, error)
+	// Snapshot captures one rendered frame from the canvas loop and
+	// returns the raw BGRA bytes plus dimensions. Cost is on-demand
+	// (mmap + memcpy out of the canvas dma-buf on the gRPC thread),
+	// not per produced frame.
+	Snapshot(ctx context.Context, in *ComposerSnapshotRequest, opts ...grpc.CallOption) (*ComposerSnapshotResponse, error)
 	// Shutdown asks the composer to exit cleanly.
 	Shutdown(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
@@ -159,6 +165,16 @@ func (c *composerClient) GetStats(ctx context.Context, in *emptypb.Empty, opts .
 	return out, nil
 }
 
+func (c *composerClient) Snapshot(ctx context.Context, in *ComposerSnapshotRequest, opts ...grpc.CallOption) (*ComposerSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ComposerSnapshotResponse)
+	err := c.cc.Invoke(ctx, Composer_Snapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *composerClient) Shutdown(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -205,6 +221,11 @@ type ComposerServer interface {
 	// intended for periodic polling by the daemon. Process uptime lives
 	// in the Go process supervisor and is not duplicated here.
 	GetStats(context.Context, *emptypb.Empty) (*ComposerStats, error)
+	// Snapshot captures one rendered frame from the canvas loop and
+	// returns the raw BGRA bytes plus dimensions. Cost is on-demand
+	// (mmap + memcpy out of the canvas dma-buf on the gRPC thread),
+	// not per produced frame.
+	Snapshot(context.Context, *ComposerSnapshotRequest) (*ComposerSnapshotResponse, error)
 	// Shutdown asks the composer to exit cleanly.
 	Shutdown(context.Context, *emptypb.Empty) (*emptypb.Empty, error)
 	mustEmbedUnimplementedComposerServer()
@@ -240,6 +261,9 @@ func (UnimplementedComposerServer) SetSourceState(context.Context, *SetSourceSta
 }
 func (UnimplementedComposerServer) GetStats(context.Context, *emptypb.Empty) (*ComposerStats, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetStats not implemented")
+}
+func (UnimplementedComposerServer) Snapshot(context.Context, *ComposerSnapshotRequest) (*ComposerSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Snapshot not implemented")
 }
 func (UnimplementedComposerServer) Shutdown(context.Context, *emptypb.Empty) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Shutdown not implemented")
@@ -409,6 +433,24 @@ func _Composer_GetStats_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Composer_Snapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ComposerSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ComposerServer).Snapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Composer_Snapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ComposerServer).Snapshot(ctx, req.(*ComposerSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Composer_Shutdown_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -465,6 +507,10 @@ var Composer_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStats",
 			Handler:    _Composer_GetStats_Handler,
+		},
+		{
+			MethodName: "Snapshot",
+			Handler:    _Composer_Snapshot_Handler,
 		},
 		{
 			MethodName: "Shutdown",
