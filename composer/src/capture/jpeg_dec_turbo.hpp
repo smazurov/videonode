@@ -2,16 +2,22 @@
 // decoder. Used by videonode-source as the host-build path when Rockchip
 // MPP isn't available.
 //
-// Output model: the caller pre-allocates a small ring of NV12 dma-heap
-// buffers (size W*H*3/2 each) and mmaps them PROT_READ|PROT_WRITE, then
-// hands the (fd, mapped-ptr) pairs to init(). decode() ping-pongs across
-// the ring so the previously-broadcast slot stays untouched while the
-// next frame writes — consumers reading the prior fd see a stable image.
+// Output model: the caller pre-allocates a small ring of NV12 dma-buf
+// slots and hands the per-slot (Y fd, Y mmap, UV fd, UV mmap) tuples to
+// init(). decode() ping-pongs across the ring so the previously-broadcast
+// slot stays untouched while the next frame writes — consumers reading
+// the prior fds see a stable image.
 //
-// Limitations: only 4:2:0 baseline JPEG is accepted (UVC virtually always
-// produces that). Other subsamplings would need a chroma resample step we
-// don't bother with; decode() rejects them so the source falls back to
-// placeholder rather than corrupting output.
+// Two slot shapes are accepted:
+//   - Contiguous (rig dma_heap): y_fd == uv_fd, uv_mapped == y_mapped + W*H.
+//   - Split (Fedora GBM, radeonsi import constraint): y_fd != uv_fd, the two
+//     mmaps live in independent regions. The interleave loop writes to
+//     uv_mapped directly, so it doesn't care which shape it got.
+//
+// Limitations: only 4:2:0 and 4:2:2 baseline JPEG are accepted (UVC
+// virtually always produces 4:2:0). Other subsamplings would need a
+// chroma resample step we don't bother with; decode() rejects them so the
+// source falls back to placeholder rather than corrupting output.
 
 #pragma once
 
@@ -25,8 +31,10 @@ namespace jpeg_dec {
 class TurboJpegDec : public JpegDec {
   public:
     struct Slot {
-        int fd = -1;
-        uint8_t* mapped = nullptr; // PROT_READ|PROT_WRITE mmap of size W*H*3/2
+        int y_fd = -1;
+        int uv_fd = -1;               // == y_fd for contiguous; separate dma-buf on GBM split
+        uint8_t* y_mapped = nullptr;  // PROT_READ|PROT_WRITE, W*H bytes
+        uint8_t* uv_mapped = nullptr; // PROT_READ|PROT_WRITE, W*H/2 bytes
     };
 
     TurboJpegDec() = default;

@@ -198,17 +198,10 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
             vn::log::info("videonode-source: MJPEG backend = MPP (HW)");
         } else {
             // TurboJPEG fallback. Allocate out_ring via nv12_buf + map
-            // each slot for CPU writes; hand (y_fd, y_ptr) pairs to the
-            // decoder. On split-buffer backends (Fedora GBM) the
-            // TurboJPEG NV12 output assumes contiguous Y+UV, which the
-            // GBM split layout doesn't satisfy — skipped on that backend
-            // until the TurboJPEG path is split-aware.
-#if defined(HAVE_GBM) && !defined(HAVE_RGA)
-            vn::log::error("videonode-source: TurboJPEG MJPEG decode not yet wired for "
-                           "GBM split-buffer backend; aborting capture");
-            s.cap.close();
-            return false;
-#else
+            // each slot for CPU writes; hand the slot's (y_fd, y_mapped,
+            // uv_fd, uv_mapped) tuple to the decoder. Works on both
+            // contiguous (rig dma_heap: same fd, uv_mapped = y_mapped + W*H)
+            // and split (Fedora GBM: separate fds and mmaps) slot shapes.
             for (int i = 0; i < a.buffers; ++i) {
                 nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
                 if (!b.valid()) {
@@ -222,17 +215,17 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
             slots.reserve(s.out_ring.size());
             for (auto& buf : s.out_ring) {
                 auto m = nv12_buf::map_rw(buf);
-                if (!m.y) {
-                    vn::log::error("videonode-source: map_rw out_ring fd=%d failed", buf.y_fd);
+                if (!m.y || !m.uv) {
+                    vn::log::error(
+                        "videonode-source: map_rw out_ring y_fd=%d uv_fd=%d failed (y=%p uv=%p)",
+                        buf.y_fd, buf.uv_fd, m.y, m.uv);
                     s.cap.close();
                     return false;
                 }
                 s.out_y.push_back(m.y);
                 s.out_uv.push_back(m.uv);
-                // Single-buffer backend: Y and UV are contiguous in one
-                // mapped region. TurboJPEG decodes NV12 into that
-                // contiguous layout via the y_fd + y pointer.
-                slots.push_back({buf.y_fd, static_cast<uint8_t*>(m.y)});
+                slots.push_back(
+                    {buf.y_fd, buf.uv_fd, static_cast<uint8_t*>(m.y), static_cast<uint8_t*>(m.uv)});
             }
             auto tj = std::make_unique<jpeg_dec::TurboJpegDec>();
             if (!tj->init(s.width, s.height, std::move(slots))) {
@@ -242,7 +235,6 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
             s.jpeg = std::move(tj);
             s.using_mpp = false;
             vn::log::info("videonode-source: MJPEG backend = TurboJPEG (SW)");
-#endif
         }
     } else {
         // RGA / GLES CSC path: out_ring holds NV12 buffers the CSC writes
