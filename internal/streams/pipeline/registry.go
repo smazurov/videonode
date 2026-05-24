@@ -21,11 +21,48 @@ import (
 type ProducerRegistry struct {
 	mu        sync.Mutex
 	consumers map[string]map[string]struct{} // device → set of stream IDs holding it
+	// pinned devices stay running regardless of refcount — the device pool
+	// owns their lifecycle (one source per configured device_id, alive
+	// from daemon startup until shutdown). Reconcile/ReleaseAll never
+	// surface a pinned device in ToStop.
+	pinned map[string]struct{}
 }
 
 // NewProducerRegistry returns an empty registry.
 func NewProducerRegistry() *ProducerRegistry {
-	return &ProducerRegistry{consumers: make(map[string]map[string]struct{})}
+	return &ProducerRegistry{
+		consumers: make(map[string]map[string]struct{}),
+		pinned:    make(map[string]struct{}),
+	}
+}
+
+// Pin marks a device as persistent so Reconcile/ReleaseAll never include
+// it in ToStop. Used by the device pool: every configured device_id is
+// pinned at startup. Idempotent.
+func (r *ProducerRegistry) Pin(device string) {
+	if device == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pinned[device] = struct{}{}
+}
+
+// Unpin removes the persistence marker. After Unpin, the next Reconcile
+// or ReleaseAll that empties the device's consumer set will surface it
+// in ToStop. Idempotent.
+func (r *ProducerRegistry) Unpin(device string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.pinned, device)
+}
+
+// IsPinned reports whether the device is currently marked persistent.
+func (r *ProducerRegistry) IsPinned(device string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.pinned[device]
+	return ok
 }
 
 // ReconcileDelta is the result of Reconcile: which devices a Reconcile
@@ -60,7 +97,9 @@ func (r *ProducerRegistry) Reconcile(consumerID string, devices []string) Reconc
 
 	var d ReconcileDelta
 
-	// Add new claims (and surface devices that go 0→1).
+	// Add new claims (and surface devices that go 0→1). Pinned devices
+	// never appear in ToStart — the device pool spawned them at boot and
+	// owns their lifecycle independently of any encoder's claim.
 	for dev := range wanted {
 		set, exists := r.consumers[dev]
 		if !exists {
@@ -71,12 +110,16 @@ func (r *ProducerRegistry) Reconcile(consumerID string, devices []string) Reconc
 		if _, held := set[consumerID]; !held {
 			set[consumerID] = struct{}{}
 			if wasEmpty {
-				d.ToStart = append(d.ToStart, dev)
+				if _, isPinned := r.pinned[dev]; !isPinned {
+					d.ToStart = append(d.ToStart, dev)
+				}
 			}
 		}
 	}
 
-	// Drop stale claims (surface devices that go to 0).
+	// Drop stale claims (surface devices that go to 0). Pinned devices
+	// keep their entry in the registry — the device pool owns them
+	// independently of any encoder's claim — and never appear in ToStop.
 	for dev, set := range r.consumers {
 		if _, stillWant := wanted[dev]; stillWant {
 			continue
@@ -86,8 +129,14 @@ func (r *ProducerRegistry) Reconcile(consumerID string, devices []string) Reconc
 		}
 		delete(set, consumerID)
 		if len(set) == 0 {
-			delete(r.consumers, dev)
-			d.ToStop = append(d.ToStop, dev)
+			if _, isPinned := r.pinned[dev]; isPinned {
+				// Keep the entry so refcount/ConsumersOf stay consistent;
+				// re-init to a fresh empty set rather than deleting.
+				r.consumers[dev] = make(map[string]struct{})
+			} else {
+				delete(r.consumers, dev)
+				d.ToStop = append(d.ToStop, dev)
+			}
 		}
 	}
 
@@ -108,8 +157,12 @@ func (r *ProducerRegistry) ReleaseAll(consumerID string) ReconcileDelta {
 		}
 		delete(set, consumerID)
 		if len(set) == 0 {
-			delete(r.consumers, dev)
-			d.ToStop = append(d.ToStop, dev)
+			if _, isPinned := r.pinned[dev]; isPinned {
+				r.consumers[dev] = make(map[string]struct{})
+			} else {
+				delete(r.consumers, dev)
+				d.ToStop = append(d.ToStop, dev)
+			}
 		}
 	}
 	return d

@@ -122,6 +122,60 @@ func TestProducerRegistry_EmptyConsumerID(t *testing.T) {
 	}
 }
 
+func TestProducerRegistry_PinSuppressesToStart(t *testing.T) {
+	r := NewProducerRegistry()
+	r.Pin("hdmi0")
+
+	d := r.Reconcile("streamA", []string{"hdmi0"})
+	if len(d.ToStart) != 0 {
+		t.Errorf("pinned device first claim should not appear in ToStart: %v", d.ToStart)
+	}
+	if r.Refcount("hdmi0") != 1 {
+		t.Errorf("pinned device refcount after first claim = %d, want 1", r.Refcount("hdmi0"))
+	}
+}
+
+func TestProducerRegistry_PinSuppressesToStop(t *testing.T) {
+	r := NewProducerRegistry()
+	r.Pin("hdmi0")
+	r.Reconcile("streamA", []string{"hdmi0"})
+
+	d := r.Reconcile("streamA", nil)
+	if len(d.ToStop) != 0 {
+		t.Errorf("pinned device should never appear in ToStop: %v", d.ToStop)
+	}
+	d = r.ReleaseAll("streamA")
+	if len(d.ToStop) != 0 {
+		t.Errorf("pinned device should never appear in ReleaseAll ToStop: %v", d.ToStop)
+	}
+}
+
+func TestProducerRegistry_UnpinSurfacesToStop(t *testing.T) {
+	r := NewProducerRegistry()
+	r.Pin("hdmi0")
+	r.Reconcile("streamA", []string{"hdmi0"})
+	r.Unpin("hdmi0")
+
+	d := r.Reconcile("streamA", nil)
+	if got := sortedStrings(d.ToStop); !equal(got, []string{"hdmi0"}) {
+		t.Errorf("after Unpin, releasing claim should stop the device: ToStop=%v", got)
+	}
+}
+
+func TestProducerRegistry_PinIdempotent(t *testing.T) {
+	r := NewProducerRegistry()
+	r.Pin("hdmi0")
+	r.Pin("hdmi0")
+	if !r.IsPinned("hdmi0") {
+		t.Errorf("Pin should mark device as pinned")
+	}
+	r.Unpin("hdmi0")
+	r.Unpin("hdmi0")
+	if r.IsPinned("hdmi0") {
+		t.Errorf("Unpin should clear the pin")
+	}
+}
+
 func equal(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

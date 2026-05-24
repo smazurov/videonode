@@ -282,8 +282,8 @@ func TestProducer_CommandWithGrpc(t *testing.T) {
 	}
 	want := []string{
 		"/usr/bin/videonode-source",
-		"--device", "/dev/video0",
 		"--out-socket", "/tmp/vn-bus-hdmi0.sock",
+		"--device", "/dev/video0",
 		"--grpc-listen", "/tmp/videonode-native/source-hdmi0.sock",
 		"--device-id", "hdmi0",
 	}
@@ -302,6 +302,26 @@ func TestProducer_CommandWithoutGrpc(t *testing.T) {
 	for _, a := range argv {
 		if a == "--grpc-listen" || a == "--device-id" {
 			t.Errorf("standalone producer should not have control-plane flags: %v", argv)
+		}
+	}
+}
+
+func TestProducer_CommandWithEmptyDevicePath(t *testing.T) {
+	// Daemon-managed sources start with no device path and rely on the
+	// daemon's SetDevice gRPC to assign one. argv must omit --device.
+	p := &ProducerStage{
+		DeviceID:   "hdmi0",
+		DevicePath: "",
+		BinaryPath: "/usr/bin/videonode-source",
+		GrpcUds:    "/tmp/videonode-native/source-hdmi0.sock",
+	}
+	argv, _, err := p.Command()
+	if err != nil {
+		t.Fatalf("Command with empty DevicePath should succeed, got: %v", err)
+	}
+	for _, a := range argv {
+		if a == "--device" {
+			t.Errorf("argv should omit --device when DevicePath is empty: %v", argv)
 		}
 	}
 }

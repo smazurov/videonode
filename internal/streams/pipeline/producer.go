@@ -55,15 +55,14 @@ func (p *ProducerStage) SCMSocketPath() string {
 	return SCMSocketPathFor(p.DeviceID)
 }
 
-// Command returns the videonode-source argv. Required fields:
-// --device <path> --out-socket <scm-uds>. Control plane flags
+// Command returns the videonode-source argv. Required: BinaryPath +
+// DeviceID. DevicePath is optional — when empty the binary starts with no
+// `--device` argv and broadcasts the placeholder ring until a daemon
+// `SetDevice` RPC assigns a path. Control-plane flags
 // (--grpc-listen --device-id) are added when GrpcUds is set.
 func (p *ProducerStage) Command() ([]string, []string, error) {
 	if p.BinaryPath == "" {
 		return nil, nil, errors.New("producer: BinaryPath is required")
-	}
-	if p.DevicePath == "" {
-		return nil, nil, errors.New("producer: DevicePath is required")
 	}
 	if p.DeviceID == "" {
 		return nil, nil, errors.New("producer: DeviceID is required")
@@ -71,8 +70,10 @@ func (p *ProducerStage) Command() ([]string, []string, error) {
 
 	argv := []string{
 		p.BinaryPath,
-		"--device", p.DevicePath,
 		"--out-socket", p.SCMSocketPath(),
+	}
+	if p.DevicePath != "" {
+		argv = append(argv, "--device", p.DevicePath)
 	}
 	if p.GrpcUds != "" {
 		argv = append(argv,
