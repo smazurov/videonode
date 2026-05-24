@@ -226,23 +226,21 @@ func (s *Server) registerStreamRoutes() {
 }
 
 // convertCreateRequest translates the slim API create payload into the
-// legacy StreamCreateParams. Source-prefixed upstreams populate DeviceID
-// (legacy device-validation path); composer-prefixed upstreams pass
-// through verbatim as params.Upstream and bypass /dev/video* lookup —
-// the v2 EntityStore + pipeline.resolveUpstream owns those references.
-// Codec / bitrate come from EncoderConfig; the audio device picks the
-// first entry of Audio.Devices.
+// legacy StreamCreateParams. Both source- and composer-prefixed upstreams
+// pass through verbatim as params.Upstream and bypass the legacy
+// /dev/video* lookup — the v2 EntityStore + pipeline.resolveUpstream owns
+// those references. Source entity ids are kebab-cased and are not v4l2
+// device ids; the underlying device is resolved at apply time from the
+// source entity's Device field. Codec / bitrate come from EncoderConfig;
+// the audio device picks the first entry of Audio.Devices.
 func convertCreateRequest(body models.StreamRequestData) streams.StreamCreateParams {
 	params := streams.StreamCreateParams{
 		StreamID: body.StreamID,
 		Codec:    body.Encoder.Codec,
 	}
 
-	switch kind, id := splitUpstreamRef(body.Upstream); kind {
-	case "source":
-		params.DeviceID = id
-		params.Upstream = body.Upstream
-	case "composer":
+	switch kind, _ := splitUpstreamRef(body.Upstream); kind {
+	case "source", "composer":
 		params.Upstream = body.Upstream
 	}
 	if len(body.Audio.Devices) > 0 {
@@ -262,11 +260,10 @@ func applySlimUpdate(spec *streams.StreamSpec, body models.StreamUpdateRequestDa
 		spec.Name = *body.Name
 	}
 	if body.Upstream != nil {
-		switch kind, id := splitUpstreamRef(*body.Upstream); kind {
-		case "source":
-			spec.Device = id
-			spec.Upstream = *body.Upstream
-		case "composer":
+		switch kind, _ := splitUpstreamRef(*body.Upstream); kind {
+		case "source", "composer":
+			// applySpec honors spec.Upstream verbatim and ignores
+			// spec.Device; the entity store + resolver own the lookup.
 			spec.Device = ""
 			spec.Upstream = *body.Upstream
 		}
