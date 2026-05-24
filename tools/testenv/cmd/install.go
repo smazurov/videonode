@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/smazurov/videonode/tools/testenv/internal/assets"
+	"github.com/smazurov/videonode/tools/testenv/internal/envctl"
 )
 
 // InstallCmd writes the embedded skills + hook entries + .mcp.json
@@ -28,6 +29,11 @@ func (c *InstallCmd) Run(ctx *Context) error {
 			return fmt.Errorf("project %s has no .claude/ dir — is it a Claude Code project?", root)
 		}
 		return err
+	}
+
+	// Require a valid .testenv.toml before installing hooks/skills.
+	if err := envctl.Validate(root); err != nil {
+		return fmt.Errorf("config invalid (run `testenv init` to create one, then `testenv validate`): %w", err)
 	}
 
 	// Walk embedded skills/ and copy each SKILL.md to .claude/skills/<name>/SKILL.md.

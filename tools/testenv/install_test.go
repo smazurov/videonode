@@ -18,10 +18,11 @@ func TestInstallIdempotent(t *testing.T) {
 	}
 
 	projDir := t.TempDir()
-	// Create .claude/ so install doesn't fail.
 	if err := os.MkdirAll(filepath.Join(projDir, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// install requires a valid .testenv.toml.
+	writeTestenvToml(t, projDir)
 
 	// Run install twice.
 	for i := range 2 {
@@ -102,6 +103,7 @@ func TestInstallPreservesExistingSettings(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(projDir, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	writeTestenvToml(t, projDir)
 
 	// Write a pre-existing settings.json with permissions.
 	existing := map[string]any{
@@ -156,5 +158,19 @@ func TestInstallPreservesExistingSettings(t *testing.T) {
 	sessionStart, ok := hooks["SessionStart"].([]any)
 	if !ok || len(sessionStart) < 2 {
 		t.Errorf("SessionStart should have pre-existing + testenv entries; got %d", len(sessionStart))
+	}
+}
+
+func writeTestenvToml(t *testing.T, dir string) {
+	t.Helper()
+	cfg := `version = 1
+[ports.http]
+base = 8090
+step = 10
+[spawn]
+command = "./myapp"
+`
+	if err := os.WriteFile(filepath.Join(dir, ".testenv.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -329,6 +329,10 @@ func Validate(dir string) error {
 	return cfg.Validate()
 }
 
+// ConfigFileName is the config file name, re-exported so cmd/ doesn't
+// need to import config directly.
+const ConfigFileName = config.FileName
+
 // --- helpers ---
 
 func openStore(statePath string) (*store.Store, error) {

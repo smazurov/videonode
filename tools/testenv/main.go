@@ -21,6 +21,7 @@ type cli struct {
 	StatePath string `help:"Override the SQLite state path." env:"TESTENV_STATE"`
 	Session   string `help:"Override the owning session id (defaults to $CLAUDE_SESSION_ID)." env:"CLAUDE_SESSION_ID"`
 
+	Init           cmd.InitCmd           `cmd:"" help:"Create a .testenv.toml template."`
 	Up             cmd.UpCmd             `cmd:"" help:"Spin up a test environment."`
 	Down           cmd.DownCmd           `cmd:"" help:"Tear down a test environment."`
 	List           cmd.ListCmd           `cmd:"" help:"Show the active env inventory."`
