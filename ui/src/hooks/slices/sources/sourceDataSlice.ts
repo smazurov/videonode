@@ -41,22 +41,24 @@ export const createSourceDataSlice: StateCreator<
   consumersById: {},
 
   setSources: (sources) => {
-    const byId: Record<string, Source> = {};
-    for (const source of sources ?? []) {
-      byId[source.id] = source;
-    }
-    const ids = sortIds(Object.keys(byId));
-    set(() => ({
-      sourceIds: ids,
-      sourcesById: byId,
-      lastUpdated: new Date(),
-    }));
+    set((state) => {
+      const byId: Record<string, Source> = {};
+      for (const source of sources ?? []) {
+        byId[source.id] = mergeRuntime(state.sourcesById[source.id], source);
+      }
+      return {
+        sourceIds: sortIds(Object.keys(byId)),
+        sourcesById: byId,
+        lastUpdated: new Date(),
+      };
+    });
   },
 
   addSource: (source) => {
     set((state) => {
       const existed = !!state.sourcesById[source.id];
-      const sourcesById = { ...state.sourcesById, [source.id]: source };
+      const merged = mergeRuntime(state.sourcesById[source.id], source);
+      const sourcesById = { ...state.sourcesById, [source.id]: merged };
       const nextIds = existed
         ? sortIds(state.sourceIds)
         : sortIds([...state.sourceIds, source.id]);
@@ -96,6 +98,7 @@ export const createSourceDataSlice: StateCreator<
         const snap = payload as Partial<{
           health: string;
           ts_ms: number;
+          started_at_us: number;
           broadcast: { real_frames?: number };
         }> | null | undefined;
         set((state) => {
@@ -104,11 +107,16 @@ export const createSourceDataSlice: StateCreator<
           if (!src || !snap) return { statusById: next };
           const status = healthToPill(snap.health);
           const lastAt = snap.ts_ms ? new Date(snap.ts_ms).toISOString() : new Date().toISOString();
-          const prevRunning = src.running_since;
           const merged: Source = { ...src, status, last_status_at: lastAt };
           if (payload) merged.latest_status = payload as NonNullable<Source['latest_status']>;
-          if (status === 'running') merged.running_since = prevRunning ?? lastAt;
-          else delete merged.running_since;
+          if (typeof snap.started_at_us === 'number' && snap.started_at_us > 0) {
+            merged.started_at_us = snap.started_at_us;
+          } else {
+            delete merged.started_at_us;
+          }
+          const fps = computeEffectiveFps(state.statusById[id], snap);
+          if (fps !== undefined) merged.effective_fps = fps;
+          else delete merged.effective_fps;
           return {
             statusById: next,
             sourcesById: { ...state.sourcesById, [id]: merged },
@@ -144,6 +152,55 @@ export const createSourceDataSlice: StateCreator<
     }
   },
 });
+
+// mergeRuntime overlays a fresh API payload onto an existing in-store
+// entry while preserving the runtime-augmented fields the UI maintains
+// itself (status pill, latest status snapshot, last update timestamp,
+// process start time, effective fps, consumer count). Without this,
+// every dependency-driven `source.updated` republish would wipe the
+// UI's live state until the next status SSE arrived.
+function mergeRuntime(prev: Source | undefined, next: Source): Source {
+  if (!prev) return next;
+  const merged: Source = { ...next };
+  if (prev.status !== undefined) merged.status = prev.status;
+  if (prev.latest_status !== undefined) merged.latest_status = prev.latest_status;
+  if (prev.last_status_at !== undefined) merged.last_status_at = prev.last_status_at;
+  if (prev.started_at_us !== undefined) merged.started_at_us = prev.started_at_us;
+  if (prev.effective_fps !== undefined) merged.effective_fps = prev.effective_fps;
+  if (prev.consumer_count !== undefined && next.consumer_count === undefined) {
+    merged.consumer_count = prev.consumer_count;
+  }
+  return merged;
+}
+
+// computeEffectiveFps derives a measured publish rate from consecutive
+// status snapshots: Δ real_frames / Δ ts. Returns undefined for the
+// first sample, when the counter resets, when ts is non-monotonic, or
+// when the window is shorter than 100ms (noise floor).
+function computeEffectiveFps(prev: unknown, next: {
+  ts_ms?: number;
+  broadcast?: { real_frames?: number };
+}): number | undefined {
+  const p = prev as
+    | { ts_ms?: number; broadcast?: { real_frames?: number } }
+    | undefined;
+  const prevTs = p?.ts_ms;
+  const prevFrames = p?.broadcast?.real_frames;
+  const nextTs = next.ts_ms;
+  const nextFrames = next.broadcast?.real_frames;
+  if (
+    typeof prevTs !== 'number' ||
+    typeof nextTs !== 'number' ||
+    typeof prevFrames !== 'number' ||
+    typeof nextFrames !== 'number'
+  ) {
+    return undefined;
+  }
+  const dt = nextTs - prevTs;
+  const df = nextFrames - prevFrames;
+  if (dt < 100 || df < 0) return undefined;
+  return Math.round((df / (dt / 1000)) * 10) / 10;
+}
 
 // Map the source binary's collapsed health enum onto the small
 // StatusPill vocabulary the UI ships. videonode-source emits health

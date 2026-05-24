@@ -1387,7 +1387,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "h264" | "yv12" | "rgb24" | "nv24";
+            format_name: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "h264" | "yv12" | "bgr24" | "nv16";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1747,7 +1747,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "nv16" | "h264" | "yv12" | "rgb24" | "nv24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24";
+            format_name: "nv16" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "h264" | "yv12" | "bgr24";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -1911,6 +1911,8 @@ export interface components {
             format: components["schemas"]["SourceFormatInfo"];
             health: string;
             signal: components["schemas"]["SourceSignalInfo"];
+            /** Format: int64 */
+            started_at_us?: number;
             /** Format: int64 */
             ts_ms: number;
         };
@@ -2829,7 +2831,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "h264" | "yv12" | "rgb24" | "nv24";
+                format_name?: "yu12" | "rgb24" | "nv24" | "h264" | "yv12" | "bgr24" | "nv16" | "yuyv422" | "nv12" | "mjpeg";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2895,7 +2897,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "h264" | "yv12" | "rgb24" | "nv24";
+                format_name?: "yu12" | "rgb24" | "nv24" | "h264" | "yv12" | "bgr24" | "nv16" | "yuyv422" | "nv12" | "mjpeg";
             };
             header?: never;
             path: {

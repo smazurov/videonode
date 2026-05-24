@@ -4,25 +4,10 @@ import { DataTable, type DataTableColumn } from '../primitives/DataTable';
 import { EmptyState } from '../primitives/EmptyState';
 import { StatusPill } from '../primitives/StatusPill';
 import type { SourceEntry } from '../../hooks/useSourceStore';
+import { formatUptime } from '../../lib/formatUptime';
 
 interface SourceListProps {
   sources: SourceEntry[];
-}
-
-function formatRunningSince(iso?: string): string {
-  if (!iso) return '—';
-  const ts = new Date(iso);
-  if (Number.isNaN(ts.getTime())) return '—';
-  const diffMs = Date.now() - ts.getTime();
-  if (diffMs < 0) return ts.toLocaleString();
-  const sec = Math.floor(diffMs / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  return `${day}d ago`;
 }
 
 export function SourceList({ sources }: Readonly<SourceListProps>) {
@@ -64,12 +49,12 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
       className: 'text-right',
     },
     {
-      id: 'running_since',
-      header: 'Running since',
+      id: 'uptime',
+      header: 'Uptime',
       cell: (row) => (
-        <span className="text-fg-muted text-xs">{formatRunningSince(row.running_since)}</span>
+        <span className="text-fg-muted text-xs">{formatUptime(row.started_at_us) ?? '—'}</span>
       ),
-      sortValue: (row) => row.running_since ?? '',
+      sortValue: (row) => row.started_at_us ?? 0,
     },
   ];
 

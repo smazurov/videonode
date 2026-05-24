@@ -77,7 +77,7 @@ ctest LABEL: `rpc`
 
 | from | to |
 |------|----|
-| `src/jsonrpc_msg.cpp` | `src/rpc/jsonrpc_msg.cpp` (split in Phase F — see large-file-split-plan.md) |
+| `src/jsonrpc_msg.cpp` | `src/rpc/jsonrpc_msg.cpp` (split in Phase F) |
 | `src/jsonrpc_msg.hpp` | `src/rpc/jsonrpc_msg.hpp` |
 | `src/dmabuf_msg.cpp` | `src/rpc/dmabuf_msg.cpp` |
 | `src/dmabuf_msg.hpp` | `src/rpc/dmabuf_msg.hpp` |
@@ -349,7 +349,7 @@ endif()
 ```
 
 After the Phase F source/composer/v4l2 splits, the executable wiring grows
-extra `SOURCES` entries (or new library deps); see large-file-split-plan.md.
+extra `SOURCES` entries (or new library deps).
 
 `bin/` has no `README.md` (binaries are documented in `composer/AGENTS.md`).
 

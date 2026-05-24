@@ -201,7 +201,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
 
     using clock = std::chrono::steady_clock;
     const auto broadcast_period =
-        std::chrono::nanoseconds(1'000'000'000LL / std::max(1, a.broadcast_fps));
+        std::chrono::nanoseconds(1'000'000'000LL / std::max(1, a.placeholder_broadcast_fps));
     auto loop_start = clock::now();
     auto next_broadcast = clock::now();
 

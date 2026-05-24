@@ -81,11 +81,7 @@ split-first reflex when something gets too thick.
   `composer/tests/*.cpp`. Exits non-zero on FAIL; WARN is advisory.
 - **Per-function:** `.clang-tidy` `readability-function-size` —
   120 lines, 100 statements, 12 branches, 6 parameters, 5 nesting.
-- **When a file approaches the cap:** split rather than thicken. See
-  `composer/docs/large-file-split-plan.md` for the rationale behind
-  the historical extractions (`src/source/`, `render/canvas_loop`,
-  `capture/v4l2_format`); the JSON-RPC parse/serialize extractions
-  referenced there are gone with the gRPC migration.
+- **When a file approaches the cap:** split rather than thicken.
 
 ## Architecture
 

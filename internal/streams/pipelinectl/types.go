@@ -28,8 +28,13 @@ type SetFormatResult struct {
 // second as a heartbeat. Mirrors the shape produced by
 // composer/src/videonode_source_main.cpp:build_status_params.
 type StatusParams struct {
-	DeviceID    string              `json:"device_id"`
-	TimestampMs int64               `json:"ts_ms"`
+	DeviceID    string `json:"device_id"`
+	TimestampMs int64  `json:"ts_ms"`
+	// StartedAtUs is the producer process's start time in Unix
+	// microseconds, stamped daemon-side from pipeline.Pool.GetStatus.
+	// 0 when the process hasn't been started (e.g., source isn't yet
+	// supervised). UI consumers use this to derive uptime.
+	StartedAtUs int64               `json:"started_at_us,omitempty"`
 	Health      string              `json:"health"`
 	Device      SourceDeviceInfo    `json:"device"`
 	Signal      SourceSignalInfo    `json:"signal"`

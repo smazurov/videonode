@@ -17,7 +17,7 @@ namespace {
 
 // Retry-on-EINTR ioctl wrapper. Duplicated from v4l2_capture.cpp; the
 // helper is 8 lines and stable, so a shared internal header would be
-// overkill (see large-file-split-plan.md §4 Option A).
+// overkill.
 int xioctl(int fd, unsigned long req, void* arg) {
     int r;
     do {
