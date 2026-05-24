@@ -224,8 +224,8 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
                 }
                 s.out_y.push_back(m.y);
                 s.out_uv.push_back(m.uv);
-                slots.push_back(
-                    {buf.y_fd, buf.uv_fd, static_cast<uint8_t*>(m.y), static_cast<uint8_t*>(m.uv)});
+                slots.push_back({buf.y_fd, buf.uv_fd, static_cast<uint8_t*>(m.y),
+                                 static_cast<uint8_t*>(m.uv), buf.y_pitch, buf.uv_pitch});
             }
             auto tj = std::make_unique<jpeg_dec::TurboJpegDec>();
             if (!tj->init(s.width, s.height, std::move(slots))) {

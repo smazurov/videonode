@@ -27,6 +27,9 @@ vn_add_test(placeholder_painter DEPS placeholder_painter          LABELS render)
 vn_add_test(homography          DEPS homography                   LABELS render)
 vn_add_test(world               DEPS world Threads::Threads       LABELS render)
 vn_add_test(source_probe        DEPS source_probe                 LABELS capture)
+vn_add_test(jpeg_dec_turbo
+    DEPS jpeg_dec_turbo PkgConfig::TURBOJPEG
+    LABELS capture)
 
 if(HAVE_GBM)
     vn_add_test(format_dispatch DEPS format_dispatch              LABELS render)
