@@ -143,7 +143,7 @@ User-facing config: three top-level tables — `[[sources]]`, `[[composers]]`, `
 - **API Server**: Huma v2 API with native Go 1.22+ routing, serves RESTful endpoints with OpenAPI documentation at `/docs`
 - **Video Capture**: FFmpeg integration for screenshot capture from V4L2 devices with configurable delay
 - **Device Detection**: Pure Go V4L2 device detection via `pkg/linuxav/v4l2`
-- **Stream Management**: go2rtc integration for RTSP/WebRTC streaming with TOML-based configuration
+- **Stream Management**: embedded gortsplib RTSP server with native pion/webrtc signaling, fed by per-stream `vn-sink | ffmpeg` pipelines
 - **Native Control Plane**: gRPC over per-instance Unix sockets to the C++ binaries
   (`videonode-source`, `videonode-composer`). Daemon dials each spawned binary,
   calls `Describe()`, then issues unary RPCs (SetFormat / SetCanvas / SetSource /
@@ -217,21 +217,12 @@ The legacy `/api/streams/canvas/layout` endpoint is gone; canvas layout has move
 - **Auto-migration**: v1-shape files (monolithic `[[streams]]` with inline `inputs`/`layout`/`effects`/`force_composer`/stream-level `test_mode`) are auto-migrated on load by `internal/streams/store/migrate.go` and rewritten in place.
 - **Environment Variables**: All config values can be overridden via env vars (e.g., `VIDEONODE_SERVER_PORT`)
 
-### go2rtc Integration
-- **Control API**: go2rtc provides a RESTful API on port 1984 for dynamic stream management
-- **API Documentation**: https://github.com/AlexxIT/go2rtc/wiki/REST-API
-- **Key Endpoints**:
-  - `/api/streams`: List and manage streams
-  - `/api/ws`: WebSocket for WebRTC signaling
-- **Stream Source Options**: `rtsp://`, `rtmp://`, `http://`, `ffmpeg:`, WebRTC, file playback
-
 ### Debugging & Logging
 
 #### systemd-run Logs
 - **Critical Finding**: `systemd-run --user` logs appear in the **system journal**, NOT the user journal
 - Even though the command runs in user systemd, stdout/stderr goes to system journal
-- Logs are tagged with parent process (e.g., `go2rtc[PID]`) when go2rtc captures FFmpeg output
-- **View logs**: `journalctl --since "1 hour ago" | grep -E "ffmpeg|go2rtc"`
+- **View logs**: `journalctl --since "1 hour ago" | grep ffmpeg`
 - **NOT**: `journalctl --user` (returns empty/minimal results)
 - The `--collect` flag removes the unit after completion, but **logs persist in journald**
 - Per systemd docs: "after unloading the unit it cannot be inspected using systemctl status, but its logs are still in journal"
