@@ -5,6 +5,8 @@ import { useDeviceStore } from './useDeviceStore';
 import { useSourceStore } from './useSourceStore';
 import { useComposerStore } from './useComposerStore';
 import type { Source as SourceData, Composer as ComposerData, LayoutSlot as ComposerLayoutSlot } from './slices/types';
+import { dispatchEntityEvent } from './entityDispatch';
+import type { EntityEvent } from './entityTypes';
 
 type StreamCreatedEvent = components["schemas"]["StreamCreatedEvent"];
 type StreamUpdatedEvent = components["schemas"]["StreamUpdatedEvent"];
@@ -157,6 +159,17 @@ function setupGlobalSSE(): void {
   });
 
   const untyped = globalClient as unknown as UntypedSSEOn;
+
+  // Uniform entity envelope. One subscription handles every per-entity
+  // event (lifecycle + status + metrics + consumers) by routing through
+  // the dispatcher's typed ENTITY_STORES map. Adding a new entity
+  // requires only updating ui/src/hooks/entityTypes.ts (literal union)
+  // + ui/src/hooks/entityDispatch.ts (one map entry). The legacy
+  // per-type handlers below continue to fire during the dual-publish
+  // migration; they'll be removed in Step 5.
+  untyped.on('entity', (data) => {
+    dispatchEntityEvent(data as EntityEvent);
+  });
 
   untyped.on('source-created', (data) => {
     const payload = data as SourceCreatedEvent;

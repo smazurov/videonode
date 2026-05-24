@@ -3,6 +3,7 @@ import { StateCreator } from 'zustand';
 import type { components } from '../../../lib/api.generated';
 import type { Stream } from '../types';
 import { StreamStore } from '../../useStreamStore';
+import { assertNever, type EntityAction } from '../../entityTypes';
 
 type StreamMetricsEvent = components['schemas']['StreamMetricsEvent'];
 
@@ -10,12 +11,20 @@ export interface StreamMetrics {
   fps?: string | undefined;
   dropped_frames?: string | undefined;
   duplicate_frames?: string | undefined;
+  // Forward-compatible fields the new entity-metrics payload may carry
+  // (bitrate, queue_depth, reader_count, ...). Indexed access lets the
+  // existing typed selectors keep working while new fields layer on.
+  [extra: string]: unknown;
 }
 
 export interface StreamDataSlice {
   streamIds: string[];
   streamsById: Record<string, Stream>;
   metricsById: Record<string, StreamMetrics>;
+  // Live runtime slots populated by EntityEvent action=status|consumers.
+  // metricsById is shared with the legacy updateStreamMetrics path.
+  statusById: Record<string, unknown>;
+  consumersById: Record<string, unknown>;
   streamRefreshKeys: Record<string, number>;
 
   setStreams: (streams: Stream[] | null | undefined) => void;
@@ -24,6 +33,11 @@ export interface StreamDataSlice {
   updateStreamMetrics: (metrics: StreamMetricsEvent) => void;
   bumpStreamRefreshKey: (streamId: string) => void;
   getStreamById: (streamId: string) => Stream | undefined;
+  applyEntityEvent: (
+    action: EntityAction,
+    id: string,
+    payload: unknown,
+  ) => void;
 }
 
 // Alphabetical by id — stable grid order across refetches + SSE addStream.
@@ -40,6 +54,8 @@ export const createStreamDataSlice: StateCreator<
   streamIds: [],
   streamsById: {},
   metricsById: {},
+  statusById: {},
+  consumersById: {},
   streamRefreshKeys: {},
 
   setStreams: (streams) => {
@@ -132,4 +148,40 @@ export const createStreamDataSlice: StateCreator<
   },
 
   getStreamById: (streamId) => get().streamsById[streamId],
+
+  applyEntityEvent: (action, id, payload) => {
+    const { addStream, removeStream } = get();
+    switch (action) {
+      case 'created':
+      case 'updated':
+        if (payload) addStream(payload as Stream);
+        return;
+      case 'deleted':
+        removeStream(id);
+        return;
+      case 'status':
+        set((state) => ({
+          statusById: { ...state.statusById, [id]: payload },
+        }));
+        return;
+      case 'metrics':
+        set((state) => ({
+          metricsById: {
+            ...state.metricsById,
+            [id]: {
+              ...(state.metricsById[id] ?? {}),
+              ...(payload as Record<string, unknown>),
+            },
+          },
+        }));
+        return;
+      case 'consumers':
+        set((state) => ({
+          consumersById: { ...state.consumersById, [id]: payload },
+        }));
+        return;
+      default:
+        assertNever(action);
+    }
+  },
 });
