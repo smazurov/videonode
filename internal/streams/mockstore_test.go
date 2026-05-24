@@ -1,3 +1,5 @@
+//go:build planv2_tests
+
 package streams
 
 import (

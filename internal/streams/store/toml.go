@@ -493,3 +493,107 @@ func (s *tomlStore) RemoveV2Stream(id string) error {
 	}
 	return fmt.Errorf("stream %q not found", id)
 }
+
+// --- EntityStore implementation (B9 service split).
+//
+// These adapt persisted V2* types into the canonical pipeline.Source /
+// pipeline.Composer / pipeline.Stream shapes the new services consume.
+
+// ListSourceEntities returns all sources as pipeline.Source values.
+func (s *tomlStore) ListSourceEntities() []streams.Source {
+	out := make([]streams.Source, len(s.config.Sources))
+	for i, v := range s.config.Sources {
+		out[i] = sourceFromV2(v)
+	}
+	return out
+}
+
+// GetSourceEntity returns a single source by id.
+func (s *tomlStore) GetSourceEntity(id string) (streams.Source, bool) {
+	v, ok := s.GetSource(id)
+	if !ok {
+		return streams.Source{}, false
+	}
+	return sourceFromV2(v), true
+}
+
+// AddSourceEntity persists a new source from its canonical shape.
+func (s *tomlStore) AddSourceEntity(src streams.Source) error {
+	return s.AddSource(sourceToV2(src))
+}
+
+// UpdateSourceEntity replaces an existing source in-place by id.
+func (s *tomlStore) UpdateSourceEntity(id string, src streams.Source) error {
+	return s.UpdateSource(id, sourceToV2(src))
+}
+
+// RemoveSourceEntity deletes a source by id.
+func (s *tomlStore) RemoveSourceEntity(id string) error {
+	return s.RemoveSource(id)
+}
+
+// ListComposerEntities returns all composers as pipeline.Composer values.
+func (s *tomlStore) ListComposerEntities() []streams.Composer {
+	out := make([]streams.Composer, len(s.config.Composers))
+	for i, v := range s.config.Composers {
+		out[i] = composerFromV2(v)
+	}
+	return out
+}
+
+// GetComposerEntity returns a single composer by id.
+func (s *tomlStore) GetComposerEntity(id string) (streams.Composer, bool) {
+	v, ok := s.GetComposer(id)
+	if !ok {
+		return streams.Composer{}, false
+	}
+	return composerFromV2(v), true
+}
+
+// AddComposerEntity persists a new composer from its canonical shape.
+func (s *tomlStore) AddComposerEntity(c streams.Composer) error {
+	return s.AddComposer(composerToV2(c))
+}
+
+// UpdateComposerEntity replaces an existing composer in-place.
+func (s *tomlStore) UpdateComposerEntity(id string, c streams.Composer) error {
+	return s.UpdateComposer(id, composerToV2(c))
+}
+
+// RemoveComposerEntity deletes a composer by id.
+func (s *tomlStore) RemoveComposerEntity(id string) error {
+	return s.RemoveComposer(id)
+}
+
+// ListPipelineStreams returns all v2 streams as pipeline.Stream values.
+func (s *tomlStore) ListPipelineStreams() []streams.PipelineStream {
+	out := make([]streams.PipelineStream, len(s.config.Streams))
+	for i, v := range s.config.Streams {
+		out[i] = pipelineStreamFromV2(v)
+	}
+	return out
+}
+
+// GetPipelineStream returns one v2 stream as pipeline.Stream.
+func (s *tomlStore) GetPipelineStream(id string) (streams.PipelineStream, bool) {
+	v, ok := s.GetV2Stream(id)
+	if !ok {
+		return streams.PipelineStream{}, false
+	}
+	return pipelineStreamFromV2(v), true
+}
+
+// AddPipelineStream persists a new v2 stream from its canonical shape.
+func (s *tomlStore) AddPipelineStream(st streams.PipelineStream) error {
+	return s.AddV2Stream(pipelineStreamToV2(st))
+}
+
+// UpdatePipelineStream replaces an existing v2 stream in-place.
+func (s *tomlStore) UpdatePipelineStream(id string, st streams.PipelineStream) error {
+	return s.UpdateV2Stream(id, pipelineStreamToV2(st))
+}
+
+// RemovePipelineStream deletes a v2 stream by id.
+func (s *tomlStore) RemovePipelineStream(id string) error {
+	return s.RemoveV2Stream(id)
+}

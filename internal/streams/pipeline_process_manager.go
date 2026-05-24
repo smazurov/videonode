@@ -178,6 +178,9 @@ func (m *pipelineProcessManager) applySpec(spec StreamSpec) error {
 	return m.pipe.ApplyStream(stream)
 }
 
+// Start spawns or reapplies the per-stream pipeline (source + encoder)
+// using the stored StreamSpec. Legacy entry point — B9's split moves
+// callers toward ApplySource / ApplyStream directly.
 func (m *pipelineProcessManager) Start(streamID string) error {
 	spec, ok := m.store.GetStream(streamID)
 	if !ok {
@@ -186,6 +189,7 @@ func (m *pipelineProcessManager) Start(streamID string) error {
 	return m.applySpec(spec)
 }
 
+// Stop tears down the per-stream pipeline (encoder + source).
 func (m *pipelineProcessManager) Stop(streamID string) error {
 	if err := m.pipe.DeleteStream(streamID); err != nil {
 		m.logger.Warn("Stop: DeleteStream failed", "stream_id", streamID, "error", err)
@@ -193,10 +197,12 @@ func (m *pipelineProcessManager) Stop(streamID string) error {
 	return m.pipe.DeleteSource(streamID)
 }
 
+// Restart reapplies the spec, which the pool treats as a respawn.
 func (m *pipelineProcessManager) Restart(streamID string) error {
 	return m.Start(streamID)
 }
 
+// GetStatus reports the supervised encoder process state for a stream.
 func (m *pipelineProcessManager) GetStatus(streamID string) (*ProcessInfo, error) {
 	encID := pipeline.EncoderIDFor(streamID)
 	info := m.pipe.Pool().GetStatus(encID)
@@ -210,6 +216,7 @@ func (m *pipelineProcessManager) GetStatus(streamID string) (*ProcessInfo, error
 	}, nil
 }
 
+// StartAll applies every stored stream spec to the pipeline.
 func (m *pipelineProcessManager) StartAll() error {
 	if m.store == nil {
 		return nil
@@ -228,23 +235,29 @@ func (m *pipelineProcessManager) StartAll() error {
 	return nil
 }
 
+// StopAll stops every supervised process in the pool.
 func (m *pipelineProcessManager) StopAll() {
 	m.pipe.Pool().StopAll()
 }
 
+// IsRunning reports whether the stream's encoder process is currently up.
 func (m *pipelineProcessManager) IsRunning(streamID string) bool {
 	return m.pipe.Pool().IsRunning(pipeline.EncoderIDFor(streamID))
 }
 
+// IsCrashed reports whether the stream's encoder is in the error state.
 func (m *pipelineProcessManager) IsCrashed(streamID string) bool {
 	info := m.pipe.Pool().GetStatus(pipeline.EncoderIDFor(streamID))
 	return info.State == "error"
 }
 
+// CaptureSourceSnapshot pulls a JPEG snapshot from the source by id.
 func (m *pipelineProcessManager) CaptureSourceSnapshot(sourceID string) ([]byte, error) {
 	return m.CaptureRawSnapshot(sourceID)
 }
 
+// CaptureRawSnapshot dials the source's gRPC Snapshot RPC and converts
+// the returned NV12 frame to JPEG.
 func (m *pipelineProcessManager) CaptureRawSnapshot(sourceStreamID string) ([]byte, error) {
 	if m.controlServer == nil {
 		return nil, fmt.Errorf("no control server for snapshot")
@@ -258,11 +271,12 @@ func (m *pipelineProcessManager) CaptureRawSnapshot(sourceStreamID string) ([]by
 	return ffmpeg.EncodeNV12ToJPEG(resp.GetNv12(), int(resp.GetWidth()), int(resp.GetHeight()))
 }
 
-// OwnedBy / CanvasOwner are no-op stubs in the B1 worktree — the new
-// model has no implicit ownership (sources are independent entities).
-// B9 will surface "which streams reference this source" via the
-// composer/stream registries.
-func (m *pipelineProcessManager) OwnedBy(string) string     { return "" }
+// OwnedBy is a no-op stub — the new model has no implicit ownership.
+func (m *pipelineProcessManager) OwnedBy(string) string { return "" }
+
+// CanvasOwner is a no-op stub kept on the interface so the perspective
+// PATCH path compiles; the new model surfaces references via the
+// EntityStore.
 func (m *pipelineProcessManager) CanvasOwner(string) string { return "" }
 
 // PushComposerPerspective is a stub — composer effect routing moves to
@@ -271,4 +285,41 @@ func (m *pipelineProcessManager) PushComposerPerspective(
 	string, string, *ffmpeg.PerspectiveConfig,
 ) (bool, error) {
 	return false, nil
+}
+
+// ApplySource forwards a canonical pipeline.Source to the supervised
+// pipeline. Idempotent; safe to call on updates.
+func (m *pipelineProcessManager) ApplySource(src pipeline.Source) error {
+	return m.pipe.ApplySource(src)
+}
+
+// ApplyComposer forwards a canonical pipeline.Composer to the supervised
+// pipeline. Idempotent; safe to call on updates.
+func (m *pipelineProcessManager) ApplyComposer(c pipeline.Composer) error {
+	return m.pipe.ApplyComposer(c)
+}
+
+// ApplyStream forwards a canonical pipeline.Stream to the supervised
+// pipeline. The encoder is (re)spawned with the resolved upstream
+// (source or composer SCM socket).
+func (m *pipelineProcessManager) ApplyStream(s pipeline.Stream) error {
+	return m.pipe.ApplyStream(s)
+}
+
+// DeleteSource stops and forgets the producer process for src.
+func (m *pipelineProcessManager) DeleteSource(id string) error {
+	return m.pipe.DeleteSource(id)
+}
+
+// DeleteComposer stops and forgets the composer process.
+func (m *pipelineProcessManager) DeleteComposer(id string) error {
+	return m.pipe.DeleteComposer(id)
+}
+
+// DeleteStreamEntity stops and forgets the encoder process. Named
+// "Entity" to avoid collision with the legacy StreamProcessManager.Stop
+// (which also exists on this type and is what the legacy StreamService
+// drives).
+func (m *pipelineProcessManager) DeleteStreamEntity(id string) error {
+	return m.pipe.DeleteStream(id)
 }
