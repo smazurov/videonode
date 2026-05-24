@@ -6,7 +6,7 @@ import { Select } from '../Select';
 import { ReadOnlyField } from '../ReadOnlyField';
 import { AdvancedOptions } from '../StreamCreation/AdvancedOptions';
 import { DeviceInputCapabilities } from '../DeviceInputCapabilities';
-import { CanvasPreview } from '../CanvasPreview';
+import { LegacyCanvasPreview } from '../LegacyCanvasPreview';
 import { useDeviceStore } from '../../hooks/useDeviceStore';
 import { useStreamForm, CANVAS_PRESETS, CanvasPreset } from '../../hooks/useStreamForm';
 import type { components } from '../../lib/api.generated';
@@ -291,7 +291,7 @@ export function StreamForm({
 
               <div className="lg:sticky lg:top-4 self-start min-w-0">
                 <label className="block text-sm font-medium text-fg mb-2">Layout Preview</label>
-                <CanvasPreview
+                <LegacyCanvasPreview
                   canvasW={form.canvasDimensions.width}
                   canvasH={form.canvasDimensions.height}
                   layout={form.layout}
