@@ -1,11 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"io/fs"
 	"os/exec"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/smazurov/videonode/tools/testenv/internal/assets"
 )
@@ -64,16 +64,18 @@ func TestMCPToolsMatchSkillReferences(t *testing.T) {
 	}
 
 	// Get MCP tool names by sending initialize + tools/list over
-	// stdin. Use StdinPipe so we control when EOF arrives — the MCP
-	// server needs stdin open while it writes its responses.
+	// stdin. Read stdout line-by-line until we see the response to
+	// our tools/list request (id:2), then close stdin to shut down.
 	cmd := exec.Command(bin, "mcp")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var outBuf strings.Builder
-	cmd.Stdout = &outBuf
-	cmd.Stderr = nil // discard "server is closing" noise
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -88,20 +90,19 @@ func TestMCPToolsMatchSkillReferences(t *testing.T) {
 			t.Fatalf("write: %v", err)
 		}
 	}
-	// Give the server time to process, then close stdin to trigger shutdown.
-	done := make(chan struct{})
-	go func() {
-		_ = cmd.Wait()
-		close(done)
-	}()
-	// Brief sleep to let responses flush before we close stdin.
-	// (Closing immediately can race on very fast machines.)
-	time.Sleep(500 * time.Millisecond)
-	_ = stdin.Close()
-	<-done
 
-	out := outBuf.String()
-	lines := strings.Split(out, "\n")
+	// Read lines from stdout until we see the tools/list response.
+	scanner := bufio.NewScanner(stdout)
+	var lines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		lines = append(lines, line)
+		if strings.Contains(line, `"id":2`) {
+			break
+		}
+	}
+	stdin.Close()
+	cmd.Wait()
 	var toolNames []string
 	for _, line := range lines {
 		for _, part := range strings.Split(line, `"name":"`) {
@@ -113,7 +114,7 @@ func TestMCPToolsMatchSkillReferences(t *testing.T) {
 	}
 
 	if len(toolNames) == 0 {
-		t.Fatalf("parsed zero MCP tool names from tools/list response; raw output:\n%s", out)
+		t.Fatalf("parsed zero MCP tool names from tools/list response; raw output:\n%s", strings.Join(lines, "\n"))
 	}
 
 	// Every MCP tool should correspond to a CLI subcommand.
