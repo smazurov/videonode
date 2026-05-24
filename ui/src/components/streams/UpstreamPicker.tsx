@@ -1,11 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Select } from '../Select';
-import { useStreamStore } from '../../hooks/useStreamStore';
-
-// Stub for U5's UpstreamPicker. Drops a typeahead combobox in favor of a
-// plain grouped <select> over `source:*` and `composer:*` refs sourced
-// from the store. When U5 lands, this file is superseded by the primitive
-// from `ui/src/components/primitives/UpstreamPicker.tsx`.
+import { useSourceStore } from '../../hooks/useSourceStore';
+import { useComposerStore } from '../../hooks/useComposerStore';
 
 interface UpstreamPickerProps {
   value: string;
@@ -22,21 +18,29 @@ export function UpstreamPicker({
   error,
   required,
 }: Readonly<UpstreamPickerProps>) {
-  const streamsById = useStreamStore((s) => s.streamsById);
+  const sourcesById = useSourceStore((s) => s.sourcesById);
+  const sourcesLastUpdated = useSourceStore((s) => s.lastUpdated);
+  const fetchSources = useSourceStore((s) => s.fetchSources);
 
-  // U2/U6/U8 will add `useSourceStore` / `useComposerStore`. Until then we
-  // infer candidate refs from existing streams: any current upstream value
-  // gets surfaced so the picker round-trips an edit-mode selection.
+  const composersById = useComposerStore((s) => s.composersById);
+  const composersLastUpdated = useComposerStore((s) => s.lastUpdated);
+  const fetchComposers = useComposerStore((s) => s.fetchComposers);
+
+  useEffect(() => {
+    if (sourcesLastUpdated === null) void fetchSources();
+  }, [sourcesLastUpdated, fetchSources]);
+
+  useEffect(() => {
+    if (composersLastUpdated === null) void fetchComposers();
+  }, [composersLastUpdated, fetchComposers]);
+
   const { sourceRefs, composerRefs } = useMemo(() => {
     const sources = new Set<string>();
+    for (const id of Object.keys(sourcesById)) sources.add(`source:${id}`);
     const composers = new Set<string>();
-    for (const s of Object.values(streamsById)) {
-      // Old shape has no upstream field; fall back to nothing in that case.
-      const up = (s as { upstream?: string }).upstream;
-      if (!up) continue;
-      if (up.startsWith('source:')) sources.add(up);
-      else if (up.startsWith('composer:')) composers.add(up);
-    }
+    for (const id of Object.keys(composersById)) composers.add(`composer:${id}`);
+    // Surface the current value even if its upstream entity was deleted,
+    // so the picker round-trips an edit-mode selection.
     if (value.startsWith('source:')) sources.add(value);
     else if (value.startsWith('composer:')) composers.add(value);
     const cmp = (a: string, b: string) => a.localeCompare(b);
@@ -44,7 +48,7 @@ export function UpstreamPicker({
       sourceRefs: [...sources].sort(cmp),
       composerRefs: [...composers].sort(cmp),
     };
-  }, [streamsById, value]);
+  }, [sourcesById, composersById, value]);
 
   const errorProps = error ? { error } : {};
 
