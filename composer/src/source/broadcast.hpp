@@ -35,9 +35,6 @@ void broadcast_buffer(scm_rights_producer::ScmRightsProducer& prod, const nv12_b
 namespace videonode::control {
 class Status;
 }
-namespace nativerpc {
-struct LatestFrame;
-}
 
 namespace source {
 
@@ -50,15 +47,5 @@ void build_status_proto(::videonode::control::Status& out, const std::string& de
                         const CaptureSession& cap, const Args& a, uint64_t real_frame_idx,
                         uint64_t placeholder_frames, uint32_t last_seq,
                         scm_rights_producer::ScmRightsProducer& prod);
-
-// mmap the dma-buf identified by `d` (or `b`), copy the NV12 plane bytes
-// into `out.nv12`, populate the dim fields. Used by the orchestrator to
-// stash the most-recent frame for the gRPC Snapshot RPC. Returns false
-// on mmap failure (orchestrator just leaves the previous frame in place
-// — Snapshot returns UNAVAILABLE only when nothing has succeeded yet).
-[[nodiscard]] bool snapshot_nv12_from_decoded(const jpeg_dec::DecodedNv12& d, uint64_t frame_idx,
-                                              ::nativerpc::LatestFrame& out);
-[[nodiscard]] bool snapshot_nv12_from_buffer(const nv12_buf::Buffer& b, uint64_t frame_idx,
-                                             ::nativerpc::LatestFrame& out);
 
 } // namespace source

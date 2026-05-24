@@ -171,18 +171,17 @@ grpc::Status SourceService::StreamStatus(grpc::ServerContext* ctx,
 grpc::Status SourceService::Snapshot(grpc::ServerContext* /*ctx*/,
                                      const ::videonode::control::SnapshotRequest* /*req*/,
                                      ::videonode::control::SnapshotResponse* resp) {
-    std::lock_guard<std::mutex> lock(frame_mu_);
-    if (!last_frame_) {
+    vn::snapshot::FrameBytes fb;
+    if (!frame_holder_.Snapshot(fb)) {
         return grpc::Status(grpc::StatusCode::UNAVAILABLE, "no frame produced yet");
     }
-    const auto& f = *last_frame_;
-    resp->set_nv12(f.nv12.data(), f.nv12.size());
-    resp->set_width(f.width);
-    resp->set_height(f.height);
-    resp->set_pitch_y(f.pitch_y);
-    resp->set_pitch_uv(f.pitch_uv);
-    resp->set_frame_idx(f.frame_idx);
-    resp->set_captured_at_ns(f.captured_at_ns);
+    resp->set_nv12(fb.bytes.data(), fb.bytes.size());
+    resp->set_width(fb.width);
+    resp->set_height(fb.height);
+    resp->set_pitch_y(fb.pitch_y);
+    resp->set_pitch_uv(fb.pitch_uv);
+    resp->set_frame_idx(fb.frame_idx);
+    resp->set_captured_at_ns(fb.captured_at_ns);
     return grpc::Status::OK;
 }
 
@@ -205,10 +204,7 @@ void SourceService::PublishStatus(const ::videonode::control::Status& s) {
     status_cv_.notify_all();
 }
 
-void SourceService::UpdateLastFrame(LatestFrame f) {
-    std::lock_guard<std::mutex> lock(frame_mu_);
-    last_frame_ = std::move(f);
-}
+void SourceService::UpdateLastFrame(vn::snapshot::FrameRef ref) { frame_holder_.Update(ref); }
 
 void SourceService::StopStreams() {
     {

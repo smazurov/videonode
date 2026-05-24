@@ -14,11 +14,14 @@
 //   - PublishStatus(...) — call whenever a status notification would have
 //     fired under the legacy ctl.push_status() path.
 //   - UpdateLastFrame(...) — call after each NV12 frame is produced so
-//     Snapshot() can return without blocking the broadcast loop.
+//     Snapshot() can mmap+pack on demand without blocking the broadcast
+//     loop. The handed-in FrameRef carries dma-buf fds + plane geometry;
+//     the actual copy happens inside Snapshot().
 
 #pragma once
 
 #include "control/source.grpc.pb.h"
+#include "src/snapshot/snapshot.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -26,7 +29,6 @@
 #include <mutex>
 #include <optional>
 #include <string>
-#include <vector>
 
 // Forward decls — service code calls through pointers, orchestrator owns
 // the concrete types. This keeps the header free of source/ internals.
@@ -38,21 +40,6 @@ class SourceProbe;
 }
 
 namespace nativerpc {
-
-// LatestFrame is an in-process copy of the most-recently-produced NV12
-// frame. The broadcast loop calls UpdateLastFrame() after each frame so
-// Snapshot() can return without touching dma-buf or blocking the
-// producer. ~3 MB per 1080p frame; one allocation owned, reused on the
-// orchestrator side.
-struct LatestFrame {
-    std::vector<uint8_t> nv12;
-    uint32_t width = 0;
-    uint32_t height = 0;
-    uint32_t pitch_y = 0;
-    uint32_t pitch_uv = 0;
-    uint64_t frame_idx = 0;
-    uint64_t captured_at_ns = 0; // CLOCK_MONOTONIC nanoseconds
-};
 
 // ActiveFormat is the orchestrator's view of the format the V4L2 capture
 // is currently streaming at (post-negotiation). Owned by the orchestrator
@@ -121,10 +108,10 @@ class SourceService final : public videonode::control::Source::Service {
     // they each receive the most-recent snapshot on the next iteration.
     void PublishStatus(const ::videonode::control::Status& s);
 
-    // Stash the most-recent NV12 frame for Snapshot() to return. Moves
-    // the LatestFrame into the holder; subsequent updates overwrite the
-    // previous one (last-write-wins).
-    void UpdateLastFrame(LatestFrame f);
+    // Stash a reference to the most-recent NV12 frame. Cheap — just
+    // copies the FrameRef under a mutex. Snapshot() does the mmap+pack
+    // lazily so the broadcast loop never pays for unused snapshots.
+    void UpdateLastFrame(vn::snapshot::FrameRef ref);
 
     // Tell every active StreamStatus to flush and return. Called from
     // the orchestrator's shutdown path so the server thread can join.
@@ -146,8 +133,7 @@ class SourceService final : public videonode::control::Source::Service {
     uint64_t status_version_ = 0;
     bool stop_streams_ = false;
 
-    std::mutex frame_mu_;
-    std::optional<LatestFrame> last_frame_;
+    vn::snapshot::LatestFrameHolder frame_holder_;
 };
 
 } // namespace nativerpc

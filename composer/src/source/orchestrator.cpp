@@ -19,6 +19,7 @@
 #include "src/render/nv12_buf.hpp"
 #include "src/render/placeholder_painter.hpp"
 #include "src/rpc/grpc_server.hpp"
+#include "src/snapshot/snapshot.hpp"
 #include "src/source/broadcast.hpp"
 #include "src/source/capture_session.hpp"
 #include "src/source/source_service.hpp"
@@ -42,6 +43,46 @@
 namespace source {
 
 namespace {
+
+uint64_t monotonic_ns_() {
+    using namespace std::chrono;
+    return static_cast<uint64_t>(
+        duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count());
+}
+
+// Build a FrameRef for the source's NV12 holder. Plane[0] = Y, plane[1] =
+// UV. UV may reuse the Y fd (single-allocation dma_heap on rig) or have a
+// distinct fd (split GBM allocation on host); the source's DecodedNv12
+// already carries both shapes via plane1_fd.
+vn::snapshot::FrameRef make_frame_ref_(const jpeg_dec::DecodedNv12& d, uint64_t frame_idx) {
+    vn::snapshot::FrameRef r{};
+    r.format = vn::snapshot::Format::Nv12;
+    r.width = static_cast<uint32_t>(d.width);
+    r.height = static_cast<uint32_t>(d.height);
+    r.pitch_y = d.y_pitch;
+    r.pitch_uv = d.uv_pitch;
+    r.planes[0] = {d.fd, d.y_offset, d.y_pitch, static_cast<size_t>(d.width),
+                   static_cast<size_t>(d.height)};
+    const int uv_fd = d.plane1_fd >= 0 ? d.plane1_fd : d.fd;
+    r.planes[1] = {uv_fd, d.uv_offset, d.uv_pitch, static_cast<size_t>(d.width),
+                   static_cast<size_t>(d.height) / 2};
+    r.frame_idx = frame_idx;
+    r.captured_at_ns = monotonic_ns_();
+    return r;
+}
+
+vn::snapshot::FrameRef make_frame_ref_(const nv12_buf::Buffer& b, uint64_t frame_idx) {
+    jpeg_dec::DecodedNv12 d;
+    d.fd = b.y_fd;
+    d.plane1_fd = b.uv_fd;
+    d.width = b.width;
+    d.height = b.height;
+    d.y_pitch = b.y_pitch;
+    d.uv_pitch = b.uv_pitch;
+    d.y_offset = b.y_offset;
+    d.uv_offset = b.uv_offset;
+    return make_frame_ref_(d, frame_idx);
+}
 
 struct PlaceholderRing {
     int width = 0;
@@ -406,10 +447,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                             ++real_frame_idx;
                             broadcast_nv12(prod, decoded, real_frame_idx);
                             if (grpc_enabled) {
-                                nativerpc::LatestFrame lf;
-                                if (snapshot_nv12_from_decoded(decoded, real_frame_idx, lf)) {
-                                    grpc_svc.UpdateLastFrame(std::move(lf));
-                                }
+                                grpc_svc.UpdateLastFrame(make_frame_ref_(decoded, real_frame_idx));
                             }
                             last_good_decoded = decoded;
                             // Push the next-broadcast forward so a real
@@ -489,20 +527,14 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
             ++real_frame_idx;
             broadcast_nv12(prod, last_good_decoded, real_frame_idx);
             if (grpc_enabled) {
-                nativerpc::LatestFrame lf;
-                if (snapshot_nv12_from_decoded(last_good_decoded, real_frame_idx, lf)) {
-                    grpc_svc.UpdateLastFrame(std::move(lf));
-                }
+                grpc_svc.UpdateLastFrame(make_frame_ref_(last_good_decoded, real_frame_idx));
             }
         } else {
             // Probing / NoCable / NoLock / Gone / Transitioning-without-history.
             nv12_buf::Buffer& ph_buf = ph.paint_and_pick(now_ms(), source_probe::status_text(h));
             broadcast_buffer(prod, ph_buf, ph.tick_idx);
             if (grpc_enabled) {
-                nativerpc::LatestFrame lf;
-                if (snapshot_nv12_from_buffer(ph_buf, ph.tick_idx, lf)) {
-                    grpc_svc.UpdateLastFrame(std::move(lf));
-                }
+                grpc_svc.UpdateLastFrame(make_frame_ref_(ph_buf, ph.tick_idx));
             }
         }
         next_broadcast += broadcast_period;

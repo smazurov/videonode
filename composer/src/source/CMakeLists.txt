@@ -11,7 +11,7 @@
 # and latest-frame copies via the producer-thread entry points.
 vn_add_library(source_service
     SOURCES source_service.cpp
-    PUBLIC_DEPS source_probe vn_proto grpc_server)
+    PUBLIC_DEPS source_probe vn_proto grpc_server vn_snapshot)
 
 vn_add_library(orchestrator
     SOURCES orchestrator.cpp orchestrator_flags.cpp capture_session.cpp broadcast.cpp
@@ -19,6 +19,7 @@ vn_add_library(orchestrator
                 scm_rights_producer dmabuf_header dma_heap
                 jpeg_dec_turbo
                 source_service grpc_server vn_proto
+                vn_snapshot
                 absl_bundle
                 Threads::Threads)
 if(HAVE_RGA)
