@@ -36,22 +36,22 @@ struct SourceSlot {
 
 class PlCompose {
   public:
-    [[nodiscard]] bool init(std::string_view device_path, int canvas_w, int canvas_h);
-    ~PlCompose();
-
     PlCompose() = default;
+    ~PlCompose();
     PlCompose(const PlCompose&) = delete;
     PlCompose& operator=(const PlCompose&) = delete;
+
+    [[nodiscard]] bool init(std::string_view device_path, int canvas_w, int canvas_h);
 
     [[nodiscard]] bool render(const std::vector<SourceSlot>& slots);
     void finish();
 
-    int canvas_dmabuf_fd() const { return canvas_fd_; }
-    int canvas_w() const { return canvas_w_; }
-    int canvas_h() const { return canvas_h_; }
-    uint32_t canvas_stride() const { return canvas_stride_; }
-    gbm_bo* canvas_bo() const { return canvas_bo_; }
-    gbm_device* gbm() const;
+    [[nodiscard]] int canvas_dmabuf_fd() const { return canvas_fd_; }
+    [[nodiscard]] int canvas_w() const { return canvas_w_; }
+    [[nodiscard]] int canvas_h() const { return canvas_h_; }
+    [[nodiscard]] uint32_t canvas_stride() const { return canvas_stride_; }
+    [[nodiscard]] gbm_bo* canvas_bo() const { return canvas_bo_; }
+    [[nodiscard]] gbm_device* gbm() const;
 
   private:
     struct Impl;

@@ -77,6 +77,10 @@ cmake --build build/dev --target tidy-all   # clang-tidy whole tree (slow)
   Prefer `std::make_unique` or stack allocation.
 - Template error walls: fix the call site. Do not refactor templates to
   silence diagnostics.
+- **Never add `NOLINT` comments.** Fix the code instead. If clang-tidy
+  flags pointer arithmetic, use `std::span` and `.subspan()`. If it flags
+  function size, split the function. If it flags designated initializers,
+  use them. The linter is right; suppressing it hides real problems.
 
 ## Size limits
 

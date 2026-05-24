@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <vector>
@@ -43,8 +44,8 @@ std::vector<uint8_t> make_i420_pattern(int w, int h) {
             i420[static_cast<size_t>(y) * w + x] = static_cast<uint8_t>(((x + y) & 0xFF) | 0x10);
         }
     }
-    uint8_t* uv = i420.data() + static_cast<size_t>(w) * h;
-    std::memset(uv, 128, static_cast<size_t>(w) * h / 2);
+    const size_t uv_offset = static_cast<size_t>(w) * h;
+    std::memset(&i420[uv_offset], 128, static_cast<size_t>(w) * h / 2);
     return i420;
 }
 
@@ -56,7 +57,8 @@ std::vector<uint8_t> compress_i420_to_jpeg(const std::vector<uint8_t>& i420, int
     int rc =
         tjCompressFromYUV(h_enc, i420.data(), w, 1, h, TJSAMP_420, &jpeg_buf, &jpeg_size, 90, 0);
     EXPECT_EQ(rc, 0) << tjGetErrorStr2(h_enc);
-    std::vector<uint8_t> out(jpeg_buf, jpeg_buf + jpeg_size);
+    std::span<const uint8_t> jpeg_span(jpeg_buf, jpeg_size);
+    std::vector<uint8_t> out(jpeg_span.begin(), jpeg_span.end());
     tjFree(jpeg_buf);
     tjDestroy(h_enc);
     return out;
@@ -117,7 +119,7 @@ TEST(JpegDecDmabufVisibility, SeparateMmapSeesDecodedY) {
         ::mmap(nullptr, static_cast<size_t>(fd_size), PROT_READ, MAP_SHARED, buf.y_fd, 0);
     ASSERT_NE(reader, MAP_FAILED) << "mmap of y_fd failed: " << std::strerror(errno);
 
-    const auto* yr = static_cast<const uint8_t*>(reader);
+    std::span<const uint8_t> yr(static_cast<const uint8_t*>(reader), static_cast<size_t>(fd_size));
     int nonzero = 0;
     for (int row = 0; row < kH; ++row) {
         for (int col = 0; col < kW; ++col) {

@@ -37,6 +37,81 @@ void log_once(const char* msg) {
         vn::log::warn("csc_placebo: %s", msg);
 }
 
+constexpr uint64_t kModInvalid = (uint64_t{1} << 56) - 1;
+
+struct PlaneImport {
+    pl_gpu gpu;
+    pl_fmt fmt;
+    int fd;
+    int w;
+    int h;
+    int pitch;
+    int offset;
+    bool renderable;
+};
+
+pl_tex import_plane(const PlaneImport& p) {
+    struct pl_tex_params tp = {};
+    tp.w = p.w;
+    tp.h = p.h;
+    tp.format = p.fmt;
+    tp.sampleable = !p.renderable;
+    tp.renderable = p.renderable;
+    tp.import_handle = PL_HANDLE_DMA_BUF;
+    tp.shared_mem.handle.fd = dup(p.fd);
+    tp.shared_mem.size = static_cast<size_t>(p.pitch) * p.h + p.offset;
+    tp.shared_mem.offset = static_cast<size_t>(p.offset);
+    tp.shared_mem.drm_format_mod = kModInvalid;
+    tp.shared_mem.stride_w = p.pitch;
+    return pl_tex_create(p.gpu, &tp);
+}
+
+struct CscTextures {
+    pl_tex src_y;
+    pl_tex src_uv;
+    pl_tex dst_y;
+    pl_tex dst_uv;
+    bool src_is_nv12;
+};
+
+bool render_csc(pl_renderer renderer, pl_gpu gpu, const CscTextures& t) {
+    struct pl_frame src_frame = {};
+    src_frame.num_planes = 2;
+    src_frame.planes[0].texture = t.src_y;
+    src_frame.planes[0].components = 1;
+    src_frame.planes[0].component_mapping[0] = 0;
+    src_frame.planes[1].texture = t.src_uv;
+    src_frame.planes[1].components = 2;
+    src_frame.planes[1].component_mapping[0] = 1;
+    src_frame.planes[1].component_mapping[1] = 2;
+    src_frame.repr.sys = PL_COLOR_SYSTEM_BT_601;
+    src_frame.repr.levels = PL_COLOR_LEVELS_LIMITED;
+    src_frame.planes[1].shift_x = t.src_is_nv12 ? -1 : 0;
+    src_frame.planes[1].shift_y = t.src_is_nv12 ? -1 : 0;
+    pl_frame_set_chroma_location(&src_frame, PL_CHROMA_LEFT);
+
+    struct pl_frame dst_frame = {};
+    dst_frame.num_planes = 2;
+    dst_frame.planes[0].texture = t.dst_y;
+    dst_frame.planes[0].components = 1;
+    dst_frame.planes[0].component_mapping[0] = 0;
+    dst_frame.planes[1].texture = t.dst_uv;
+    dst_frame.planes[1].components = 2;
+    dst_frame.planes[1].component_mapping[0] = 1;
+    dst_frame.planes[1].component_mapping[1] = 2;
+    dst_frame.repr.sys = PL_COLOR_SYSTEM_BT_601;
+    dst_frame.repr.levels = PL_COLOR_LEVELS_LIMITED;
+    dst_frame.planes[1].shift_x = -1;
+    dst_frame.planes[1].shift_y = -1;
+    pl_frame_set_chroma_location(&dst_frame, PL_CHROMA_LEFT);
+
+    struct pl_render_params params = pl_render_fast_params;
+    params.skip_anti_aliasing = true;
+    bool ok = pl_render_image(renderer, &src_frame, &dst_frame, &params);
+    pl_gpu_finish(gpu);
+    return ok;
+}
+
 } // namespace
 
 bool init() {
@@ -154,81 +229,32 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
     const int dst_uv_actual_fd = dst_split ? dst.uv_fd : dst.fd;
     const int dst_uv_actual_offset = dst_split ? 0 : dst_y_size;
 
-    // DRM_FORMAT_MOD_INVALID tells the GL backend "let the driver decide".
-    constexpr uint64_t kModInvalid = (uint64_t{1} << 56) - 1;
-
     pl_fmt fmt_r8 = pl_find_named_fmt(s.gpu, "r8");
     pl_fmt fmt_rg8 = pl_find_named_fmt(s.gpu, "rg8");
     if (!fmt_r8 || !fmt_rg8)
         return false;
 
-    // Import source Y (R8)
-    struct pl_tex_params tp_src_y = {};
-    tp_src_y.w = W;
-    tp_src_y.h = H;
-    tp_src_y.format = fmt_r8;
-    tp_src_y.sampleable = true;
-    tp_src_y.import_handle = PL_HANDLE_DMA_BUF;
-    tp_src_y.shared_mem.handle.fd = dup(src.fd);
-    tp_src_y.shared_mem.size = static_cast<size_t>(src_y_pitch) * H;
-    tp_src_y.shared_mem.offset = 0;
-    tp_src_y.shared_mem.drm_format_mod = kModInvalid;
-    tp_src_y.shared_mem.stride_w = src_y_pitch;
-    pl_tex tex_src_y = pl_tex_create(s.gpu, &tp_src_y);
+    pl_tex tex_src_y = import_plane({.gpu = s.gpu, .fmt = fmt_r8, .fd = src.fd, .w = W, .h = H,
+                                     .pitch = src_y_pitch, .offset = 0, .renderable = false});
     if (!tex_src_y)
         return false;
-
-    // Import source UV (RG8)
-    struct pl_tex_params tp_src_uv = {};
-    tp_src_uv.w = src_uv_w;
-    tp_src_uv.h = src_uv_h;
-    tp_src_uv.format = fmt_rg8;
-    tp_src_uv.sampleable = true;
-    tp_src_uv.import_handle = PL_HANDLE_DMA_BUF;
-    tp_src_uv.shared_mem.handle.fd = dup(src_uv_actual_fd);
-    tp_src_uv.shared_mem.size =
-        static_cast<size_t>(src_uv_actual_pitch) * src_uv_h + src_uv_actual_offset;
-    tp_src_uv.shared_mem.offset = static_cast<size_t>(src_uv_actual_offset);
-    tp_src_uv.shared_mem.drm_format_mod = kModInvalid;
-    tp_src_uv.shared_mem.stride_w = src_uv_actual_pitch;
-    pl_tex tex_src_uv = pl_tex_create(s.gpu, &tp_src_uv);
+    pl_tex tex_src_uv = import_plane({.gpu = s.gpu, .fmt = fmt_rg8, .fd = src_uv_actual_fd,
+                                      .w = src_uv_w, .h = src_uv_h, .pitch = src_uv_actual_pitch,
+                                      .offset = src_uv_actual_offset, .renderable = false});
     if (!tex_src_uv) {
         pl_tex_destroy(s.gpu, &tex_src_y);
         return false;
     }
-
-    // Import destination Y (R8, renderable)
-    struct pl_tex_params tp_dst_y = {};
-    tp_dst_y.w = W;
-    tp_dst_y.h = H;
-    tp_dst_y.format = fmt_r8;
-    tp_dst_y.renderable = true;
-    tp_dst_y.import_handle = PL_HANDLE_DMA_BUF;
-    tp_dst_y.shared_mem.handle.fd = dup(dst.fd);
-    tp_dst_y.shared_mem.size = static_cast<size_t>(dst_y_pitch) * H;
-    tp_dst_y.shared_mem.offset = 0;
-    tp_dst_y.shared_mem.drm_format_mod = kModInvalid;
-    tp_dst_y.shared_mem.stride_w = dst_y_pitch;
-    pl_tex tex_dst_y = pl_tex_create(s.gpu, &tp_dst_y);
+    pl_tex tex_dst_y = import_plane({.gpu = s.gpu, .fmt = fmt_r8, .fd = dst.fd, .w = W, .h = H,
+                                     .pitch = dst_y_pitch, .offset = 0, .renderable = true});
     if (!tex_dst_y) {
         pl_tex_destroy(s.gpu, &tex_src_y);
         pl_tex_destroy(s.gpu, &tex_src_uv);
         return false;
     }
-
-    // Import destination UV (RG8, renderable)
-    struct pl_tex_params tp_dst_uv = {};
-    tp_dst_uv.w = W / 2;
-    tp_dst_uv.h = H / 2;
-    tp_dst_uv.format = fmt_rg8;
-    tp_dst_uv.renderable = true;
-    tp_dst_uv.import_handle = PL_HANDLE_DMA_BUF;
-    tp_dst_uv.shared_mem.handle.fd = dup(dst_uv_actual_fd);
-    tp_dst_uv.shared_mem.size = static_cast<size_t>(dst_uv_pitch) * (H / 2) + dst_uv_actual_offset;
-    tp_dst_uv.shared_mem.offset = static_cast<size_t>(dst_uv_actual_offset);
-    tp_dst_uv.shared_mem.drm_format_mod = kModInvalid;
-    tp_dst_uv.shared_mem.stride_w = dst_uv_pitch;
-    pl_tex tex_dst_uv = pl_tex_create(s.gpu, &tp_dst_uv);
+    pl_tex tex_dst_uv = import_plane({.gpu = s.gpu, .fmt = fmt_rg8, .fd = dst_uv_actual_fd,
+                                      .w = W / 2, .h = H / 2, .pitch = dst_uv_pitch,
+                                      .offset = dst_uv_actual_offset, .renderable = true});
     if (!tex_dst_uv) {
         pl_tex_destroy(s.gpu, &tex_src_y);
         pl_tex_destroy(s.gpu, &tex_src_uv);
@@ -236,41 +262,9 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
         return false;
     }
 
-    // Build frames
-    struct pl_frame src_frame = {};
-    src_frame.num_planes = 2;
-    src_frame.planes[0].texture = tex_src_y;
-    src_frame.planes[0].components = 1;
-    src_frame.planes[0].component_mapping[0] = 0;
-    src_frame.planes[1].texture = tex_src_uv;
-    src_frame.planes[1].components = 2;
-    src_frame.planes[1].component_mapping[0] = 1;
-    src_frame.planes[1].component_mapping[1] = 2;
-    src_frame.repr.sys = PL_COLOR_SYSTEM_BT_601;
-    src_frame.repr.levels = PL_COLOR_LEVELS_LIMITED;
-    src_frame.planes[1].shift_x = src_is_nv12 ? -1 : 0;
-    src_frame.planes[1].shift_y = src_is_nv12 ? -1 : 0;
-    pl_frame_set_chroma_location(&src_frame, PL_CHROMA_LEFT);
-
-    struct pl_frame dst_frame = {};
-    dst_frame.num_planes = 2;
-    dst_frame.planes[0].texture = tex_dst_y;
-    dst_frame.planes[0].components = 1;
-    dst_frame.planes[0].component_mapping[0] = 0;
-    dst_frame.planes[1].texture = tex_dst_uv;
-    dst_frame.planes[1].components = 2;
-    dst_frame.planes[1].component_mapping[0] = 1;
-    dst_frame.planes[1].component_mapping[1] = 2;
-    dst_frame.repr.sys = PL_COLOR_SYSTEM_BT_601;
-    dst_frame.repr.levels = PL_COLOR_LEVELS_LIMITED;
-    dst_frame.planes[1].shift_x = -1;
-    dst_frame.planes[1].shift_y = -1;
-    pl_frame_set_chroma_location(&dst_frame, PL_CHROMA_LEFT);
-
-    struct pl_render_params params = pl_render_fast_params;
-    params.skip_anti_aliasing = true;
-    bool ok = pl_render_image(s.renderer, &src_frame, &dst_frame, &params);
-    pl_gpu_finish(s.gpu);
+    bool ok = render_csc(s.renderer, s.gpu,
+                         {.src_y = tex_src_y, .src_uv = tex_src_uv, .dst_y = tex_dst_y,
+                          .dst_uv = tex_dst_uv, .src_is_nv12 = src_is_nv12});
 
     pl_tex_destroy(s.gpu, &tex_src_y);
     pl_tex_destroy(s.gpu, &tex_src_uv);

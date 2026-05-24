@@ -356,8 +356,11 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
                 r.width = static_cast<uint32_t>(compose_w);
                 r.height = static_cast<uint32_t>(compose_h);
                 r.pitch_y = stride;
-                r.planes[0] = {canvas_dmabuf_fd, 0, stride, size_t(compose_w) * 4,
-                               size_t(compose_h)};
+                r.planes[0] = {.fd = canvas_dmabuf_fd,
+                               .offset = 0,
+                               .pitch = stride,
+                               .row_bytes = size_t(compose_w) * 4,
+                               .rows = size_t(compose_h)};
                 r.frame_idx = broadcast_frame_idx;
                 r.captured_at_ns = static_cast<uint64_t>(
                     std::chrono::duration_cast<std::chrono::nanoseconds>(

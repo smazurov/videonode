@@ -49,6 +49,30 @@ struct PlCompose::Impl {
     bool using_vulkan = false;
 };
 
+PlCompose::~PlCompose() {
+    if (!impl_)
+        return;
+    if (impl_->canvas_tex)
+        pl_tex_destroy(impl_->gpu, &impl_->canvas_tex);
+    if (impl_->dispatch)
+        pl_dispatch_destroy(&impl_->dispatch);
+    if (impl_->renderer)
+        pl_renderer_destroy(&impl_->renderer);
+    if (impl_->vk)
+        pl_vulkan_destroy(&impl_->vk);
+    if (impl_->vk_inst)
+        pl_vk_inst_destroy(&impl_->vk_inst);
+    if (impl_->gl)
+        pl_opengl_destroy(&impl_->gl);
+    if (impl_->logger)
+        pl_log_destroy(&impl_->logger);
+    if (canvas_bo_)
+        gbm_bo_destroy(canvas_bo_);
+    if (canvas_fd_ >= 0)
+        ::close(canvas_fd_);
+    delete impl_;
+}
+
 bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
     if (canvas_w <= 0 || canvas_h <= 0)
         return false;
@@ -98,7 +122,8 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
         if (!impl_->gl) {
             vn::log::error("pl_compose: both Vulkan and OpenGL backends failed");
             delete impl_;
-            impl_ = nullptr;
+            delete impl_;
+        impl_ = nullptr;
             return false;
         }
         impl_->gpu = impl_->gl->gpu;
@@ -159,30 +184,6 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
 
     vn::log::info("pl_compose: ready %dx%d (stride=%u)", canvas_w, canvas_h, canvas_stride_);
     return true;
-}
-
-PlCompose::~PlCompose() {
-    if (!impl_)
-        return;
-    if (impl_->canvas_tex)
-        pl_tex_destroy(impl_->gpu, &impl_->canvas_tex);
-    if (impl_->dispatch)
-        pl_dispatch_destroy(&impl_->dispatch);
-    if (impl_->renderer)
-        pl_renderer_destroy(&impl_->renderer);
-    if (impl_->vk)
-        pl_vulkan_destroy(&impl_->vk);
-    if (impl_->vk_inst)
-        pl_vk_inst_destroy(&impl_->vk_inst);
-    if (impl_->gl)
-        pl_opengl_destroy(&impl_->gl);
-    if (impl_->logger)
-        pl_log_destroy(&impl_->logger);
-    if (canvas_bo_)
-        gbm_bo_destroy(canvas_bo_);
-    if (canvas_fd_ >= 0)
-        ::close(canvas_fd_);
-    delete impl_;
 }
 
 gbm_device* PlCompose::gbm() const {
