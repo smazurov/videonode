@@ -312,29 +312,34 @@ func encoderToAPI(e pipeline.EncoderConfig) models.EncoderConfigData {
 	}
 }
 
-// ensureLocalPublishTargets makes sure st.Publish contains the canonical
-// local rtsp + srt entries so the synthesized rtsp_url/srt_url in the
-// response actually correspond to a publishing encoder. Idempotent.
+// ensureLocalPublishTargets makes sure st.Publish contains the local
+// RTSP entry. The local SRT and WebRTC outputs fan out from the
+// in-memory Stream fed by the RTSP OnAnnounce path; the SRT server is
+// subscribe-only and would reject an ffmpeg publisher. Idempotent.
+//
+// Also strips any local-SRT publish entry an earlier version may have
+// persisted, since publishing there breaks the encoder.
 func (s *Server) ensureLocalPublishTargets(st *pipeline.Stream) {
 	if st == nil || st.ID == "" {
 		return
 	}
-	want := []pipeline.PublishTarget{
-		{Type: "rtsp", URL: "rtsp://" + localHost(s.rtspPortOrDefault()) + "/" + st.ID},
-		{Type: "srt", URL: "srt://" + localHost(s.srtPortOrDefault()) + "?streamid=" + st.ID},
-	}
-	for _, w := range want {
-		found := false
-		for _, h := range st.Publish {
-			if h.Type == w.Type && h.URL == w.URL {
-				found = true
-				break
-			}
+	badSRT := "srt://" + localHost(s.srtPortOrDefault()) + "?streamid=" + st.ID
+	filtered := st.Publish[:0]
+	for _, p := range st.Publish {
+		if p.Type == "srt" && p.URL == badSRT {
+			continue
 		}
-		if !found {
-			st.Publish = append(st.Publish, w)
+		filtered = append(filtered, p)
+	}
+	st.Publish = filtered
+
+	want := pipeline.PublishTarget{Type: "rtsp", URL: "rtsp://" + localHost(s.rtspPortOrDefault()) + "/" + st.ID}
+	for _, h := range st.Publish {
+		if h.Type == want.Type && h.URL == want.URL {
+			return
 		}
 	}
+	st.Publish = append(st.Publish, want)
 }
 
 func localHost(portSpec string) string {
