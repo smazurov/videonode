@@ -54,6 +54,10 @@ upstream = "source:${TESTENV_ENV_ID}-src"
 codec = "h264"
 bitrate_kbps = 2000
 preset = "veryfast"
+
+[[streams.publish]]
+type = "rtsp"
+url = "rtsp://localhost:${TESTENV_PORT_RTSP}/${TESTENV_ENV_ID}-stream"
 """
 
 [[hooks.block]]
