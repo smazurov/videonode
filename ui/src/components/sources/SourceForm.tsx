@@ -23,7 +23,13 @@ function formatToValue(f: SourceFormatBody | null): SourceFormatValue {
 }
 
 function valueToFormat(v: SourceFormatValue): SourceFormatBody | null {
-  if (!v.format_name || !v.width || !v.height) return null;
+  if (!v.format_name) return null;
+  // Preserve partial selections (width/height/fps still 0 mid-cascade)
+  // so the selector's auto-pick effects can fill them in. Returning
+  // null when w/h are 0 would cause the format dropdown to read back
+  // empty and snap to the first format every time the user picks a new
+  // one. buildPatch / buildRequest filter out incomplete formats before
+  // sending to the API.
   const out: SourceFormatBody = {
     format_name: v.format_name,
     width: v.width,
