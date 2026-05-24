@@ -91,6 +91,7 @@ TEST(ScmRightsProducer, SingleConsumerReceivesBroadcast) {
 
     unique_fd client = scm_socket::ConnectClient(path);
     EXPECT_TRUE(client.ok());
+    EXPECT_TRUE(scm_socket::SendReady(client.get()));
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 1; }, std::chrono::milliseconds(500)));
 
@@ -128,6 +129,8 @@ TEST(ScmRightsProducer, TwoConsumersBothReceive) {
     unique_fd c2 = scm_socket::ConnectClient(path);
     EXPECT_TRUE(c1.ok());
     EXPECT_TRUE(c2.ok());
+    EXPECT_TRUE(scm_socket::SendReady(c1.get()));
+    EXPECT_TRUE(scm_socket::SendReady(c2.get()));
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 2; }, std::chrono::milliseconds(500)));
 
@@ -172,6 +175,8 @@ TEST(ScmRightsProducer, DisconnectedConsumerEvicted) {
 
     unique_fd c1 = scm_socket::ConnectClient(path);
     unique_fd c2 = scm_socket::ConnectClient(path);
+    EXPECT_TRUE(scm_socket::SendReady(c1.get()));
+    EXPECT_TRUE(scm_socket::SendReady(c2.get()));
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 2; }, std::chrono::milliseconds(500)));
 
@@ -232,6 +237,9 @@ TEST(ScmRightsProducer, PruneDeadConsumersEvictsWithoutBroadcast) {
     unique_fd c1 = scm_socket::ConnectClient(path);
     unique_fd c2 = scm_socket::ConnectClient(path);
     unique_fd c3 = scm_socket::ConnectClient(path);
+    EXPECT_TRUE(scm_socket::SendReady(c1.get()));
+    EXPECT_TRUE(scm_socket::SendReady(c2.get()));
+    EXPECT_TRUE(scm_socket::SendReady(c3.get()));
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 3; }, std::chrono::milliseconds(500)));
 
@@ -279,6 +287,7 @@ TEST(ScmRightsProducer, ChurnCyclesDoNotLeakConsumers) {
     for (int i = 0; i < 10; ++i) {
         unique_fd c = scm_socket::ConnectClient(path);
         ASSERT_TRUE(c.ok());
+        EXPECT_TRUE(scm_socket::SendReady(c.get()));
         EXPECT_TRUE(
             wait_for([&] { return prod.consumer_count() >= 1; }, std::chrono::milliseconds(200)));
         c.reset();
@@ -309,11 +318,14 @@ TEST(ScmRightsProducer, MaxConsumersCapEnforced) {
     EXPECT_TRUE(c1.ok());
     EXPECT_TRUE(c2.ok());
     EXPECT_TRUE(c3.ok());
+    EXPECT_TRUE(scm_socket::SendReady(c1.get()));
+    EXPECT_TRUE(scm_socket::SendReady(c2.get()));
+    EXPECT_TRUE(scm_socket::SendReady(c3.get()));
 
     // Give the accept loop a moment to process all three dials.
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 2; }, std::chrono::milliseconds(500)));
-    // c3 was accepted then immediately closed; consumer_count stays at 2.
+    // c3 was accepted, handshake completed, then closed (over cap); consumer_count stays at 2.
 
     prod.stop();
 }

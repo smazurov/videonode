@@ -115,6 +115,20 @@ TEST(ScmSocket, MultiFdRoundtrip) {
     EXPECT_EQ(b2, uint8_t(0x22));
 }
 
+TEST(ScmSocket, ReadyHandshakeRoundtrip) {
+    unique_fd a, b;
+    ASSERT_TRUE(make_socketpair(a, b));
+    EXPECT_TRUE(scm_socket::SendReady(a.get()));
+    EXPECT_TRUE(scm_socket::WaitForReady(b.get(), 1000));
+}
+
+TEST(ScmSocket, WaitForReadyTimesOut) {
+    unique_fd a, b;
+    ASSERT_TRUE(make_socketpair(a, b));
+    EXPECT_FALSE(scm_socket::WaitForReady(b.get(), 50));
+    EXPECT_EQ(errno, ETIMEDOUT);
+}
+
 TEST(ScmSocket, EofOnCleanClose) {
     unique_fd a, b;
     ASSERT_TRUE(make_socketpair(a, b));

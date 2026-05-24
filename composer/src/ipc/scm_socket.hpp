@@ -60,4 +60,12 @@ namespace scm_socket {
 [[nodiscard]] bool SendMessage(int sock_fd, const dmabuf_header::Header& header,
                                const std::vector<int>& fds);
 
+// Consumer→producer handshake. After connect/accept, the consumer calls
+// SendReady once its recvmsg loop is posted; the producer calls WaitForReady
+// before adding the consumer to the broadcast list. Eliminates the startup
+// race where the first SCM_RIGHTS frame arrives before recvmsg is ready,
+// causing MSG_CTRUNC.
+[[nodiscard]] bool SendReady(int sock_fd);
+[[nodiscard]] bool WaitForReady(int sock_fd, int timeout_ms);
+
 } // namespace scm_socket
