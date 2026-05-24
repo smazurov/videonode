@@ -23,15 +23,16 @@ import (
 
 // Server represents the new Huma v2 API server.
 type Server struct {
-	api            huma.API
-	mux            *http.ServeMux
-	httpServer     *http.Server
-	streamService  streams.StreamService
-	options        *Options
-	deviceDetector devices.DeviceDetector
-	eventBus       *events.Bus
-	controlServer  *pipelinectl.Manager
-	logger         logging.Logger
+	api             huma.API
+	mux             *http.ServeMux
+	httpServer      *http.Server
+	streamService   streams.StreamService
+	composerService ComposerService
+	options         *Options
+	deviceDetector  devices.DeviceDetector
+	eventBus        *events.Bus
+	controlServer   *pipelinectl.Manager
+	logger          logging.Logger
 }
 
 // rtspPortOrDefault returns the configured RTSP publish port (e.g.
@@ -136,6 +137,7 @@ func (s *Server) basicAuthMiddleware(authenticator auth.Authenticator) func(huma
 type Options struct {
 	Authenticator     auth.Authenticator
 	StreamService     streams.StreamService
+	ComposerService   ComposerService // Optional: enables /api/composers when set
 	EventBus          *events.Bus     // Event bus for in-process events
 	PrometheusHandler http.Handler    // Optional Prometheus metrics handler
 	UpdateService     updater.Service // Optional self-update service
@@ -187,13 +189,14 @@ func NewServer(opts *Options) *Server {
 	api := humago.New(mux, config)
 
 	server := &Server{
-		api:           api,
-		mux:           mux,
-		streamService: opts.StreamService,
-		options:       opts,
-		eventBus:      opts.EventBus,
-		controlServer: opts.ControlServer,
-		logger:        logging.GetLogger("api"),
+		api:             api,
+		mux:             mux,
+		streamService:   opts.StreamService,
+		composerService: opts.ComposerService,
+		options:         opts,
+		eventBus:        opts.EventBus,
+		controlServer:   opts.ControlServer,
+		logger:          logging.GetLogger("api"),
 	}
 
 	// Apply CORS middleware first (before auth)
@@ -351,6 +354,9 @@ func (s *Server) registerRoutes() {
 
 	// Stream endpoints
 	s.registerStreamRoutes()
+
+	// Composer endpoints (no-op when composer service is nil)
+	s.registerComposerRoutes()
 
 	// Pipeline master switch endpoints
 	s.registerPipelineRoutes()
