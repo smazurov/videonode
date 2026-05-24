@@ -1,0 +1,115 @@
+package models
+
+import "time"
+
+// CanvasDimsData carries the composer output canvas dimensions.
+type CanvasDimsData struct {
+	W int `json:"w" example:"1920" doc:"Canvas width in pixels"`
+	H int `json:"h" example:"1080" doc:"Canvas height in pixels"`
+}
+
+// EffectData describes a per-input visual effect. Currently only the
+// "perspective" type is wired, with a four-corner quad in canvas space.
+type EffectData struct {
+	Type    string    `json:"type" example:"perspective" doc:"Effect type identifier"`
+	Corners [4][2]int `json:"corners,omitempty" doc:"Corner coordinates [tl, tr, br, bl] for perspective effects"`
+}
+
+// ComposerInputData is one composer input entry, referencing an upstream
+// source by ref string ("source:<id>") with an optional effect.
+type ComposerInputData struct {
+	Ref    string      `json:"ref" example:"source:hdmi-slides" doc:"Upstream ref — source:<id>"`
+	Effect *EffectData `json:"effect,omitempty" doc:"Optional per-input effect"`
+}
+
+// LayoutSlotData places a composer input on the canvas. The Input field
+// matches a ComposerInputData.Ref by name (not positional index).
+type LayoutSlotData struct {
+	Input string `json:"input" example:"source:hdmi-slides" doc:"Input ref this slot draws (matches inputs[].ref)"`
+	X     int    `json:"x" example:"0" doc:"Slot top-left X in canvas pixels"`
+	Y     int    `json:"y" example:"0" doc:"Slot top-left Y in canvas pixels"`
+	W     int    `json:"w" example:"1920" doc:"Slot width in canvas pixels"`
+	H     int    `json:"h" example:"1080" doc:"Slot height in canvas pixels"`
+}
+
+// ComposerData is the full wire shape for a composer entity.
+type ComposerData struct {
+	ID        string              `json:"id" example:"main-scene" doc:"Composer identifier"`
+	Canvas    CanvasDimsData      `json:"canvas" doc:"Output canvas dimensions"`
+	Inputs    []ComposerInputData `json:"inputs" doc:"Composer inputs (refs + optional effects)"`
+	Layout    []LayoutSlotData    `json:"layout" doc:"Layout slots placing each input on the canvas"`
+	CreatedAt time.Time           `json:"created_at,omitzero" doc:"Creation timestamp"`
+	UpdatedAt time.Time           `json:"updated_at,omitzero" doc:"Last update timestamp"`
+}
+
+// ComposerListData wraps a list of composers with a count.
+type ComposerListData struct {
+	Composers []ComposerData `json:"composers" doc:"Configured composers"`
+	Count     int            `json:"count" example:"1" doc:"Total composer count"`
+}
+
+// ComposerListResponse is the GET /api/composers response wrapper.
+type ComposerListResponse struct {
+	Body ComposerListData
+}
+
+// ComposerResponse is the single-composer response wrapper.
+type ComposerResponse struct {
+	Body ComposerData
+}
+
+// ComposerCreateRequest is the POST /api/composers body.
+type ComposerCreateRequest struct {
+	Body ComposerCreateRequestData
+}
+
+// ComposerCreateRequestData carries the create payload for a composer.
+type ComposerCreateRequestData struct {
+	ID     string              `json:"id" minLength:"1" maxLength:"64" pattern:"^[a-zA-Z0-9_-]+$" example:"main-scene" doc:"Composer identifier"`
+	Canvas CanvasDimsData      `json:"canvas" doc:"Output canvas dimensions"`
+	Inputs []ComposerInputData `json:"inputs" minItems:"1" doc:"Composer inputs"`
+	Layout []LayoutSlotData    `json:"layout,omitempty" doc:"Initial layout slots (optional; defaults to empty)"`
+}
+
+// ComposerUpdateRequest is the PATCH /api/composers/{id} body.
+type ComposerUpdateRequest struct {
+	Body ComposerUpdateRequestData
+}
+
+// ComposerUpdateRequestData carries optional fields to patch on a composer.
+// Nil fields are left untouched.
+type ComposerUpdateRequestData struct {
+	Canvas *CanvasDimsData     `json:"canvas,omitempty" doc:"New canvas dimensions"`
+	Inputs []ComposerInputData `json:"inputs,omitempty" doc:"Replacement inputs list"`
+	Layout []LayoutSlotData    `json:"layout,omitempty" doc:"Replacement layout (also validated against inputs)"`
+}
+
+// ComposerLayoutRequest is the PATCH /api/composers/{id}/layout body — the
+// full replacement layout array, validated against the composer's inputs.
+type ComposerLayoutRequest struct {
+	Body ComposerLayoutRequestData
+}
+
+// ComposerLayoutRequestData wraps the replacement layout array.
+type ComposerLayoutRequestData struct {
+	Layout []LayoutSlotData `json:"layout" doc:"Full replacement layout array"`
+}
+
+// ComposerEffectRequest is the PATCH /api/composers/{id}/inputs/{ref}/effect body.
+type ComposerEffectRequest struct {
+	Body ComposerEffectRequestData
+}
+
+// ComposerEffectRequestData sets or clears the effect on a specific input.
+// The Effect field is a three-state Nullable: omitted leaves it untouched,
+// explicit null clears it, a value replaces it.
+type ComposerEffectRequestData struct {
+	Effect Nullable[EffectData] `json:"effect" doc:"New effect; null clears the existing effect"`
+}
+
+// ComposerDeleteConflictBody is the 409 body returned when a composer
+// cannot be deleted because streams still reference it.
+type ComposerDeleteConflictBody struct {
+	Message            string   `json:"message" example:"composer in use" doc:"Conflict description"`
+	ReferencingStreams []string `json:"referencing_streams" doc:"IDs of streams still referencing this composer"`
+}
