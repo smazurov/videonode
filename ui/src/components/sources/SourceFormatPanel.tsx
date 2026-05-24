@@ -13,17 +13,17 @@ export function SourceFormatPanel({ source }: Readonly<SourceFormatPanelProps>) 
 
   const entries: KVEntry[] = format
     ? [
-        { key: 'pixelformat', value: format.fourcc || '—' },
-        { key: 'resolution', value: `${format.w}×${format.h}` },
-        { key: 'framerate', value: `${format.fps} fps` },
-        { key: 'mode', value: format.mode || '—' },
-        { key: 'buffers', value: String(format.buffers) },
+        { label: 'pixelformat', value: format.fourcc || '—' },
+        { label: 'resolution', value: `${format.w}×${format.h}` },
+        { label: 'framerate', value: `${format.fps} fps` },
+        { label: 'mode', value: format.mode || '—' },
+        { label: 'buffers', value: String(format.buffers) },
       ]
     : [];
 
   if (device) {
-    entries.push({ key: 'device_path', value: device.path });
-    entries.push({ key: 'multiplanar', value: String(device.multiplanar) });
+    entries.push({ label: 'device_path', value: device.path });
+    entries.push({ label: 'multiplanar', value: String(device.multiplanar) });
   }
 
   return (

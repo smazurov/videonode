@@ -2,7 +2,12 @@ import { StateCreator } from 'zustand';
 
 import { API_BASE_URL } from '../../../lib/api';
 import { getAuthCredentials } from '../../../lib/auth';
-import type { Source, SourceList, SourceRequest } from '../types';
+import type { Source, SourceRequestData as SourceRequest } from '../types';
+
+interface SourceList {
+  sources?: Source[] | null;
+  count?: number;
+}
 import { SourceStore } from '../../useSourceStore';
 
 // Endpoints below land with backend unit B5. Until then the calls fail at

@@ -1,9 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
-import {
-  useSourceStore,
-  type SourceData,
-  type SourceRequestData,
-} from './useSourceStore';
+import { useSourceStore } from './useSourceStore';
+import type { SourceData, SourceRequestData } from './slices/types';
 
 // Manual kebab-case check — avoids the security/detect-unsafe-regex lint
 // trip from anchored `^([a-z0-9]+)(-[a-z0-9]+)*$`.
@@ -59,16 +56,16 @@ export function useSourceForm(initialData?: SourceData) {
 
   const createSource = useSourceStore((s) => s.createSource);
   const updateSource = useSourceStore((s) => s.updateSource);
-  const allSources = useSourceStore((s) => s.getAllSources());
+  const sourcesById = useSourceStore((s) => s.sourcesById);
 
   const existingIds = useMemo(() => {
     const set = new Set<string>();
-    for (const s of allSources) {
+    for (const s of Object.values(sourcesById)) {
       if (initialData && s.id === initialData.id) continue;
       set.add(s.id);
     }
     return set;
-  }, [allSources, initialData]);
+  }, [sourcesById, initialData]);
 
   const errors = useMemo(
     () => validate({ mode, id, testMode, device, existingIds }),

@@ -1,7 +1,7 @@
 import { StateCreator } from 'zustand';
 
 import type { components } from '../../../lib/api.generated';
-import type { StoredStream } from '../types';
+import type { Stream } from '../types';
 import { StreamStore } from '../../useStreamStore';
 
 type StreamMetricsEvent = components['schemas']['StreamMetricsEvent'];
@@ -14,16 +14,16 @@ export interface StreamMetrics {
 
 export interface StreamDataSlice {
   streamIds: string[];
-  streamsById: Record<string, StoredStream>;
+  streamsById: Record<string, Stream>;
   metricsById: Record<string, StreamMetrics>;
   streamRefreshKeys: Record<string, number>;
 
-  setStreams: (streams: StoredStream[] | null | undefined) => void;
-  addStream: (stream: StoredStream) => void;
+  setStreams: (streams: Stream[] | null | undefined) => void;
+  addStream: (stream: Stream) => void;
   removeStream: (streamId: string) => void;
   updateStreamMetrics: (metrics: StreamMetricsEvent) => void;
   bumpStreamRefreshKey: (streamId: string) => void;
-  getStreamById: (streamId: string) => StoredStream | undefined;
+  getStreamById: (streamId: string) => Stream | undefined;
 }
 
 // Alphabetical by id — stable grid order across refetches + SSE addStream.
@@ -43,7 +43,7 @@ export const createStreamDataSlice: StateCreator<
   streamRefreshKeys: {},
 
   setStreams: (streams) => {
-    const byId: Record<string, StoredStream> = {};
+    const byId: Record<string, Stream> = {};
     for (const stream of streams ?? []) {
       byId[stream.stream_id] = stream;
     }

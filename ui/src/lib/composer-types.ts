@@ -50,14 +50,7 @@ export interface ComposerLayoutPatch {
   layout: LayoutSlot[];
 }
 
-// Back-compat aliases for U12-era components that pre-date the canonical
-// `Composer` shape in `hooks/slices/types.ts`. The integration carries both
-// names while consumers are migrated; remove these when no UI imports
-// `ComposerData` / `ComposerInputData` / `ComposerStatus` / `formatCanvasDims`
-// from this module.
 export type ComposerStatus = 'warm' | 'cold' | 'error' | 'idle' | 'unknown';
-
-export type ComposerInputData = ComposerInput;
 
 export interface ComposerData extends Omit<Composer, 'id'> {
   composer_id: string;

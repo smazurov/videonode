@@ -1,12 +1,12 @@
 import { StateCreator } from 'zustand';
 
 import { api, unwrap } from '../../../lib/api';
-import type { StoredStream } from '../types';
+import type { Stream } from '../types';
 import { StreamStore } from '../../useStreamStore';
 
 // Use existing generated request/response shapes until U1's regen ships
 // the new slim shape. The slice transparently re-types the response as
-// StoredStream so consumers see the merged canonical+legacy bag.
+// Stream so consumers see the merged canonical+legacy bag.
 import type { components } from '../../../lib/api.generated';
 
 type StreamRequestData = components['schemas']['StreamRequestData'];
@@ -16,13 +16,13 @@ const STREAM_ID_PATH = '/api/streams/{stream_id}' as const;
 
 export interface StreamAPISlice {
   fetchStreams: () => Promise<void>;
-  listStreams: () => Promise<StoredStream[]>;
-  getStream: (streamId: string) => Promise<StoredStream>;
-  createStream: (request: StreamRequestData) => Promise<StoredStream>;
+  listStreams: () => Promise<Stream[]>;
+  getStream: (streamId: string) => Promise<Stream>;
+  createStream: (request: StreamRequestData) => Promise<Stream>;
   updateStream: (
     streamId: string,
     data: Partial<StreamRequestData>,
-  ) => Promise<StoredStream>;
+  ) => Promise<Stream>;
   deleteStream: (streamId: string) => Promise<void>;
 }
 
@@ -45,7 +45,7 @@ export const createStreamAPISlice: StateCreator<
         await api.GET(STREAMS_PATH),
         'Failed to fetch streams',
       );
-      setStreams((data.streams as StoredStream[] | null | undefined) ?? null);
+      setStreams((data.streams as Stream[] | null | undefined) ?? null);
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to fetch streams');
@@ -61,7 +61,7 @@ export const createStreamAPISlice: StateCreator<
       await api.GET(STREAMS_PATH),
       'Failed to list streams',
     );
-    return (data.streams as StoredStream[] | null | undefined) ?? [];
+    return (data.streams as Stream[] | null | undefined) ?? [];
   },
 
   getStream: async (streamId) => {
@@ -71,7 +71,7 @@ export const createStreamAPISlice: StateCreator<
       }),
       'Failed to get stream',
     );
-    return data as StoredStream;
+    return data as Stream;
   },
 
   createStream: async (request) => {
@@ -83,7 +83,7 @@ export const createStreamAPISlice: StateCreator<
         'Failed to create stream',
       );
       setError(null);
-      return data as StoredStream;
+      return data as Stream;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create stream';
       setError(message);
@@ -103,7 +103,7 @@ export const createStreamAPISlice: StateCreator<
         'Failed to update stream',
       );
       setError(null);
-      return stream as StoredStream;
+      return stream as Stream;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update stream';
       setError(message);

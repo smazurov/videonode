@@ -13,14 +13,10 @@ import {
   createSourceAPISlice,
   SourceAPISlice,
 } from './slices/sources/sourceApiSlice';
-import type { Source } from './slices/types';
 
-// Re-exports for backwards compat with code that imported these names from
-// the store module (earlier U3/U7 store stubs).
 export type { Source } from './slices/types';
-export type SourceData = Source;
-export type SourceEntry = Source;
-export type SourceRequestData = { id: string; device?: string; test_mode?: boolean };
+export type { SourceData, SourceRequestData } from './slices/types';
+export type { Source as SourceEntry } from './slices/types';
 export interface SourceConsumerRef {
   kind: 'composer' | 'stream';
   id: string;
@@ -29,14 +25,7 @@ export interface SourceConsumerRef {
 export interface SourceStore
   extends SourceDataSlice,
     SourceUIStateSlice,
-    SourceAPISlice {
-  // Compatibility surfaces — no-op stubs so older callers compile.
-  upsertSource: (source: Source) => void;
-  getAllSources: () => Source[];
-  setConsumers: (sourceId: string, consumers: SourceConsumerRef[]) => void;
-  applyStatusEvent: (event: unknown) => void;
-  getReferencesTo: (sourceId: string) => { composers: string[]; streams: string[] };
-}
+    SourceAPISlice {}
 
 export const useSourceStore = create<SourceStore>()(
   subscribeWithSelector((set, get, store) => {
@@ -47,11 +36,6 @@ export const useSourceStore = create<SourceStore>()(
       ...data,
       ...ui,
       ...api,
-      upsertSource: data.addSource,
-      getAllSources: () => Object.values(get().sourcesById),
-      setConsumers: () => undefined,
-      applyStatusEvent: () => undefined,
-      getReferencesTo: () => ({ composers: [], streams: [] }),
     };
   }),
 );

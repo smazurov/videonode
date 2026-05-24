@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Badge } from '../Badge';
 import { Card } from '../Card';
-import type { ComposerData, ComposerInputData } from '../../lib/composer-types';
+import type { ComposerData, ComposerInput } from '../../lib/composer-types';
 
 interface ComposerInputsPanelProps {
   composer: ComposerData;
@@ -14,7 +14,7 @@ function sourceIdFromRef(ref: string): string | null {
   return ref.slice(SOURCE_REF_PREFIX.length);
 }
 
-function InputRow({ input }: Readonly<{ input: ComposerInputData }>) {
+function InputRow({ input }: Readonly<{ input: ComposerInput }>) {
   const sourceId = sourceIdFromRef(input.ref);
   return (
     <tr className="border-t border-border">

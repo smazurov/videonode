@@ -3,7 +3,6 @@ package streams
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -14,17 +13,6 @@ import (
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 	"github.com/smazurov/videonode/internal/types"
 )
-
-// onlyPerspectiveChanged reports whether the only difference between
-// before and after is in the Perspective field. Used by UpdatePartial
-// to skip a canvas restart when the live IPC push has already
-// delivered the new corners to the composer.
-func onlyPerspectiveChanged(before, after StreamSpec) bool {
-	before.Perspective = nil
-	after.Perspective = nil
-	before.UpdatedAt = after.UpdatedAt
-	return reflect.DeepEqual(before, after)
-}
 
 // ServiceOptions contains optional configuration for the stream service.
 type ServiceOptions struct {
@@ -449,19 +437,10 @@ func (s *service) UpdateStream(ctx context.Context, streamID string, params Stre
 		}
 	}
 
-	// Unified model: every stream restarts the same way. If a non-canvas
-	// source is owned by a canvas, restart the owning canvas instead so
-	// the composer picks up the new spec.
 	if s.processManager != nil {
-		target := streamID
-		if streamConfig.Canvas == nil {
-			if ownerID := s.processManager.OwnedBy(streamID); ownerID != "" {
-				target = ownerID
-			}
-		}
-		if err := s.processManager.Restart(target); err != nil {
+		if err := s.processManager.Restart(streamID); err != nil {
 			s.logger.Warn("Failed to restart stream process",
-				"stream_id", streamID, "target", target, "error", err)
+				"stream_id", streamID, "error", err)
 		}
 	}
 
@@ -491,7 +470,6 @@ func (s *service) UpdatePartial(ctx context.Context, streamID string, patch func
 		s.streamsMutex.Unlock()
 		return nil, NewStreamError(ErrCodeStreamNotFound, fmt.Sprintf("stream %s not found", streamID), nil)
 	}
-	preimage := streamConfig
 	var prevSources []string
 	if streamConfig.Canvas != nil {
 		prevSources = append(prevSources, streamConfig.Canvas.SourceStreams...)
@@ -539,48 +517,14 @@ func (s *service) UpdatePartial(ctx context.Context, streamID string, patch func
 		}
 	}
 
-	// Live-push perspective to any running composer that has this stream
-	// as one of its sources. delivered=true means set_effects crossed the
-	// wire; the canvas restart below can be skipped. delivered=false
-	// (composer not connected, dispatch failed, or no control server)
-	// means we must fall through to a restart so the post-spawn
-	// orchestrator delivers the new perspective.
-	livePerspectivePushed := false
-	if s.processManager != nil && streamConfig.Canvas == nil {
-		if ownerID := s.processManager.CanvasOwner(streamID); ownerID != "" {
-			delivered, err := s.processManager.PushComposerPerspective(ownerID, streamID, streamConfig.Perspective)
-			if err != nil {
-				s.logger.Warn("live perspective push failed; restart will deliver via post-spawn orchestrator",
-					"canvas_id", ownerID, "source_id", streamID, "error", err)
-			}
-			livePerspectivePushed = delivered
-		}
-	}
-
 	if s.processManager != nil {
 		switch {
 		case streamConfig.Canvas != nil && !streamConfig.Canvas.IsEngaged():
 			if err := s.processManager.Stop(streamID); err != nil {
 				s.logger.Warn("Failed to stop dormant canvas", "stream_id", streamID, "error", err)
 			}
-		case streamConfig.Canvas != nil:
-			if err := s.processManager.Restart(streamID); err != nil {
-				s.logger.Warn("Failed to restart canvas process", "stream_id", streamID, "error", err)
-			}
 		default:
-			canvasID := s.processManager.CanvasOwner(streamID)
-			if canvasID != "" && livePerspectivePushed && onlyPerspectiveChanged(preimage, streamConfig) {
-				// Live IPC push delivered the new perspective without
-				// restart — the canvas stays hot. Skip Restart to
-				// preserve the no-restart contract for perspective edits.
-				s.logger.Info("perspective updated via IPC; canvas not restarted",
-					"canvas_id", canvasID, "source_id", streamID)
-			} else if ownerID := s.processManager.OwnedBy(streamID); ownerID != "" {
-				if err := s.processManager.Restart(ownerID); err != nil {
-					s.logger.Warn("Failed to restart owning canvas after source update",
-						"stream_id", streamID, "canvas_id", ownerID, "error", err)
-				}
-			} else if err := s.processManager.Restart(streamID); err != nil {
+			if err := s.processManager.Restart(streamID); err != nil {
 				s.logger.Warn("Failed to restart stream process", "stream_id", streamID, "error", err)
 			}
 		}

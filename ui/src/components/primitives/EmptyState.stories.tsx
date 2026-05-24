@@ -11,7 +11,7 @@ export const NoSources: Story = () => (
   <div className="max-w-xl">
     <EmptyState
       icon={VideoCameraIcon}
-      headline="No sources yet"
+      title="No sources yet"
       description="Sources produce raw NV12 frames from V4L2 devices. Add one to start encoding."
       cta={<Button text="Add source" theme="primary" size="MD" />}
     />
@@ -20,12 +20,12 @@ export const NoSources: Story = () => (
 
 export const Plain: Story = () => (
   <div className="max-w-xl">
-    <EmptyState headline="No matches" />
+    <EmptyState title="No matches" />
   </div>
 );
 
 export const WithIconNoCta: Story = () => (
   <div className="max-w-xl">
-    <EmptyState icon={FilmIcon} headline="No recordings" description="Recordings will appear here once at least one stream has been captured." />
+    <EmptyState icon={FilmIcon} title="No recordings" description="Recordings will appear here once at least one stream has been captured." />
   </div>
 );

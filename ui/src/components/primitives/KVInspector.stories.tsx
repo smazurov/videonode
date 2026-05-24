@@ -16,12 +16,12 @@ const ITEMS = [
 
 export const Regular: Story = () => (
   <div className="max-w-md">
-    <KVInspector items={ITEMS} />
+    <KVInspector entries={ITEMS} />
   </div>
 );
 
 export const Dense: Story = () => (
   <div className="max-w-md">
-    <KVInspector items={ITEMS} dense />
+    <KVInspector entries={ITEMS} dense />
   </div>
 );

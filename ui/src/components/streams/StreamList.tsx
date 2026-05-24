@@ -9,7 +9,7 @@ import { Button } from '../Button';
 import { Card } from '../Card';
 import { Badge } from '../Badge';
 import { DataTable, type DataTableColumn } from '../primitives/DataTable';
-import { StatusPill, type StatusPillTone } from '../primitives/StatusPill';
+import { StatusPill, type StatusPillStatus } from '../primitives/StatusPill';
 import { useStreamStore } from '../../hooks/useStreamStore';
 import { buildStreamURL } from '../../lib/api';
 import type { components } from '../../lib/api.generated';
@@ -31,21 +31,16 @@ interface StreamListProps {
   readonly onCreateStream?: () => void;
 }
 
-function encoderStatusTone(stream: StreamData): { tone: StatusPillTone; label: string } {
-  if (!stream.enabled) return { tone: 'idle', label: 'idle' };
-  return { tone: 'running', label: 'running' };
+function encoderStatusTone(stream: StreamData): { status: StatusPillStatus; label: string } {
+  if (!stream.enabled) return { status: 'idle', label: 'idle' };
+  return { status: 'running', label: 'running' };
 }
 
 function codecBitrate(stream: StreamData): string {
-  const codec = stream.codec || '—';
-  const bitrate = stream.bitrate;
+  const codec = stream.encoder?.codec || '—';
+  const bitrate = stream.encoder?.bitrate;
   if (!bitrate) return codec.toLowerCase();
   return `${codec.toLowerCase()} ${bitrate}`;
-}
-
-function readerCount(stream: StreamData): number {
-  const sources = stream.canvas?.source_streams ?? [];
-  return sources.length;
 }
 
 function UpstreamBadge({ upstream }: { readonly upstream: UpstreamRef }) {
@@ -126,16 +121,10 @@ export function StreamList({
         id: 'status',
         header: 'Encoder',
         cell: (row) => {
-          const { tone, label } = encoderStatusTone(row.stream);
-          return <StatusPill tone={tone}>{label}</StatusPill>;
+          const { status, label } = encoderStatusTone(row.stream);
+          return <StatusPill status={status}>{label}</StatusPill>;
         },
         sortValue: (row) => (row.stream.enabled ? 0 : 1),
-      },
-      {
-        id: 'readers',
-        header: 'Readers',
-        cell: (row) => <span className="font-mono text-xs text-fg-muted">{readerCount(row.stream)}</span>,
-        sortValue: (row) => readerCount(row.stream),
       },
       {
         id: 'rtsp',

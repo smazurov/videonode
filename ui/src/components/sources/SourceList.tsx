@@ -30,7 +30,7 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
 
   const columns: DataTableColumn<SourceEntry>[] = [
     {
-      key: 'source_id',
+      id: 'source_id',
       header: 'Source',
       cell: (row) => (
         <div className="flex flex-col">
@@ -40,7 +40,7 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
       sortValue: (row) => row.source_id,
     },
     {
-      key: 'device',
+      id: 'device',
       header: 'Device',
       cell: (row) =>
         row.test_mode ? (
@@ -51,20 +51,20 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
       sortValue: (row) => (row.test_mode ? 'zzz-test-pattern' : row.device ?? ''),
     },
     {
-      key: 'status',
+      id: 'status',
       header: 'Status',
-      cell: (row) => <StatusPill status={row.status} />,
-      sortValue: (row) => row.status,
+      cell: (row) => <StatusPill status={row.status ?? 'idle'} />,
+      sortValue: (row) => row.status ?? '',
     },
     {
-      key: 'consumers',
+      id: 'consumers',
       header: 'Consumers',
       cell: (row) => <span className="text-fg">{row.consumer_count}</span>,
       sortValue: (row) => row.consumer_count,
       className: 'text-right',
     },
     {
-      key: 'running_since',
+      id: 'running_since',
       header: 'Running since',
       cell: (row) => (
         <span className="text-fg-muted text-xs">{formatRunningSince(row.running_since)}</span>
@@ -79,7 +79,7 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
       rows={sources}
       rowKey={(row) => row.source_id ?? ''}
       onRowClick={(row) => navigate(`/sources/${row.source_id}`)}
-      initialSort={{ key: 'source_id', direction: 'asc' }}
+      initialSort={{ columnId: 'source_id', direction: 'asc' }}
       emptyState={
         <EmptyState
           title="No sources yet"

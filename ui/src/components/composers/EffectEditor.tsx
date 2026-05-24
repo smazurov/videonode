@@ -43,7 +43,9 @@ export function EffectEditor({
 
   const initialCorners: Corner[] | undefined = useMemo(() => {
     if (!effect || effect.type !== 'perspective' || !effect.corners) return undefined;
-    return effect.corners.map(([x, y]) => [x, y] as Corner);
+    return effect.corners
+      .filter((c): c is number[] => c != null && c.length >= 2)
+      .map((c) => [c[0], c[1]] as Corner);
   }, [effect]);
 
   return (

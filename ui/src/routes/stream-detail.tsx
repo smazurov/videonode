@@ -130,8 +130,8 @@ export default function StreamDetail() {
           title={streamId}
           subtitle={
             <span className="font-mono text-xs">
-              {stream.codec ? `${stream.codec.toLowerCase()} ` : ''}
-              {stream.bitrate ?? ''}
+              {stream.encoder?.codec ? `${stream.encoder.codec.toLowerCase()} ` : ''}
+              {stream.encoder?.bitrate ?? ''}
             </span>
           }
           actions={
