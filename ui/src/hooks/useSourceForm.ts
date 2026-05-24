@@ -19,6 +19,13 @@ function formatsEqual(
   );
 }
 
+// formatComplete is true for a fully-resolved format selection (the
+// cascade picked w/h). Partial formats are kept in form state mid-edit
+// but never sent to the API.
+function formatComplete(f: SourceFormatBody | null | undefined): f is SourceFormatBody {
+  return !!f && f.width > 0 && f.height > 0;
+}
+
 // Manual kebab-case check — avoids the security/detect-unsafe-regex lint
 // trip from anchored `^([a-z0-9]+)(-[a-z0-9]+)*$`.
 function isKebabCase(s: string): boolean {
@@ -127,7 +134,7 @@ export function useSourceForm(initialData?: SourceData) {
       return { id, test_mode: true, device: '' };
     }
     const base: SourceRequestData = { id, device, test_mode: false };
-    if (format) base.format = format;
+    if (formatComplete(format)) base.format = format;
     return base;
   }, [id, device, testMode, format]);
 
@@ -136,7 +143,7 @@ export function useSourceForm(initialData?: SourceData) {
       const payload: Partial<SourceRequestData> = {};
       if (device !== prev.device) payload.device = testMode ? '' : device;
       if (testMode !== prev.test_mode) payload.test_mode = testMode;
-      if (!testMode && format && !formatsEqual(format, prev.format)) {
+      if (!testMode && formatComplete(format) && !formatsEqual(format, prev.format)) {
         payload.format = format;
       }
       return payload;
