@@ -16,14 +16,11 @@ export interface LivePreviewFrameProps {
   readonly className?: string;
   readonly mediaClassName?: string;
   readonly children?: React.ReactNode;
-  // Back-compat props accepted by U12 consumers — primitive doesn't render
-  // a stream itself; the caller is expected to render the WebRTC video as
-  // children. These props are no-ops in the primitive but stop TS errors.
+  // Back-compat props for WebRTC consumers (no-ops here).
   readonly streamId?: string;
   readonly enabled?: boolean;
   readonly refreshKey?: number;
   readonly showStats?: boolean;
-  // Image-style props for snapshot-based previews (U6's SourceLivePreview).
   readonly loading?: boolean;
   readonly error?: string | null;
   readonly src?: string;
@@ -38,7 +35,7 @@ const statsPositionClasses: Record<NonNullable<LivePreviewFrameProps["statsPosit
 };
 
 export function LivePreviewFrame({
-  state = "ready",
+  state: explicitState,
   aspectRatio = 16 / 9,
   errorMessage,
   loadingMessage = "Loading preview…",
@@ -48,7 +45,17 @@ export function LivePreviewFrame({
   className,
   mediaClassName,
   children,
+  src,
+  alt,
+  loading,
+  error,
 }: Readonly<LivePreviewFrameProps>) {
+  let derivedState: LivePreviewState = "idle";
+  if (loading) derivedState = "loading";
+  else if (error) derivedState = "error";
+  else if (src) derivedState = "ready";
+  const state: LivePreviewState = explicitState ?? derivedState;
+
   return (
     <div
       className={cn(
@@ -59,6 +66,13 @@ export function LivePreviewFrame({
     >
       <div className={cn("absolute inset-0 flex items-center justify-center", mediaClassName)}>
         {children}
+        {!children && src && (
+          <img
+            src={src}
+            alt={alt}
+            className="h-full w-full object-contain"
+          />
+        )}
       </div>
 
       {state === "loading" && (
