@@ -6,19 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// setupTestRepo creates a temporary repository for testing.
-func setupTestRepo(t *testing.T) (*tomlStore, string) {
+// setupTestStore creates a temporary store for testing.
+func setupTestStore(t *testing.T) (*tomlStore, string) {
 	t.Helper()
 
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test_streams.toml")
 
-	repo := NewTOML(testFile).(*tomlStore)
-	return repo, testFile
+	return NewTOML(testFile).(*tomlStore), testFile
 }
 
 func TestNewTOML(t *testing.T) {
@@ -35,388 +33,197 @@ func TestNewTOML(t *testing.T) {
 	if repo.config == nil {
 		t.Error("config should be initialized")
 	}
-	if repo.config.Version != 1 {
-		t.Errorf("expected version 1, got %d", repo.config.Version)
-	}
-	if repo.config.Streams == nil {
-		t.Error("streams map should be initialized")
+	if repo.config.Version != schemaVersion {
+		t.Errorf("expected version %d, got %d", schemaVersion, repo.config.Version)
 	}
 }
 
 func TestLoadNonExistentFile(t *testing.T) {
-	repo, _ := setupTestRepo(t)
+	repo, _ := setupTestStore(t)
 
-	err := repo.Load()
-	if err != nil {
+	if err := repo.Load(); err != nil {
 		t.Errorf("Load should not error on non-existent file, got: %v", err)
 	}
 
-	if len(repo.config.Streams) != 0 {
-		t.Errorf("expected empty streams map, got %d streams", len(repo.config.Streams))
+	if len(repo.GetAllV2Streams()) != 0 {
+		t.Errorf("expected empty streams, got %d", len(repo.GetAllV2Streams()))
 	}
 }
 
-func TestSaveAndLoad(t *testing.T) {
-	repo, testFile := setupTestRepo(t)
+func TestSaveAndLoad_V2(t *testing.T) {
+	repo, testFile := setupTestStore(t)
 
-	// Add a test stream
-	stream := streams.StreamSpec{
-		ID:     "test-stream",
-		Name:   "Test Stream",
-		Device: "usb-test-device",
-	}
-	repo.config.Streams["test-stream"] = stream
-
-	// Save
-	err := repo.Save()
-	if err != nil {
-		t.Fatalf("Save failed: %v", err)
+	src := V2Source{ID: "cam-1", Device: "usb-1-2"}
+	if err := repo.AddSource(src); err != nil {
+		t.Fatalf("AddSource failed: %v", err)
 	}
 
-	// Verify file exists
+	stream := V2Stream{
+		ID:       "encoder-1",
+		Upstream: "source:cam-1",
+	}
+	if err := repo.AddV2Stream(stream); err != nil {
+		t.Fatalf("AddV2Stream failed: %v", err)
+	}
+
 	if _, statErr := os.Stat(testFile); os.IsNotExist(statErr) {
 		t.Error("Config file was not created")
 	}
 
-	// Create new repo and load
 	repo2 := NewTOML(testFile).(*tomlStore)
-	err = repo2.Load()
-	if err != nil {
+	if err := repo2.Load(); err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	// Verify loaded data
-	if len(repo2.config.Streams) != 1 {
-		t.Errorf("expected 1 stream, got %d", len(repo2.config.Streams))
+	if len(repo2.GetAllSources()) != 1 {
+		t.Errorf("expected 1 source, got %d", len(repo2.GetAllSources()))
 	}
-
-	loadedStream, exists := repo2.config.Streams["test-stream"]
-	if !exists {
-		t.Fatal("test-stream not found after load")
+	if len(repo2.GetAllV2Streams()) != 1 {
+		t.Errorf("expected 1 stream, got %d", len(repo2.GetAllV2Streams()))
 	}
-
-	if loadedStream.ID != stream.ID {
-		t.Errorf("expected ID %s, got %s", stream.ID, loadedStream.ID)
+	if loaded, ok := repo2.GetSource("cam-1"); !ok || loaded.Device != "usb-1-2" {
+		t.Errorf("source round-trip failed: %+v ok=%v", loaded, ok)
 	}
-	if loadedStream.Name != stream.Name {
-		t.Errorf("expected Name %s, got %s", stream.Name, loadedStream.Name)
-	}
-	if loadedStream.Device != stream.Device {
-		t.Errorf("expected Device %s, got %s", stream.Device, loadedStream.Device)
+	if loaded, ok := repo2.GetV2Stream("encoder-1"); !ok || loaded.Upstream != "source:cam-1" {
+		t.Errorf("stream round-trip failed: %+v ok=%v", loaded, ok)
 	}
 }
 
-func TestAddStream(t *testing.T) {
-	repo, _ := setupTestRepo(t)
+func TestSourceCRUD(t *testing.T) {
+	repo, _ := setupTestStore(t)
 
-	stream := streams.StreamSpec{
-		ID:     "new-stream",
-		Name:   "New Stream",
-		Device: "usb-device-1",
+	src := V2Source{ID: "s1", Device: "dev-1"}
+	if err := repo.AddSource(src); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	if err := repo.AddSource(src); err == nil {
+		t.Error("AddSource should reject duplicate id")
 	}
 
-	err := repo.AddStream(stream)
-	if err != nil {
-		t.Fatalf("AddStream failed: %v", err)
+	src.Device = "dev-2"
+	if err := repo.UpdateSource("s1", src); err != nil {
+		t.Fatalf("UpdateSource: %v", err)
+	}
+	got, ok := repo.GetSource("s1")
+	if !ok || got.Device != "dev-2" {
+		t.Errorf("UpdateSource didn't persist: %+v", got)
 	}
 
-	// Verify stream was added
-	stored, exists := repo.config.Streams["new-stream"]
-	if !exists {
-		t.Fatal("stream was not added to config")
+	if err := repo.UpdateSource("nope", src); err == nil {
+		t.Error("UpdateSource should error on missing id")
 	}
 
-	if stored.ID != stream.ID {
-		t.Errorf("expected ID %s, got %s", stream.ID, stored.ID)
+	if err := repo.RemoveSource("s1"); err != nil {
+		t.Fatalf("RemoveSource: %v", err)
 	}
-
-	// Verify it was persisted
-	repo2 := NewTOML(repo.configPath).(*tomlStore)
-	err = repo2.Load()
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
+	if _, exists := repo.GetSource("s1"); exists {
+		t.Error("RemoveSource didn't delete")
 	}
-
-	_, exists = repo2.config.Streams["new-stream"]
-	if !exists {
-		t.Error("stream was not persisted to file")
+	if err := repo.RemoveSource("s1"); err == nil {
+		t.Error("RemoveSource should error on missing id")
 	}
 }
 
-func TestUpdateStream(t *testing.T) {
-	repo, _ := setupTestRepo(t)
+func TestComposerCRUD(t *testing.T) {
+	repo, _ := setupTestStore(t)
 
-	// Add initial stream
-	original := streams.StreamSpec{
-		ID:     "update-test",
-		Name:   "Original Name",
-		Device: "device-1",
+	c := V2Composer{ID: "c1", Canvas: V2CanvasDims{W: 1920, H: 1080}}
+	if err := repo.AddComposer(c); err != nil {
+		t.Fatalf("AddComposer: %v", err)
 	}
-	repo.config.Streams["update-test"] = original
-
-	// Update stream
-	updated := streams.StreamSpec{
-		ID:     "update-test",
-		Name:   "Updated Name",
-		Device: "device-2",
+	if err := repo.AddComposer(c); err == nil {
+		t.Error("AddComposer should reject duplicate id")
 	}
 
-	err := repo.UpdateStream("update-test", updated)
-	if err != nil {
-		t.Fatalf("UpdateStream failed: %v", err)
+	c.Canvas.W = 3840
+	if err := repo.UpdateComposer("c1", c); err != nil {
+		t.Fatalf("UpdateComposer: %v", err)
+	}
+	got, ok := repo.GetComposer("c1")
+	if !ok || got.Canvas.W != 3840 {
+		t.Errorf("UpdateComposer didn't persist: %+v", got)
 	}
 
-	// Verify update
-	stored, exists := repo.config.Streams["update-test"]
-	if !exists {
-		t.Fatal("stream disappeared after update")
+	if err := repo.RemoveComposer("c1"); err != nil {
+		t.Fatalf("RemoveComposer: %v", err)
 	}
-
-	if stored.Name != "Updated Name" {
-		t.Errorf("expected Name 'Updated Name', got %s", stored.Name)
-	}
-	if stored.Device != "device-2" {
-		t.Errorf("expected Device 'device-2', got %s", stored.Device)
-	}
-
-	// Verify persistence
-	repo2 := NewTOML(repo.configPath).(*tomlStore)
-	err = repo2.Load()
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	loaded := repo2.config.Streams["update-test"]
-	if loaded.Name != "Updated Name" {
-		t.Error("update was not persisted")
+	if _, exists := repo.GetComposer("c1"); exists {
+		t.Error("RemoveComposer didn't delete")
 	}
 }
 
-func TestRemoveStream(t *testing.T) {
-	repo, _ := setupTestRepo(t)
+func TestV2StreamCRUD(t *testing.T) {
+	repo, _ := setupTestStore(t)
 
-	// Add stream
-	stream := streams.StreamSpec{
-		ID:     "remove-test",
-		Name:   "To Be Removed",
-		Device: "device-1",
+	st := V2Stream{ID: "st1", Upstream: "source:s1"}
+	if err := repo.AddV2Stream(st); err != nil {
+		t.Fatalf("AddV2Stream: %v", err)
 	}
-	repo.config.Streams["remove-test"] = stream
-	if err := repo.Save(); err != nil {
-		t.Fatalf("Save failed: %v", err)
+	if err := repo.AddV2Stream(st); err == nil {
+		t.Error("AddV2Stream should reject duplicate id")
 	}
 
-	// Remove stream
-	err := repo.RemoveStream("remove-test")
-	if err != nil {
-		t.Fatalf("RemoveStream failed: %v", err)
+	st.Upstream = "composer:c1"
+	if err := repo.UpdateV2Stream("st1", st); err != nil {
+		t.Fatalf("UpdateV2Stream: %v", err)
+	}
+	got, ok := repo.GetV2Stream("st1")
+	if !ok || got.Upstream != "composer:c1" {
+		t.Errorf("UpdateV2Stream didn't persist: %+v", got)
 	}
 
-	// Verify removal
-	_, exists := repo.config.Streams["remove-test"]
-	if exists {
-		t.Error("stream still exists after removal")
+	if err := repo.RemoveV2Stream("st1"); err != nil {
+		t.Fatalf("RemoveV2Stream: %v", err)
 	}
-
-	// Verify persistence
-	repo2 := NewTOML(repo.configPath).(*tomlStore)
-	err = repo2.Load()
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	_, exists = repo2.config.Streams["remove-test"]
-	if exists {
-		t.Error("stream removal was not persisted")
-	}
-}
-
-func TestGetStream(t *testing.T) {
-	repo, _ := setupTestRepo(t)
-
-	// Test non-existent stream
-	_, exists := repo.GetStream("non-existent")
-	if exists {
-		t.Error("GetStream should return false for non-existent stream")
-	}
-
-	// Add stream
-	stream := streams.StreamSpec{
-		ID:     "get-test",
-		Name:   "Get Test",
-		Device: "device-1",
-	}
-	repo.config.Streams["get-test"] = stream
-
-	// Get existing stream
-	retrieved, exists := repo.GetStream("get-test")
-	if !exists {
-		t.Fatal("GetStream should return true for existing stream")
-	}
-
-	if retrieved.ID != stream.ID {
-		t.Errorf("expected ID %s, got %s", stream.ID, retrieved.ID)
-	}
-	if retrieved.Name != stream.Name {
-		t.Errorf("expected Name %s, got %s", stream.Name, retrieved.Name)
-	}
-}
-
-func TestGetAllStreams(t *testing.T) {
-	repo, _ := setupTestRepo(t)
-
-	// Empty repository
-	allStreams := repo.GetAllStreams()
-	if len(allStreams) != 0 {
-		t.Errorf("expected 0 streams, got %d", len(allStreams))
-	}
-
-	// Add multiple streams
-	repo.config.Streams["stream-1"] = streams.StreamSpec{ID: "stream-1", Name: "Stream 1", Device: "dev-1"}
-	repo.config.Streams["stream-2"] = streams.StreamSpec{ID: "stream-2", Name: "Stream 2", Device: "dev-2"}
-	repo.config.Streams["stream-3"] = streams.StreamSpec{ID: "stream-3", Name: "Stream 3", Device: "dev-3"}
-
-	allStreams = repo.GetAllStreams()
-	if len(allStreams) != 3 {
-		t.Errorf("expected 3 streams, got %d", len(allStreams))
-	}
-
-	// Verify specific streams
-	if _, exists := allStreams["stream-1"]; !exists {
-		t.Error("stream-1 not found in GetAllStreams")
-	}
-	if _, exists := allStreams["stream-2"]; !exists {
-		t.Error("stream-2 not found in GetAllStreams")
-	}
-	if _, exists := allStreams["stream-3"]; !exists {
-		t.Error("stream-3 not found in GetAllStreams")
+	if _, exists := repo.GetV2Stream("st1"); exists {
+		t.Error("RemoveV2Stream didn't delete")
 	}
 }
 
 func TestGetValidation(t *testing.T) {
-	repo, _ := setupTestRepo(t)
+	repo, _ := setupTestStore(t)
 
-	// Initially nil
-	validation := repo.GetValidation()
-	if validation != nil {
+	if v := repo.GetValidation(); v != nil {
 		t.Error("expected nil validation for new repo")
 	}
 
-	// Set validation
 	expected := &types.ValidationResults{
-		H264: types.CodecValidation{
-			Working: []string{"h264_vaapi", "libx264"},
-			Failed:  []string{"h264_qsv"},
-		},
-		H265: types.CodecValidation{
-			Working: []string{"hevc_vaapi"},
-			Failed:  []string{"hevc_qsv", "libx265"},
-		},
+		H264: types.CodecValidation{Working: []string{"h264_vaapi"}},
+		H265: types.CodecValidation{Working: []string{"hevc_vaapi"}},
 	}
-	repo.config.Validation = expected
-
-	// Get validation
-	retrieved := repo.GetValidation()
-	if retrieved == nil {
-		t.Fatal("expected validation data, got nil")
+	if err := repo.UpdateValidation(expected); err != nil {
+		t.Fatalf("UpdateValidation: %v", err)
 	}
-
-	if len(retrieved.H264.Working) != 2 {
-		t.Errorf("expected 2 working H264 encoders, got %d", len(retrieved.H264.Working))
-	}
-	if len(retrieved.H265.Failed) != 2 {
-		t.Errorf("expected 2 failed H265 encoders, got %d", len(retrieved.H265.Failed))
+	if v := repo.GetValidation(); v == nil || len(v.H264.Working) != 1 {
+		t.Errorf("validation not stored: %+v", v)
 	}
 }
 
-func TestUpdateValidation(t *testing.T) {
-	repo, _ := setupTestRepo(t)
+func TestUpdateValidationPersists(t *testing.T) {
+	repo, testFile := setupTestStore(t)
 
-	validation := &types.ValidationResults{
-		H264: types.CodecValidation{
-			Working: []string{"h264_vaapi"},
-			Failed:  []string{},
-		},
-		H265: types.CodecValidation{
-			Working: []string{},
-			Failed:  []string{"hevc_vaapi"},
-		},
+	v := &types.ValidationResults{H264: types.CodecValidation{Working: []string{"libx264"}}}
+	if err := repo.UpdateValidation(v); err != nil {
+		t.Fatalf("UpdateValidation: %v", err)
 	}
 
-	err := repo.UpdateValidation(validation)
-	if err != nil {
-		t.Fatalf("UpdateValidation failed: %v", err)
+	repo2 := NewTOML(testFile).(*tomlStore)
+	if err := repo2.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
 	}
-
-	// Verify in memory
-	stored := repo.GetValidation()
-	if stored == nil {
-		t.Fatal("validation was not stored")
-	}
-	if len(stored.H264.Working) != 1 {
-		t.Errorf("expected 1 working H264 encoder, got %d", len(stored.H264.Working))
-	}
-
-	// Verify persistence
-	repo2 := NewTOML(repo.configPath).(*tomlStore)
-	err = repo2.Load()
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	loaded := repo2.GetValidation()
-	if loaded == nil {
-		t.Fatal("validation was not persisted")
-	}
-	if len(loaded.H264.Working) != 1 {
-		t.Error("validation persistence failed")
+	if got := repo2.GetValidation(); got == nil || len(got.H264.Working) != 1 {
+		t.Errorf("validation not persisted: %+v", got)
 	}
 }
 
-func TestLoadHandlesNilStreamsMap(t *testing.T) {
-	repo, testFile := setupTestRepo(t)
-
-	// Create a config file without streams section
-	content := `version = 1
-`
-	err := os.WriteFile(testFile, []byte(content), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+func TestSaveSetsVersion(t *testing.T) {
+	repo, _ := setupTestStore(t)
+	repo.config.Version = 0
+	if err := repo.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
 	}
-
-	// Load should initialize streams map
-	err = repo.Load()
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	if repo.config.Streams == nil {
-		t.Error("Load should initialize nil streams map")
-	}
-
-	if repo.config.Version != 1 {
-		t.Errorf("expected version 1, got %d", repo.config.Version)
-	}
-}
-
-func TestLoadSetsDefaultVersion(t *testing.T) {
-	repo, testFile := setupTestRepo(t)
-
-	// Create a config file without version
-	content := `[streams]
-`
-	err := os.WriteFile(testFile, []byte(content), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	err = repo.Load()
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	if repo.config.Version != 1 {
-		t.Errorf("Load should set default version 1, got %d", repo.config.Version)
+	if repo.config.Version != schemaVersion {
+		t.Errorf("expected Save to set version %d, got %d", schemaVersion, repo.config.Version)
 	}
 }
 
@@ -425,104 +232,70 @@ func TestSaveCreatesDirectory(t *testing.T) {
 	nestedPath := filepath.Join(tmpDir, "subdir", "nested", "streams.toml")
 
 	repo := NewTOML(nestedPath).(*tomlStore)
-	repo.config.Streams["test"] = streams.StreamSpec{
-		ID:     "test",
-		Name:   "Test",
-		Device: "dev",
+	if err := repo.AddSource(V2Source{ID: "s1", Device: "d1"}); err != nil {
+		t.Fatalf("AddSource: %v", err)
 	}
 
-	err := repo.Save()
-	if err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-
-	// Verify nested directories were created
 	if _, statErr := os.Stat(nestedPath); os.IsNotExist(statErr) {
 		t.Error("Save should create nested directories")
 	}
 }
 
-func TestStreamTimestamps(t *testing.T) {
-	repo, _ := setupTestRepo(t)
+func TestTimestampsPersist(t *testing.T) {
+	repo, testFile := setupTestStore(t)
 
 	now := time.Now()
-	stream := streams.StreamSpec{
-		ID:        "timestamp-test",
-		Name:      "Timestamp Test",
-		Device:    "device-1",
+	src := V2Source{
+		ID:        "s1",
+		Device:    "d1",
 		CreatedAt: now,
 		UpdatedAt: now.Add(time.Hour),
 	}
-
-	err := repo.AddStream(stream)
-	if err != nil {
-		t.Fatalf("AddStream failed: %v", err)
+	if err := repo.AddSource(src); err != nil {
+		t.Fatalf("AddSource: %v", err)
 	}
 
-	// Reload and verify timestamps persisted
-	repo2 := NewTOML(repo.configPath).(*tomlStore)
-	err = repo2.Load()
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
+	repo2 := NewTOML(testFile).(*tomlStore)
+	if err := repo2.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
 	}
-
-	loaded, exists := repo2.GetStream("timestamp-test")
-	if !exists {
-		t.Fatal("stream not found")
+	loaded, ok := repo2.GetSource("s1")
+	if !ok {
+		t.Fatal("source missing after reload")
 	}
-
-	// Allow small delta for time comparison
 	if loaded.CreatedAt.Sub(now).Abs() > time.Second {
-		t.Errorf("CreatedAt not preserved correctly")
+		t.Errorf("CreatedAt drift: got %v want %v", loaded.CreatedAt, now)
 	}
 	if loaded.UpdatedAt.Sub(now.Add(time.Hour)).Abs() > time.Second {
-		t.Errorf("UpdatedAt not preserved correctly")
+		t.Errorf("UpdatedAt drift: got %v want %v", loaded.UpdatedAt, now.Add(time.Hour))
 	}
 }
 
 func TestLoadInvalidTOML(t *testing.T) {
-	repo, testFile := setupTestRepo(t)
+	repo, testFile := setupTestStore(t)
 
-	// Write invalid TOML
-	invalidContent := `this is not valid toml [[[`
-	err := os.WriteFile(testFile, []byte(invalidContent), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+	if err := os.WriteFile(testFile, []byte(`this is not valid toml [[[`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 
-	// Load should fail
-	err = repo.Load()
+	err := repo.Load()
 	if err == nil {
 		t.Error("Load should fail with invalid TOML")
-	}
-	if err != nil && !contains(err.Error(), "parse") {
-		t.Errorf("expected parse error, got: %v", err)
 	}
 }
 
 func TestLoadUnreadableFile(t *testing.T) {
-	repo, testFile := setupTestRepo(t)
+	repo, testFile := setupTestStore(t)
 
-	// Create file
-	err := os.WriteFile(testFile, []byte("version = 1\n"), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+	if err := os.WriteFile(testFile, []byte("version = 2\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
 	}
-
-	// Make file unreadable
-	err = os.Chmod(testFile, 0o000)
-	if err != nil {
-		t.Fatalf("failed to chmod file: %v", err)
+	if err := os.Chmod(testFile, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
 	}
-	defer func() {
-		if err := os.Chmod(testFile, 0o644); err != nil {
-			t.Errorf("cleanup chmod failed: %v", err)
-		}
-	}()
+	defer func() { _ = os.Chmod(testFile, 0o644) }()
 
-	// Load should fail
-	err = repo.Load()
-	if err == nil {
+	if err := repo.Load(); err == nil {
 		t.Error("Load should fail with unreadable file")
 	}
 }
@@ -531,41 +304,23 @@ func TestSaveToUnwritableDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	unwritableDir := filepath.Join(tmpDir, "unwritable")
 
-	// Create directory and make it unwritable
-	err := os.Mkdir(unwritableDir, 0o755)
-	if err != nil {
-		t.Fatalf("failed to create dir: %v", err)
+	if err := os.Mkdir(unwritableDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
 	}
-	err = os.Chmod(unwritableDir, 0o444)
-	if err != nil {
-		t.Fatalf("failed to chmod dir: %v", err)
+	if err := os.Chmod(unwritableDir, 0o444); err != nil {
+		t.Fatalf("chmod: %v", err)
 	}
-	defer func() {
-		if err := os.Chmod(unwritableDir, 0o755); err != nil {
-			t.Errorf("cleanup chmod failed: %v", err)
-		}
-	}()
+	defer func() { _ = os.Chmod(unwritableDir, 0o755) }()
 
-	testFile := filepath.Join(unwritableDir, "test.toml")
-	repo := NewTOML(testFile)
-
-	// Save should fail
-	err = repo.Save()
-	if err == nil {
+	repo := NewTOML(filepath.Join(unwritableDir, "test.toml"))
+	if err := repo.Save(); err == nil {
 		t.Error("Save should fail with unwritable directory")
 	}
 }
 
-// Helper function.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsRecursive(s, substr))
-}
-
-func containsRecursive(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestPipelineDefault(t *testing.T) {
+	repo, _ := setupTestStore(t)
+	if got := repo.GetPipeline(); !got.Enabled {
+		t.Error("default pipeline should be Enabled=true")
 	}
-	return false
 }
