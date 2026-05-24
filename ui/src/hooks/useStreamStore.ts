@@ -1,23 +1,31 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import { createStreamDataSlice, StreamDataSlice } from './slices/streamDataSlice';
-import { createUIStateSlice, UIStateSlice } from './slices/uiStateSlice';
-import { createAPISlice, APISlice } from './slices/apiSlice';
+
+import {
+  createStreamDataSlice,
+  StreamDataSlice,
+} from './slices/streams/streamDataSlice';
+import {
+  createStreamUIStateSlice,
+  StreamUIStateSlice,
+} from './slices/streams/streamUIStateSlice';
+import {
+  createStreamAPISlice,
+  StreamAPISlice,
+} from './slices/streams/streamApiSlice';
 import { createPipelineSlice, PipelineSlice } from './slices/pipelineSlice';
 
-export interface StreamStore extends
-  StreamDataSlice,
-  UIStateSlice,
-  APISlice,
-  PipelineSlice {}
+export interface StreamStore
+  extends StreamDataSlice,
+    StreamUIStateSlice,
+    StreamAPISlice,
+    PipelineSlice {}
 
 export const useStreamStore = create<StreamStore>()(
-  subscribeWithSelector(
-    (...args) => ({
-      ...createStreamDataSlice(...args),
-      ...createUIStateSlice(...args),
-      ...createAPISlice(...args),
-      ...createPipelineSlice(...args),
-    })
-  )
+  subscribeWithSelector((...args) => ({
+    ...createStreamDataSlice(...args),
+    ...createStreamUIStateSlice(...args),
+    ...createStreamAPISlice(...args),
+    ...createPipelineSlice(...args),
+  })),
 );

@@ -161,7 +161,7 @@ export function StreamCard({ streamId, onDelete, onRefresh, showVideo = true, cl
           <div className="flex justify-between">
             <span className="text-fg-muted">Codec{canvas ? '' : ' (in/out)'}:</span>
             <span className="text-fg font-medium font-mono uppercase">
-              {canvas ? stream.codec : formatCodecDisplay(stream.input_format, stream.codec)}
+              {canvas ? stream.codec : formatCodecDisplay(stream.input_format, stream.codec ?? '')}
             </span>
           </div>
 

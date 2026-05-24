@@ -1,10 +1,10 @@
 import { StateCreator } from 'zustand';
-import type { components } from '../../lib/api.generated';
-import { StreamStore } from '../useStreamStore';
 
-type StreamData = components["schemas"]["StreamData"];
-type StreamListData = components["schemas"]["StreamListData"];
-type StreamMetricsEvent = components["schemas"]["StreamMetricsEvent"];
+import type { components } from '../../../lib/api.generated';
+import type { StoredStream } from '../types';
+import { StreamStore } from '../../useStreamStore';
+
+type StreamMetricsEvent = components['schemas']['StreamMetricsEvent'];
 
 export interface StreamMetrics {
   fps?: string | undefined;
@@ -14,19 +14,19 @@ export interface StreamMetrics {
 
 export interface StreamDataSlice {
   streamIds: string[];
-  streamsById: Record<string, StreamData>;
+  streamsById: Record<string, StoredStream>;
   metricsById: Record<string, StreamMetrics>;
   streamRefreshKeys: Record<string, number>;
 
-  setStreams: (streamData: StreamListData) => void;
-  addStream: (stream: StreamData) => void;
+  setStreams: (streams: StoredStream[] | null | undefined) => void;
+  addStream: (stream: StoredStream) => void;
   removeStream: (streamId: string) => void;
   updateStreamMetrics: (metrics: StreamMetricsEvent) => void;
   bumpStreamRefreshKey: (streamId: string) => void;
-  getStreamById: (streamId: string) => StreamData | undefined;
+  getStreamById: (streamId: string) => StoredStream | undefined;
 }
 
-// Alphabetical by id — keeps grid stable across refetches + SSE addStream.
+// Alphabetical by id — stable grid order across refetches + SSE addStream.
 function sortStreamIds(ids: string[]): string[] {
   return [...ids].sort((a, b) => a.localeCompare(b));
 }
@@ -42,15 +42,15 @@ export const createStreamDataSlice: StateCreator<
   metricsById: {},
   streamRefreshKeys: {},
 
-  setStreams: (streamData) => {
-    const byId: Record<string, StreamData> = {};
-    for (const stream of streamData.streams ?? []) {
+  setStreams: (streams) => {
+    const byId: Record<string, StoredStream> = {};
+    for (const stream of streams ?? []) {
       byId[stream.stream_id] = stream;
     }
     const ids = sortStreamIds(Object.keys(byId));
     set((state) => {
-      // Preserve metrics for streams that still exist; only drop metrics for
-      // deleted streams. Wiping wholesale flashes empty stats on every
+      // Preserve metrics for streams that still exist; only drop metrics
+      // for deleted streams. Wiping wholesale flashes empty stats on every
       // refresh until SSE refills them.
       const nextMetrics: Record<string, StreamMetrics> = {};
       for (const id of ids) {
@@ -87,7 +87,7 @@ export const createStreamDataSlice: StateCreator<
       // eslint-disable-next-line @typescript-eslint/no-unused-vars, sonarjs/no-unused-vars
       const { [streamId]: __, ...restMetrics } = state.metricsById;
       return {
-        streamIds: state.streamIds.filter(id => id !== streamId),
+        streamIds: state.streamIds.filter((id) => id !== streamId),
         streamsById: restStreams,
         metricsById: restMetrics,
         lastUpdated: new Date(),
