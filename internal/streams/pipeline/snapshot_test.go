@@ -1,3 +1,8 @@
+//go:build !planv2_tests
+
+// Pre-rewrite snapshot test — exercises the monolithic Stream{Inputs:...}
+// flow which B1 deletes. Excluded from planv2_tests builds; replaced by
+// the post-rewrite pipeline_test.go assertions once B1 lands.
 package pipeline
 
 import (

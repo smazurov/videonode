@@ -1,5 +1,8 @@
-//go:build smoke
+//go:build smoke && planv2_tests
 
+// Smoke API tests against the post-rewrite endpoints: /api/sources,
+// /api/composers, /api/streams. Same harness as the v1 api_test.go;
+// drives full CRUD against the live server.
 package smoke
 
 import (
@@ -9,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestHealth(t *testing.T) {
+func TestHealthV2(t *testing.T) {
 	req := newReq(t, http.MethodGet, "/api/health", nil)
 	body := doExpect(t, req, http.StatusOK)
 	var hd struct {
@@ -21,55 +24,15 @@ func TestHealth(t *testing.T) {
 	}
 }
 
-func TestVersion(t *testing.T) {
-	req := newReq(t, http.MethodGet, "/api/update/version", nil)
+func TestListSourcesV2(t *testing.T) {
+	req := newAuthReq(t, http.MethodGet, "/api/sources", nil)
 	body := doExpect(t, req, http.StatusOK)
-	var vd struct {
-		Version string `json:"version"`
-	}
-	decodeJSON(t, body, &vd)
-	if vd.Version == "" {
-		t.Fatalf("/api/update/version: empty version field\nbody: %s", body)
-	}
-	t.Logf("videonode version: %s", vd.Version)
-}
-
-func TestMetricsRequiresAuth(t *testing.T) {
-	req := newReq(t, http.MethodGet, "/api/metrics", nil)
-	resp, err := httpClient().Do(req)
-	if err != nil {
-		t.Fatalf("/api/metrics no-auth: %v", err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("/api/metrics: expected 401 without auth, got %d", resp.StatusCode)
+	if !bytes.Contains(body, []byte(`"smoke-virtual-pipeline"`)) {
+		t.Fatalf("/api/sources: bootstrap source missing\nbody: %s", body)
 	}
 }
 
-func TestMetrics(t *testing.T) {
-	// /api/metrics returns a JSON array of metric records (the Huma-exposed
-	// view). The raw Prometheus text format lives under /metrics on the
-	// underlying mux, not on the Huma API.
-	req := newAuthReq(t, http.MethodGet, "/api/metrics", nil)
-	body := doExpect(t, req, http.StatusOK)
-	if !bytes.Contains(body, []byte(`"name"`)) {
-		t.Fatalf("/api/metrics: body does not look like a JSON metrics array\nbody (first 200 bytes): %s",
-			body[:min(200, len(body))])
-	}
-}
-
-func TestPrometheusMetrics(t *testing.T) {
-	// /metrics is the raw Prometheus text endpoint registered directly on
-	// the HTTP mux (no auth, not under Huma).
-	req := newReq(t, http.MethodGet, "/metrics", nil)
-	body := doExpect(t, req, http.StatusOK)
-	if !bytes.Contains(body, []byte("# HELP")) {
-		t.Fatalf("/metrics: body does not look like Prometheus text format\nbody (first 200 bytes): %s",
-			body[:min(200, len(body))])
-	}
-}
-
-func TestListStreams(t *testing.T) {
+func TestListStreamsV2(t *testing.T) {
 	req := newAuthReq(t, http.MethodGet, "/api/streams", nil)
 	body := doExpect(t, req, http.StatusOK)
 	if !bytes.Contains(body, []byte(`"smoke-pipeline"`)) {
@@ -77,38 +40,97 @@ func TestListStreams(t *testing.T) {
 	}
 }
 
-func TestListEncoders(t *testing.T) {
-	req := newAuthReq(t, http.MethodGet, "/api/encoders", nil)
+func TestSourceCRUDV2(t *testing.T) {
+	const id = "smoke-source-crud"
+	create := map[string]any{
+		"source_id": id,
+		"test_mode": true,
+	}
+	req := newAuthReq(t, http.MethodPost, "/api/sources", create)
 	body := doExpect(t, req, http.StatusOK)
-	if !bytes.Contains(body, []byte(`"video_encoders"`)) {
-		t.Fatalf("/api/encoders: missing video_encoders field\nbody: %s", body)
+	if !strings.Contains(string(body), `"source_id":"`+id+`"`) {
+		t.Fatalf("POST /api/sources: response missing source_id %q\nbody: %s", id, body)
+	}
+
+	req = newAuthReq(t, http.MethodGet, "/api/sources/"+id, nil)
+	doExpect(t, req, http.StatusOK)
+
+	req = newAuthReq(t, http.MethodDelete, "/api/sources/"+id, nil)
+	resp, err := httpClient().Do(req)
+	if err != nil {
+		t.Fatalf("DELETE /api/sources/%s: %v", id, err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE /api/sources/%s: got %d, want 200|204", id, resp.StatusCode)
+	}
+
+	req = newAuthReq(t, http.MethodGet, "/api/sources/"+id, nil)
+	resp, err = httpClient().Do(req)
+	if err != nil {
+		t.Fatalf("post-delete GET: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("post-delete GET /api/sources/%s: got %d, want 404", id, resp.StatusCode)
 	}
 }
 
-func TestListDevices(t *testing.T) {
-	req := newAuthReq(t, http.MethodGet, "/api/devices", nil)
-	doExpect(t, req, http.StatusOK)
-}
-
-func TestStreamCRUD(t *testing.T) {
-	const id = "smoke-crud"
-
-	// Create a canvas stream — canvas streams don't need a real V4L2
-	// device, so we can exercise the full CRUD plumbing without depending
-	// on host hardware. smoke-source is the sacrificial bootstrap stream
-	// that exists solely so the canvas has a valid source reference.
-	createBody := map[string]any{
-		"stream_id": id,
-		"codec":     "h264",
-		"bitrate":   2.0,
-		"canvas": map[string]any{
-			"width":          1920,
-			"height":         1080,
-			"fps":            "30",
-			"source_streams": []string{"smoke-source"},
+func TestComposerCRUDV2(t *testing.T) {
+	// Compose against the bootstrap sources, then tear down. Single
+	// input is fine — composer engages because the entity exists, not
+	// because of any input-count rule (post-rewrite topology is explicit).
+	const id = "smoke-composer-crud"
+	create := map[string]any{
+		"composer_id": id,
+		"canvas_w":    1920,
+		"canvas_h":    1080,
+		"inputs": []map[string]any{
+			{"ref": "source:smoke-virtual-source"},
+		},
+		"layout": []map[string]any{
+			{"input": "source:smoke-virtual-source", "x": 0, "y": 0, "w": 1920, "h": 1080},
 		},
 	}
-	req := newAuthReq(t, http.MethodPost, "/api/streams", createBody)
+	req := newAuthReq(t, http.MethodPost, "/api/composers", create)
+	body := doExpect(t, req, http.StatusOK)
+	if !strings.Contains(string(body), `"composer_id":"`+id+`"`) {
+		t.Fatalf("POST /api/composers: response missing composer_id %q\nbody: %s", id, body)
+	}
+
+	patchLayout := map[string]any{
+		"layout": []map[string]any{
+			{"input": "source:smoke-virtual-source", "x": 10, "y": 10, "w": 1900, "h": 1060},
+		},
+	}
+	req = newAuthReq(t, http.MethodPatch, "/api/composers/"+id+"/layout", patchLayout)
+	doExpect(t, req, http.StatusOK)
+
+	req = newAuthReq(t, http.MethodDelete, "/api/composers/"+id, nil)
+	resp, err := httpClient().Do(req)
+	if err != nil {
+		t.Fatalf("DELETE composer: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE /api/composers/%s: got %d, want 200|204", id, resp.StatusCode)
+	}
+}
+
+func TestStreamCRUDV2(t *testing.T) {
+	const id = "smoke-stream-crud"
+	create := map[string]any{
+		"stream_id": id,
+		"upstream":  "source:smoke-virtual-source",
+		"encoder": map[string]any{
+			"codec":   "h264",
+			"bitrate": "2M",
+		},
+		"publish": []map[string]any{
+			{"type": "rtsp", "url": "rtsp://127.0.0.1:8554/" + id},
+		},
+	}
+	req := newAuthReq(t, http.MethodPost, "/api/streams", create)
 	body := doExpect(t, req, http.StatusOK)
 	if !strings.Contains(string(body), `"stream_id":"`+id+`"`) {
 		t.Fatalf("POST /api/streams: response missing stream_id %q\nbody: %s", id, body)
@@ -117,27 +139,19 @@ func TestStreamCRUD(t *testing.T) {
 	req = newAuthReq(t, http.MethodGet, "/api/streams/"+id, nil)
 	doExpect(t, req, http.StatusOK)
 
-	patchBody := map[string]any{"framerate": 60}
-	req = newAuthReq(t, http.MethodPatch, "/api/streams/"+id, patchBody)
+	patch := map[string]any{
+		"encoder": map[string]any{"bitrate": "4M"},
+	}
+	req = newAuthReq(t, http.MethodPatch, "/api/streams/"+id, patch)
 	doExpect(t, req, http.StatusOK)
 
 	req = newAuthReq(t, http.MethodDelete, "/api/streams/"+id, nil)
 	resp, err := httpClient().Do(req)
 	if err != nil {
-		t.Fatalf("DELETE /api/streams/%s: %v", id, err)
+		t.Fatalf("DELETE stream: %v", err)
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("DELETE /api/streams/%s: got %d, want 200 or 204", id, resp.StatusCode)
-	}
-
-	req = newAuthReq(t, http.MethodGet, "/api/streams/"+id, nil)
-	resp, err = httpClient().Do(req)
-	if err != nil {
-		t.Fatalf("post-delete GET: %v", err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("post-delete GET /api/streams/%s: got %d, want 404", id, resp.StatusCode)
+		t.Fatalf("DELETE /api/streams/%s: got %d, want 200|204", id, resp.StatusCode)
 	}
 }

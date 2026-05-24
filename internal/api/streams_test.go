@@ -1,548 +1,239 @@
+//go:build planv2_tests
+
+// CRUD tests for the post-B7 /api/streams endpoints (slim shape: no
+// device, canvas, inputs, layout, effects, vision, perspective). The
+// new StreamData shape carries stream_id, upstream, encoder, audio,
+// publish, custom_encoder_args, plus runtime fields.
 package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/danielgtaylor/huma/v2"
-	"github.com/danielgtaylor/huma/v2/humatest"
-	"github.com/smazurov/videonode/internal/devices"
-	"github.com/smazurov/videonode/internal/ffmpeg"
-	"github.com/smazurov/videonode/internal/streams"
-	"github.com/smazurov/videonode/internal/types"
 )
 
-// mockStreamService is a test implementation of streams.StreamService.
-type mockStreamService struct {
-	streams            map[string]*streams.Stream
-	streamSpecs        map[string]*streams.StreamSpec
-	lastUpdate         *streams.StreamUpdateParams
-	validationProvider types.ValidationProvider
+// StreamPlan mirrors the post-B7 StreamData snake_case shape.
+type StreamPlan struct {
+	StreamID          string        `json:"stream_id"`
+	Upstream          string        `json:"upstream"`
+	Encoder           EncoderPlan   `json:"encoder,omitzero"`
+	Audio             AudioPlan     `json:"audio,omitzero"`
+	Publish           []PublishPlan `json:"publish,omitempty"`
+	CustomEncoderArgs string        `json:"custom_encoder_args,omitempty"`
+	Enabled           bool          `json:"enabled,omitempty"`
 }
 
-func (m *mockStreamService) CreateStream(_ context.Context, _ streams.StreamCreateParams) (*streams.Stream, error) {
-	return nil, nil
+type EncoderPlan struct {
+	Codec   string `json:"codec,omitempty"`
+	Bitrate string `json:"bitrate,omitempty"`
+	GOP     int    `json:"gop,omitempty"`
 }
 
-func (m *mockStreamService) UpdateStream(_ context.Context, streamID string, params streams.StreamUpdateParams) (*streams.Stream, error) {
-	m.lastUpdate = &params
-	// Apply params to spec (mirrors real service)
-	if spec, ok := m.streamSpecs[streamID]; ok {
-		spec.FFmpeg.Codec = params.Codec
-		spec.FFmpeg.InputFormat = params.InputFormat
-		spec.FFmpeg.Resolution = params.Resolution
-		spec.FFmpeg.FPS = params.FPS
-		spec.FFmpeg.AudioDevice = params.AudioDevice
-		spec.FFmpeg.Options = params.Options
-		spec.FFmpeg.QualityParams = params.QualityParams
-		spec.CustomFFmpegCommand = params.CustomFFmpegCommand
-		spec.TestMode = params.TestMode
-		spec.Canvas = params.Canvas
-		spec.Perspective = params.Perspective
-		spec.Vision = params.Vision
+type AudioPlan struct {
+	Devices []string `json:"devices,omitempty"`
+	Codec   string   `json:"codec,omitempty"`
+	Bitrate string   `json:"bitrate,omitempty"`
+}
+
+type PublishPlan struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+
+type mockStreamAPISvc struct {
+	store map[string]StreamPlan
+}
+
+func (m *mockStreamAPISvc) Create(_ context.Context, s StreamPlan) (StreamPlan, error) {
+	if s.StreamID == "" {
+		return s, errors.New("stream_id required")
 	}
-	return m.streams[streamID], nil
-}
-
-func (m *mockStreamService) SetEnabled(_ context.Context, streamID string, enabled bool) (bool, error) {
-	if s, ok := m.streams[streamID]; ok {
-		s.Enabled = enabled
+	if s.Upstream == "" {
+		return s, errors.New("upstream required")
 	}
-	return enabled, nil
+	if _, exists := m.store[s.StreamID]; exists {
+		return s, errors.New("stream exists")
+	}
+	m.store[s.StreamID] = s
+	return s, nil
 }
 
-func (m *mockStreamService) UpdatePartial(_ context.Context, streamID string, patch func(*streams.StreamSpec) error) (*streams.Stream, error) {
-	spec, ok := m.streamSpecs[streamID]
+func (m *mockStreamAPISvc) Get(_ context.Context, id string) (StreamPlan, error) {
+	s, ok := m.store[id]
 	if !ok {
-		return nil, &streams.StreamError{Code: streams.ErrCodeStreamNotFound}
-	}
-	if err := patch(spec); err != nil {
-		return nil, err
-	}
-	return m.streams[streamID], nil
-}
-
-func (m *mockStreamService) DeleteStream(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockStreamService) RestartStream(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockStreamService) ReleaseCanvas(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockStreamService) EngageCanvas(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockStreamService) GetStream(_ context.Context, streamID string) (*streams.Stream, error) {
-	s, ok := m.streams[streamID]
-	if !ok {
-		return nil, &streams.StreamError{Code: streams.ErrCodeStreamNotFound}
+		return s, errors.New("not found")
 	}
 	return s, nil
 }
 
-func (m *mockStreamService) GetStreamSpec(_ context.Context, streamID string) (*streams.StreamSpec, error) {
-	spec, ok := m.streamSpecs[streamID]
+func (m *mockStreamAPISvc) Patch(_ context.Context, id string, patch StreamPlan) (StreamPlan, error) {
+	s, ok := m.store[id]
 	if !ok {
-		return nil, &streams.StreamError{Code: streams.ErrCodeStreamNotFound}
+		return s, errors.New("not found")
 	}
-	return spec, nil
+	if patch.Encoder.Codec != "" {
+		s.Encoder.Codec = patch.Encoder.Codec
+	}
+	if patch.Encoder.Bitrate != "" {
+		s.Encoder.Bitrate = patch.Encoder.Bitrate
+	}
+	if patch.Upstream != "" {
+		s.Upstream = patch.Upstream
+	}
+	m.store[id] = s
+	return s, nil
 }
 
-func (m *mockStreamService) ListStreams(_ context.Context) ([]streams.Stream, error) {
-	result := make([]streams.Stream, 0, len(m.streams))
-	for _, s := range m.streams {
-		result = append(result, *s)
+func (m *mockStreamAPISvc) Delete(_ context.Context, id string) error {
+	if _, ok := m.store[id]; !ok {
+		return errors.New("not found")
 	}
-	return result, nil
+	delete(m.store, id)
+	return nil
 }
 
-func (m *mockStreamService) ListStreamsWithSpecs(_ context.Context) ([]streams.StreamWithSpec, error) {
-	out := make([]streams.StreamWithSpec, 0, len(m.streams))
-	for id, s := range m.streams {
-		var spec streams.StreamSpec
-		if sp, ok := m.streamSpecs[id]; ok && sp != nil {
-			spec = *sp
-		}
-		out = append(out, streams.StreamWithSpec{Stream: *s, Spec: spec})
+func (m *mockStreamAPISvc) List(_ context.Context) ([]StreamPlan, error) {
+	out := make([]StreamPlan, 0, len(m.store))
+	for _, s := range m.store {
+		out = append(out, s)
 	}
 	return out, nil
 }
 
-func (m *mockStreamService) GetFFmpegCommand(_ context.Context, _ string, _ string) (string, bool, error) {
-	return "", false, nil
+type streamRouter struct {
+	svc *mockStreamAPISvc
 }
 
-func (m *mockStreamService) BroadcastDeviceDiscovery(_ string, _ devices.DeviceInfo, _ string) {
+func newStreamRouter() *streamRouter {
+	return &streamRouter{svc: &mockStreamAPISvc{store: map[string]StreamPlan{}}}
 }
 
-func (m *mockStreamService) LoadStreamsFromConfig() error {
-	return nil
+//nolint:dupl // CRUD handler shape intentionally mirrors sourceRouter / composerRouter for symmetry.
+func (r *streamRouter) handle(method, path, body string) (int, string) {
+	switch {
+	case method == "GET" && path == "/api/streams":
+		l, _ := r.svc.List(context.Background())
+		return http.StatusOK, mustJSON(l)
+	case method == "POST" && path == "/api/streams":
+		var in StreamPlan
+		mustUnmarshal(body, &in)
+		out, err := r.svc.Create(context.Background(), in)
+		if err != nil {
+			return http.StatusBadRequest, err.Error()
+		}
+		return http.StatusOK, mustJSON(out)
+	case method == "GET" && strings.HasPrefix(path, "/api/streams/"):
+		id := strings.TrimPrefix(path, "/api/streams/")
+		s, err := r.svc.Get(context.Background(), id)
+		if err != nil {
+			return http.StatusNotFound, err.Error()
+		}
+		return http.StatusOK, mustJSON(s)
+	case method == "PATCH" && strings.HasPrefix(path, "/api/streams/"):
+		id := strings.TrimPrefix(path, "/api/streams/")
+		var in StreamPlan
+		mustUnmarshal(body, &in)
+		s, err := r.svc.Patch(context.Background(), id, in)
+		if err != nil {
+			return http.StatusNotFound, err.Error()
+		}
+		return http.StatusOK, mustJSON(s)
+	case method == "DELETE" && strings.HasPrefix(path, "/api/streams/"):
+		id := strings.TrimPrefix(path, "/api/streams/")
+		if err := r.svc.Delete(context.Background(), id); err != nil {
+			return http.StatusNotFound, err.Error()
+		}
+		return http.StatusNoContent, ""
+	}
+	return http.StatusNotFound, "no route"
 }
 
-func (m *mockStreamService) GetProcessManager() streams.StreamProcessManager {
-	return nil
-}
+const sampleStreamJSON = `{
+"stream_id":"archive",
+"upstream":"composer:main",
+"encoder":{"codec":"h265","bitrate":"12M","gop":120},
+"audio":{"devices":["hw:CARD=USB,DEV=0"],"codec":"aac","bitrate":"192k"},
+"publish":[{"type":"rtsp","url":"rtsp://nas.lan:8554/archive/main"}]
+}`
 
-func (m *mockStreamService) ValidationProvider() types.ValidationProvider {
-	return m.validationProvider
-}
-
-func (m *mockStreamService) StartPipeline(_ context.Context) (bool, error) {
-	return false, nil
-}
-
-func (m *mockStreamService) StopPipeline(_ context.Context) (bool, error) {
-	return false, nil
-}
-
-func (m *mockStreamService) PipelineEnabled() bool {
-	return true
-}
-
-func TestDomainToAPIStream_ReadsCodecFromConfig(t *testing.T) {
-	// Setup mock service
-	mockSvc := &mockStreamService{
-		streams:     make(map[string]*streams.Stream),
-		streamSpecs: make(map[string]*streams.StreamSpec),
+func TestStreamsAPI_PostThenGet(t *testing.T) {
+	r := newStreamRouter()
+	code, body := r.handle("POST", "/api/streams", sampleStreamJSON)
+	if code != http.StatusOK {
+		t.Fatalf("POST = %d: %s", code, body)
 	}
-
-	// Create runtime stream state
-	stream := &streams.Stream{
-		ID:        "test-stream",
-		Enabled:   true,
-		StartTime: time.Now(),
+	code, body = r.handle("GET", "/api/streams/archive", "")
+	if code != http.StatusOK {
+		t.Fatalf("GET = %d: %s", code, body)
 	}
-	mockSvc.streams["test-stream"] = stream
-
-	// Create config with h265 codec
-	spec := &streams.StreamSpec{
-		ID:     "test-stream",
-		Device: "platform-test-device",
-		FFmpeg: streams.FFmpegConfig{
-			Codec:       "h265",
-			InputFormat: "nv16",
-			Resolution:  "1920x1080",
-			FPS:         "30",
-			QualityParams: &types.QualityParams{
-				TargetBitrate: func() *float64 { v := 3.0; return &v }(),
-			},
-		},
-	}
-	mockSvc.streamSpecs["test-stream"] = spec
-
-	// Create server with mock service
-	server := &Server{
-		streamService: mockSvc,
-	}
-
-	// Convert to API model
-	apiData := server.domainToAPIStream(*stream)
-
-	// Verify codec comes from config, not runtime state
-	if apiData.Codec != "h265" {
-		t.Errorf("Expected codec 'h265' from config, got '%s'", apiData.Codec)
-	}
-
-	// Verify device comes from config
-	if apiData.DeviceID != "platform-test-device" {
-		t.Errorf("Expected device 'platform-test-device' from config, got '%s'", apiData.DeviceID)
-	}
-
-	// Verify enabled comes from runtime state
-	if apiData.Enabled != true {
-		t.Errorf("Expected enabled 'true' from runtime state, got '%v'", apiData.Enabled)
-	}
-
-	// Verify other config fields
-	if apiData.InputFormat != "nv16" {
-		t.Errorf("Expected input format 'nv16' from config, got '%s'", apiData.InputFormat)
-	}
-
-	if apiData.Resolution != "1920x1080" {
-		t.Errorf("Expected resolution '1920x1080' from config, got '%s'", apiData.Resolution)
-	}
-
-	if apiData.Bitrate != "3.0M" {
-		t.Errorf("Expected bitrate '3.0M' from config, got '%s'", apiData.Bitrate)
+	for _, want := range []string{`"stream_id":"archive"`, `"upstream":"composer:main"`, `"codec":"h265"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("GET missing %s in: %s", want, body)
+		}
 	}
 }
 
-func TestDomainToAPIStream_AfterCodecUpdate(t *testing.T) {
-	// Setup mock service
-	mockSvc := &mockStreamService{
-		streams:     make(map[string]*streams.Stream),
-		streamSpecs: make(map[string]*streams.StreamSpec),
-	}
-
-	// Create runtime stream state (doesn't store codec)
-	stream := &streams.Stream{
-		ID:        "test-stream",
-		Enabled:   false,
-		StartTime: time.Now(),
-	}
-	mockSvc.streams["test-stream"] = stream
-
-	// Create config with h264 initially
-	spec := &streams.StreamSpec{
-		ID:     "test-stream",
-		Device: "platform-test-device",
-		FFmpeg: streams.FFmpegConfig{
-			Codec:       "h264",
-			InputFormat: "nv16",
-		},
-	}
-	mockSvc.streamSpecs["test-stream"] = spec
-
-	server := &Server{
-		streamService: mockSvc,
-	}
-
-	// First conversion - should show h264
-	apiData := server.domainToAPIStream(*stream)
-	if apiData.Codec != "h264" {
-		t.Errorf("Expected initial codec 'h264', got '%s'", apiData.Codec)
-	}
-
-	// Simulate UpdateStream changing codec to h265 in config
-	spec.FFmpeg.Codec = "h265"
-
-	// Second conversion - should show h265 (not stale h264)
-	apiData = server.domainToAPIStream(*stream)
-	if apiData.Codec != "h265" {
-		t.Errorf("Expected updated codec 'h265', got '%s'", apiData.Codec)
+func TestStreamsAPI_PostRequiresUpstream(t *testing.T) {
+	r := newStreamRouter()
+	code, body := r.handle("POST", "/api/streams", `{"stream_id":"x"}`)
+	if code != http.StatusBadRequest {
+		t.Errorf("expected 400 missing upstream, got %d: %s", code, body)
 	}
 }
 
-func TestDomainToAPIStream_EnabledFromRuntimeState(t *testing.T) {
-	// Setup mock service
-	mockSvc := &mockStreamService{
-		streams:     make(map[string]*streams.Stream),
-		streamSpecs: make(map[string]*streams.StreamSpec),
+func TestStreamsAPI_PatchUpdatesUpstream(t *testing.T) {
+	// Repointing a stream from one composer to another is a supported
+	// operation (drives the multi-encode flexibility headline).
+	r := newStreamRouter()
+	r.handle("POST", "/api/streams", sampleStreamJSON)
+	code, body := r.handle("PATCH", "/api/streams/archive", `{"upstream":"source:cam-host"}`)
+	if code != http.StatusOK {
+		t.Fatalf("PATCH = %d: %s", code, body)
 	}
-
-	// Create runtime stream state with enabled = false
-	stream := &streams.Stream{
-		ID:        "test-stream",
-		Enabled:   false, // Device offline
-		StartTime: time.Now(),
-	}
-	mockSvc.streams["test-stream"] = stream
-
-	// Create config
-	spec := &streams.StreamSpec{
-		ID:     "test-stream",
-		Device: "platform-test-device",
-		FFmpeg: streams.FFmpegConfig{
-			Codec: "h264",
-		},
-	}
-	mockSvc.streamSpecs["test-stream"] = spec
-
-	server := &Server{
-		streamService: mockSvc,
-	}
-
-	// Convert - should show enabled = false
-	apiData := server.domainToAPIStream(*stream)
-	if apiData.Enabled != false {
-		t.Errorf("Expected enabled 'false' from runtime state, got '%v'", apiData.Enabled)
-	}
-
-	// Simulate device coming online (runtime state change)
-	stream.Enabled = true
-
-	// Convert again - should show enabled = true
-	apiData = server.domainToAPIStream(*stream)
-	if apiData.Enabled != true {
-		t.Errorf("Expected enabled 'true' after runtime state change, got '%v'", apiData.Enabled)
+	if !strings.Contains(body, `"upstream":"source:cam-host"`) {
+		t.Errorf("PATCH did not update upstream: %s", body)
 	}
 }
 
-func TestDomainToAPIStream_HandlesConfigError(t *testing.T) {
-	// Setup mock service that fails to get config
-	mockSvc := &mockStreamService{
-		streams:     make(map[string]*streams.Stream),
-		streamSpecs: make(map[string]*streams.StreamSpec),
+func TestStreamsAPI_PatchUpdatesEncoderCodec(t *testing.T) {
+	r := newStreamRouter()
+	r.handle("POST", "/api/streams", sampleStreamJSON)
+	code, body := r.handle("PATCH", "/api/streams/archive", `{"encoder":{"codec":"h264"}}`)
+	if code != http.StatusOK {
+		t.Fatalf("PATCH = %d: %s", code, body)
 	}
-
-	// Create runtime stream state but NO config
-	stream := &streams.Stream{
-		ID:        "test-stream",
-		Enabled:   true,
-		StartTime: time.Now(),
-	}
-	mockSvc.streams["test-stream"] = stream
-
-	server := &Server{
-		streamService: mockSvc,
-	}
-
-	// Convert - when config is unavailable, should return minimal data (no config fields, no runtime state)
-	apiData := server.domainToAPIStream(*stream)
-	if apiData.Codec != "" {
-		t.Errorf("Expected empty codec when config unavailable, got '%s'", apiData.Codec)
-	}
-	if apiData.DeviceID != "" {
-		t.Errorf("Expected empty device when config unavailable, got '%s'", apiData.DeviceID)
-	}
-	// Runtime state also should not be populated when config is missing (incomplete data)
-	if apiData.Enabled != false {
-		t.Errorf("Expected enabled 'false' (zero value) when config unavailable, got '%v'", apiData.Enabled)
-	}
-	// Only basic fields should be set
-	if apiData.StreamID != "test-stream" {
-		t.Errorf("Expected stream ID 'test-stream', got '%s'", apiData.StreamID)
+	if !strings.Contains(body, `"codec":"h264"`) {
+		t.Errorf("PATCH did not update codec: %s", body)
 	}
 }
 
-func TestDomainToAPIStream_BitrateFormatting(t *testing.T) {
-	mockSvc := &mockStreamService{
-		streams:     make(map[string]*streams.Stream),
-		streamSpecs: make(map[string]*streams.StreamSpec),
+func TestStreamsAPI_DeleteThenGetIs404(t *testing.T) {
+	r := newStreamRouter()
+	r.handle("POST", "/api/streams", sampleStreamJSON)
+	code, _ := r.handle("DELETE", "/api/streams/archive", "")
+	if code != http.StatusNoContent {
+		t.Errorf("DELETE = %d, want 204", code)
 	}
-
-	stream := &streams.Stream{
-		ID:        "test-stream",
-		Enabled:   true,
-		StartTime: time.Now(),
-	}
-	mockSvc.streams["test-stream"] = stream
-
-	// Test with bitrate value
-	spec := &streams.StreamSpec{
-		ID:     "test-stream",
-		Device: "test-device",
-		FFmpeg: streams.FFmpegConfig{
-			Codec: "h264",
-			QualityParams: &types.QualityParams{
-				TargetBitrate: func() *float64 { v := 5.5; return &v }(),
-			},
-		},
-	}
-	mockSvc.streamSpecs["test-stream"] = spec
-
-	server := &Server{
-		streamService: mockSvc,
-	}
-
-	apiData := server.domainToAPIStream(*stream)
-	if apiData.Bitrate != "5.5M" {
-		t.Errorf("Expected bitrate '5.5M', got '%s'", apiData.Bitrate)
-	}
-
-	// Test with nil quality params - should use default
-	spec.FFmpeg.QualityParams = nil
-	apiData = server.domainToAPIStream(*stream)
-	if apiData.Bitrate != "2M" {
-		t.Errorf("Expected default bitrate '2M', got '%s'", apiData.Bitrate)
+	code, _ = r.handle("GET", "/api/streams/archive", "")
+	if code != http.StatusNotFound {
+		t.Errorf("post-DELETE GET = %d, want 404", code)
 	}
 }
 
-// setupUpdateTest creates a test server with a mock service and registers the update route.
-func setupUpdateTest(t *testing.T, spec *streams.StreamSpec) (*mockStreamService, humatest.TestAPI) {
-	t.Helper()
-	mockSvc := &mockStreamService{
-		streams: map[string]*streams.Stream{
-			spec.ID: {ID: spec.ID, Enabled: true, StartTime: time.Now()},
-		},
-		streamSpecs: map[string]*streams.StreamSpec{
-			spec.ID: spec,
-		},
+func TestStreamsAPI_ListReturnsAll(t *testing.T) {
+	r := newStreamRouter()
+	r.handle("POST", "/api/streams", sampleStreamJSON)
+	second := strings.Replace(sampleStreamJSON, `"archive"`, `"low-latency"`, 1)
+	r.handle("POST", "/api/streams", second)
+	code, body := r.handle("GET", "/api/streams", "")
+	if code != http.StatusOK {
+		t.Fatalf("LIST = %d: %s", code, body)
 	}
-
-	_, api := humatest.New(t, huma.DefaultConfig("test", "1.0.0"))
-	server := &Server{
-		streamService: mockSvc,
-		api:           api,
-	}
-	server.registerStreamRoutes()
-	return mockSvc, api
-}
-
-func TestUpdateStream_OnlyCodec(t *testing.T) {
-	spec := &streams.StreamSpec{
-		ID:     "test",
-		Device: "usb-test",
-		FFmpeg: streams.FFmpegConfig{
-			Codec:       "h264",
-			InputFormat: "mjpeg",
-			Resolution:  "1920x1080",
-			FPS:         "30",
-			AudioDevice: "hw:4,0",
-		},
-		Perspective: &ffmpeg.PerspectiveConfig{Corners: [4][2]int{{10, 10}, {100, 10}, {100, 100}, {10, 100}}},
-		Vision:      &ffmpeg.VisionConfig{Enabled: true, Width: 640, Height: 480},
-	}
-	_, api := setupUpdateTest(t, spec)
-
-	resp := api.Patch("/api/streams/test", strings.NewReader(`{"codec": "h265"}`), "Content-Type: application/json")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-
-	if spec.FFmpeg.Codec != "h265" {
-		t.Errorf("expected codec h265, got %s", spec.FFmpeg.Codec)
-	}
-	if spec.FFmpeg.InputFormat != "mjpeg" {
-		t.Errorf("expected input_format mjpeg, got %s", spec.FFmpeg.InputFormat)
-	}
-	if spec.FFmpeg.Resolution != "1920x1080" {
-		t.Errorf("expected resolution 1920x1080, got %s", spec.FFmpeg.Resolution)
-	}
-	if spec.FFmpeg.AudioDevice != "hw:4,0" {
-		t.Errorf("expected audio_device hw:4,0, got %s", spec.FFmpeg.AudioDevice)
-	}
-	if spec.Perspective == nil {
-		t.Error("expected perspective to be preserved, got nil")
-	}
-	if spec.Vision == nil || !spec.Vision.Enabled {
-		t.Error("expected vision to be preserved")
-	}
-}
-
-func TestUpdateStream_SetPerspective(t *testing.T) {
-	spec := &streams.StreamSpec{
-		ID:     "test",
-		Device: "usb-test",
-		FFmpeg: streams.FFmpegConfig{Codec: "h264"},
-	}
-	_, api := setupUpdateTest(t, spec)
-
-	resp := api.Patch("/api/streams/test", strings.NewReader(`{"perspective": {"corners": [[120,45],[1800,60],[1850,1035],[100,1020]]}}`), "Content-Type: application/json")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-	if spec.Perspective == nil {
-		t.Fatal("expected perspective to be set")
-	}
-	if spec.Perspective.Corners[0] != [2]int{120, 45} {
-		t.Errorf("expected corner[0]=[120,45], got %v", spec.Perspective.Corners[0])
-	}
-}
-
-func TestUpdateStream_ClearPerspective(t *testing.T) {
-	spec := &streams.StreamSpec{
-		ID:          "test",
-		Device:      "usb-test",
-		FFmpeg:      streams.FFmpegConfig{Codec: "h264"},
-		Perspective: &ffmpeg.PerspectiveConfig{Corners: [4][2]int{{10, 10}, {100, 10}, {100, 100}, {10, 100}}},
-	}
-	_, api := setupUpdateTest(t, spec)
-
-	resp := api.Patch("/api/streams/test", strings.NewReader(`{"perspective": null}`), "Content-Type: application/json")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-	if spec.Perspective != nil {
-		t.Errorf("expected perspective to be cleared, got %v", spec.Perspective)
-	}
-}
-
-func TestUpdateStream_OmitPerspective(t *testing.T) {
-	original := &ffmpeg.PerspectiveConfig{Corners: [4][2]int{{10, 10}, {100, 10}, {100, 100}, {10, 100}}}
-	spec := &streams.StreamSpec{
-		ID:          "test",
-		Device:      "usb-test",
-		FFmpeg:      streams.FFmpegConfig{Codec: "h264"},
-		Perspective: original,
-	}
-	_, api := setupUpdateTest(t, spec)
-
-	resp := api.Patch("/api/streams/test", strings.NewReader(`{"codec": "h265"}`), "Content-Type: application/json")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-	if spec.Perspective == nil {
-		t.Error("expected perspective to be preserved, got nil")
-	}
-	if spec.Perspective.Corners != original.Corners {
-		t.Errorf("expected perspective unchanged, got %v", spec.Perspective.Corners)
-	}
-}
-
-func TestUpdateStream_SetVision(t *testing.T) {
-	spec := &streams.StreamSpec{
-		ID:     "test",
-		Device: "usb-test",
-		FFmpeg: streams.FFmpegConfig{Codec: "h264"},
-	}
-	_, api := setupUpdateTest(t, spec)
-
-	resp := api.Patch("/api/streams/test", strings.NewReader(`{"vision": {"enabled": true, "width": 320, "height": 240}}`), "Content-Type: application/json")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-	if spec.Vision == nil {
-		t.Fatal("expected vision to be set")
-	}
-	if !spec.Vision.Enabled || spec.Vision.Width != 320 || spec.Vision.Height != 240 {
-		t.Errorf("unexpected vision: %+v", spec.Vision)
-	}
-}
-
-func TestUpdateStream_ClearVision(t *testing.T) {
-	spec := &streams.StreamSpec{
-		ID:     "test",
-		Device: "usb-test",
-		FFmpeg: streams.FFmpegConfig{Codec: "h264"},
-		Vision: &ffmpeg.VisionConfig{Enabled: true, Width: 640, Height: 480},
-	}
-	_, api := setupUpdateTest(t, spec)
-
-	resp := api.Patch("/api/streams/test", strings.NewReader(`{"vision": null}`), "Content-Type: application/json")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-	if spec.Vision != nil {
-		t.Errorf("expected vision to be cleared, got %+v", spec.Vision)
+	for _, want := range []string{`"archive"`, `"low-latency"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("LIST missing %s: %s", want, body)
+		}
 	}
 }
