@@ -18,9 +18,7 @@ import (
 // is the split top-level [[sources]] / [[composers]] / [[streams]].
 const schemaVersion = 2
 
-// config is the persisted v2 layout marshalled to/from TOML. Legacy v1
-// fields (Streams map + intermediate [[streams]] with inputs) are kept on
-// load through a parallel rawV1 decode, then converted in-memory.
+// config is the persisted v2 layout marshalled to/from TOML.
 type config struct {
 	Version    int                      `toml:"version" json:"version"`
 	Validation *types.ValidationResults `toml:"validation,omitempty" json:"validation,omitempty"`
@@ -29,12 +27,6 @@ type config struct {
 	Sources   []V2Source   `toml:"sources,omitempty" json:"sources,omitempty"`
 	Composers []V2Composer `toml:"composers,omitempty" json:"composers,omitempty"`
 	Streams   []V2Stream   `toml:"streams,omitempty" json:"streams,omitempty"`
-
-	// LegacyStreams is the v1 map-shape [streams.<id>] table. Populated only
-	// when an old config is read; emptied after migration. Kept as a typed
-	// field so legacy fixtures still round-trip through the marshaler when
-	// a downstream caller adds via the deprecated AddStream path.
-	LegacyStreams map[string]streams.StreamSpec `toml:"-" json:"-"`
 }
 
 // streamsRawV1Entry is just enough of the legacy StreamSpec to seed a
@@ -81,6 +73,7 @@ type v1LegacyPerspective struct {
 type tomlStore struct {
 	configPath string
 	config     *config
+	inMemory   bool
 }
 
 // NewTOML creates a new TOML-based store.
@@ -89,15 +82,27 @@ func NewTOML(configPath string) streams.Store {
 		// Silent fallback hid a real bug: callers that forgot to thread a path
 		// got a store pointing at a phantom file in $PWD, never reaching the
 		// server's real config. Warn so a future regression is visible in logs.
-		slog.Warn("streams store opened with empty path, defaulting to ./streams.toml; caller should pass an explicit path")
+		// Callers that genuinely need an in-memory store (openapi codegen,
+		// tests) should use NewInMemory instead.
+		slog.Warn("streams store opened with empty path, defaulting to ./streams.toml; caller should pass an explicit path or use NewInMemory")
 		configPath = "streams.toml"
 	}
 
 	return &tomlStore{
 		configPath: configPath,
 		config: &config{
-			Version:       schemaVersion,
-			LegacyStreams: make(map[string]streams.StreamSpec),
+			Version: schemaVersion,
+		},
+	}
+}
+
+// NewInMemory returns a store whose Save is a no-op. Intended for openapi
+// codegen and tests that walk the entity surface without touching disk.
+func NewInMemory() streams.Store {
+	return &tomlStore{
+		inMemory: true,
+		config: &config{
+			Version: schemaVersion,
 		},
 	}
 }
@@ -128,7 +133,7 @@ func (s *tomlStore) Load() error {
 
 	if head.Version == schemaVersion {
 		// Pure v2 decode.
-		cfg := &config{LegacyStreams: make(map[string]streams.StreamSpec)}
+		cfg := &config{}
 		if err := toml.Unmarshal(data, cfg); err != nil {
 			return fmt.Errorf("failed to parse v2 streams config: %w", err)
 		}
@@ -148,13 +153,12 @@ func (s *tomlStore) Load() error {
 		return fmt.Errorf("v1→v2 migration failed: %w", err)
 	}
 	s.config = &config{
-		Version:       schemaVersion,
-		Validation:    head.Validation,
-		Pipeline:      head.Pipeline,
-		Sources:       mr.Sources,
-		Composers:     mr.Composers,
-		Streams:       mr.Streams,
-		LegacyStreams: make(map[string]streams.StreamSpec),
+		Version:    schemaVersion,
+		Validation: head.Validation,
+		Pipeline:   head.Pipeline,
+		Sources:    mr.Sources,
+		Composers:  mr.Composers,
+		Streams:    mr.Streams,
 	}
 
 	if err := s.Save(); err != nil {
@@ -268,6 +272,9 @@ func legacyAudioDevices(e streamsRawV1Entry) []string {
 
 // Save writes the in-memory config to disk as v2 TOML.
 func (s *tomlStore) Save() error {
+	if s.inMemory {
+		return nil
+	}
 	dir := filepath.Dir(s.configPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
@@ -288,50 +295,6 @@ func (s *tomlStore) Save() error {
 	}
 
 	return nil
-}
-
-// --- Legacy StreamSpec methods (kept for B9-pending consumers). After
-// migration these operate on an empty in-memory map; B9 rewires callers
-// to the new entity accessors below.
-
-// AddStream stores a legacy StreamSpec in the in-memory map only. Persistence
-// goes through Save which emits the v2 shape; legacy specs added here are
-// not round-tripped to disk.
-func (s *tomlStore) AddStream(stream streams.StreamSpec) error {
-	if s.config.LegacyStreams == nil {
-		s.config.LegacyStreams = make(map[string]streams.StreamSpec)
-	}
-	s.config.LegacyStreams[stream.ID] = stream
-	return s.Save()
-}
-
-// UpdateStream updates a legacy StreamSpec in the in-memory map.
-func (s *tomlStore) UpdateStream(id string, updates streams.StreamSpec) error {
-	if s.config.LegacyStreams == nil {
-		s.config.LegacyStreams = make(map[string]streams.StreamSpec)
-	}
-	s.config.LegacyStreams[id] = updates
-	return s.Save()
-}
-
-// RemoveStream removes a legacy StreamSpec from the in-memory map.
-func (s *tomlStore) RemoveStream(id string) error {
-	delete(s.config.LegacyStreams, id)
-	return s.Save()
-}
-
-// GetStream returns a legacy StreamSpec by ID.
-func (s *tomlStore) GetStream(id string) (streams.StreamSpec, bool) {
-	stream, exists := s.config.LegacyStreams[id]
-	return stream, exists
-}
-
-// GetAllStreams returns all legacy StreamSpecs (empty after migration).
-func (s *tomlStore) GetAllStreams() map[string]streams.StreamSpec {
-	if s.config.LegacyStreams == nil {
-		return map[string]streams.StreamSpec{}
-	}
-	return s.config.LegacyStreams
 }
 
 // GetValidation returns the current validation data.

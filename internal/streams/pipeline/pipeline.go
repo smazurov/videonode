@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/events"
+	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
@@ -527,6 +528,13 @@ func (p *Pipeline) resolveUpstream(upstream string) (FrameSource, error) {
 
 // splitUpstream parses "source:foo" / "composer:bar" into (kind, id).
 func splitUpstream(s string) (kind, id string, ok bool) {
+	return SplitUpstream(s)
+}
+
+// SplitUpstream parses an upstream reference like "source:foo" or
+// "composer:bar" into (kind, id, true). Returns ok=false for malformed
+// input.
+func SplitUpstream(s string) (kind, id string, ok bool) {
 	idx := strings.IndexByte(s, ':')
 	if idx <= 0 || idx == len(s)-1 {
 		return "", "", false
@@ -585,6 +593,22 @@ func (p *Pipeline) EnsureEncoder(streamID string) error {
 // lookups. Not used by Apply/Delete; only diagnostics should reach for
 // it.
 func (p *Pipeline) Pool() process.Pool { return p.pool }
+
+// CaptureSourceSnapshot dials the source's gRPC Snapshot RPC and converts
+// the returned NV12 frame to JPEG. Returns an error when the control
+// server isn't wired (no native sidecars on this build) or the RPC fails.
+func (p *Pipeline) CaptureSourceSnapshot(sourceID string) ([]byte, error) {
+	if p.cfg.ControlServer == nil {
+		return nil, fmt.Errorf("no control server for snapshot")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	resp, err := p.cfg.ControlServer.Snapshot(ctx, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	return ffmpeg.EncodeNV12ToJPEG(resp.GetNv12(), int(resp.GetWidth()), int(resp.GetHeight()))
+}
 
 // Sources exposes the SourceRegistry for diagnostics.
 func (p *Pipeline) Sources() *SourceRegistry { return p.sources }

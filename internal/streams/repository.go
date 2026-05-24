@@ -1,22 +1,47 @@
 package streams
 
-import "github.com/smazurov/videonode/internal/types"
+import (
+	"github.com/smazurov/videonode/internal/streams/pipeline"
+	"github.com/smazurov/videonode/internal/types"
+)
 
-// Store is the interface for stream and validation data access.
-//
-// Legacy StreamSpec accessors (Add/Update/Remove/GetStream/GetAllStreams)
-// remain on the interface so the existing StreamService keeps working
-// during the source/composer/stream split. V2 entity accessors (sources,
-// composers, v2 streams) live on EntityStore — every concrete store is
-// expected to implement both surfaces.
+// Source re-exports the canonical producer descriptor from the pipeline
+// package. The service layer treats sources as first-class entities; this
+// alias lets api/service consumers use one set of types.
+type Source = pipeline.Source
+
+// Composer re-exports the canonical composer descriptor.
+type Composer = pipeline.Composer
+
+// ComposerInput re-exports the canonical composer input descriptor.
+type ComposerInput = pipeline.ComposerInput
+
+// ComposerLayoutSlot re-exports the canonical composer layout slot.
+type ComposerLayoutSlot = pipeline.LayoutSlot
+
+// ComposerEffect re-exports the canonical composer effect descriptor.
+type ComposerEffect = pipeline.Effect
+
+// ComposerCanvasDims re-exports the canonical composer canvas dimensions.
+type ComposerCanvasDims = pipeline.CanvasDims
+
+// PipelineStream re-exports the canonical slim stream descriptor.
+type PipelineStream = pipeline.Stream
+
+// PipelineConfig is the persisted, daemon-wide pipeline master switch.
+// When Enabled is false, no stream encoder processes are auto-started on
+// boot regardless of per-stream configuration.
+type PipelineConfig struct {
+	Enabled bool `toml:"enabled" json:"enabled"`
+}
+
+// Store is the persistence + validation surface every concrete stream
+// store implements. The TOML store ([[sources]] / [[composers]] /
+// [[streams]] tables) is the only production implementation today.
 type Store interface {
 	Load() error
 	Save() error
-	AddStream(stream StreamSpec) error
-	UpdateStream(id string, stream StreamSpec) error
-	RemoveStream(id string) error
-	GetStream(id string) (StreamSpec, bool)
-	GetAllStreams() map[string]StreamSpec
+
 	GetValidation() *types.ValidationResults
 	UpdateValidation(validation *types.ValidationResults) error
 
@@ -26,12 +51,13 @@ type Store interface {
 	GetPipeline() PipelineConfig
 	// SetPipeline writes the daemon-wide pipeline master switch and persists.
 	SetPipeline(cfg PipelineConfig) error
+
+	EntityStore
 }
 
 // EntityStore is the v2 entity-CRUD surface (sources / composers /
-// streams as independent top-level entries). The B9 service split uses
-// this surface directly; the concrete TOML store implements both Store
-// and EntityStore.
+// streams as independent top-level entries). Every stream service in
+// the api layer routes through this interface.
 type EntityStore interface {
 	ListSourceEntities() []Source
 	GetSourceEntity(id string) (Source, bool)

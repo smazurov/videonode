@@ -264,30 +264,17 @@ func main() {
 			return nativePipeline.EnsureEncoder(streamID)
 		})
 
-		serviceOpts := &streams.ServiceOptions{
-			Store:            streamStore,
-			EventBus:         eventBus,
-			VisionDefaultFPS: opts.VisionDefaultFPS,
-			Native:           native,
-			RTSPPort:         opts.StreamingRTSPPort,
-			ProcessManager: streams.NewPipelineProcessManager(
-				nativePipeline, streamStore, ctlServer, opts.StreamingRTSPPort,
-			),
-		}
-		if ctlServer != nil {
-			serviceOpts.ControlServer = ctlServer
+		// Load persisted entities + validation/pipeline-switch data once.
+		if err := streamStore.Load(); err != nil {
+			logger.Warn("Failed to load streams.toml", "error", err)
 		}
 
-		streamService := streams.NewStreamService(serviceOpts)
-
-		// B9: instantiate the new SourceService + ComposerService backed by
-		// the v2 EntityStore + pipeline.Pipeline. The legacy StreamService
-		// still serves /api/streams; sources and composers route through
-		// these dedicated services.
+		// All three v2 services share the same EntityStore + pipeline.
 		entityStore, _ := streamStore.(streams.EntityStore)
 		var (
 			sourceSvc   api.SourceService
 			composerSvc api.ComposerService
+			streamSvc   api.StreamService
 		)
 		if entityStore != nil {
 			sourceSvc = services.NewSourceService(services.SourceServiceOptions{
@@ -298,22 +285,21 @@ func main() {
 				Store:    entityStore,
 				Pipeline: nativePipeline,
 			})
+			streamSvc = services.NewStreamService(services.StreamServiceOptions{
+				Store:          entityStore,
+				Pipeline:       nativePipeline,
+				PipelineSwitch: streamStore,
+			})
 		}
 
-		// Load existing streams from TOML config into memory at startup
-		// This must happen after stream service is created so OBS callbacks are registered
-		// Runtime stream management should use CRUD APIs (not reload)
-		if err := streamService.LoadStreamsFromConfig(); err != nil {
-			logger.Warn("Failed to load existing streams from config", "error", err)
-		}
+		validationProvider := streams.NewValidationService(streamStore)
 
-		// Replay v2 entities (sources, composers, streams) into the pipeline.
-		// LoadStreamsFromConfig only iterates legacy StreamSpec; without this
-		// pass the pipeline.stages map is empty after restart for any v2-only
-		// install, so the first consumer attach errors with
-		// "no cached encoder stage" until the user re-PUTs each entity.
+		// Replay v2 entities into the pipeline at startup. Sources and
+		// composers always register so upstream-ref validation in
+		// stream-create works even when the pipeline master switch is
+		// off; only the encoder stages obey the switch.
 		if entityStore != nil {
-			if err := streams.ReplayV2Entities(entityStore, nativePipeline); err != nil {
+			if err := streams.ReplayV2Entities(entityStore, nativePipeline, streamStore.GetPipeline().Enabled); err != nil {
 				logger.Warn("Failed to replay v2 entities", "error", err)
 			}
 		}
@@ -344,13 +330,14 @@ func main() {
 
 		apiOpts := &api.Options{
 			Authenticator:          authenticator,
-			StreamService:          streamService,
+			StreamService:          streamSvc,
 			SourceService:          sourceSvc,
 			ComposerService:        composerSvc,
+			ValidationProvider:     validationProvider,
 			EventBus:               eventBus,
 			WebRTCManager:          webrtcManager,
 			StreamProvider:         streamingServer,
-			SourceSnapshotProvider: streamService.GetProcessManager(),
+			SourceSnapshotProvider: nativePipeline,
 			RecordingDir:           opts.RecordingDataDir,
 			PrometheusHandler:      promhttp.Handler(), // Prometheus metrics via promauto
 			UpdateService:          updateService,
@@ -423,11 +410,10 @@ func main() {
 				logger.Error("Error stopping HTTP server", "error", err)
 			}
 
-			// Stop all FFmpeg processes (after HTTP server stops accepting new requests)
-			if pm := streamService.GetProcessManager(); pm != nil {
-				logger.Info("Stopping all stream processes")
-				pm.StopAll()
-			}
+			// Stop all supervised stream/source/composer processes (after the
+			// HTTP server stops accepting new requests).
+			logger.Info("Stopping all stream processes")
+			nativePipeline.Pool().StopAll()
 
 			// Stop streaming server after FFmpeg processes
 			if err := streamingServer.Stop(); err != nil {

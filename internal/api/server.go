@@ -15,25 +15,26 @@ import (
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/recording"
 	"github.com/smazurov/videonode/internal/streaming"
-	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
+	"github.com/smazurov/videonode/internal/types"
 	"github.com/smazurov/videonode/internal/updater"
 	"github.com/smazurov/videonode/ui"
 )
 
 // Server represents the new Huma v2 API server.
 type Server struct {
-	api             huma.API
-	mux             *http.ServeMux
-	httpServer      *http.Server
-	streamService   streams.StreamService
-	sourceService   SourceService
-	composerService ComposerService
-	options         *Options
-	deviceDetector  devices.DeviceDetector
-	eventBus        *events.Bus
-	controlServer   *pipelinectl.Manager
-	logger          logging.Logger
+	api                huma.API
+	mux                *http.ServeMux
+	httpServer         *http.Server
+	streamService      StreamService
+	sourceService      SourceService
+	composerService    ComposerService
+	validationProvider types.ValidationProvider
+	options            *Options
+	deviceDetector     devices.DeviceDetector
+	eventBus           *events.Bus
+	controlServer      *pipelinectl.Manager
+	logger             logging.Logger
 }
 
 // rtspPortOrDefault returns the configured RTSP publish port (e.g.
@@ -136,14 +137,15 @@ func (s *Server) basicAuthMiddleware(authenticator auth.Authenticator) func(huma
 
 // Options represents the main application options (imported from main package).
 type Options struct {
-	Authenticator     auth.Authenticator
-	StreamService     streams.StreamService
-	SourceService     SourceService   // Optional: enables /api/sources CRUD when set
-	ComposerService   ComposerService // Optional: enables /api/composers when set
-	EventBus          *events.Bus     // Event bus for in-process events
-	PrometheusHandler http.Handler    // Optional Prometheus metrics handler
-	UpdateService     updater.Service // Optional self-update service
-	LEDController     interface {     // Optional LED controller
+	Authenticator      auth.Authenticator
+	StreamService      StreamService            // v2 stream service backed by EntityStore + Pipeline
+	SourceService      SourceService            // Optional: enables /api/sources CRUD when set
+	ComposerService    ComposerService          // Optional: enables /api/composers when set
+	ValidationProvider types.ValidationProvider // Encoder-validation data accessor (backed by the streams store)
+	EventBus           *events.Bus              // Event bus for in-process events
+	PrometheusHandler  http.Handler             // Optional Prometheus metrics handler
+	UpdateService      updater.Service          // Optional self-update service
+	LEDController      interface {              // Optional LED controller
 		Set(ledType string, enabled bool, pattern string) error
 		Available() []string
 		Patterns() []string
@@ -191,15 +193,16 @@ func NewServer(opts *Options) *Server {
 	api := humago.New(mux, config)
 
 	server := &Server{
-		api:             api,
-		mux:             mux,
-		streamService:   opts.StreamService,
-		sourceService:   opts.SourceService,
-		composerService: opts.ComposerService,
-		options:         opts,
-		eventBus:        opts.EventBus,
-		controlServer:   opts.ControlServer,
-		logger:          logging.GetLogger("api"),
+		api:                api,
+		mux:                mux,
+		streamService:      opts.StreamService,
+		sourceService:      opts.SourceService,
+		composerService:    opts.ComposerService,
+		validationProvider: opts.ValidationProvider,
+		options:            opts,
+		eventBus:           opts.EventBus,
+		controlServer:      opts.ControlServer,
+		logger:             logging.GetLogger("api"),
 	}
 
 	// Apply CORS middleware first (before auth)
@@ -248,20 +251,8 @@ func (s *Server) GetAPI() huma.API {
 	return s.api
 }
 
-// CompositeBroadcaster broadcasts device events to multiple EventBroadcasters.
-type CompositeBroadcaster struct {
-	broadcasters []devices.EventBroadcaster
-}
-
-// BroadcastDeviceDiscovery implements devices.EventBroadcaster interface.
-func (cb *CompositeBroadcaster) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
-	for _, broadcaster := range cb.broadcasters {
-		broadcaster.BroadcastDeviceDiscovery(action, device, timestamp)
-	}
-}
-
-// BroadcastDeviceDiscovery implements the EventBroadcaster interface for device monitoring
-// This is for the Server to broadcast to SSE clients.
+// BroadcastDeviceDiscovery implements devices.EventBroadcaster for the
+// Server: fans hotplug events out to SSE clients via the event bus.
 func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, timestamp string) {
 	if s.eventBus == nil {
 		return
@@ -289,14 +280,13 @@ func (s *Server) Start(addr string) error {
 	s.logger.Info("Starting VideoNode API server", "addr", addr)
 	s.logger.Info("OpenAPI documentation available", "url", "http://"+addr+"/docs")
 
-	// Start device monitoring with composite broadcaster
-	// This broadcasts device events to both SSE clients (via Server) and stream management (via StreamService)
+	// Start device monitoring. v2 sources/composers/streams have their own
+	// lifecycle decoupled from hotplug; the daemon's hotplug-driven device
+	// pool (when wired) consumes events directly. Here we only need to fan
+	// out to SSE clients via Server.BroadcastDeviceDiscovery.
 	s.deviceDetector = devices.NewDetector()
 	s.deviceDetector.SetEventBus(s.eventBus)
-	compositeBroadcaster := &CompositeBroadcaster{
-		broadcasters: []devices.EventBroadcaster{s, s.streamService},
-	}
-	if err := s.deviceDetector.StartMonitoring(context.Background(), compositeBroadcaster); err != nil {
+	if err := s.deviceDetector.StartMonitoring(context.Background(), s); err != nil {
 		s.logger.Warn("Failed to start device monitoring", "error", err)
 	}
 
