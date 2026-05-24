@@ -2,8 +2,9 @@ import { useEffect } from 'react';
 import type { components } from '../lib/api.generated';
 import { SSEClient, type SSEStatus } from '../lib/api';
 import { useDeviceStore } from './useDeviceStore';
-import { useSourceStore, type SourceData } from './useSourceStore';
-import { useComposerStore, type ComposerData, type ComposerLayoutSlot } from './useComposerStore';
+import { useSourceStore } from './useSourceStore';
+import { useComposerStore } from './useComposerStore';
+import type { Source as SourceData, Composer as ComposerData, LayoutSlot as ComposerLayoutSlot } from './slices/types';
 
 type StreamCreatedEvent = components["schemas"]["StreamCreatedEvent"];
 type StreamUpdatedEvent = components["schemas"]["StreamUpdatedEvent"];
@@ -159,14 +160,14 @@ function setupGlobalSSE(): void {
 
   untyped.on('source-created', (data) => {
     const payload = data as SourceCreatedEvent;
-    useSourceStore.getState().upsertSource(payload.source);
+    useSourceStore.getState().addSource(payload.source);
     const event: TaggedSourceCreatedEvent = { ...payload, type: 'source-created' };
     for (const handler of globalSourceLifecycleHandlers) handler(event);
   });
 
   untyped.on('source-updated', (data) => {
     const payload = data as SourceUpdatedEvent;
-    useSourceStore.getState().upsertSource(payload.source);
+    useSourceStore.getState().addSource(payload.source);
     const event: TaggedSourceUpdatedEvent = { ...payload, type: 'source-updated' };
     for (const handler of globalSourceLifecycleHandlers) handler(event);
   });
@@ -180,14 +181,14 @@ function setupGlobalSSE(): void {
 
   untyped.on('composer-created', (data) => {
     const payload = data as ComposerCreatedEvent;
-    useComposerStore.getState().upsertComposer(payload.composer);
+    useComposerStore.getState().addComposer(payload.composer);
     const event: TaggedComposerCreatedEvent = { ...payload, type: 'composer-created' };
     for (const handler of globalComposerLifecycleHandlers) handler(event);
   });
 
   untyped.on('composer-updated', (data) => {
     const payload = data as ComposerUpdatedEvent;
-    useComposerStore.getState().upsertComposer(payload.composer);
+    useComposerStore.getState().addComposer(payload.composer);
     const event: TaggedComposerUpdatedEvent = { ...payload, type: 'composer-updated' };
     for (const handler of globalComposerLifecycleHandlers) handler(event);
   });
@@ -201,7 +202,10 @@ function setupGlobalSSE(): void {
 
   untyped.on('composer-layout-changed', (data) => {
     const payload = data as ComposerLayoutChangedEvent;
-    useComposerStore.getState().updateLayout(payload.composer_id, payload.layout);
+    const composer = useComposerStore.getState().getComposerById(payload.composer_id);
+    if (composer) {
+      useComposerStore.getState().addComposer({ ...composer, layout: payload.layout });
+    }
     const event: TaggedComposerLayoutChangedEvent = { ...payload, type: 'composer-layout-changed' };
     for (const handler of globalComposerLifecycleHandlers) handler(event);
   });
