@@ -70,3 +70,25 @@ export function formatCanvasDims(c: CanvasDims): string {
 export function canvasFpsOrDefault(c: CanvasDims): number {
   return c.fps && c.fps > 0 ? c.fps : DEFAULT_CANVAS_FPS;
 }
+
+// Per-field validation errors for CanvasDims (undefined = field is valid).
+export type CanvasValidationErrors = Record<'w' | 'h' | 'fps', string | undefined>;
+
+// Validate canvas dims + fps using the same rules as the backend
+// (services/composer_service.go validateComposerCreate). Returns
+// per-field error messages keyed by `w` / `h` / `fps`; an empty object
+// means the input is valid.
+export function validateCanvas(dims: CanvasDims): CanvasValidationErrors {
+  const errors: CanvasValidationErrors = { w: undefined, h: undefined, fps: undefined };
+  if (!Number.isFinite(dims.w) || dims.w < 16 || dims.w > 7680) errors.w = 'Width must be 16-7680';
+  else if (dims.w % 2 !== 0) errors.w = 'Width must be even';
+  if (!Number.isFinite(dims.h) || dims.h < 16 || dims.h > 4320) errors.h = 'Height must be 16-4320';
+  else if (dims.h % 2 !== 0) errors.h = 'Height must be even';
+  const fps = dims.fps ?? DEFAULT_CANVAS_FPS;
+  if (!Number.isFinite(fps) || fps < 1 || fps > 240) errors.fps = 'Frame rate must be 1-240';
+  return errors;
+}
+
+export function hasCanvasErrors(errors: CanvasValidationErrors): boolean {
+  return Boolean(errors.w || errors.h || errors.fps);
+}
