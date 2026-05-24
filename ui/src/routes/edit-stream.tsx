@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { StreamForm } from '../components/StreamForm';
+import { StreamForm } from '../components/streams/StreamForm';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { Button } from '../components/Button';
 import { InfoBar } from '../components/InfoBar';
