@@ -1,28 +1,22 @@
 package pipeline
 
-// MediaSource is the encoder-input abstraction. Wraps the upstream
-// frame source (composer-output socket, or producer-output socket at
-// N=1+no-effects) plus the audio source (today: direct ALSA; future:
-// SCM-fanned-out producer audio).
-//
-// The Encoder stage constructs a MediaSource from these two pieces and
-// uses it to build the encoder argv. Audio is currently always
-// ALSADirectAudio — moving audio capture to the producer side later is
-// a swap of AudioSource implementations without touching the encoder.
+// MediaSource is the encoder-input abstraction. Wraps the upstream frame
+// source (a Source's SCM socket or a Composer's SCM-out socket) and the
+// audio source (today: direct ALSA).
 type MediaSource struct {
 	Video FrameSource
 	Audio AudioSource
 }
 
-// FrameKind tags the wire format the source emits, so consumers (e.g.
-// the EncoderStage argv builder) can pick the right ffmpeg input args.
+// FrameKind tags the wire format the source emits, so consumers (the
+// EncoderStage argv builder) can pick the right ffmpeg input args.
 type FrameKind int
 
 const (
 	FrameKindUnknown FrameKind = iota
 	// FrameKindNV12Y4M is what vn-sink emits when consuming a producer
-	// socket: YUV4MPEG2 wrapping NV12 input. ffmpeg consumes via
-	// `-f yuv4mpegpipe -i pipe:0` (self-describing dims).
+	// socket: YUV4MPEG2 wrapping NV12. ffmpeg consumes via
+	// `-f yuv4mpegpipe -i pipe:0`.
 	FrameKindNV12Y4M
 	// FrameKindBGRARaw is what vn-sink emits when consuming a composer
 	// socket: raw BGRA bytes. ffmpeg consumes via
@@ -32,23 +26,13 @@ const (
 
 // FrameSource describes one upstream video source the encoder dials.
 type FrameSource interface {
-	// Kind is the wire format vn-sink will emit; the encoder argv
-	// builder selects ffmpeg input args from this.
 	Kind() FrameKind
-	// SocketPath is the SCM_RIGHTS socket vn-sink dials.
 	SocketPath() string
-	// Dims returns canvas dims. Required for FrameKindBGRARaw (ffmpeg
-	// needs -s WxH at the input stage); zero-valued for NV12 (Y4M is
-	// self-describing).
 	Dims() (w int, h int)
-	// FPS returns the target frame rate. Required for FrameKindBGRARaw
-	// (-framerate N at the input stage); zero-valued for NV12.
 	FPS() int
 }
 
-// ProducerFrameSource — encoder dialing a producer's SCM socket directly
-// (the N=1+no-effects path). Producer emits NV12, vn-sink wraps it as
-// Y4M, ffmpeg auto-detects dims.
+// ProducerFrameSource — encoder dialing a Source's SCM socket directly.
 type ProducerFrameSource struct {
 	Socket string
 }
@@ -58,9 +42,7 @@ func (p ProducerFrameSource) SocketPath() string { return p.Socket }
 func (p ProducerFrameSource) Dims() (int, int)   { return 0, 0 }
 func (p ProducerFrameSource) FPS() int           { return 0 }
 
-// ComposerFrameSource — encoder dialing a composer's --scm-out socket
-// (the N>1-or-effects path). Composer emits BGRA, vn-sink passes bytes
-// through, ffmpeg needs -s WxH -framerate N at the input stage.
+// ComposerFrameSource — encoder dialing a Composer's `--scm-out` socket.
 type ComposerFrameSource struct {
 	Socket string
 	Width  int
@@ -73,61 +55,18 @@ func (c ComposerFrameSource) SocketPath() string { return c.Socket }
 func (c ComposerFrameSource) Dims() (int, int)   { return c.Width, c.Height }
 func (c ComposerFrameSource) FPS() int           { return c.Fps }
 
-// InlineComposerFrameSource — encoder spawns composer as a child
-// process in its shell pipe (`composer | ffmpeg`) instead of dialing
-// a separate composer's SCM socket. Used as a fallback on kernels
-// where the GBM-allocated BGRA dma-buf can't be mmap'd cross-process
-// (vn-sink reports ENOSYS). The composer's gRPC control plane still
-// works the same way — daemon dials the UDS regardless of who's the
-// composer's parent process.
-type InlineComposerFrameSource struct {
-	ComposerBin string
-	DRMDevice   string
-	GrpcUds     string
-	ComposerID  string
-	Width       int
-	Height      int
-	Fps         int
-}
-
-func (i InlineComposerFrameSource) Kind() FrameKind    { return FrameKindBGRARaw }
-func (i InlineComposerFrameSource) SocketPath() string { return "" }
-func (i InlineComposerFrameSource) Dims() (int, int)   { return i.Width, i.Height }
-func (i InlineComposerFrameSource) FPS() int           { return i.Fps }
-
-// AudioSource emits the encoder's audio-input argv fragment. Today the
-// only impl is ALSADirectAudio (opens ALSA from the ffmpeg process);
-// future audio fanout via the producer adds a sibling impl without
-// touching encoder code.
+// AudioSource emits the encoder's audio-input argv fragment.
 type AudioSource interface {
-	// InputArgs returns the ffmpeg argv slice that selects this audio
-	// input. Caller embeds the result before its encoder/output args.
-	// Returns empty when the stream has no audio configured.
 	InputArgs() []string
 }
 
-// ALSADirectAudio opens ALSA from the ffmpeg process. Wraps an
-// AudioConfig. Returns empty argv when no devices are configured.
+// ALSADirectAudio opens ALSA from the ffmpeg process.
 type ALSADirectAudio struct {
 	Config AudioConfig
 }
 
-// InputArgs returns one ffmpeg input fragment per audio device.
-// Each device produces one OUTPUT TRACK in the published stream;
-// the `-map` flags that select per-track outputs live in
-// encoderTailArgs (caller's responsibility — this fn returns just
-// the input declarations).
-//
-// Per-input flags match legacy composite.go's pattern:
-//   - `-thread_queue_size 1024` — large enough that ALSA reader
-//     doesn't drop packets during the encoder's startup latency
-//   - `-sample_fmt s16 -ar 48000 -ac 2` — pin format so downstream
-//     filter graph has predictable params (independent of what the
-//     ALSA driver decides to negotiate)
-//
-// With 0 devices returns nil — the resulting stream is silent (no
-// audio track at all). NOT a mix — each device is its own output
-// track; see encoderTailArgs for the per-track map.
+// InputArgs returns one ffmpeg input fragment per audio device. Each
+// device produces one OUTPUT TRACK in the published stream.
 func (a ALSADirectAudio) InputArgs() []string {
 	if len(a.Config.Devices) == 0 {
 		return nil

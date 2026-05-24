@@ -72,10 +72,6 @@ func TestEncoder_BGRA_RawBuildsRawvideoInput(t *testing.T) {
 }
 
 func TestEncoder_ForwardsGlobalArgsAndVideoFilters(t *testing.T) {
-	// Regression guard for the host vaapi crash: when the validation
-	// provider yields h264_vaapi, the supporting -vaapi_device GlobalArg
-	// and `format=nv12,hwupload` VideoFilters must reach ffmpeg.Params
-	// or ffmpeg dies trying to scale BGRA into vaapi without a hwupload.
 	e := &EncoderStage{
 		StreamID_: "vaapi-cam",
 		Media: MediaSource{
@@ -107,17 +103,12 @@ func TestEncoder_ForwardsGlobalArgsAndVideoFilters(t *testing.T) {
 }
 
 func TestEncoder_FallsBackToLibx264WhenEncoderNameEmpty(t *testing.T) {
-	// Regression guard for the host stream failure that motivated this
-	// refactor: an unresolved EncoderName must NOT pick h264_rkmpp on a
-	// host where it doesn't exist. pipelineProcessManager normally fills
-	// EncoderName via the validation provider; if it ever forgets, this
-	// test catches the regression at unit-test time.
 	e := &EncoderStage{
 		StreamID_: "host-cam",
 		Media: MediaSource{
 			Video: ProducerFrameSource{Socket: "/tmp/sock"},
 		},
-		Cfg:       EncoderConfig{Codec: "h264"}, // EncoderName intentionally empty
+		Cfg:       EncoderConfig{Codec: "h264"},
 		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://x/y"}},
 		VNSinkBin: "/usr/bin/vn-sink",
 	}
@@ -141,7 +132,7 @@ func TestEncoder_CustomEncoderArgsReplacesEncoderTail(t *testing.T) {
 			Video: ProducerFrameSource{Socket: "/tmp/sock"},
 		},
 		CustomEncoderArgs: "-c:v libx264 -preset ultrafast -f rtsp rtsp://localhost:8554/cam",
-		Publish:           []PublishTarget{}, // empty publish is OK when custom args provide their own output
+		Publish:           []PublishTarget{},
 		VNSinkBin:         "/usr/bin/vn-sink",
 	}
 	argv, _, err := e.Command()
@@ -152,17 +143,12 @@ func TestEncoder_CustomEncoderArgsReplacesEncoderTail(t *testing.T) {
 	if !strings.Contains(cmd, "-c:v libx264") {
 		t.Errorf("custom encoder not honored: %s", cmd)
 	}
-	if strings.Contains(cmd, "h264_rkmpp") {
-		t.Errorf("default encoder leaked through despite custom args: %s", cmd)
-	}
 	if !strings.Contains(cmd, "vn-sink --socket /tmp/sock") {
 		t.Errorf("input fragment dropped: %s", cmd)
 	}
 }
 
 func TestEncoder_CustomEncoderArgsPassedVerbatim(t *testing.T) {
-	// Shell expansion ($HOSTNAME, $(date)) must survive the round-trip.
-	// Legacy CustomFFmpegCommand contract: user gets full shell.
 	e := &EncoderStage{
 		StreamID_: "cam",
 		Media: MediaSource{
@@ -176,11 +162,9 @@ func TestEncoder_CustomEncoderArgsPassedVerbatim(t *testing.T) {
 		t.Fatalf("Command failed: %v", err)
 	}
 	cmd := argv[2]
-	// User's literal $HOSTNAME survives intact so /bin/sh -c can expand it.
 	if !strings.Contains(cmd, `$HOSTNAME`) {
 		t.Errorf("shell variable lost in: %s", cmd)
 	}
-	// User's double-quoted filter graph survives intact.
 	if !strings.Contains(cmd, `"[0:v]scale=1280:720[v]"`) {
 		t.Errorf("quoted filter graph lost in: %s", cmd)
 	}
@@ -208,8 +192,6 @@ func TestEncoder_AudioInputArgsAppended(t *testing.T) {
 }
 
 func TestEncoder_MultiAudioEmitsSeparateTracks(t *testing.T) {
-	// N audio devices → N separate output tracks via
-	// -map "[a0]"...-map "[aN-1]".
 	e := &EncoderStage{
 		StreamID_: "multi-audio",
 		Media: MediaSource{
@@ -228,20 +210,15 @@ func TestEncoder_MultiAudioEmitsSeparateTracks(t *testing.T) {
 	}
 	cmd := argv[2]
 
-	// All 3 alsa devices declared as inputs with proper flags.
 	for _, dev := range []string{"hw:CARD=A,DEV=0", "hw:CARD=B,DEV=0", "hw:CARD=C,DEV=0"} {
 		if !strings.Contains(cmd, "-thread_queue_size 1024") {
 			t.Errorf("missing -thread_queue_size; want one per audio input: %s", cmd)
 		}
-		// Per-device assertion: ALSA hw devices have `=` which the
-		// shell-quoter wraps in single quotes. Match the bare device
-		// name (post-quote) rather than the literal argv form.
 		if !strings.Contains(cmd, dev) {
 			t.Errorf("device %s missing in: %s", dev, cmd)
 		}
 	}
 
-	// Per-track aresample filter chain — one [aK] label per device.
 	if !strings.Contains(cmd, "-filter_complex") {
 		t.Errorf("missing -filter_complex for aresample chain: %s", cmd)
 	}
@@ -252,17 +229,14 @@ func TestEncoder_MultiAudioEmitsSeparateTracks(t *testing.T) {
 		}
 		mapArg := fmt.Sprintf(`-map '[a%d]'`, k)
 		if !strings.Contains(cmd, mapArg) && !strings.Contains(cmd, fmt.Sprintf(`-map [a%d]`, k)) {
-			t.Errorf("missing -map for track %d (looked for both quoted + bare): %s", k, cmd)
+			t.Errorf("missing -map for track %d: %s", k, cmd)
 		}
 	}
 
-	// Video stream gets an explicit map too (required once we add
-	// filter_complex; otherwise ffmpeg drops it).
 	if !strings.Contains(cmd, "-map 0:v") {
 		t.Errorf("missing -map 0:v for video: %s", cmd)
 	}
 
-	// One audio codec setting covers all tracks.
 	if !strings.Contains(cmd, "-c:a libopus") {
 		t.Errorf("missing -c:a libopus: %s", cmd)
 	}
@@ -272,8 +246,6 @@ func TestEncoder_MultiAudioEmitsSeparateTracks(t *testing.T) {
 }
 
 func TestEncoder_NoAudioInputsOmitsFilterComplex(t *testing.T) {
-	// When the stream has zero audio devices, ffmpeg should pick the
-	// video stream automatically (no -filter_complex, no -map flags).
 	e := &EncoderStage{
 		StreamID_: "video-only",
 		Media: MediaSource{
@@ -290,7 +262,7 @@ func TestEncoder_NoAudioInputsOmitsFilterComplex(t *testing.T) {
 		t.Errorf("unexpected -filter_complex for video-only stream: %s", cmd)
 	}
 	if strings.Contains(cmd, "-map") {
-		t.Errorf("unexpected -map for video-only stream (ffmpeg picks video automatically): %s", cmd)
+		t.Errorf("unexpected -map for video-only stream: %s", cmd)
 	}
 	if strings.Contains(cmd, "-c:a") {
 		t.Errorf("unexpected -c:a for video-only stream: %s", cmd)
@@ -334,7 +306,7 @@ func TestEncoder_KindAndID(t *testing.T) {
 
 func TestProducer_CommandWithGrpc(t *testing.T) {
 	p := &ProducerStage{
-		DeviceID:   "hdmi0",
+		SourceID:   "hdmi0",
 		DevicePath: "/dev/video0",
 		BinaryPath: "/usr/bin/videonode-source",
 		GrpcUds:    "/tmp/videonode-native/source-hdmi0.sock",
@@ -355,22 +327,59 @@ func TestProducer_CommandWithGrpc(t *testing.T) {
 	}
 }
 
-func TestProducer_CommandWithoutGrpc(t *testing.T) {
+func TestProducer_CommandTestPattern(t *testing.T) {
 	p := &ProducerStage{
-		DeviceID:   "hdmi0",
-		DevicePath: "/dev/video0",
+		SourceID:   "test-1",
+		TestMode:   true,
 		BinaryPath: "/usr/bin/videonode-source",
+		GrpcUds:    "/tmp/videonode-native/source-test-1.sock",
 	}
-	argv, _, _ := p.Command()
+	argv, _, err := p.Command()
+	if err != nil {
+		t.Fatalf("Command failed: %v", err)
+	}
+	want := []string{
+		"/usr/bin/videonode-source",
+		"--test-pattern",
+		"--out-socket", "/tmp/vn-bus-test-1.sock",
+		"--grpc-listen", "/tmp/videonode-native/source-test-1.sock",
+		"--device-id", "test-1",
+	}
+	if !equal(argv, want) {
+		t.Errorf("argv mismatch.\n got: %v\nwant: %v", argv, want)
+	}
 	for _, a := range argv {
-		if a == "--grpc-listen" || a == "--device-id" {
-			t.Errorf("standalone producer should not have control-plane flags: %v", argv)
+		if a == "--device" {
+			t.Errorf("test-pattern argv should not contain --device: %v", argv)
 		}
 	}
 }
 
+func TestProducer_CommandValidatesTestModeMutex(t *testing.T) {
+	tests := []struct {
+		name string
+		ps   ProducerStage
+	}{
+		{
+			"both device and test_mode",
+			ProducerStage{SourceID: "s", DevicePath: "/dev/video0", TestMode: true, BinaryPath: "/bin/x"},
+		},
+		{
+			"neither device nor test_mode",
+			ProducerStage{SourceID: "s", BinaryPath: "/bin/x"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := tt.ps.Command(); err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
 func TestProducer_KindAndPoolKey(t *testing.T) {
-	p := &ProducerStage{DeviceID: "cam-1"}
+	p := &ProducerStage{SourceID: "cam-1"}
 	if p.Kind() != KindProducer {
 		t.Errorf("Kind = %v", p.Kind())
 	}
@@ -384,11 +393,11 @@ func TestProducer_KindAndPoolKey(t *testing.T) {
 
 func TestComposer_Command(t *testing.T) {
 	c := &ComposerStage{
-		StreamID_:  "canvas-1",
+		ComposerID: "main-scene",
 		BinaryPath: "/usr/bin/videonode-composer",
 		DRMDevice:  "/dev/dri/renderD128",
 		CanvasFPS:  30,
-		GrpcUds:    "/tmp/videonode-native/composer-canvas-1-composer.sock",
+		GrpcUds:    "/tmp/videonode-native/composer-main-scene.sock",
 	}
 	argv, _, err := c.Command()
 	if err != nil {
@@ -397,9 +406,9 @@ func TestComposer_Command(t *testing.T) {
 	want := []string{
 		"/usr/bin/videonode-composer",
 		"--drm-device", "/dev/dri/renderD128",
-		"--grpc-listen", "/tmp/videonode-native/composer-canvas-1-composer.sock",
-		"--composer-id", "canvas-1-composer",
-		"--scm-out", "/tmp/vn-bus-composer-canvas-1.sock",
+		"--grpc-listen", "/tmp/videonode-native/composer-main-scene.sock",
+		"--composer-id", "main-scene",
+		"--scm-out", "/tmp/vn-bus-composer-main-scene.sock",
 		"--target-fps", "30",
 	}
 	if !equal(argv, want) {
@@ -409,7 +418,7 @@ func TestComposer_Command(t *testing.T) {
 
 func TestComposer_RequiresGrpc(t *testing.T) {
 	c := &ComposerStage{
-		StreamID_:  "x",
+		ComposerID: "x",
 		BinaryPath: "/bin",
 		DRMDevice:  "/dev/dri/renderD128",
 	}
@@ -419,7 +428,7 @@ func TestComposer_RequiresGrpc(t *testing.T) {
 }
 
 func TestComposer_KindAndPoolKey(t *testing.T) {
-	c := &ComposerStage{StreamID_: "x"}
+	c := &ComposerStage{ComposerID: "x"}
 	if c.Kind() != KindComposer {
 		t.Errorf("Kind = %v", c.Kind())
 	}
@@ -428,37 +437,20 @@ func TestComposer_KindAndPoolKey(t *testing.T) {
 	}
 }
 
-func TestNeedsComposer(t *testing.T) {
-	tests := []struct {
-		name string
-		s    Stream
-		want bool
-	}{
-		{"empty inputs", Stream{}, false},
-		{"single input no effects", Stream{Inputs: []InputRef{{ID: "a"}}}, false},
-		{"two inputs", Stream{Inputs: []InputRef{{ID: "a"}, {ID: "b"}}}, true},
-		{
-			"single input with perspective effect",
-			Stream{
-				Inputs:  []InputRef{{ID: "a"}},
-				Effects: map[string][]Effect{"a": {{Type: "perspective"}}},
-			},
-			true,
-		},
-		{
-			"single input with empty effect list — does not engage",
-			Stream{
-				Inputs:  []InputRef{{ID: "a"}},
-				Effects: map[string][]Effect{"a": {}},
-			},
-			false,
-		},
+func TestSourceIDFor(t *testing.T) {
+	if got := SourceIDFor("hdmi0"); got != "source:hdmi0" {
+		t.Errorf("SourceIDFor = %q, want source:hdmi0", got)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := NeedsComposer(tt.s); got != tt.want {
-				t.Errorf("NeedsComposer = %v, want %v", got, tt.want)
-			}
-		})
+}
+
+func TestComposerIDFor(t *testing.T) {
+	if got := ComposerIDFor("main"); got != "main" {
+		t.Errorf("ComposerIDFor = %q, want main", got)
+	}
+}
+
+func TestEncoderIDFor(t *testing.T) {
+	if got := EncoderIDFor("cam"); got != "encoder:cam" {
+		t.Errorf("EncoderIDFor = %q, want encoder:cam", got)
 	}
 }

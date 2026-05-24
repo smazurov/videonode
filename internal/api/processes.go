@@ -88,9 +88,6 @@ func toProcessEntries(views []pipeline.ProcessView) []ProcessEntry {
 			StartedAtUS:  v.StartedAtUS,
 			RestartCount: v.RestartCount,
 			LastError:    v.LastError,
-			Device:       v.Device,
-			Refcount:     v.Refcount,
-			Consumers:    v.Consumers,
 		}
 	}
 	return out

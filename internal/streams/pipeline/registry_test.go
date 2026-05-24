@@ -1,124 +1,77 @@
 package pipeline
 
 import (
-	"sort"
 	"testing"
 )
 
-func sortedStrings(s []string) []string {
-	out := append([]string(nil), s...)
-	sort.Strings(out)
-	return out
-}
-
-func TestProducerRegistry_FirstReconcileStartsAll(t *testing.T) {
-	r := NewProducerRegistry()
-	d := r.Reconcile("streamA", []string{"hdmi0", "usb-1-2"})
-
-	if got := sortedStrings(d.ToStart); !equal(got, []string{"hdmi0", "usb-1-2"}) {
-		t.Errorf("ToStart = %v, want [hdmi0 usb-1-2]", got)
+func TestSourceRegistry_PutAndGet(t *testing.T) {
+	r := NewSourceRegistry()
+	s := Source{ID: "hdmi0", Device: "/dev/video0"}
+	if _, existed := r.Put(s); existed {
+		t.Fatalf("first Put should report existed=false")
 	}
-	if len(d.ToStop) != 0 {
-		t.Errorf("ToStop = %v, want []", d.ToStop)
+	got, ok := r.Get("hdmi0")
+	if !ok || got.ID != "hdmi0" || got.Device != "/dev/video0" {
+		t.Fatalf("Get returned %+v ok=%v", got, ok)
 	}
-	if r.Refcount("hdmi0") != 1 || r.Refcount("usb-1-2") != 1 {
-		t.Errorf("refcounts: hdmi0=%d usb-1-2=%d, want 1 each",
-			r.Refcount("hdmi0"), r.Refcount("usb-1-2"))
+	// Update overwrites.
+	s2 := Source{ID: "hdmi0", TestMode: true}
+	prior, existed := r.Put(s2)
+	if !existed {
+		t.Fatalf("second Put should report existed=true")
 	}
-}
-
-func TestProducerRegistry_SharedDeviceNoSecondStart(t *testing.T) {
-	r := NewProducerRegistry()
-	r.Reconcile("streamA", []string{"hdmi0"})
-	d := r.Reconcile("streamB", []string{"hdmi0"})
-
-	if len(d.ToStart) != 0 {
-		t.Errorf("streamB reuse of hdmi0 should not start: ToStart=%v", d.ToStart)
-	}
-	if r.Refcount("hdmi0") != 2 {
-		t.Errorf("refcount hdmi0 = %d, want 2", r.Refcount("hdmi0"))
+	if prior.Device != "/dev/video0" {
+		t.Errorf("prior.Device = %q, want /dev/video0", prior.Device)
 	}
 }
 
-func TestProducerRegistry_DropToZeroStops(t *testing.T) {
-	r := NewProducerRegistry()
-	r.Reconcile("streamA", []string{"hdmi0"})
-	r.Reconcile("streamB", []string{"hdmi0"})
-	d := r.Reconcile("streamA", nil)
+func TestSourceRegistry_DeleteAndIDs(t *testing.T) {
+	r := NewSourceRegistry()
+	r.Put(Source{ID: "b"})
+	r.Put(Source{ID: "a"})
+	r.Put(Source{ID: "c"})
 
-	if len(d.ToStop) != 0 {
-		t.Errorf("streamA release with streamB still holding should not stop: ToStop=%v",
-			d.ToStop)
+	ids := r.IDs()
+	if !equal(ids, []string{"a", "b", "c"}) {
+		t.Errorf("IDs = %v, want [a b c]", ids)
 	}
-	d = r.Reconcile("streamB", nil)
-	if got := sortedStrings(d.ToStop); !equal(got, []string{"hdmi0"}) {
-		t.Errorf("streamB final release: ToStop=%v, want [hdmi0]", got)
+	if _, ok := r.Delete("b"); !ok {
+		t.Error("Delete(b) should return ok=true")
 	}
-	if r.Refcount("hdmi0") != 0 {
-		t.Errorf("refcount hdmi0 = %d after both released, want 0", r.Refcount("hdmi0"))
+	if _, ok := r.Get("b"); ok {
+		t.Error("Get after Delete should return ok=false")
+	}
+	if _, ok := r.Delete("missing"); ok {
+		t.Error("Delete(missing) should return ok=false")
 	}
 }
 
-func TestProducerRegistry_IdempotentReconcile(t *testing.T) {
-	r := NewProducerRegistry()
-	r.Reconcile("streamA", []string{"hdmi0"})
-	d := r.Reconcile("streamA", []string{"hdmi0"})
-	if len(d.ToStart) != 0 || len(d.ToStop) != 0 {
-		t.Errorf("idempotent reconcile produced delta: ToStart=%v ToStop=%v",
-			d.ToStart, d.ToStop)
+func TestComposerRegistry_PutAndGet(t *testing.T) {
+	r := NewComposerRegistry()
+	c := Composer{ID: "main", Canvas: CanvasDims{W: 1920, H: 1080}}
+	if _, existed := r.Put(c); existed {
+		t.Fatalf("first Put should report existed=false")
+	}
+	got, ok := r.Get("main")
+	if !ok || got.Canvas.W != 1920 || got.Canvas.H != 1080 {
+		t.Fatalf("Get returned %+v ok=%v", got, ok)
 	}
 }
 
-func TestProducerRegistry_ReleaseAll(t *testing.T) {
-	r := NewProducerRegistry()
-	r.Reconcile("streamA", []string{"hdmi0", "usb-1-2"})
-	r.Reconcile("streamB", []string{"usb-1-2"})
-	d := r.ReleaseAll("streamA")
+func TestComposerRegistry_DeleteAndIDs(t *testing.T) {
+	r := NewComposerRegistry()
+	r.Put(Composer{ID: "z"})
+	r.Put(Composer{ID: "a"})
 
-	if got := sortedStrings(d.ToStop); !equal(got, []string{"hdmi0"}) {
-		t.Errorf("ReleaseAll streamA: ToStop=%v, want [hdmi0] (usb-1-2 still held by streamB)",
-			got)
+	ids := r.IDs()
+	if !equal(ids, []string{"a", "z"}) {
+		t.Errorf("IDs = %v, want [a z]", ids)
 	}
-	if r.Refcount("usb-1-2") != 1 {
-		t.Errorf("usb-1-2 refcount after streamA release = %d, want 1",
-			r.Refcount("usb-1-2"))
+	if _, ok := r.Delete("z"); !ok {
+		t.Error("Delete(z) should return ok=true")
 	}
-}
-
-func TestProducerRegistry_DeltaOnDeviceSwap(t *testing.T) {
-	r := NewProducerRegistry()
-	r.Reconcile("streamA", []string{"hdmi0"})
-	d := r.Reconcile("streamA", []string{"hdmi1"})
-
-	if got := sortedStrings(d.ToStart); !equal(got, []string{"hdmi1"}) {
-		t.Errorf("swap: ToStart=%v, want [hdmi1]", got)
-	}
-	if got := sortedStrings(d.ToStop); !equal(got, []string{"hdmi0"}) {
-		t.Errorf("swap: ToStop=%v, want [hdmi0]", got)
-	}
-}
-
-func TestProducerRegistry_ConsumersOf(t *testing.T) {
-	r := NewProducerRegistry()
-	r.Reconcile("streamA", []string{"hdmi0"})
-	r.Reconcile("streamB", []string{"hdmi0"})
-	got := sortedStrings(r.ConsumersOf("hdmi0"))
-	if !equal(got, []string{"streamA", "streamB"}) {
-		t.Errorf("ConsumersOf(hdmi0) = %v, want [streamA streamB]", got)
-	}
-	if r.ConsumersOf("unknown") != nil {
-		t.Errorf("ConsumersOf(unknown) should be nil, got %v", r.ConsumersOf("unknown"))
-	}
-}
-
-func TestProducerRegistry_EmptyConsumerID(t *testing.T) {
-	r := NewProducerRegistry()
-	d := r.Reconcile("", []string{"hdmi0"})
-	if len(d.ToStart) != 0 || len(d.ToStop) != 0 {
-		t.Errorf("empty consumerID should no-op: %+v", d)
-	}
-	if r.Refcount("hdmi0") != 0 {
-		t.Errorf("empty consumerID should not claim device, refcount=%d", r.Refcount("hdmi0"))
+	if _, ok := r.Delete("missing"); ok {
+		t.Error("Delete(missing) should return ok=false")
 	}
 }
 

@@ -10,8 +10,7 @@ import (
 
 // longRunningBin writes a tiny shell script that ignores its argv and
 // sleeps for an hour. Use this as the fake binary path so the pool's
-// supervised process stays alive long enough for assertions; t.Cleanup
-// drains the pool to kill them at test end.
+// supervised process stays alive long enough for assertions.
 func longRunningBin(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "fake-bin.sh")
@@ -40,10 +39,8 @@ func newTestPipeline(t *testing.T, resolveTo string) *Pipeline {
 	return p
 }
 
-// waitRunning polls IsRunning for up to 1 s, giving the pool's
+// waitRunning polls IsRunning for up to 1s, giving the pool's
 // state-machine goroutine a chance to mark the process Running.
-// Required because Pool.Start returns immediately after the spawn
-// goroutine begins; IsRunning lags by a few µs.
 func waitRunning(p *Pipeline, id string) bool {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
@@ -55,171 +52,251 @@ func waitRunning(p *Pipeline, id string) bool {
 	return false
 }
 
-// expectStopped polls IsRunning with a short timeout, returning true
-// when the process is no longer running. Used for "should be gone"
-// assertions where pool.Stop is synchronous but Pool's state-machine
-// goroutine may still be in the process of writing State=Idle.
-func expectStopped(p *Pipeline, id string) bool {
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if !p.Pool().IsRunning(id) {
-			return true
-		}
-		time.Sleep(2 * time.Millisecond)
+func mustApplySource(t *testing.T, p *Pipeline, s Source) {
+	t.Helper()
+	if err := p.ApplySource(s); err != nil {
+		t.Fatalf("ApplySource %s: %v", s.ID, err)
 	}
-	return false
 }
 
-func TestPipeline_Apply_RequiresStreamID(t *testing.T) {
+func mustApplyComposer(t *testing.T, p *Pipeline, c Composer) {
+	t.Helper()
+	if err := p.ApplyComposer(c); err != nil {
+		t.Fatalf("ApplyComposer %s: %v", c.ID, err)
+	}
+}
+
+func mustApplyStream(t *testing.T, p *Pipeline, s Stream) {
+	t.Helper()
+	if err := p.ApplyStream(s); err != nil {
+		t.Fatalf("ApplyStream %s: %v", s.ID, err)
+	}
+}
+
+func TestPipeline_ApplySource_RequiresID(t *testing.T) {
 	p := newTestPipeline(t, "/dev/video0")
-	err := p.Apply(Stream{})
-	if err == nil {
-		t.Fatal("expected error for missing stream ID")
-	}
-	if !strings.Contains(err.Error(), "stream.ID is required") {
-		t.Errorf("unexpected error: %v", err)
+	if err := p.ApplySource(Source{Device: "x"}); err == nil ||
+		!strings.Contains(err.Error(), "source.ID is required") {
+		t.Errorf("expected source.ID required error, got %v", err)
 	}
 }
 
-func TestPipeline_Apply_FailsOnUnresolvedDevice(t *testing.T) {
+func TestPipeline_ApplySource_TestModeAndDeviceMutuallyExclusive(t *testing.T) {
+	p := newTestPipeline(t, "/dev/video0")
+	tests := []struct {
+		name    string
+		src     Source
+		wantErr string
+	}{
+		{
+			name:    "both set",
+			src:     Source{ID: "s", Device: "x", TestMode: true},
+			wantErr: "both Device and TestMode",
+		},
+		{
+			name:    "neither set",
+			src:     Source{ID: "s"},
+			wantErr: "requires one of Device or TestMode",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := p.ApplySource(tt.src)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("got %v, want substring %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestPipeline_ApplySource_DeviceMode(t *testing.T) {
+	p := newTestPipeline(t, "/bin/true")
+	mustApplySource(t, p, Source{ID: "hdmi0", Device: "hdmi-real"})
+	if !waitRunning(p, "producer:hdmi0") {
+		t.Fatal("source process should be running")
+	}
+	got, ok := p.Sources().Get("hdmi0")
+	if !ok || got.Device != "hdmi-real" {
+		t.Errorf("registry missing source: got=%+v ok=%v", got, ok)
+	}
+}
+
+func TestPipeline_ApplySource_TestMode(t *testing.T) {
+	// TestMode: no DeviceResolver needed; should spawn with --test-pattern
+	// argv (verified via ProducerStage.Command unit test below).
+	p := New(Config{
+		VNSourceBin:   longRunningBin(t),
+		VNComposerBin: longRunningBin(t),
+		VNSinkBin:     longRunningBin(t),
+		DRMDevice:     "/dev/dri/renderD128",
+		// DeviceResolver intentionally nil — TestMode must not require it.
+	}, nil)
+	t.Cleanup(func() { p.Pool().StopAll() })
+	if err := p.ApplySource(Source{ID: "test", TestMode: true}); err != nil {
+		t.Fatalf("ApplySource test: %v", err)
+	}
+	if !waitRunning(p, "producer:test") {
+		t.Fatal("test-pattern producer should be running")
+	}
+}
+
+func TestPipeline_ApplySource_UnresolvedDeviceErrors(t *testing.T) {
 	bin := longRunningBin(t)
 	p := New(Config{
 		VNSourceBin:    bin,
 		VNComposerBin:  bin,
 		VNSinkBin:      bin,
 		DRMDevice:      "/dev/dri/renderD128",
-		DeviceResolver: func(string) string { return "" }, // never resolves
+		DeviceResolver: func(string) string { return "" },
 	}, nil)
 	t.Cleanup(func() { p.Pool().StopAll() })
-	err := p.Apply(Stream{
-		ID:      "cam",
-		Inputs:  []InputRef{{ID: "inp1", Device: "usb-1-2"}},
-		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/y"}},
-	})
+	err := p.ApplySource(Source{ID: "s", Device: "usb-1-2"})
 	if err == nil || !strings.Contains(err.Error(), "did not resolve to a path") {
 		t.Errorf("expected unresolved-device error, got %v", err)
 	}
 }
 
-func TestPipeline_NeedsComposerPickerDecidesTopology(t *testing.T) {
+func TestPipeline_ApplyStream_RequiresUpstream(t *testing.T) {
 	p := newTestPipeline(t, "/bin/true")
-	// Solo source, no effects → no composer expected
-	if err := p.Apply(Stream{
-		ID:      "solo",
-		Inputs:  []InputRef{{ID: "a", Device: "dev-a"}},
-		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/solo"}},
-	}); err != nil {
-		t.Fatalf("solo Apply: %v", err)
+	err := p.ApplyStream(Stream{ID: "x"})
+	if err == nil || !strings.Contains(err.Error(), "requires Upstream") {
+		t.Errorf("expected upstream-required error, got %v", err)
 	}
-	if p.Pool().IsRunning(ComposerPoolKey("solo")) {
-		t.Error("composer should NOT be running for solo+no-effects stream")
+}
+
+func TestPipeline_ApplyStream_DanglingUpstreamErrors(t *testing.T) {
+	p := newTestPipeline(t, "/bin/true")
+	tests := []struct {
+		name     string
+		upstream string
+		wantSub  string
+	}{
+		{"unknown source", "source:ghost", "upstream source"},
+		{"unknown composer", "composer:ghost", "upstream composer"},
+		{"bad format", "ghost", "invalid upstream"},
+		{"unknown kind", "bogus:x", "unknown upstream kind"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := p.ApplyStream(Stream{
+				ID:       "s",
+				Upstream: tt.upstream,
+				Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/y"}},
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.wantSub) {
+				t.Errorf("got %v, want substring %q", err, tt.wantSub)
+			}
+		})
+	}
+}
+
+func TestPipeline_ApplyStream_AgainstSource(t *testing.T) {
+	p := newTestPipeline(t, "/bin/true")
+	mustApplySource(t, p, Source{ID: "cam", Device: "cam"})
+	mustApplyStream(t, p, Stream{
+		ID:       "solo",
+		Upstream: "source:cam",
+		Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/solo"}},
+	})
 	if !waitRunning(p, "encoder:solo") {
-		t.Error("encoder for solo should be running")
+		t.Error("encoder should be running")
 	}
-	if !waitRunning(p, "producer:dev-a") {
-		t.Error("producer for dev-a should be running")
-	}
-
-	// Two-input stream → composer expected (inline composer mode: the
-	// composer process runs as a child of encoder:two's shell pipe, so
-	// no separate composer:two pool entry, but encoder:two should be up).
-	if err := p.Apply(Stream{
-		ID: "two",
-		Inputs: []InputRef{
-			{ID: "a", Device: "dev-a"},
-			{ID: "b", Device: "dev-b"},
-		},
-		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/two"}},
-	}); err != nil {
-		t.Fatalf("two Apply: %v", err)
-	}
-	if !waitRunning(p, "encoder:two") {
-		t.Error("encoder for two should be running")
-	}
-	if p.Pool().IsRunning(ComposerPoolKey("two")) {
-		t.Error("composer should NOT be a separate pool entry in inline mode")
+	if !waitRunning(p, "producer:cam") {
+		t.Error("source should remain running")
 	}
 }
 
-func TestPipeline_ProducerSharingAcrossStreams(t *testing.T) {
+func TestPipeline_ApplyStream_AgainstComposer(t *testing.T) {
 	p := newTestPipeline(t, "/bin/true")
-	must(t, p.Apply(Stream{
-		ID:      "a",
-		Inputs:  []InputRef{{ID: "i", Device: "shared"}},
-		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/a"}},
-	}))
-	must(t, p.Apply(Stream{
-		ID:      "b",
-		Inputs:  []InputRef{{ID: "i", Device: "shared"}},
-		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/b"}},
-	}))
-	if p.Producers().Refcount("shared") != 2 {
-		t.Errorf("shared device refcount = %d, want 2", p.Producers().Refcount("shared"))
+	mustApplySource(t, p, Source{ID: "cam", Device: "cam"})
+	mustApplyComposer(t, p, Composer{
+		ID:     "scene",
+		Canvas: CanvasDims{W: 1280, H: 720},
+		Inputs: []ComposerInput{{Ref: SourceIDFor("cam")}},
+	})
+	mustApplyStream(t, p, Stream{
+		ID:       "out",
+		Upstream: "composer:scene",
+		Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/out"}},
+	})
+	if !waitRunning(p, "encoder:out") {
+		t.Error("encoder should be running")
 	}
-	if !waitRunning(p, "producer:shared") {
-		t.Error("shared producer should be up")
-	}
-	// Delete stream a — producer stays up for stream b.
-	must(t, p.Delete("a"))
-	if !waitRunning(p, "producer:shared") {
-		t.Error("shared producer should stay running for stream b")
-	}
-	if p.Producers().Refcount("shared") != 1 {
-		t.Errorf("refcount after a delete = %d, want 1", p.Producers().Refcount("shared"))
-	}
-	// Delete stream b — producer stops.
-	must(t, p.Delete("b"))
-	if p.Pool().IsRunning("producer:shared") {
-		t.Error("shared producer should be stopped after last consumer")
-	}
-	if p.Producers().Refcount("shared") != 0 {
-		t.Errorf("refcount after b delete = %d, want 0", p.Producers().Refcount("shared"))
+	if !waitRunning(p, "composer:scene") {
+		t.Error("composer should be running")
 	}
 }
 
-func TestPipeline_DeleteStopsComposerAndEncoder(t *testing.T) {
+func TestPipeline_DeleteStreamLeavesUpstreamWarm(t *testing.T) {
 	p := newTestPipeline(t, "/bin/true")
-	must(t, p.Apply(Stream{
-		ID: "canvas",
-		Inputs: []InputRef{
-			{ID: "i1", Device: "d1"},
-			{ID: "i2", Device: "d2"},
-		},
-		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/c"}},
-	}))
-	// Inline-composer mode: no separate composer:canvas pool entry.
-	if !waitRunning(p, "encoder:canvas") {
+	mustApplySource(t, p, Source{ID: "cam", Device: "cam"})
+	mustApplyStream(t, p, Stream{
+		ID:       "s",
+		Upstream: "source:cam",
+		Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/s"}},
+	})
+	if !waitRunning(p, "encoder:s") {
 		t.Fatal("setup: encoder should be running")
 	}
-	must(t, p.Delete("canvas"))
-	if p.Pool().IsRunning("encoder:canvas") {
+	if err := p.DeleteStream("s"); err != nil {
+		t.Fatalf("DeleteStream: %v", err)
+	}
+	if p.Pool().IsRunning("encoder:s") {
 		t.Error("encoder should be stopped post-Delete")
+	}
+	if !p.Pool().IsRunning("producer:cam") {
+		t.Error("source should remain warm after stream delete")
 	}
 }
 
-func TestPipeline_DeleteUnknownStreamIsNoop(t *testing.T) {
+func TestPipeline_DeleteSource(t *testing.T) {
 	p := newTestPipeline(t, "/bin/true")
-	if err := p.Delete("nobody-home"); err != nil {
-		t.Errorf("Delete unknown stream returned %v, want nil", err)
+	mustApplySource(t, p, Source{ID: "cam", Device: "cam"})
+	if !waitRunning(p, "producer:cam") {
+		t.Fatal("setup: source should be running")
+	}
+	if err := p.DeleteSource("cam"); err != nil {
+		t.Fatalf("DeleteSource: %v", err)
+	}
+	if p.Pool().IsRunning("producer:cam") {
+		t.Error("source should be stopped post-Delete")
+	}
+	if _, ok := p.Sources().Get("cam"); ok {
+		t.Error("registry should not contain deleted source")
+	}
+}
+
+func TestPipeline_DeleteComposer(t *testing.T) {
+	p := newTestPipeline(t, "/bin/true")
+	mustApplyComposer(t, p, Composer{ID: "scene", Canvas: CanvasDims{W: 1920, H: 1080}})
+	if !waitRunning(p, "composer:scene") {
+		t.Fatal("setup: composer should be running")
+	}
+	if err := p.DeleteComposer("scene"); err != nil {
+		t.Fatalf("DeleteComposer: %v", err)
+	}
+	if p.Pool().IsRunning("composer:scene") {
+		t.Error("composer should be stopped post-Delete")
+	}
+}
+
+func TestPipeline_DeleteUnknownIsNoop(t *testing.T) {
+	p := newTestPipeline(t, "/bin/true")
+	if err := p.DeleteSource("nobody"); err != nil {
+		t.Errorf("DeleteSource unknown: %v", err)
+	}
+	if err := p.DeleteComposer("nobody"); err != nil {
+		t.Errorf("DeleteComposer unknown: %v", err)
+	}
+	if err := p.DeleteStream("nobody"); err != nil {
+		t.Errorf("DeleteStream unknown: %v", err)
 	}
 }
 
 func TestPipeline_EnsureUdsDirCreated(t *testing.T) {
 	p := newTestPipeline(t, "/bin/true")
-	must(t, p.Apply(Stream{
-		ID:      "x",
-		Inputs:  []InputRef{{ID: "i", Device: "d"}},
-		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/y"}},
-	}))
+	mustApplySource(t, p, Source{ID: "x", Device: "d"})
 	if _, err := os.Stat(NativeUdsDir); err != nil {
 		t.Errorf("UDS dir %s not created: %v", NativeUdsDir, err)
-	}
-}
-
-func must(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
