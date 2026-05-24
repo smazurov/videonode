@@ -75,6 +75,40 @@ grpc::Status SourceService::SetFormat(grpc::ServerContext* /*ctx*/,
     return grpc::Status::OK;
 }
 
+grpc::Status SourceService::SetDevice(grpc::ServerContext* /*ctx*/,
+                                      const ::videonode::control::SetDeviceRequest* req,
+                                      ::videonode::control::SetDeviceResponse* resp) {
+    const std::string& path = req->device_path();
+    // Anything non-empty must be an absolute path. open() would reject
+    // anything else, but failing fast here gives a cleaner gRPC error than
+    // waiting for the orchestrator's reinit to log open(): ENOENT.
+    if (!path.empty() && path[0] != '/') {
+        return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                            "device_path must be empty or an absolute path");
+    }
+    {
+        std::lock_guard<std::mutex> lock(ctx_->set_format_mu);
+        if (ctx_->args) {
+            ctx_->args->device = path;
+        }
+        if (ctx_->probe) {
+            // Reuse the format-change transition so the probe surfaces the
+            // swap as Transitioning rather than a spurious Gone/NoCable.
+            ctx_->probe->note_format_change();
+        }
+        if (ctx_->need_reinit_for_format_change) {
+            *ctx_->need_reinit_for_format_change = true;
+        }
+    }
+    resp->set_applied(true);
+    if (path.empty()) {
+        vn::log::info("videonode-source: set_device via gRPC: detach (placeholder)");
+    } else {
+        vn::log::info("videonode-source: set_device via gRPC: %s", path.c_str());
+    }
+    return grpc::Status::OK;
+}
+
 grpc::Status SourceService::GetStatus(grpc::ServerContext* /*ctx*/,
                                       const ::google::protobuf::Empty* /*req*/,
                                       ::videonode::control::Status* resp) {
