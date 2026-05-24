@@ -277,6 +277,100 @@ func TestHookTemplateCommandsAreValid(t *testing.T) {
 	}
 }
 
+// TestSkillFlagsExistInCLI verifies that every --flag referenced in
+// a skill's backtick-fenced testenv invocation actually exists in that
+// subcommand's --help output. Catches stale flags like --source or
+// --target after they've been removed from the CLI.
+func TestSkillFlagsExistInCLI(t *testing.T) {
+	bin := t.TempDir() + "/testenv"
+	build := exec.Command("go", "build", "-o", bin, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+
+	err := fs.WalkDir(assets.Skills, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		body, err := fs.ReadFile(assets.Skills, path)
+		if err != nil {
+			return err
+		}
+		checkSkillFlags(t, path, string(body), bin)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// checkSkillFlags finds backtick-fenced `testenv <subcmd> --flag ...`
+// patterns and verifies each --flag appears in `testenv <subcmd> --help`.
+func checkSkillFlags(t *testing.T, path, body, bin string) {
+	t.Helper()
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Find testenv invocations in backtick context.
+		var cmdStr string
+		for _, prefix := range []string{"!`testenv ", "`testenv "} {
+			if strings.HasPrefix(trimmed, prefix) {
+				cmdStr = strings.TrimPrefix(trimmed, prefix)
+				break
+			}
+			if idx := strings.Index(trimmed, prefix); idx >= 0 {
+				cmdStr = trimmed[idx+len(prefix):]
+				break
+			}
+		}
+		if cmdStr == "" {
+			continue
+		}
+		cmdStr = strings.Trim(cmdStr, "`")
+		fields := strings.Fields(cmdStr)
+		if len(fields) == 0 {
+			continue
+		}
+
+		// First field is the subcommand.
+		subcmd := fields[0]
+		if strings.HasPrefix(subcmd, "-") || strings.HasPrefix(subcmd, "$") {
+			continue
+		}
+
+		// Collect --flags from the invocation (strip shell variable expansions).
+		var flags []string
+		for _, f := range fields[1:] {
+			if strings.HasPrefix(f, "--") {
+				flag := f
+				// Strip =value or trailing shell expansions.
+				if idx := strings.Index(flag, "="); idx > 0 {
+					flag = flag[:idx]
+				}
+				// Strip ${...} that might be appended.
+				if idx := strings.Index(flag, "$"); idx > 0 {
+					flag = flag[:idx]
+				}
+				flags = append(flags, flag)
+			}
+		}
+		if len(flags) == 0 {
+			continue
+		}
+
+		// Get the subcommand's --help output.
+		helpCmd := exec.Command(bin, subcmd, "--help")
+		helpOut, _ := helpCmd.CombinedOutput()
+		helpStr := string(helpOut)
+
+		for _, flag := range flags {
+			if !strings.Contains(helpStr, flag) {
+				t.Errorf("%s: `testenv %s` references %s but it doesn't appear in `testenv %s --help`",
+					path, subcmd, flag, subcmd)
+			}
+		}
+	}
+}
+
 func sortedKeys(m map[string]bool) []string {
 	var out []string
 	for k := range m {
