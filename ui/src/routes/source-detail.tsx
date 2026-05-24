@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 
@@ -13,6 +13,8 @@ import { SectionHeader } from '../components/primitives/SectionHeader';
 import { SourceFormatPanel } from '../components/sources/SourceFormatPanel';
 import { SourceStatusPanel } from '../components/sources/SourceStatusPanel';
 import { SourceConsumersPanel } from '../components/sources/SourceConsumersPanel';
+import { SourceLivePreview } from '../components/sources/SourceLivePreview';
+import { SourceDeleteDialog } from '../components/sources/SourceDeleteDialog';
 
 export default function SourceDetail() {
   const navigate = useNavigate();
@@ -24,6 +26,7 @@ export default function SourceDetail() {
     useShallow((s) => ({ loading: s.loading, error: s.error, lastUpdated: s.lastUpdated })),
   );
   const fetchSources = useSourceStore((s) => s.fetchSources);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
     if (lastUpdated === null) void fetchSources();
@@ -84,6 +87,12 @@ export default function SourceDetail() {
                 text="Edit"
                 onClick={() => navigate(`/sources/${source.id}/edit`)}
               />
+              <Button
+                theme="danger"
+                size="SM"
+                text="Delete"
+                onClick={() => setDeleteOpen(true)}
+              />
             </div>
           </div>
 
@@ -94,12 +103,22 @@ export default function SourceDetail() {
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <SourceStatusPanel source={source} />
-            <SourceFormatPanel source={source} />
+            <SourceLivePreview sourceId={source.id} />
+            <div className="space-y-4">
+              <SourceStatusPanel source={source} />
+              <SourceFormatPanel source={source} />
+            </div>
           </div>
           <SourceConsumersPanel consumers={source.consumers ?? []} />
         </div>
       </DashboardLayout.MainContent>
+      <SourceDeleteDialog
+        sourceId={source.id}
+        consumers={source.consumers ?? []}
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onDeleted={() => navigate('/sources')}
+      />
     </DashboardLayout>
   );
 }
