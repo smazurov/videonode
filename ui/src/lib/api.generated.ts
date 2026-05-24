@@ -560,26 +560,6 @@ export interface paths {
         patch: operations["update-stream"];
         trace?: never;
     };
-    "/api/streams/{stream_id}/ffmpeg": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get FFmpeg Command
-         * @description Get the generated ffmpeg argv for a stream
-         */
-        get: operations["get-stream-ffmpeg"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/streams/{stream_id}/restart": {
         parameters: {
             query?: never;
@@ -591,7 +571,7 @@ export interface paths {
         put?: never;
         /**
          * Restart Stream
-         * @description Restart the encoder process for a stream
+         * @description Re-apply the persisted spec to the pipeline (stop + start the encoder)
          */
         post: operations["restart-stream"];
         delete?: never;
@@ -1312,6 +1292,30 @@ export interface components {
              */
             type: string;
         };
+        EntityEvent: {
+            /**
+             * @description created | updated | deleted | status | metrics | consumers
+             * @example updated
+             */
+            action: string;
+            /**
+             * @description Entity type: source | composer | stream
+             * @example source
+             */
+            entity_type: string;
+            /**
+             * @description Entity identifier (empty allowed for global events)
+             * @example hdmi0
+             */
+            id: string;
+            /** @description Action-specific payload (entity snapshot for lifecycle, status snapshot, metrics, or per-client consumer list) */
+            payload?: unknown;
+            /**
+             * @description RFC3339 server time
+             * @example 2026-05-23T10:30:00Z
+             */
+            timestamp: string;
+        };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
             location?: string;
@@ -1359,29 +1363,6 @@ export interface components {
              */
             type: string;
         };
-        FFmpegCommandData: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FFmpegCommandData.json
-             */
-            readonly $schema?: string;
-            /**
-             * @description Complete FFmpeg command
-             * @example ffmpeg -f v4l2 -i /dev/video0 ...
-             */
-            command: string;
-            /**
-             * @description Whether this is a custom command or auto-generated
-             * @example false
-             */
-            is_custom: boolean;
-            /**
-             * @description Stream identifier
-             * @example stream-001
-             */
-            stream_id: string;
-        };
         FormatInfo: {
             /**
              * @description Whether format is emulated
@@ -1393,7 +1374,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yuyv422" | "nv12" | "h264" | "yv12" | "rgb24" | "nv24" | "mjpeg" | "yu12" | "bgr24" | "nv16";
+            format_name: "nv24" | "nv16" | "h264" | "yv12" | "bgr24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1707,6 +1688,8 @@ export interface components {
              * @example https://example.com/schemas/SourceData.json
              */
             readonly $schema?: string;
+            /** @description Composers and streams currently referencing this source. Server-denormalized; auto-republished when references change. */
+            consumers?: components["schemas"]["SourceReference"][] | null;
             /**
              * Format: date-time
              * @description When the source record was created
@@ -1751,7 +1734,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yv12" | "rgb24" | "nv24" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "yuyv422" | "nv12" | "h264";
+            format_name: "yv12" | "bgr24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "nv16" | "h264";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -1831,6 +1814,18 @@ export interface components {
             test_mode?: boolean;
             /** @description RFC3339 last-update timestamp */
             updated_at?: string;
+        };
+        SourceReference: {
+            /**
+             * @description Referencing entity identifier
+             * @example main-scene
+             */
+            id: string;
+            /**
+             * @description composer | stream
+             * @example composer
+             */
+            kind: string;
         };
         SourceSignalInfo: {
             cable_present: boolean;
@@ -2821,7 +2816,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "bgr24" | "nv16" | "yuyv422" | "nv12" | "h264" | "yv12" | "rgb24" | "nv24" | "mjpeg" | "yu12";
+                format_name?: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "nv16" | "h264" | "yv12" | "bgr24";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2887,7 +2882,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "rgb24" | "nv24" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "yuyv422" | "nv12" | "h264" | "yv12";
+                format_name?: "h264" | "yv12" | "bgr24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "nv16";
             };
             header?: never;
             path: {
@@ -3058,6 +3053,17 @@ export interface operations {
                          * @constant
                          */
                         event: "device-discovery";
+                        /** @description The event ID. */
+                        id?: number;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["EntityEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "entity";
                         /** @description The event ID. */
                         id?: number;
                         /** @description The retry time in milliseconds. */
@@ -4188,68 +4194,6 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "get-stream-ffmpeg": {
-        parameters: {
-            query?: {
-                /** @description Override the auto-selected encoder */
-                override?: string;
-            };
-            header?: never;
-            path: {
-                /** @description Stream identifier */
-                stream_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FFmpegCommandData"];
                 };
             };
             /** @description Unauthorized */
