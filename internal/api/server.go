@@ -273,6 +273,17 @@ func NewServer(opts *Options) *Server {
 					return upstreamRef(server, st.Upstream)
 				})
 		}
+		// Composer → source fan-out: a composer's Inputs reference one
+		// or more sources by "source:<id>" ref. When the composer is
+		// created/updated/deleted, each referenced source's denormalized
+		// Consumers list is stale. Touch each so its Loader re-reads.
+		if server.composerEntity != nil {
+			events.OnLifecycle(server.composerEntity,
+				[]string{events.ActionCreated, events.ActionUpdated, events.ActionDeleted},
+				func(c models.ComposerData) []events.AnyRef {
+					return inputSourceRefs(server, c.Inputs)
+				})
+		}
 	}
 
 	// Apply CORS middleware first (before auth)
@@ -314,6 +325,31 @@ func NewServer(opts *Options) *Server {
 // GetMux returns the underlying HTTP ServeMux for additional setup.
 func (s *Server) GetMux() *http.ServeMux {
 	return s.mux
+}
+
+// inputSourceRefs walks a composer's Inputs and returns one AnyRef per
+// unique source the composer references. Used by the composer→source
+// dependency hook so source.Consumers refreshes when a composer is
+// created, retargeted, or deleted.
+func inputSourceRefs(s *Server, inputs []models.ComposerInputData) []events.AnyRef {
+	if s.sourceEntity == nil || len(inputs) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(inputs))
+	out := make([]events.AnyRef, 0, len(inputs))
+	for _, in := range inputs {
+		const prefix = "source:"
+		if !strings.HasPrefix(in.Ref, prefix) {
+			continue
+		}
+		id := in.Ref[len(prefix):]
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, s.sourceEntity.Ref(id))
+	}
+	return out
 }
 
 // upstreamRef parses a stream's upstream string ("source:<id>" or

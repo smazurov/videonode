@@ -140,12 +140,28 @@ func (s *Server) registerComposerRoutes() {
 		Body models.ComposerUpdateRequestData
 	},
 	) (*models.ComposerResponse, error) {
+		// Snapshot before the patch so a change to inputs[].ref fans
+		// out to BOTH old and new source refs. Layout/effect-only
+		// updates would also publish a redundant fan-out — harmless,
+		// since inputSourceRefs returns the same set in that case and
+		// the dispatch dedupes within scope.
+		var prev *models.ComposerData
+		if s.composerEntity != nil {
+			if got, gerr := svc.GetComposer(ctx, input.ID); gerr == nil && got != nil {
+				prev = got
+			}
+		}
+
 		c, err := svc.UpdateComposer(ctx, input.ID, input.Body)
 		if err != nil {
 			return nil, mapComposerError(err)
 		}
 		if s.composerEntity != nil {
-			s.composerEntity.PublishUpdated(*c)
+			if prev != nil {
+				s.composerEntity.PublishUpdatedWith(*prev, *c)
+			} else {
+				s.composerEntity.PublishUpdated(*c)
+			}
 		}
 		return &models.ComposerResponse{Body: *c}, nil
 	})
@@ -163,11 +179,25 @@ func (s *Server) registerComposerRoutes() {
 		ID string `path:"id" example:"main-scene" doc:"Composer identifier"`
 	},
 	) (*struct{}, error) {
+		// Snapshot before delete so the composer→source dep hook can
+		// fan out to each source the composer was referencing (their
+		// Consumers list named this composer; needs to drop it).
+		var prev *models.ComposerData
+		if s.composerEntity != nil {
+			if got, gerr := svc.GetComposer(ctx, input.ID); gerr == nil && got != nil {
+				prev = got
+			}
+		}
+
 		if err := svc.DeleteComposer(ctx, input.ID); err != nil {
 			return nil, mapComposerError(err)
 		}
 		if s.composerEntity != nil {
-			s.composerEntity.PublishDeleted(input.ID)
+			if prev != nil {
+				s.composerEntity.PublishDeletedWith(*prev)
+			} else {
+				s.composerEntity.PublishDeleted(input.ID)
+			}
 		}
 		return &struct{}{}, nil
 	})
