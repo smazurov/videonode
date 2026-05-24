@@ -10,130 +10,42 @@ on:
       - 'composer/**'
       - '.github/workflows/ci-composer.yml'
 
+# Every job runs inside arm64v8/debian:trixie and invokes
+# composer/scripts/build-deb-arm64.sh — exactly the script the local
+# docker wrapper (build-deb-arm64-docker.sh) executes — so CI cannot
+# drift from what developers run on their workstations.
 jobs:
-  build-test-fedora:
-    runs-on: ubuntu-latest
-    container: fedora:43
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: |
-          dnf install -y --setopt=install_weak_deps=False \
-            cmake ninja-build pkgconf-pkg-config gcc-c++ \
-            mesa-libEGL-devel mesa-libGLES-devel mesa-libgbm-devel \
-            libdrm-devel rpm-build
-      - name: Configure
-        working-directory: composer
-        run: cmake --preset dev
-      - name: Build
-        working-directory: composer
-        run: cmake --build --preset dev
-      - name: Test
-        working-directory: composer
-        run: ctest --preset dev --output-on-failure --output-junit results.xml
-
-  build-test-fedora-asan:
-    runs-on: ubuntu-latest
-    container: fedora:43
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: |
-          dnf install -y --setopt=install_weak_deps=False \
-            cmake ninja-build pkgconf-pkg-config gcc-c++ \
-            mesa-libEGL-devel mesa-libGLES-devel mesa-libgbm-devel \
-            libdrm-devel libasan libubsan
-      - name: Configure (dev-asan)
-        working-directory: composer
-        run: cmake --preset dev-asan
-      - name: Build (dev-asan)
-        working-directory: composer
-        run: cmake --build --preset dev-asan
-      - name: Test (dev-asan)
-        working-directory: composer
-        env:
-          ASAN_OPTIONS: detect_leaks=1
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --preset dev-asan --output-on-failure --output-junit results.xml
-
-  build-test-debian-arm64:
+  dev:
     runs-on: ubuntu-24.04-arm
     container: arm64v8/debian:trixie
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: |
-          apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            cmake ninja-build pkg-config g++ ca-certificates curl git \
-            libegl-dev libgles-dev libgbm-dev libdrm-dev \
-            libturbojpeg0-dev dpkg-dev
-      - name: Install Rockchip librga + librockchip-mpp (tsukumijima)
-        run: composer/scripts/install-rockchip-libs.sh
-      - name: Configure
-        working-directory: composer
-        run: cmake --preset dev
-      - name: Build
-        working-directory: composer
-        run: cmake --build --preset dev
-      - name: Test
-        working-directory: composer
-        run: ctest --preset dev --output-on-failure --output-junit results.xml
+      - uses: actions/checkout@v5
+      - name: Build + test (dev preset)
+        env:
+          MODE: dev
+        run: composer/scripts/build-deb-arm64.sh
+
+  dev-asan:
+    runs-on: ubuntu-24.04-arm
+    container: arm64v8/debian:trixie
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build + test (dev-asan preset)
+        env:
+          MODE: dev-asan
+        run: composer/scripts/build-deb-arm64.sh
 
   lint:
-    runs-on: ubuntu-latest
-    container: fedora:43
+    runs-on: ubuntu-24.04-arm
+    container: arm64v8/debian:trixie
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: Install lint deps
-        run: |
-          dnf install -y --setopt=install_weak_deps=False \
-            cmake ninja-build pkgconf-pkg-config gcc-c++ \
-            mesa-libEGL-devel mesa-libGLES-devel mesa-libgbm-devel \
-            libdrm-devel clang-tools-extra
-      - name: Configure
-        working-directory: composer
-        run: cmake --preset dev
-      - name: Lint (clang-format check)
-        working-directory: composer
-        run: cmake --build build/dev --target lint
-
-  clang-tidy-diff:
-    runs-on: ubuntu-latest
-    container: fedora:43
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Install deps
-        run: |
-          dnf install -y --setopt=install_weak_deps=False \
-            cmake ninja-build pkgconf-pkg-config gcc-c++ \
-            mesa-libEGL-devel mesa-libGLES-devel mesa-libgbm-devel \
-            libdrm-devel clang clang-tools-extra git python3
-      - name: Mark workspace safe for git
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Fetch base ref
-        run: git fetch --no-tags --depth=1 origin main
-      - name: Configure (dev — produces compile_commands.json)
-        working-directory: composer
-        run: cmake --preset dev
-      - name: Build (dev — generates any configure-time headers)
-        working-directory: composer
-        run: cmake --build --preset dev
-      - name: clang-tidy on changed lines
-        run: |
-          DIFF_SCRIPT=$(command -v clang-tidy-diff.py || echo /usr/share/clang/clang-tidy-diff.py)
-          if [ ! -x "$DIFF_SCRIPT" ] && [ ! -f "$DIFF_SCRIPT" ]; then
-            echo "clang-tidy-diff.py not found" >&2
-            exit 1
-          fi
-          # -p2 strips `b/composer/` so paths resolve correctly with cwd=composer
-          cd composer
-          git -C .. diff -U0 origin/main...HEAD -- composer/src composer/tools composer/tests \
-            | python3 "$DIFF_SCRIPT" -p2 -path build/dev -clang-tidy-binary "$(command -v clang-tidy)"
+      - name: clang-format + clang-tidy-diff
+        env:
+          MODE: lint
+        run: composer/scripts/build-deb-arm64.sh

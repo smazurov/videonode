@@ -6,73 +6,32 @@ on:
       - 'native-v*'
 
 jobs:
-  rpm-x86_64:
-    runs-on: ubuntu-latest
-    container: fedora:43
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: |
-          dnf install -y --setopt=install_weak_deps=False \
-            cmake ninja-build pkgconf-pkg-config gcc-c++ \
-            mesa-libEGL-devel mesa-libGLES-devel mesa-libgbm-devel \
-            libdrm-devel rpm-build
-      - name: Build
-        run: |
-          cmake -B build -S composer -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
-          ctest --test-dir build --output-on-failure
-      - name: Pack RPM
-        working-directory: build
-        run: cpack -G RPM
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rpm-x86_64
-          path: build/*.rpm
-
   deb-arm64:
     runs-on: ubuntu-24.04-arm
     container: arm64v8/debian:trixie
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: |
-          apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            cmake ninja-build pkg-config g++ ca-certificates curl git \
-            libegl-dev libgles-dev libgbm-dev libdrm-dev \
-            libturbojpeg0-dev dpkg-dev
-      - name: Install Rockchip librga + librockchip-mpp (tsukumijima)
-        run: composer/scripts/install-rockchip-libs.sh
-      - name: Build
-        run: |
-          cmake -B build -S composer -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
-          ctest --test-dir build --output-on-failure
-      - name: Pack DEB
-        working-directory: build
-        run: cpack -G DEB
-      - uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v5
+      - name: Build + pack DEB (release-deb)
+        run: composer/scripts/build-deb-arm64.sh
+      - uses: actions/upload-artifact@v6
         with:
           name: deb-arm64
-          path: build/*.deb
+          path: composer/build/deb-arm64/*.deb
 
   release:
-    needs: [rpm-x86_64, deb-arm64]
-    runs-on: ubuntu-latest
+    needs: [deb-arm64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           path: artifacts
       - name: Attach to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
-            artifacts/rpm-x86_64/*.rpm
             artifacts/deb-arm64/*.deb
           generate_release_notes: true
