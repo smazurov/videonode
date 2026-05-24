@@ -566,6 +566,26 @@ func (m *Manager) SendSetSourceState(ctx context.Context, composerID string, p S
 	})
 }
 
+// ComposerSnapshot pulls one BGRA canvas frame from the composer via the
+// Composer.Snapshot unary RPC. Returns UNAVAILABLE-wrapped error when no
+// canvas frame has been rendered yet.
+func (m *Manager) ComposerSnapshot(ctx context.Context, composerID string) (*pb.ComposerSnapshotResponse, error) {
+	m.mu.RLock()
+	c, ok := m.composers[composerID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("pipelinectl: no composer for id %q", composerID)
+	}
+	resp, err := c.compClient.Snapshot(ctx, &pb.ComposerSnapshotRequest{})
+	if err != nil {
+		if st, sok := status.FromError(err); sok && st.Code() == codes.Unavailable {
+			return nil, fmt.Errorf("pipelinectl: composer %s has no frame yet", composerID)
+		}
+		return nil, fmt.Errorf("pipelinectl: composer snapshot %s: %w", composerID, err)
+	}
+	return resp, nil
+}
+
 func (m *Manager) callComposer(_ context.Context, composerID string, fn func(pb.ComposerClient) error) error {
 	m.mu.RLock()
 	c, ok := m.composers[composerID]

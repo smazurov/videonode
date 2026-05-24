@@ -15,6 +15,7 @@ import { ComposerCanvasEditor } from '../components/composers/ComposerCanvasEdit
 import { ComposerInputsPanel } from '../components/composers/ComposerInputsPanel';
 import { ComposerLayoutPanel } from '../components/composers/ComposerLayoutPanel';
 import { ComposerConsumersPanel } from '../components/composers/ComposerConsumersPanel';
+import { ComposerLivePreview } from '../components/composers/ComposerLivePreview';
 import { ComposerDeleteDialog } from '../components/composers/ComposerDeleteDialog';
 import type { ComposerData } from '../lib/composer-types';
 import { canvasFpsOrDefault } from '../lib/composer-types';
@@ -124,6 +125,7 @@ export default function ComposerDetail() {
             </div>
           )}
 
+          <ComposerLivePreview composerId={data.composer_id} />
           <ComposerCanvasEditor composer={data} />
           <ComposerInputsPanel composer={data} />
           <ComposerLayoutPanel composer={data} />

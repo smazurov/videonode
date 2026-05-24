@@ -9,11 +9,20 @@ Presets live in `composer/CMakePresets.json`. Always invoke from
 `composer/`.
 
 ```bash
-# Dev build (Debug, compile_commands.json exported)
+# Dev build (Debug, compile_commands.json exported) — use this for
+# stepping with lldb. ~2x runtime CPU vs RelWithDebInfo because of
+# libstdc++ bounds checks + no inlining; do not install to ~/.local/bin
+# for day-to-day work.
 cmake --preset dev
 cmake --build --preset dev
 
-# Test
+# Daily install build (RelWithDebInfo, no tests) — realistic CPU,
+# readable stack traces. This is what should land in ~/.local/bin.
+cmake --preset relwithdebinfo
+cmake --build --preset relwithdebinfo
+cmake --install composer/build/relwithdebinfo
+
+# Test (always against dev preset — keeps bounds checks + asserts on)
 ctest --preset dev --output-on-failure
 ctest --preset dev -R scm_socket           # filter by name
 ctest --preset dev -L ipc                  # filter by label (post-reorg)

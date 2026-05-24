@@ -47,8 +47,31 @@ service Composer {
   // in the Go process supervisor and is not duplicated here.
   rpc GetStats(google.protobuf.Empty) returns (ComposerStats);
 
+  // Snapshot captures one rendered frame from the canvas loop and
+  // returns the raw BGRA bytes plus dimensions. Cost is on-demand
+  // (mmap + memcpy out of the canvas dma-buf on the gRPC thread),
+  // not per produced frame.
+  rpc Snapshot(ComposerSnapshotRequest) returns (ComposerSnapshotResponse);
+
   // Shutdown asks the composer to exit cleanly.
   rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+message ComposerSnapshotRequest {}
+
+message ComposerSnapshotResponse {
+  // Tight-packed BGRA pixels: width * height * 4 bytes.
+  bytes bgra = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  // Source dma-buf pitch (>= width*4) — reported for callers that want
+  // to know about padding the source had. The `bgra` bytes themselves
+  // are always width-packed.
+  uint32 pitch = 4;
+  // Monotonically increasing index of the rendered frame.
+  uint64 frame_idx = 5;
+  // CLOCK_MONOTONIC nanoseconds at the moment Update stashed the ref.
+  uint64 captured_at_ns = 6;
 }
 
 message ComposerStats {

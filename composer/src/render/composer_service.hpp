@@ -11,6 +11,7 @@
 #pragma once
 
 #include "control/composer.grpc.pb.h"
+#include "src/snapshot/snapshot.hpp"
 
 #include <atomic>
 #include <string>
@@ -64,11 +65,20 @@ class ComposerService final : public videonode::control::Composer::Service {
     grpc::Status GetStats(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                           ::videonode::control::ComposerStats* resp) override;
 
+    grpc::Status Snapshot(grpc::ServerContext* ctx,
+                          const ::videonode::control::ComposerSnapshotRequest* req,
+                          ::videonode::control::ComposerSnapshotResponse* resp) override;
+
     grpc::Status Shutdown(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                           ::google::protobuf::Empty* resp) override;
 
+    // Canvas-loop entry point: stash a reference to the latest rendered
+    // BGRA canvas. Cheap — Snapshot() does the mmap+pack lazily.
+    void UpdateLatestCanvas(vn::snapshot::FrameRef ref);
+
   private:
     ComposerContext ctx_;
+    vn::snapshot::LatestFrameHolder frame_holder_;
 };
 
 } // namespace nativerpc

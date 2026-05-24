@@ -9,6 +9,7 @@
 add_subdirectory(proto)
 add_subdirectory(ipc)
 add_subdirectory(rpc)
+add_subdirectory(snapshot)
 add_subdirectory(capture)
 add_subdirectory(render)
 add_subdirectory(process)

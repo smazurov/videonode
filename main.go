@@ -21,6 +21,7 @@ import (
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/metrics/collectors"
 	"github.com/smazurov/videonode/internal/metrics/exporters"
+	"github.com/smazurov/videonode/internal/snapshots"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
@@ -83,8 +84,8 @@ type Options struct {
 	// Features settings
 	FeaturesLEDControl bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
 
-	// Recording settings
-	RecordingDataDir string `help:"Recording data directory" default:"data/recording" toml:"recording.data_dir" env:"RECORDING_DATA_DIR"`
+	// Snapshot preview settings
+	PreviewMaxFPS int `help:"Max fps for snapshot preview streams" default:"10" toml:"preview.max_fps" env:"PREVIEW_MAX_FPS"`
 
 	// Update settings
 	UpdateEnabled    bool `help:"Enable self-update functionality" default:"true" toml:"update.enabled" env:"UPDATE_ENABLED"`
@@ -372,24 +373,29 @@ func main() {
 			Password: opts.AuthPassword,
 		}, logger)
 
+		snapshotCache := snapshots.NewCache(
+			snapshots.Config{MaxFPS: opts.PreviewMaxFPS},
+			nativePipeline,
+			snapshots.FFmpegEncoder{},
+		)
+
 		apiOpts := &api.Options{
-			Authenticator:          authenticator,
-			StreamService:          streamSvc,
-			SourceService:          sourceSvc,
-			ComposerService:        composerSvc,
-			ValidationProvider:     validationProvider,
-			EventBus:               eventBus,
-			EventRegistry:          eventRegistry,
-			WebRTCManager:          webrtcManager,
-			StreamProvider:         streamingServer,
-			SourceSnapshotProvider: nativePipeline,
-			RecordingDir:           opts.RecordingDataDir,
-			PrometheusHandler:      promhttp.Handler(), // Prometheus metrics via promauto
-			UpdateService:          updateService,
-			ControlServer:          ctlServer,
-			ProcessesProvider:      nativePipeline,
-			StreamingRTSPPort:      opts.StreamingRTSPPort,
-			StreamingSRTPort:       opts.SRTAddr,
+			Authenticator:      authenticator,
+			StreamService:      streamSvc,
+			SourceService:      sourceSvc,
+			ComposerService:    composerSvc,
+			ValidationProvider: validationProvider,
+			EventBus:           eventBus,
+			EventRegistry:      eventRegistry,
+			WebRTCManager:      webrtcManager,
+			StreamProvider:     streamingServer,
+			SnapshotCache:      snapshotCache,
+			PrometheusHandler:  promhttp.Handler(), // Prometheus metrics via promauto
+			UpdateService:      updateService,
+			ControlServer:      ctlServer,
+			ProcessesProvider:  nativePipeline,
+			StreamingRTSPPort:  opts.StreamingRTSPPort,
+			StreamingSRTPort:   opts.SRTAddr,
 		}
 
 		// Add LED controller if available
@@ -416,19 +422,6 @@ func main() {
 		}
 
 		hooks.OnStart(func() {
-			// Validate recording directory is writable
-			if err := os.MkdirAll(opts.RecordingDataDir, 0o755); err != nil {
-				logger.Error("Failed to create recording directory", "path", opts.RecordingDataDir, "error", err)
-				os.Exit(1)
-			}
-			testFile := opts.RecordingDataDir + "/.write_test"
-			if err := os.WriteFile(testFile, []byte("ok"), 0o644); err != nil {
-				logger.Error("Recording directory is not writable", "path", opts.RecordingDataDir, "error", err)
-				os.Exit(1)
-			}
-			os.Remove(testFile)
-			logger.Info("Recording directory ready", "path", opts.RecordingDataDir)
-
 			// Start RTSP streaming server first (must be ready for FFmpeg)
 			if err := streamingServer.Start(opts.StreamingRTSPPort); err != nil {
 				logger.Error("Failed to start RTSP server", "error", err)

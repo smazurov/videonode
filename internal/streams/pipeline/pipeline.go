@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/events"
-	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
+	"github.com/smazurov/videonode/internal/snapshots"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
@@ -697,20 +697,45 @@ func (p *Pipeline) EnsureEncoder(streamID string) error {
 // it.
 func (p *Pipeline) Pool() process.Pool { return p.pool }
 
-// CaptureSourceSnapshot dials the source's gRPC Snapshot RPC and converts
-// the returned NV12 frame to JPEG. Returns an error when the control
-// server isn't wired (no native sidecars on this build) or the RPC fails.
-func (p *Pipeline) CaptureSourceSnapshot(sourceID string) ([]byte, error) {
+// SnapshotSource dials the source's gRPC Snapshot RPC and returns the
+// raw NV12 frame + metadata. The daemon's snapshot cache JPEG-encodes
+// on demand; the Pipeline no longer ffmpeg-encodes inline.
+func (p *Pipeline) SnapshotSource(ctx context.Context, sourceID string) (snapshots.Frame, error) {
 	if p.cfg.ControlServer == nil {
-		return nil, fmt.Errorf("no control server for snapshot")
+		return snapshots.Frame{}, fmt.Errorf("no control server for snapshot")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
 	resp, err := p.cfg.ControlServer.Snapshot(ctx, sourceID)
 	if err != nil {
-		return nil, err
+		return snapshots.Frame{}, err
 	}
-	return ffmpeg.EncodeNV12ToJPEG(resp.GetNv12(), int(resp.GetWidth()), int(resp.GetHeight()))
+	return snapshots.Frame{
+		Bytes:      resp.GetNv12(),
+		Format:     snapshots.FormatNV12,
+		Width:      int(resp.GetWidth()),
+		Height:     int(resp.GetHeight()),
+		FrameIdx:   resp.GetFrameIdx(),
+		CapturedNs: resp.GetCapturedAtNs(),
+	}, nil
+}
+
+// SnapshotComposer dials the composer's gRPC Snapshot RPC and returns
+// the raw BGRA canvas frame + metadata.
+func (p *Pipeline) SnapshotComposer(ctx context.Context, composerID string) (snapshots.Frame, error) {
+	if p.cfg.ControlServer == nil {
+		return snapshots.Frame{}, fmt.Errorf("no control server for snapshot")
+	}
+	resp, err := p.cfg.ControlServer.ComposerSnapshot(ctx, composerID)
+	if err != nil {
+		return snapshots.Frame{}, err
+	}
+	return snapshots.Frame{
+		Bytes:      resp.GetBgra(),
+		Format:     snapshots.FormatBGRA,
+		Width:      int(resp.GetWidth()),
+		Height:     int(resp.GetHeight()),
+		FrameIdx:   resp.GetFrameIdx(),
+		CapturedNs: resp.GetCapturedAtNs(),
+	}, nil
 }
 
 // Sources exposes the SourceRegistry for diagnostics.

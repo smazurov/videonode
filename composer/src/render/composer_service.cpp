@@ -165,6 +165,22 @@ grpc::Status ComposerService::GetStats(grpc::ServerContext* /*ctx*/,
     return grpc::Status::OK;
 }
 
+grpc::Status ComposerService::Snapshot(grpc::ServerContext* /*ctx*/,
+                                       const ::videonode::control::ComposerSnapshotRequest* /*req*/,
+                                       ::videonode::control::ComposerSnapshotResponse* resp) {
+    vn::snapshot::FrameBytes fb;
+    if (!frame_holder_.Snapshot(fb)) {
+        return grpc::Status(grpc::StatusCode::UNAVAILABLE, "no canvas frame produced yet");
+    }
+    resp->set_bgra(fb.bytes.data(), fb.bytes.size());
+    resp->set_width(fb.width);
+    resp->set_height(fb.height);
+    resp->set_pitch(fb.pitch_y);
+    resp->set_frame_idx(fb.frame_idx);
+    resp->set_captured_at_ns(fb.captured_at_ns);
+    return grpc::Status::OK;
+}
+
 grpc::Status ComposerService::Shutdown(grpc::ServerContext* /*ctx*/,
                                        const ::google::protobuf::Empty* /*req*/,
                                        ::google::protobuf::Empty* /*resp*/) {
@@ -173,5 +189,7 @@ grpc::Status ComposerService::Shutdown(grpc::ServerContext* /*ctx*/,
     }
     return grpc::Status::OK;
 }
+
+void ComposerService::UpdateLatestCanvas(vn::snapshot::FrameRef ref) { frame_holder_.Update(ref); }
 
 } // namespace nativerpc
