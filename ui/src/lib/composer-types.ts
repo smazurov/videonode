@@ -9,7 +9,12 @@
 export interface CanvasDims {
   w: number;
   h: number;
+  fps?: number;
 }
+
+// Daemon-side default canvas frame rate when fps is unset (0 / undefined).
+// Mirrors pipeline.DefaultCanvasFPS in the Go daemon.
+export const DEFAULT_CANVAS_FPS = 60;
 
 export type EffectType = 'perspective';
 
@@ -60,4 +65,8 @@ export interface ComposerData extends Omit<Composer, 'id'> {
 
 export function formatCanvasDims(c: CanvasDims): string {
   return `${c.w}x${c.h}`;
+}
+
+export function canvasFpsOrDefault(c: CanvasDims): number {
+  return c.fps && c.fps > 0 ? c.fps : DEFAULT_CANVAS_FPS;
 }

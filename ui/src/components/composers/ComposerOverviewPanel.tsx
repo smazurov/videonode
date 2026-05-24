@@ -1,6 +1,6 @@
 import { Card } from '../Card';
 import type { ComposerData } from '../../lib/composer-types';
-import { formatCanvasDims } from '../../lib/composer-types';
+import { canvasFpsOrDefault, formatCanvasDims } from '../../lib/composer-types';
 
 interface ComposerOverviewPanelProps {
   composer: ComposerData;
@@ -67,6 +67,11 @@ export function ComposerOverviewPanel({ composer }: Readonly<ComposerOverviewPan
             <dd className="font-mono">{composer.composer_id}</dd>
             <dt className="text-fg-muted">Canvas</dt>
             <dd className="font-mono">{formatCanvasDims(composer.canvas)}</dd>
+            <dt className="text-fg-muted">Frame rate</dt>
+            <dd className="font-mono tabular-nums">
+              {canvasFpsOrDefault(composer.canvas)} fps
+              {!composer.canvas.fps && <span className="ml-1 text-fg-subtle">(default)</span>}
+            </dd>
             <dt className="text-fg-muted">Inputs</dt>
             <dd className="tabular-nums">{composer.inputs.length}</dd>
             <dt className="text-fg-muted">Layout slots</dt>

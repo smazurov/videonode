@@ -4,6 +4,98 @@
  */
 
 export interface paths {
+    "/api/composers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Composers
+         * @description List all configured composers.
+         */
+        get: operations["list-composers"];
+        put?: never;
+        /**
+         * Create Composer
+         * @description Create a new composer with inputs and optional layout.
+         */
+        post: operations["create-composer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/composers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Composer
+         * @description Fetch a composer by id.
+         */
+        get: operations["get-composer"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Composer
+         * @description Delete a composer. Refuses with 409 if any stream still references it.
+         */
+        delete: operations["delete-composer"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Composer
+         * @description Patch composer fields. Omitted fields are left untouched.
+         */
+        patch: operations["update-composer"];
+        trace?: never;
+    };
+    "/api/composers/{id}/inputs/{ref}/effect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set Composer Input Effect
+         * @description Set or clear the effect on a specific composer input (matched by ref).
+         */
+        patch: operations["set-composer-input-effect"];
+        trace?: never;
+    };
+    "/api/composers/{id}/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Replace Composer Layout
+         * @description Replace the composer's full layout array. Validated against inputs[].
+         */
+        patch: operations["replace-composer-layout"];
+        trace?: never;
+    };
     "/api/devices": {
         parameters: {
             query?: never;
@@ -324,6 +416,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sources
+         * @description List all configured sources (V4L2 producers and test-pattern producers).
+         */
+        get: operations["list-sources"];
+        put?: never;
+        /**
+         * Create Source
+         * @description Register a new source. Provide either device for a V4L2 producer or test_mode=true for the test-pattern producer (mutually exclusive).
+         */
+        post: operations["create-source"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Source
+         * @description Fetch a single source by ID.
+         */
+        get: operations["get-source"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Source
+         * @description Delete a source. Refused with 409 if any composer or stream still references it.
+         */
+        delete: operations["delete-source"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Source
+         * @description Patch a source. Only the supplied fields are modified.
+         */
+        patch: operations["update-source"];
+        trace?: never;
+    };
     "/api/streams": {
         parameters: {
             query?: never;
@@ -624,7 +768,32 @@ export interface components {
             /** @description List of available audio devices */
             devices: components["schemas"]["AudioDevice"][] | null;
         };
+        CanvasDimsData: {
+            /**
+             * Format: int64
+             * @description Canvas frame rate (0 = daemon default)
+             * @example 60
+             */
+            fps?: number;
+            /**
+             * Format: int64
+             * @description Canvas height in pixels
+             * @example 1080
+             */
+            h: number;
+            /**
+             * Format: int64
+             * @description Canvas width in pixels
+             * @example 1920
+             */
+            w: number;
+        };
         ComposerCanvasDims: {
+            /**
+             * Format: int64
+             * @description Canvas frame rate (0 = daemon default)
+             */
+            fps?: number;
             /**
              * Format: int64
              * @description Canvas height in pixels
@@ -636,6 +805,25 @@ export interface components {
              */
             w: number;
         };
+        ComposerCreateRequestData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerCreateRequestData.json
+             */
+            readonly $schema?: string;
+            /** @description Output canvas dimensions */
+            canvas: components["schemas"]["CanvasDimsData"];
+            /**
+             * @description Composer identifier
+             * @example main-scene
+             */
+            id: string;
+            /** @description Composer inputs */
+            inputs: components["schemas"]["ComposerInputData"][] | null;
+            /** @description Initial layout slots (optional; defaults to empty) */
+            layout?: components["schemas"]["LayoutSlotData"][] | null;
+        };
         ComposerCreatedEvent: {
             /** @description Created composer data */
             composer: components["schemas"]["ComposerPayload"];
@@ -643,6 +831,35 @@ export interface components {
             composer_id: string;
             /** @description RFC3339 server time */
             timestamp: string;
+        };
+        ComposerData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerData.json
+             */
+            readonly $schema?: string;
+            /** @description Output canvas dimensions */
+            canvas: components["schemas"]["CanvasDimsData"];
+            /**
+             * Format: date-time
+             * @description Creation timestamp
+             */
+            created_at?: string;
+            /**
+             * @description Composer identifier
+             * @example main-scene
+             */
+            id: string;
+            /** @description Composer inputs (refs + optional effects) */
+            inputs: components["schemas"]["ComposerInputData"][] | null;
+            /** @description Layout slots placing each input on the canvas */
+            layout: components["schemas"]["LayoutSlotData"][] | null;
+            /**
+             * Format: date-time
+             * @description Last update timestamp
+             */
+            updated_at?: string;
         };
         ComposerDeletedEvent: {
             /** @description Deleted composer identifier */
@@ -655,6 +872,25 @@ export interface components {
             corners?: (number[] | null)[] | null;
             /** @description Effect type, e.g. 'perspective' */
             type: string;
+        };
+        ComposerEffectRequestData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerEffectRequestData.json
+             */
+            readonly $schema?: string;
+            /** @description New effect; null clears the existing effect */
+            effect: components["schemas"]["EffectData"] | null;
+        };
+        ComposerInputData: {
+            /** @description Optional per-input effect */
+            effect?: components["schemas"]["EffectData"];
+            /**
+             * @description Upstream ref — source:<id>
+             * @example source:hdmi-slides
+             */
+            ref: string;
         };
         ComposerInputPayload: {
             /** @description Optional per-input effect */
@@ -669,6 +905,16 @@ export interface components {
             layout: components["schemas"]["ComposerLayoutSlot"][] | null;
             /** @description RFC3339 server time */
             timestamp: string;
+        };
+        ComposerLayoutRequestData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerLayoutRequestData.json
+             */
+            readonly $schema?: string;
+            /** @description Full replacement layout array */
+            layout: components["schemas"]["LayoutSlotData"][] | null;
         };
         ComposerLayoutSlot: {
             /**
@@ -694,6 +940,22 @@ export interface components {
              */
             y: number;
         };
+        ComposerListData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerListData.json
+             */
+            readonly $schema?: string;
+            /** @description Configured composers */
+            composers: components["schemas"]["ComposerData"][] | null;
+            /**
+             * Format: int64
+             * @description Total composer count
+             * @example 1
+             */
+            count: number;
+        };
         ComposerPayload: {
             /** @description Canvas dimensions */
             canvas: components["schemas"]["ComposerCanvasDims"];
@@ -707,6 +969,20 @@ export interface components {
             layout?: components["schemas"]["ComposerLayoutSlot"][] | null;
             /** @description RFC3339 last-update timestamp */
             updated_at?: string;
+        };
+        ComposerUpdateRequestData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerUpdateRequestData.json
+             */
+            readonly $schema?: string;
+            /** @description New canvas dimensions */
+            canvas?: components["schemas"]["CanvasDimsData"];
+            /** @description Replacement inputs list */
+            inputs?: components["schemas"]["ComposerInputData"][] | null;
+            /** @description Replacement layout (also validated against inputs) */
+            layout?: components["schemas"]["LayoutSlotData"][] | null;
         };
         ComposerUpdatedEvent: {
             /** @description Composer data after the update */
@@ -902,6 +1178,15 @@ export interface components {
             /** @description True if the source accepted and applied the new format */
             applied: boolean;
         };
+        EffectData: {
+            /** @description Corner coordinates [tl, tr, br, bl] for perspective effects */
+            corners?: (number[] | null)[] | null;
+            /**
+             * @description Effect type identifier
+             * @example perspective
+             */
+            type: string;
+        };
         EncoderConfigData: {
             /**
              * Format: int64
@@ -1066,7 +1351,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yuyv422" | "yu12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "nv12" | "h264" | "mjpeg" | "yv12";
+            format_name: "rgb24" | "nv24" | "nv16" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "yuyv422" | "yv12";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1114,6 +1399,37 @@ export interface components {
         HeartbeatEvent: {
             /** @description Server time at heartbeat */
             timestamp: string;
+        };
+        LayoutSlotData: {
+            /**
+             * Format: int64
+             * @description Slot height in canvas pixels
+             * @example 1080
+             */
+            h: number;
+            /**
+             * @description Input ref this slot draws (matches inputs[].ref)
+             * @example source:hdmi-slides
+             */
+            input: string;
+            /**
+             * Format: int64
+             * @description Slot width in canvas pixels
+             * @example 1920
+             */
+            w: number;
+            /**
+             * Format: int64
+             * @description Slot top-left X in canvas pixels
+             * @example 0
+             */
+            x: number;
+            /**
+             * Format: int64
+             * @description Slot top-left Y in canvas pixels
+             * @example 0
+             */
+            y: number;
         };
         LogEntryEvent: {
             /** @description Structured log attributes */
@@ -1309,6 +1625,29 @@ export interface components {
             evicted: components["schemas"]["SourceConsumerEntry"][] | null;
             live: components["schemas"]["SourceConsumerEntry"][] | null;
         };
+        SourceCreateBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SourceCreateBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Stable device identifier. Omit when test_mode is true.
+             * @example rk3588-hdmi-rx
+             */
+            device?: string;
+            /**
+             * @description Stable source identifier (kebab-case)
+             * @example hdmi-slides
+             */
+            id: string;
+            /**
+             * @description When true, use the test-pattern producer instead of a V4L2 device.
+             * @example false
+             */
+            test_mode?: boolean;
+        };
         SourceCreatedEvent: {
             /** @description Created source data */
             source: components["schemas"]["SourcePayload"];
@@ -1316,6 +1655,39 @@ export interface components {
             source_id: string;
             /** @description RFC3339 server time */
             timestamp: string;
+        };
+        SourceData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SourceData.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: date-time
+             * @description When the source record was created
+             */
+            created_at?: string;
+            /**
+             * @description Stable device identifier. Empty when test_mode is true.
+             * @example rk3588-hdmi-rx
+             */
+            device?: string;
+            /**
+             * @description Stable source identifier (kebab-case)
+             * @example hdmi-slides
+             */
+            id: string;
+            /**
+             * @description When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device.
+             * @example false
+             */
+            test_mode?: boolean;
+            /**
+             * Format: date-time
+             * @description When the source record was last updated
+             */
+            updated_at?: string;
         };
         SourceDeletedEvent: {
             /** @description Deleted source identifier */
@@ -1338,6 +1710,22 @@ export interface components {
             mode: string;
             /** Format: int32 */
             w: number;
+        };
+        SourceListData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SourceListData.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Number of sources returned
+             * @example 3
+             */
+            count: number;
+            /** @description List of configured sources */
+            sources: components["schemas"]["SourceData"][] | null;
         };
         SourcePayload: {
             /** @description RFC3339 creation timestamp */
@@ -1364,6 +1752,24 @@ export interface components {
             status: components["schemas"]["StatusParams"];
             /** @description Server time when received */
             timestamp: string;
+        };
+        SourceUpdateBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SourceUpdateBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description New device identifier; clears when sent as empty string while test_mode is true
+             * @example rk3588-hdmi-rx
+             */
+            device?: string;
+            /**
+             * @description Toggle test-pattern mode
+             * @example true
+             */
+            test_mode?: boolean;
         };
         SourceUpdatedEvent: {
             /** @description Source data after the update */
@@ -1668,6 +2074,456 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "list-composers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerListData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposerCreateRequestData"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposerUpdateRequestData"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "set-composer-input-effect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+                /** @description Input ref (matches inputs[].ref) */
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposerEffectRequestData"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "replace-composer-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposerLayoutRequestData"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-devices": {
         parameters: {
             query?: never;
@@ -1870,7 +2726,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yv12" | "yuyv422" | "yu12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "nv12" | "h264" | "mjpeg";
+                format_name?: "yv12" | "rgb24" | "nv24" | "nv16" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "yuyv422";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -1936,7 +2792,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "nv12" | "h264" | "mjpeg" | "yv12" | "yuyv422" | "yu12" | "bgr24" | "rgb24" | "nv24" | "nv16";
+                format_name?: "nv16" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "yuyv422" | "yv12" | "rgb24" | "nv24";
             };
             header?: never;
             path: {
@@ -2554,6 +3410,310 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceListData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceCreateBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Source identifier */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Source identifier */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Source identifier */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceUpdateBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
