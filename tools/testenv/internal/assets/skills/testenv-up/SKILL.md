@@ -1,21 +1,19 @@
 ---
 name: testenv-up
-description: Spin up a videonode test environment in the current worktree and return its URL. Use when the user asks to "set up a test env", "start a test env", "spin up videonode for testing", or similar. Coordinates with other parallel Claude sessions via the testenv registry so port and device leases never collide.
+description: Spin up a test environment in the current worktree and return its URL. Use when the user asks to "set up a test env", "start a test env", "spin up for testing", or similar. Coordinates with other parallel Claude sessions via the testenv registry so port and device leases never collide. Do NOT tear down the env after testing — leave it running unless the user asks.
 arguments:
-  - target
-  - source
+  - locks
 allowed-tools:
   - Bash(testenv:*)
 ---
 
 # /testenv-up
 
-Bring up an isolated videonode test environment in the current worktree.
+Bring up an isolated test environment per `.testenv.toml`.
 
 ## Arguments
 
-- `$target` — `host` (default) or `sbc`. `sbc` cross-compiles and ssh-spawns on `orangepi5-ultra.lan`.
-- `$source` — `fake` (default, test_mode synthetic source) or `real` (requires a free `/dev/video0` lease).
+- `$locks` — optional, comma-separated exclusive resource locks (e.g. `device:/dev/video0`). Omit for a no-device test env.
 
 ## Current inventory (live)
 
@@ -23,14 +21,16 @@ Bring up an isolated videonode test environment in the current worktree.
 
 ## Bring up the env
 
-!`testenv up --target ${1:-host} --source ${2:-fake} 2>&1`
+!`testenv up ${1:+--lock ${1//,/ --lock }} 2>&1`
 
-After `up` returns, the URL printed is the env you should poke at. Tell the user the URL plainly. If `up` fails with a device-lease conflict, the error message names the holding env/worktree/pid — surface that verbatim so the user can decide whether to take it over or wait.
+After `up` returns, the URL printed is the env you should poke at. Tell the user the URL plainly. If `up` fails with a lock conflict, the error message names the holding env/worktree/pid — surface that verbatim so the user can decide whether to take it over or wait.
 
-If `up` succeeds and the user asked for `real` source, immediately fetch one frame to confirm the capture is real (not a green placeholder):
+If `up` succeeds and a `device:` lock was acquired, immediately fetch one frame to confirm the capture is real (not a green placeholder):
 
 ```
-ffmpeg -i $RTSP_URL -frames:v 1 -y /tmp/testenv-firstframe.png 2>&1 | tail -5
+ffmpeg -i <rtsp_url from output> -frames:v 1 -y /tmp/testenv-firstframe.png 2>&1 | tail -5
 ```
 
-Then describe what you saw (or use a screenshot helper if available) so a green-placeholder regression is caught at env-up time, not three turns later.
+Then describe what you saw so a green-placeholder regression is caught at env-up time, not three turns later.
+
+**Leave the env running after testing.** Do not call testenv-down unless the user explicitly asks.

@@ -1,6 +1,6 @@
 ---
 name: testenv-down
-description: Tear down a videonode test environment created by /testenv-up. Default is the current session's env. Pass an env id to target a specific one. Use when the user is done testing or asks to "tear down" / "stop" / "clean up" the env.
+description: Tear down a test environment. ONLY use when the user explicitly asks to tear down, stop, or clean up the env. Do NOT tear down between test steps or when you think you're "done" — envs are cheap and restarting wastes time. Leave them running unless told otherwise.
 arguments:
   - env_id
 allowed-tools:
