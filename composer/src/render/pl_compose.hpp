@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "src/common/owner.hpp"
+
 #include <cstdint>
 #include <string_view>
 #include <vector>
@@ -55,7 +57,7 @@ class PlCompose {
 
   private:
     struct Impl;
-    Impl* impl_ = nullptr;
+    gsl::owner<Impl*> impl_ = nullptr;
     int canvas_w_ = 0;
     int canvas_h_ = 0;
     uint32_t canvas_stride_ = 0;
