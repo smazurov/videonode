@@ -15,11 +15,17 @@ const (
 	TypeStreamMetrics
 	TypeLogEntry
 	TypeStreamCrashed
-	TypeCanvasRestarted // deprecated: canvases are streams with N>1 inputs, no separate type
 	TypeHeartbeat
 	TypeSourceStatus
-	TypeStageStateChanged // per-stage (Producer/Composer/Encoder) lifecycle event
+	TypeStageStateChanged // per-stage (Source/Composer/Encoder) lifecycle event
 	TypePipelineStateChanged
+	TypeSourceCreated
+	TypeSourceUpdated
+	TypeSourceDeleted
+	TypeComposerCreated
+	TypeComposerUpdated
+	TypeComposerDeleted
+	TypeComposerLayoutChanged
 )
 
 // SourceStatusEvent carries a status snapshot published by a
@@ -145,19 +151,128 @@ type StreamCrashedEvent struct {
 // Type returns the event type identifier for StreamCrashedEvent.
 func (e StreamCrashedEvent) Type() uint32 { return TypeStreamCrashed }
 
-// CanvasRestartedEvent is published when a canvas stream is restarted in
-// response to a source stream's config change. The UI uses this to refresh
-// the canvas card (layout may have changed based on the source's new
-// effective aspect ratio) without waiting for the next metrics tick.
-type CanvasRestartedEvent struct {
-	CanvasID  string            `json:"canvas_id" example:"mycanvas" doc:"Canvas stream identifier that was restarted"`
-	TriggerID string            `json:"trigger_id" example:"cam1" doc:"Source stream whose update triggered the restart"`
-	Canvas    models.StreamData `json:"canvas" doc:"Full canvas stream data after restart"`
-	Timestamp string            `json:"timestamp" example:"2025-01-27T10:30:00Z" doc:"Event timestamp"`
+// SourcePayload mirrors the canonical Source entity shape (see
+// internal/streams/pipeline/source.go). Defined inline to avoid an
+// events → pipeline import cycle; integrator may swap to models.SourceData
+// once B5 lands.
+type SourcePayload struct {
+	ID        string `json:"id" doc:"Source identifier"`
+	Device    string `json:"device,omitempty" doc:"Stable device identifier"`
+	TestMode  bool   `json:"test_mode,omitempty" doc:"Source uses the RPC test-pattern producer"`
+	CreatedAt string `json:"created_at,omitempty" doc:"RFC3339 creation timestamp"`
+	UpdatedAt string `json:"updated_at,omitempty" doc:"RFC3339 last-update timestamp"`
 }
 
-// Type returns the event type identifier for CanvasRestartedEvent.
-func (e CanvasRestartedEvent) Type() uint32 { return TypeCanvasRestarted }
+// SourceCreatedEvent fires when a source is added.
+type SourceCreatedEvent struct {
+	SourceID  string        `json:"source_id" doc:"Created source identifier"`
+	Source    SourcePayload `json:"source" doc:"Created source data"`
+	Timestamp string        `json:"timestamp" doc:"RFC3339 server time"`
+}
+
+// Type returns the event type identifier for SourceCreatedEvent.
+func (e SourceCreatedEvent) Type() uint32 { return TypeSourceCreated }
+
+// SourceUpdatedEvent fires when a source's spec changes.
+type SourceUpdatedEvent struct {
+	SourceID  string        `json:"source_id" doc:"Updated source identifier"`
+	Source    SourcePayload `json:"source" doc:"Source data after the update"`
+	Timestamp string        `json:"timestamp" doc:"RFC3339 server time"`
+}
+
+// Type returns the event type identifier for SourceUpdatedEvent.
+func (e SourceUpdatedEvent) Type() uint32 { return TypeSourceUpdated }
+
+// SourceDeletedEvent fires when a source is removed.
+type SourceDeletedEvent struct {
+	SourceID  string `json:"source_id" doc:"Deleted source identifier"`
+	Timestamp string `json:"timestamp" doc:"RFC3339 server time"`
+}
+
+// Type returns the event type identifier for SourceDeletedEvent.
+func (e SourceDeletedEvent) Type() uint32 { return TypeSourceDeleted }
+
+// ComposerPayload mirrors the canonical Composer entity shape (see
+// internal/streams/pipeline/composer.go). Defined inline to avoid an
+// events → pipeline import cycle; integrator may swap to models.ComposerData
+// once B6 lands.
+type ComposerPayload struct {
+	ID        string                 `json:"id" doc:"Composer identifier"`
+	Canvas    ComposerCanvasDims     `json:"canvas" doc:"Canvas dimensions"`
+	Inputs    []ComposerInputPayload `json:"inputs,omitempty" doc:"Inputs sourced into the composer"`
+	Layout    []ComposerLayoutSlot   `json:"layout,omitempty" doc:"Layout slots placed on the canvas"`
+	CreatedAt string                 `json:"created_at,omitempty" doc:"RFC3339 creation timestamp"`
+	UpdatedAt string                 `json:"updated_at,omitempty" doc:"RFC3339 last-update timestamp"`
+}
+
+// ComposerCanvasDims is the canvas size for a composer payload.
+type ComposerCanvasDims struct {
+	W int `json:"w" doc:"Canvas width in pixels"`
+	H int `json:"h" doc:"Canvas height in pixels"`
+}
+
+// ComposerInputPayload mirrors a composer input ref + optional effect.
+type ComposerInputPayload struct {
+	Ref    string          `json:"ref" doc:"Upstream ref, e.g. 'source:<id>'"`
+	Effect *ComposerEffect `json:"effect,omitempty" doc:"Optional per-input effect"`
+}
+
+// ComposerEffect describes a single effect applied to a composer input.
+type ComposerEffect struct {
+	Type    string    `json:"type" doc:"Effect type, e.g. 'perspective'"`
+	Corners [4][2]int `json:"corners,omitempty" doc:"Perspective corners when type='perspective'"`
+}
+
+// ComposerLayoutSlot describes one slot's geometry on the canvas.
+type ComposerLayoutSlot struct {
+	Input string `json:"input" doc:"Matches ComposerInputPayload.Ref"`
+	X     int    `json:"x" doc:"Slot X in canvas pixels"`
+	Y     int    `json:"y" doc:"Slot Y in canvas pixels"`
+	W     int    `json:"w" doc:"Slot width in canvas pixels"`
+	H     int    `json:"h" doc:"Slot height in canvas pixels"`
+}
+
+// ComposerCreatedEvent fires when a composer is added.
+type ComposerCreatedEvent struct {
+	ComposerID string          `json:"composer_id" doc:"Created composer identifier"`
+	Composer   ComposerPayload `json:"composer" doc:"Created composer data"`
+	Timestamp  string          `json:"timestamp" doc:"RFC3339 server time"`
+}
+
+// Type returns the event type identifier for ComposerCreatedEvent.
+func (e ComposerCreatedEvent) Type() uint32 { return TypeComposerCreated }
+
+// ComposerUpdatedEvent fires when a composer's spec changes (other than
+// layout-only edits, which use ComposerLayoutChangedEvent).
+type ComposerUpdatedEvent struct {
+	ComposerID string          `json:"composer_id" doc:"Updated composer identifier"`
+	Composer   ComposerPayload `json:"composer" doc:"Composer data after the update"`
+	Timestamp  string          `json:"timestamp" doc:"RFC3339 server time"`
+}
+
+// Type returns the event type identifier for ComposerUpdatedEvent.
+func (e ComposerUpdatedEvent) Type() uint32 { return TypeComposerUpdated }
+
+// ComposerDeletedEvent fires when a composer is removed.
+type ComposerDeletedEvent struct {
+	ComposerID string `json:"composer_id" doc:"Deleted composer identifier"`
+	Timestamp  string `json:"timestamp" doc:"RFC3339 server time"`
+}
+
+// Type returns the event type identifier for ComposerDeletedEvent.
+func (e ComposerDeletedEvent) Type() uint32 { return TypeComposerDeleted }
+
+// ComposerLayoutChangedEvent fires on a live layout edit (PATCH
+// /api/composers/{id}/layout). Carries only the new layout slots so the
+// UI can apply incremental updates without a full composer refetch.
+type ComposerLayoutChangedEvent struct {
+	ComposerID string               `json:"composer_id" doc:"Composer whose layout changed"`
+	Layout     []ComposerLayoutSlot `json:"layout" doc:"New layout slots"`
+	Timestamp  string               `json:"timestamp" doc:"RFC3339 server time"`
+}
+
+// Type returns the event type identifier for ComposerLayoutChangedEvent.
+func (e ComposerLayoutChangedEvent) Type() uint32 { return TypeComposerLayoutChanged }
 
 // StageStateChangedEvent fires when a pipeline stage (Producer,
 // Composer, or Encoder) transitions in or out of Running. Replaces the
