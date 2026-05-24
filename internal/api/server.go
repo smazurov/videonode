@@ -23,16 +23,17 @@ import (
 
 // Server represents the new Huma v2 API server.
 type Server struct {
-	api            huma.API
-	mux            *http.ServeMux
-	httpServer     *http.Server
-	streamService  streams.StreamService
-	sourceService  SourceService
-	options        *Options
-	deviceDetector devices.DeviceDetector
-	eventBus       *events.Bus
-	controlServer  *pipelinectl.Manager
-	logger         logging.Logger
+	api             huma.API
+	mux             *http.ServeMux
+	httpServer      *http.Server
+	streamService   streams.StreamService
+	sourceService   SourceService
+	composerService ComposerService
+	options         *Options
+	deviceDetector  devices.DeviceDetector
+	eventBus        *events.Bus
+	controlServer   *pipelinectl.Manager
+	logger          logging.Logger
 }
 
 // rtspPortOrDefault returns the configured RTSP publish port (e.g.
@@ -138,6 +139,7 @@ type Options struct {
 	Authenticator     auth.Authenticator
 	StreamService     streams.StreamService
 	SourceService     SourceService   // Optional: enables /api/sources CRUD when set
+	ComposerService   ComposerService // Optional: enables /api/composers when set
 	EventBus          *events.Bus     // Event bus for in-process events
 	PrometheusHandler http.Handler    // Optional Prometheus metrics handler
 	UpdateService     updater.Service // Optional self-update service
@@ -189,14 +191,15 @@ func NewServer(opts *Options) *Server {
 	api := humago.New(mux, config)
 
 	server := &Server{
-		api:           api,
-		mux:           mux,
-		streamService: opts.StreamService,
-		sourceService: opts.SourceService,
-		options:       opts,
-		eventBus:      opts.EventBus,
-		controlServer: opts.ControlServer,
-		logger:        logging.GetLogger("api"),
+		api:             api,
+		mux:             mux,
+		streamService:   opts.StreamService,
+		sourceService:   opts.SourceService,
+		composerService: opts.ComposerService,
+		options:         opts,
+		eventBus:        opts.EventBus,
+		controlServer:   opts.ControlServer,
+		logger:          logging.GetLogger("api"),
 	}
 
 	// Apply CORS middleware first (before auth)
@@ -357,6 +360,9 @@ func (s *Server) registerRoutes() {
 
 	// Stream endpoints
 	s.registerStreamRoutes()
+
+	// Composer endpoints (no-op when composer service is nil)
+	s.registerComposerRoutes()
 
 	// Pipeline master switch endpoints
 	s.registerPipelineRoutes()
