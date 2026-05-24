@@ -75,6 +75,13 @@ function URLCell({ url, protocol, tone }: { readonly url: string | undefined; re
   );
 }
 
+interface ConsumerCounts {
+  total?: number;
+  rtsp?: number;
+  webrtc?: number;
+  srt?: number;
+}
+
 export function StreamList({
   streamIds,
   loading = false,
@@ -84,6 +91,7 @@ export function StreamList({
 }: StreamListProps) {
   const navigate = useNavigate();
   const streamsById = useStreamStore((state) => state.streamsById);
+  const consumersById = useStreamStore((state) => state.consumersById);
 
   const rows = useMemo<StreamRow[]>(() => {
     return streamIds
@@ -127,6 +135,24 @@ export function StreamList({
         sortValue: (row) => (row.stream.enabled ? 0 : 1),
       },
       {
+        id: 'readers',
+        header: 'Readers',
+        cell: (row) => {
+          const c = consumersById[row.streamId] as ConsumerCounts | undefined;
+          const total = c?.total ?? 0;
+          const breakdown = c
+            ? `RTSP ${c.rtsp ?? 0} · WebRTC ${c.webrtc ?? 0} · SRT ${c.srt ?? 0}`
+            : 'no readers yet';
+          return (
+            <span className="tabular-nums text-sm" title={breakdown}>
+              {total}
+            </span>
+          );
+        },
+        sortValue: (row) => (consumersById[row.streamId] as ConsumerCounts | undefined)?.total ?? 0,
+        className: 'text-right',
+      },
+      {
         id: 'rtsp',
         header: 'RTSP',
         cell: (row) => <URLCell url={row.stream.rtsp_url} protocol="rtsp" tone="rtsp" />,
@@ -151,7 +177,7 @@ export function StreamList({
         ),
       },
     ],
-    [],
+    [consumersById],
   );
 
   const handleRowClick = (row: StreamRow) => {

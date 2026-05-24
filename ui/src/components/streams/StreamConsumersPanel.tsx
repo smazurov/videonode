@@ -53,24 +53,40 @@ function deriveConsumers(processes: ReturnType<typeof useProcesses>['processes']
   return { running: true, connectedSince: uptimeFrom(encoder.started_at_us) };
 }
 
+interface ConsumerCounts {
+  total?: number;
+  rtsp?: number;
+  webrtc?: number;
+  srt?: number;
+}
+
 export function StreamConsumersPanel({ streamId, className }: StreamConsumersPanelProps) {
   const [activeTab, setActiveTab] = useState<Protocol>('webrtc');
   const { processes } = useProcesses({ enabled: true });
   const stream = useStreamStore((state) => state.streamsById[streamId]);
+  const consumers = useStreamStore((state) => state.consumersById[streamId]) as ConsumerCounts | undefined;
 
   const encoderState = useMemo(() => deriveConsumers(processes, streamId), [processes, streamId]);
 
   const rowsByProto: Record<Protocol, ConsumerRow[]> = useMemo(() => {
     const placeholders: Record<Protocol, ConsumerRow[]> = { webrtc: [], srt: [], rtsp: [] };
     if (!stream?.enabled || !encoderState.running) return placeholders;
-    // Until the backend exposes per-protocol consumer lists, surface a single
-    // synthetic row indicating the encoder feed is live.
-    const row: ConsumerRow = { id: `${streamId}-encoder`, connectedSince: encoderState.connectedSince ?? '—' };
-    if (stream.rtsp_url) placeholders.rtsp.push(row);
-    if (stream.srt_url) placeholders.srt.push(row);
-    placeholders.webrtc.push(row);
+    const since = encoderState.connectedSince ?? '—';
+    // Use the live counts the backend now publishes via the per-stream
+    // consumer-count broadcaster (main.go). One synthetic row per active
+    // client so the table reflects the live reader total per protocol.
+    const fillRows = (count: number, kind: Protocol): ConsumerRow[] => {
+      const out: ConsumerRow[] = [];
+      for (let i = 0; i < count; i++) out.push({ id: `${streamId}-${kind}-${i}`, connectedSince: since });
+      return out;
+    };
+    if (consumers) {
+      placeholders.rtsp = fillRows(consumers.rtsp ?? 0, 'rtsp');
+      placeholders.webrtc = fillRows(consumers.webrtc ?? 0, 'webrtc');
+      placeholders.srt = fillRows(consumers.srt ?? 0, 'srt');
+    }
     return placeholders;
-  }, [stream, encoderState, streamId]);
+  }, [stream, encoderState, streamId, consumers]);
 
   const tabs: Protocol[] = ['webrtc', 'srt', 'rtsp'];
 

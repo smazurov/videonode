@@ -195,7 +195,9 @@ func main() {
 			}
 		})
 
-		// Emit "running" event when a stream's RTSP producer connects
+		// Emit "running" event when a stream's RTSP producer connects.
+		// Mirror on the uniform entity envelope so the UI's per-stream
+		// status pill flips without piggybacking on the legacy event.
 		streamingServer.SetOnProducerConnected(func(streamID string) {
 			eventBus.Publish(events.StreamStateChangedEvent{
 				StreamID:  streamID,
@@ -203,6 +205,13 @@ func main() {
 				Action:    "running",
 				Timestamp: time.Now().Format(time.RFC3339),
 			})
+			if eventRegistry != nil {
+				eventRegistry.Publish("stream", events.ActionStatus, streamID, map[string]any{
+					"state":      "running",
+					"timestamp":  time.Now().Format(time.RFC3339),
+					"encoder_up": true,
+				})
+			}
 		})
 
 		// Default command starts the server using existing API server
@@ -230,7 +239,9 @@ func main() {
 					"error", err)
 				ctlServer = nil
 			} else {
-				// Pump status notifications into the event bus.
+				// Pump status notifications into the event bus AND the
+				// uniform entity envelope so the UI's per-source status pill
+				// and consumer count react in real time.
 				go func() {
 					for st := range ctlServer.StatusFeed() {
 						eventBus.Publish(events.SourceStatusEvent{
@@ -238,6 +249,10 @@ func main() {
 							Status:    st,
 							Timestamp: time.Now().Format(time.RFC3339),
 						})
+						if eventRegistry != nil && st.DeviceID != "" {
+							eventRegistry.Publish("source", events.ActionStatus, st.DeviceID, st)
+							eventRegistry.Publish("source", events.ActionConsumers, st.DeviceID, st.Consumers)
+						}
 					}
 				}()
 			}
@@ -262,9 +277,18 @@ func main() {
 
 		// Lazy encoder lifecycle: idle the encoder once the last consumer
 		// disconnects, restart it on the next consumer attach. Producers
-		// and composers stay warm across the cycle.
+		// and composers stay warm across the cycle. Mirror encoder
+		// teardown on the entity envelope so the UI's per-stream status
+		// pill flips back to "idle" without polling.
 		streamingServer.SetOnLastReaderGone(func(streamID string) {
 			_ = nativePipeline.StopEncoder(streamID)
+			if eventRegistry != nil {
+				eventRegistry.Publish("stream", events.ActionStatus, streamID, map[string]any{
+					"state":      "stopped",
+					"timestamp":  time.Now().Format(time.RFC3339),
+					"encoder_up": false,
+				})
+			}
 		})
 		streamingServer.SetOnEnsureStream(func(streamID string) error {
 			return nativePipeline.EnsureEncoder(streamID)
@@ -374,7 +398,7 @@ func main() {
 
 		// Create SSE exporter if enabled
 		if opts.SSEEnabled {
-			sseExporter = exporters.NewSSEExporter(eventBus)
+			sseExporter = exporters.NewSSEExporter(eventBus).WithEntityRegistry(eventRegistry)
 		}
 
 		hooks.OnStart(func() {
@@ -408,6 +432,44 @@ func main() {
 			// Start SSE exporter if enabled
 			if sseExporter != nil {
 				sseExporter.Start(context.Background())
+			}
+
+			// Per-stream consumer-count broadcaster. Polls every second
+			// and emits an `entity.stream.consumers` envelope so the UI's
+			// per-stream reader-count column updates without piggybacking
+			// on encoder restarts.
+			if eventRegistry != nil && streamSvc != nil {
+				go func() {
+					ticker := time.NewTicker(1 * time.Second)
+					defer ticker.Stop()
+					for range ticker.C {
+						streamsCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+						list, err := streamSvc.List(streamsCtx)
+						cancel()
+						if err != nil {
+							continue
+						}
+						// Emit every tick (no de-dup) so fresh SSE
+						// subscribers see the current count within 1s of
+						// connect instead of waiting for the next
+						// connect/disconnect transition.
+						for _, st := range list {
+							sid := st.ID
+							rtsp := streamingServer.GetStreamReaderCount(sid)
+							webrtc := webrtcManager.StreamPeerCount(sid)
+							srt := 0
+							if srtServer != nil {
+								srt = srtServer.StreamConsumerCount(sid)
+							}
+							eventRegistry.Publish("stream", events.ActionConsumers, sid, map[string]any{
+								"total":  rtsp + webrtc + srt,
+								"rtsp":   rtsp,
+								"webrtc": webrtc,
+								"srt":    srt,
+							})
+						}
+					}
+				}()
 			}
 
 			// Start LED manager if enabled
