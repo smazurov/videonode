@@ -69,30 +69,3 @@ func backendForEncoder(encoder string) string {
 		return "sw"
 	}
 }
-
-// hwScaleFilter returns the HW scale filter for backend; format defaults to nv12; sw ignores format.
-func hwScaleFilter(backend string, w, h int, format string) string {
-	if format == "" {
-		format = "nv12"
-	}
-	switch backend {
-	case "rkmpp":
-		return fmt.Sprintf("scale_rkrga=%d:%d:format=%s", w, h, format)
-	case "vaapi":
-		return fmt.Sprintf("scale_vaapi=w=%d:h=%d:format=%s", w, h, format)
-	default:
-		return fmt.Sprintf("scale=%d:%d", w, h)
-	}
-}
-
-// hwOverlayFilter returns the HW overlay filter for backend at (x, y); sw returns plain overlay.
-func hwOverlayFilter(backend string, x, y int) string {
-	switch backend {
-	case "rkmpp":
-		return fmt.Sprintf("overlay_rkrga=x=%d:y=%d", x, y)
-	case "vaapi":
-		return fmt.Sprintf("overlay_vaapi=x=%d:y=%d", x, y)
-	default:
-		return fmt.Sprintf("overlay=%d:%d", x, y)
-	}
-}
