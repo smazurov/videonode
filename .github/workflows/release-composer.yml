@@ -7,8 +7,9 @@ on:
 
 jobs:
   rpm-x86_64:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     container: fedora:43
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install build deps
@@ -31,8 +32,9 @@ jobs:
           path: build/*.rpm
 
   deb-arm64:
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-24.04-arm
     container: arm64v8/debian:trixie
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install build deps
@@ -59,7 +61,8 @@ jobs:
 
   release:
     needs: [rpm-x86_64, deb-arm64]
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:

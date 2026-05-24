@@ -12,7 +12,7 @@ on:
 
 jobs:
   build-test-fedora:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     container: fedora:43
     timeout-minutes: 10
     steps:
@@ -34,7 +34,7 @@ jobs:
         run: ctest --preset dev --output-on-failure --output-junit results.xml
 
   build-test-fedora-asan:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     container: fedora:43
     timeout-minutes: 10
     steps:
@@ -59,7 +59,7 @@ jobs:
         run: ctest --preset dev-asan --output-on-failure --output-junit results.xml
 
   build-test-debian-arm64:
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-24.04-arm
     container: arm64v8/debian:trixie
     timeout-minutes: 10
     steps:
@@ -84,7 +84,7 @@ jobs:
         run: ctest --preset dev --output-on-failure --output-junit results.xml
 
   lint:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     container: fedora:43
     timeout-minutes: 10
     steps:
@@ -103,7 +103,7 @@ jobs:
         run: cmake --build build/dev --target lint
 
   clang-tidy-diff:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     container: fedora:43
     timeout-minutes: 10
     steps:
