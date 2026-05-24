@@ -89,12 +89,42 @@ if(HAVE_GBM)
         PkgConfig::EGL PkgConfig::GLESV2 PkgConfig::GBM PkgConfig::DRM)
 endif()
 
+# libplacebo — optional, used for evaluation probes (#9). Fedora:
+# libplacebo-devel, Debian: libplacebo-dev. When present, builds
+# placebo-csc-probe / placebo-vk-probe / placebo-host-copy-probe.
+pkg_check_modules(PLACEBO IMPORTED_TARGET libplacebo)
+set(HAVE_PLACEBO FALSE)
+if(TARGET PkgConfig::PLACEBO)
+    set(HAVE_PLACEBO TRUE)
+    add_library(placebo_bundle INTERFACE)
+    target_link_libraries(placebo_bundle INTERFACE PkgConfig::PLACEBO)
+endif()
+
+# Vulkan loader — optional, needed by placebo-vk-probe and
+# placebo-host-copy-probe. Usually present if vulkan-loader-devel is
+# installed.
+pkg_check_modules(VULKAN IMPORTED_TARGET vulkan)
+set(HAVE_VULKAN FALSE)
+if(TARGET PkgConfig::VULKAN)
+    set(HAVE_VULKAN TRUE)
+endif()
+
 message(STATUS "videonode-native deps:")
 message(STATUS "  GBM (libgbm-dev):             ${HAVE_GBM}")
 message(STATUS "  libturbojpeg (libjpeg-turbo): ${TURBOJPEG_VERSION}")
 message(STATUS "  librga (Rockchip):            ${HAVE_RGA}")
 message(STATUS "  GLES MRT CSC backend:         ${HAVE_GLES_CSC}")
 message(STATUS "  librockchip_mpp (Rockchip):   ${HAVE_MPP}")
+if(HAVE_PLACEBO)
+    message(STATUS "  libplacebo:                   ${PLACEBO_VERSION}")
+else()
+    message(STATUS "  libplacebo:                   not found")
+endif()
+if(HAVE_VULKAN)
+    message(STATUS "  Vulkan:                       ${VULKAN_VERSION}")
+else()
+    message(STATUS "  Vulkan:                       not found")
+endif()
 if(NOT HAVE_GBM)
     message(STATUS "  -> GLES probes + videonode-composer binary will be SKIPPED")
 endif()
