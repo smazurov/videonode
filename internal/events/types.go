@@ -233,8 +233,10 @@ type ComposerInputPayload struct {
 
 // ComposerEffect describes a single effect applied to a composer input.
 type ComposerEffect struct {
-	Type    string    `json:"type" doc:"Effect type, e.g. 'perspective'"`
-	Corners [4][2]int `json:"corners,omitempty" doc:"Perspective corners when type='perspective'"`
+	Type      string    `json:"type" doc:"Effect type, e.g. 'perspective'"`
+	Corners   [4][2]int `json:"corners,omitempty" doc:"Perspective corners when type='perspective'"`
+	SnapshotW int       `json:"snapshot_w,omitempty" doc:"Source pixel width the corners are expressed in"`
+	SnapshotH int       `json:"snapshot_h,omitempty" doc:"Source pixel height the corners are expressed in"`
 }
 
 // ComposerLayoutSlot describes one slot's geometry on the canvas.

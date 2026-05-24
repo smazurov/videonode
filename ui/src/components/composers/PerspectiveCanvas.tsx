@@ -32,14 +32,19 @@ function sortCornersClockwise(points: Corner[]): Corner[] {
   return [...ordered.slice(minIdx), ...ordered.slice(0, minIdx)];
 }
 
+export interface SnapshotDims {
+  w: number;
+  h: number;
+}
+
 interface PerspectiveCanvasProps {
   /** Snapshot source: a source id whose raw NV12 snapshot endpoint provides the live preview backdrop. */
   snapshotSourceId: string | null;
   corners: Corner[];
   onCornersChange: (corners: Corner[], sorted: boolean) => void;
   sorted: boolean;
-  inputWidth: number;
-  inputHeight: number;
+  /** Notifies parent of the snapshot's natural pixel dimensions on load. */
+  onSnapshotDimsChange?: (dims: SnapshotDims) => void;
 }
 
 export function PerspectiveCanvas({
@@ -47,12 +52,11 @@ export function PerspectiveCanvas({
   corners,
   onCornersChange,
   sorted,
-  inputWidth,
-  inputHeight,
+  onSnapshotDimsChange,
 }: Readonly<PerspectiveCanvasProps>) {
   const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const [naturalDims, setNaturalDims] = useState<SnapshotDims | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -64,7 +68,7 @@ export function PerspectiveCanvas({
     }
     setLoading(true);
     setError(null);
-    setImageLoaded(false);
+    setNaturalDims(null);
     try {
       const { data, error: snapErr } = await api.POST(SOURCE_SNAPSHOT_ENDPOINT, {
         params: { path: { source_id: snapshotSourceId } },
@@ -86,14 +90,14 @@ export function PerspectiveCanvas({
   const getImageCoords = useCallback(
     (clientX: number, clientY: number): Corner | null => {
       const img = imgRef.current;
-      if (!img) return null;
+      if (!img || !naturalDims) return null;
       const rect = img.getBoundingClientRect();
       return [
-        Math.round((clientX - rect.left) * (inputWidth / rect.width)),
-        Math.round((clientY - rect.top) * (inputHeight / rect.height)),
+        Math.round((clientX - rect.left) * (naturalDims.w / rect.width)),
+        Math.round((clientY - rect.top) * (naturalDims.h / rect.height)),
       ];
     },
-    [inputWidth, inputHeight],
+    [naturalDims],
   );
 
   const handleImageClick = useCallback(
@@ -134,12 +138,10 @@ export function PerspectiveCanvas({
   }, []);
 
   const renderOverlay = () => {
-    if (!imgRef.current || !imageLoaded || corners.length === 0) return null;
-    const img = imgRef.current;
-    if (img.naturalWidth === 0 || img.naturalHeight === 0) return null;
-    const rect = img.getBoundingClientRect();
-    const sx = rect.width / inputWidth;
-    const sy = rect.height / inputHeight;
+    if (!imgRef.current || !naturalDims || corners.length === 0) return null;
+    const rect = imgRef.current.getBoundingClientRect();
+    const sx = rect.width / naturalDims.w;
+    const sy = rect.height / naturalDims.h;
     const scaled = corners.map(([x, y]) => [x * sx, y * sy]);
 
     return (
@@ -204,7 +206,14 @@ export function PerspectiveCanvas({
               alt="Source snapshot"
               className="w-full select-none cursor-crosshair"
               onClick={handleImageClick}
-              onLoad={() => setImageLoaded(true)}
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                  const dims = { w: img.naturalWidth, h: img.naturalHeight };
+                  setNaturalDims(dims);
+                  onSnapshotDimsChange?.(dims);
+                }
+              }}
               draggable={false}
             />
             {renderOverlay()}
