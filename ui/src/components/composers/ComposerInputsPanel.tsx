@@ -177,8 +177,6 @@ export function ComposerInputsPanel({ composer }: Readonly<ComposerInputsPanelPr
             inputRef={editingInput.ref}
             effect={editingInput.effect ?? null}
             snapshotSourceId={sourceIdFromRef(editingInput.ref)}
-            inputWidth={composer.canvas.w}
-            inputHeight={composer.canvas.h}
             saving={busy}
             onSave={(effect) => handleSaveEffect(editingInput.ref, effect)}
             onCancel={() => setEditingRef(null)}
