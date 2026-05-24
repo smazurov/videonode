@@ -41,7 +41,7 @@ func (s *Server) registerSSERoutes() {
 		maps.Copy(eventTypes, exporters.GetEventTypesForEndpoint("events"))
 
 		return eventTypes
-	}(), func(ctx context.Context, _ *struct{}, send sse.Sender) {
+	}(), func(ctx context.Context, _ *sseInput, send sse.Sender) {
 		eventCh := make(chan any, 10)
 
 		unsubscribers := []func(){
