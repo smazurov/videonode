@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "testenv reap >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "testenv release-session \"${CLAUDE_SESSION_ID:-}\" >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}
