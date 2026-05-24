@@ -26,8 +26,12 @@ type EncoderStage struct {
 	VNSinkBin         string // path to vn-sink binary
 }
 
+// EncoderIDFor returns the stable pool key for a stream's encoder
+// stage. Stream-id is the encoder identity end-to-end.
+func EncoderIDFor(streamID string) string { return "encoder:" + streamID }
+
 // ID returns the stage's process.Pool key: "encoder:<stream-id>".
-func (e *EncoderStage) ID() string { return "encoder:" + e.StreamID_ }
+func (e *EncoderStage) ID() string { return EncoderIDFor(e.StreamID_) }
 
 // Kind reports this as an Encoder stage for logging and pool routing.
 func (e *EncoderStage) Kind() Kind { return KindEncoder }
