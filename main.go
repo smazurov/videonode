@@ -238,24 +238,11 @@ func main() {
 				logger.Warn("control plane disabled (start failed)",
 					"error", err)
 				ctlServer = nil
-			} else {
-				// Pump status notifications into the event bus AND the
-				// uniform entity envelope so the UI's per-source status pill
-				// and consumer count react in real time.
-				go func() {
-					for st := range ctlServer.StatusFeed() {
-						eventBus.Publish(events.SourceStatusEvent{
-							DeviceID:  st.DeviceID,
-							Status:    st,
-							Timestamp: time.Now().Format(time.RFC3339),
-						})
-						if eventRegistry != nil && st.DeviceID != "" {
-							eventRegistry.Publish("source", events.ActionStatus, st.DeviceID, st)
-							eventRegistry.Publish("source", events.ActionConsumers, st.DeviceID, st.Consumers)
-						}
-					}
-				}()
 			}
+			// The StatusFeed pump goroutine is started AFTER
+			// nativePipeline is constructed below, so it can stamp
+			// StartedAtUs onto each status payload from the supervisor
+			// pool.
 		}
 
 		// Create stream service
@@ -274,6 +261,33 @@ func main() {
 			EventBus:       eventBus,
 			ControlServer:  ctlServer,
 		}, logger)
+
+		// Pump status notifications into the event bus AND the uniform
+		// entity envelope so the UI's per-source status pill and
+		// consumer count react in real time. StartedAtUs is stamped
+		// daemon-side from the supervisor pool so the UI can derive
+		// uptime regardless of when the operator's browser connected.
+		if ctlServer != nil {
+			go func() {
+				for st := range ctlServer.StatusFeed() {
+					if st.DeviceID != "" {
+						info := nativePipeline.Pool().GetStatus("producer:" + st.DeviceID)
+						if !info.StartedAt.IsZero() {
+							st.StartedAtUs = info.StartedAt.UnixMicro()
+						}
+					}
+					eventBus.Publish(events.SourceStatusEvent{
+						DeviceID:  st.DeviceID,
+						Status:    st,
+						Timestamp: time.Now().Format(time.RFC3339),
+					})
+					if eventRegistry != nil && st.DeviceID != "" {
+						eventRegistry.Publish("source", events.ActionStatus, st.DeviceID, st)
+						eventRegistry.Publish("source", events.ActionConsumers, st.DeviceID, st.Consumers)
+					}
+				}
+			}()
+		}
 
 		// Lazy encoder lifecycle: idle the encoder once the last consumer
 		// disconnects, restart it on the next consumer attach. Producers
