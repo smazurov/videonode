@@ -22,8 +22,19 @@ type Source struct {
 	ID        string
 	Device    string
 	TestMode  bool
+	Format    *SourceFormat
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// SourceFormat is the operator-selected V4L2 capture format mirrored
+// from pipeline.SourceFormat. Defined locally so this package stays
+// independent of internal/streams/pipeline.
+type SourceFormat struct {
+	FourCC string
+	Width  uint32
+	Height uint32
+	FPS    uint32
 }
 
 // SourcePatch describes a partial source update. Nil fields are
@@ -31,6 +42,7 @@ type Source struct {
 type SourcePatch struct {
 	Device   *string
 	TestMode *bool
+	Format   *SourceFormat
 }
 
 // SourceService is the contract the API layer requires of the service
@@ -125,10 +137,15 @@ func (s *Server) registerSourceRoutes() {
 		Errors:      []int{400, 401, 409, 500},
 		Security:    withAuth(),
 	}, func(ctx context.Context, input *models.SourceCreateRequest) (*models.SourceResponse, error) {
+		format, err := sourceFormatFromBody(input.Body.Format)
+		if err != nil {
+			return nil, huma.Error400BadRequest(err.Error(), err)
+		}
 		src := Source{
 			ID:       input.Body.SourceID,
 			Device:   input.Body.Device,
 			TestMode: input.Body.TestMode,
+			Format:   format,
 		}
 		created, err := s.sourceService.Create(ctx, src)
 		if err != nil {
@@ -167,9 +184,14 @@ func (s *Server) registerSourceRoutes() {
 		Errors:      []int{400, 401, 404, 500},
 		Security:    withAuth(),
 	}, func(ctx context.Context, input *models.SourceUpdateRequest) (*models.SourceResponse, error) {
+		format, err := sourceFormatFromBody(input.Body.Format)
+		if err != nil {
+			return nil, huma.Error400BadRequest(err.Error(), err)
+		}
 		patch := SourcePatch{
 			Device:   input.Body.Device,
 			TestMode: input.Body.TestMode,
+			Format:   format,
 		}
 		updated, err := s.sourceService.Update(ctx, input.SourceID, patch)
 		if err != nil {
@@ -200,13 +222,47 @@ func (s *Server) registerSourceRoutes() {
 
 // sourceToAPI converts the internal source descriptor to the wire model.
 func sourceToAPI(src Source) models.SourceData {
-	return models.SourceData{
+	out := models.SourceData{
 		SourceID:  src.ID,
 		Device:    src.Device,
 		TestMode:  src.TestMode,
 		CreatedAt: src.CreatedAt,
 		UpdatedAt: src.UpdatedAt,
 	}
+	if src.Format != nil {
+		name, ok := models.PixelFormatToVideoFormatByFourCC(src.Format.FourCC)
+		if ok {
+			out.Format = &models.SourceFormatBody{
+				FormatName: name,
+				Width:      src.Format.Width,
+				Height:     src.Format.Height,
+				FPS:        src.Format.FPS,
+			}
+		}
+	}
+	return out
+}
+
+// sourceFormatFromBody validates and converts an API SourceFormatBody to
+// the internal Source.Format shape. Returns (nil, nil) when the body is
+// nil so optional fields stay optional.
+func sourceFormatFromBody(b *models.SourceFormatBody) (*SourceFormat, error) {
+	if b == nil {
+		return nil, nil
+	}
+	if b.Width == 0 || b.Height == 0 {
+		return nil, errors.New("source format requires width and height > 0")
+	}
+	fourcc, err := b.FormatName.ToFourCC()
+	if err != nil {
+		return nil, fmt.Errorf("source format: %w", err)
+	}
+	return &SourceFormat{
+		FourCC: fourcc,
+		Width:  b.Width,
+		Height: b.Height,
+		FPS:    b.FPS,
+	}, nil
 }
 
 // mapSourceError translates service-layer errors into huma StatusErrors.

@@ -12,11 +12,24 @@ import "time"
 // Exactly one of Device or TestMode must be set; the daemon rejects both
 // empty or both populated.
 type SourceData struct {
-	SourceID  string    `json:"id" example:"hdmi-slides" doc:"Stable source identifier (kebab-case)"`
-	Device    string    `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Empty when test_mode is true."`
-	TestMode  bool      `json:"test_mode,omitempty" example:"false" doc:"When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device."`
-	CreatedAt time.Time `json:"created_at,omitzero" doc:"When the source record was created"`
-	UpdatedAt time.Time `json:"updated_at,omitzero" doc:"When the source record was last updated"`
+	SourceID  string            `json:"id" example:"hdmi-slides" doc:"Stable source identifier (kebab-case)"`
+	Device    string            `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Empty when test_mode is true."`
+	TestMode  bool              `json:"test_mode,omitempty" example:"false" doc:"When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device."`
+	Format    *SourceFormatBody `json:"format,omitempty" doc:"Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate."`
+	CreatedAt time.Time         `json:"created_at,omitzero" doc:"When the source record was created"`
+	UpdatedAt time.Time         `json:"updated_at,omitzero" doc:"When the source record was last updated"`
+}
+
+// SourceFormatBody is the operator-selected V4L2 capture format the
+// daemon pushes to videonode-source over gRPC SetFormat. FormatName is
+// the lowercase VideoFormat (the same value /api/devices/{id}/formats
+// returns); the API layer converts it to a 4-char V4L2 fourcc before
+// dispatch.
+type SourceFormatBody struct {
+	FormatName VideoFormat `json:"format_name" example:"yuyv422" doc:"Lowercase video format name (matches /api/devices/{id}/formats)"`
+	Width      uint32      `json:"width" example:"1920" doc:"Capture width in pixels"`
+	Height     uint32      `json:"height" example:"1080" doc:"Capture height in pixels"`
+	FPS        uint32      `json:"fps,omitempty" example:"30" doc:"Capture framerate; 0 = driver default"`
 }
 
 // SourceListData wraps a list of sources for the index endpoint.
@@ -37,9 +50,10 @@ type SourceResponse struct {
 
 // SourceCreateBody is the create-source request payload.
 type SourceCreateBody struct {
-	SourceID string `json:"id" minLength:"1" maxLength:"64" pattern:"^[a-z0-9][a-z0-9-]*$" example:"hdmi-slides" doc:"Stable source identifier (kebab-case)"`
-	Device   string `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Omit when test_mode is true."`
-	TestMode bool   `json:"test_mode,omitempty" example:"false" doc:"When true, use the test-pattern producer instead of a V4L2 device."`
+	SourceID string            `json:"id" minLength:"1" maxLength:"64" pattern:"^[a-z0-9][a-z0-9-]*$" example:"hdmi-slides" doc:"Stable source identifier (kebab-case)"`
+	Device   string            `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Omit when test_mode is true."`
+	TestMode bool              `json:"test_mode,omitempty" example:"false" doc:"When true, use the test-pattern producer instead of a V4L2 device."`
+	Format   *SourceFormatBody `json:"format,omitempty" doc:"Initial V4L2 capture format. Omit to let the source auto-negotiate."`
 }
 
 // SourceCreateRequest wraps SourceCreateBody for Huma input parsing.
@@ -50,8 +64,9 @@ type SourceCreateRequest struct {
 // SourceUpdateBody is the partial-update payload. Fields are pointers so
 // the handler can distinguish "not sent" from "set to zero value".
 type SourceUpdateBody struct {
-	Device   *string `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"New device identifier; clears when sent as empty string while test_mode is true"`
-	TestMode *bool   `json:"test_mode,omitempty" example:"true" doc:"Toggle test-pattern mode"`
+	Device   *string           `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"New device identifier; clears when sent as empty string while test_mode is true"`
+	TestMode *bool             `json:"test_mode,omitempty" example:"true" doc:"Toggle test-pattern mode"`
+	Format   *SourceFormatBody `json:"format,omitempty" doc:"Replace the V4L2 capture format. Send null in a future revision to clear; today omitting leaves the prior format untouched."`
 }
 
 // SourceUpdateRequest wraps SourceUpdateBody plus the path parameter.

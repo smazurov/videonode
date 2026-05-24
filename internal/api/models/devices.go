@@ -67,6 +67,29 @@ func (vf VideoFormat) IsValid() bool {
 	return exists
 }
 
+// ToFourCC returns the 4-char V4L2 fourcc string (e.g. "YUYV", "MJPG")
+// that the source binary's SetFormat RPC expects. Derived from the same
+// pixel-format code IsValid / ToPixelFormat use, so there's exactly one
+// source of truth.
+func (vf VideoFormat) ToFourCC() (string, error) {
+	pf, err := vf.ToPixelFormat()
+	if err != nil {
+		return "", err
+	}
+	bytes := []byte{
+		byte(pf & 0xFF),
+		byte((pf >> 8) & 0xFF),
+		byte((pf >> 16) & 0xFF),
+		byte((pf >> 24) & 0xFF),
+	}
+	for i, b := range bytes {
+		if b < 32 || b > 126 {
+			bytes[i] = '?'
+		}
+	}
+	return string(bytes), nil
+}
+
 // PixelFormatToVideoFormat converts V4L2 pixel format codes to VideoFormat.
 func PixelFormatToVideoFormat(pixelFormat uint32) (VideoFormat, bool) {
 	for format, code := range videoFormatToPixelFormat {
@@ -75,6 +98,17 @@ func PixelFormatToVideoFormat(pixelFormat uint32) (VideoFormat, bool) {
 		}
 	}
 	return "", false
+}
+
+// PixelFormatToVideoFormatByFourCC maps a 4-char V4L2 fourcc string
+// back to the lowercase VideoFormat the API returns to clients
+// (e.g. "YUYV" -> "yuyv422"). Inverse of VideoFormat.ToFourCC.
+func PixelFormatToVideoFormatByFourCC(fourcc string) (VideoFormat, bool) {
+	if len(fourcc) != 4 {
+		return "", false
+	}
+	code := uint32(fourcc[0]) | uint32(fourcc[1])<<8 | uint32(fourcc[2])<<16 | uint32(fourcc[3])<<24
+	return PixelFormatToVideoFormat(code)
 }
 
 // DeviceType represents the type of V4L2 device.
