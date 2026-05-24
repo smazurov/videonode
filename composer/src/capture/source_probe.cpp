@@ -4,6 +4,7 @@
 #include "src/common/log_levels.hpp"
 
 #include <cerrno>
+#include <cstring>
 #include <linux/videodev2.h>
 
 namespace source_probe {
@@ -36,7 +37,8 @@ const char* status_text(Health h) {
 SourceProbe::SourceProbe(v4l2::Streamer& cap) : cap_(cap) {}
 
 bool SourceProbe::attach() {
-    (void)cap_.subscribe_source_change();
+    bool subscribed = cap_.subscribe_source_change();
+    int subscribe_errno = errno;
     // Cable / signal truth comes from VIDIOC_QUERY_DV_TIMINGS, not from
     // V4L2_CID_DV_RX_POWER_PRESENT (rk_hdmirx reports power_present=1 even
     // with the cable physically unplugged). The Go side learned this the
@@ -47,6 +49,10 @@ bool SourceProbe::attach() {
         has_dv_timings_ = true;
         apply_dv_timings_state(s);
         vn::log::info("source_probe: HDMI mode, dv_timings=%s", dv_timings_label(s));
+        // SOURCE_CHANGE failure only matters on HDMI-class devices; UVC
+        // webcams reject the subscribe and that's expected.
+        if (!subscribed)
+            vn::log::error("v4l2_capture: VIDIOC_SUBSCRIBE_EVENT: %s", strerror(subscribe_errno));
     } else {
         vn::log::info("source_probe: device has no DV timings, using DQBUF-only health");
     }

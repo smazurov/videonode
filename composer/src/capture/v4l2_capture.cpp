@@ -333,10 +333,8 @@ bool Streamer::subscribe_source_change() {
     }
     v4l2_event_subscription sub{};
     sub.type = V4L2_EVENT_SOURCE_CHANGE;
-    if (xioctl(fd_, VIDIOC_SUBSCRIBE_EVENT, &sub) < 0) {
-        vn::log::error("v4l2_capture: VIDIOC_SUBSCRIBE_EVENT: %s", strerror(errno));
+    if (xioctl(fd_, VIDIOC_SUBSCRIBE_EVENT, &sub) < 0)
         return false;
-    }
     return true;
 }
 
