@@ -11,7 +11,7 @@ interface SourceConsumersPanelProps {
 
 function consumerTo(consumer: SourceConsumerRef): string {
   if (consumer.kind === 'composer') return `/composers/${consumer.id}`;
-  return `/streams/${consumer.id}/edit`;
+  return `/streams/${consumer.id}`;
 }
 
 export function SourceConsumersPanel({ consumers }: Readonly<SourceConsumersPanelProps>) {
