@@ -65,10 +65,13 @@ type V2LayoutSlot struct {
 }
 
 // V2Effect is a tagged-union per-input transformation. Today only
-// "perspective" is implemented; Corners is its sole payload.
+// "perspective" is implemented; Corners is its payload along with the
+// SnapshotW/SnapshotH dims that define the coord space Corners live in.
 type V2Effect struct {
-	Type    string    `toml:"type" json:"type"`
-	Corners [4][2]int `toml:"corners,omitempty" json:"corners,omitempty"`
+	Type      string    `toml:"type" json:"type"`
+	Corners   [4][2]int `toml:"corners,omitempty" json:"corners,omitempty"`
+	SnapshotW int       `toml:"snapshot_w,omitempty" json:"snapshot_w,omitempty"`
+	SnapshotH int       `toml:"snapshot_h,omitempty" json:"snapshot_h,omitempty"`
 }
 
 // V2Stream is an encoder + audio + publish targets pointing at one

@@ -266,7 +266,12 @@ func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effe
 			if effect == nil {
 				c.Inputs[i].Effect = nil
 			} else {
-				c.Inputs[i].Effect = &pipeline.Effect{Type: effect.Type, Corners: effect.Corners}
+				c.Inputs[i].Effect = &pipeline.Effect{
+					Type:      effect.Type,
+					Corners:   effect.Corners,
+					SnapshotW: effect.SnapshotW,
+					SnapshotH: effect.SnapshotH,
+				}
 			}
 			applied = c.Inputs[i].Effect
 			found = true
@@ -310,7 +315,8 @@ func inputsEqual(a, b []pipeline.ComposerInput) bool {
 		if (ae == nil) != (be == nil) {
 			return false
 		}
-		if ae != nil && (ae.Type != be.Type || ae.Corners != be.Corners) {
+		if ae != nil && (ae.Type != be.Type || ae.Corners != be.Corners ||
+			ae.SnapshotW != be.SnapshotW || ae.SnapshotH != be.SnapshotH) {
 			return false
 		}
 	}
@@ -376,7 +382,12 @@ func apiInputsToEntity(inputs []models.ComposerInputData) []pipeline.ComposerInp
 	for i, in := range inputs {
 		out[i] = pipeline.ComposerInput{Ref: in.Ref}
 		if in.Effect != nil {
-			out[i].Effect = &pipeline.Effect{Type: in.Effect.Type, Corners: in.Effect.Corners}
+			out[i].Effect = &pipeline.Effect{
+				Type:      in.Effect.Type,
+				Corners:   in.Effect.Corners,
+				SnapshotW: in.Effect.SnapshotW,
+				SnapshotH: in.Effect.SnapshotH,
+			}
 		}
 	}
 	return out
@@ -404,7 +415,12 @@ func composerToAPI(c pipeline.Composer) models.ComposerData {
 	for i, in := range c.Inputs {
 		out.Inputs[i] = models.ComposerInputData{Ref: in.Ref}
 		if in.Effect != nil {
-			e := models.EffectData{Type: in.Effect.Type, Corners: in.Effect.Corners}
+			e := models.EffectData{
+				Type:      in.Effect.Type,
+				Corners:   in.Effect.Corners,
+				SnapshotW: in.Effect.SnapshotW,
+				SnapshotH: in.Effect.SnapshotH,
+			}
 			out.Inputs[i].Effect = &e
 		}
 	}

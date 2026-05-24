@@ -20,8 +20,6 @@ interface EffectEditorProps {
   inputRef: string;
   effect: ComposerEffect | null | undefined;
   snapshotSourceId: string | null;
-  inputWidth: number;
-  inputHeight: number;
   saving: boolean;
   onSave: (effect: ComposerEffect | null) => Promise<void>;
   onCancel: () => void;
@@ -32,8 +30,6 @@ export function EffectEditor({
   inputRef,
   effect,
   snapshotSourceId,
-  inputWidth,
-  inputHeight,
   saving,
   onSave,
   onCancel,
@@ -76,8 +72,6 @@ export function EffectEditor({
           inputRef={inputRef}
           initialCorners={initialCorners}
           snapshotSourceId={snapshotSourceId}
-          inputWidth={inputWidth}
-          inputHeight={inputHeight}
           saving={saving}
           onSave={onSave}
           onCancel={onCancel}

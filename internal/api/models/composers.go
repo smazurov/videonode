@@ -12,10 +12,15 @@ type CanvasDimsData struct {
 }
 
 // EffectData describes a per-input visual effect. Currently only the
-// "perspective" type is wired, with a four-corner quad in canvas space.
+// "perspective" type is wired, with a four-corner quad in the source's
+// pixel-coordinate space. SnapshotW/SnapshotH tag that coord space
+// (typically the source's native resolution as seen by the snapshot
+// UI) so the composer can normalize corners to UV.
 type EffectData struct {
-	Type    string    `json:"type" example:"perspective" doc:"Effect type identifier"`
-	Corners [4][2]int `json:"corners,omitempty" doc:"Corner coordinates [tl, tr, br, bl] for perspective effects"`
+	Type      string    `json:"type" example:"perspective" doc:"Effect type identifier"`
+	Corners   [4][2]int `json:"corners,omitempty" doc:"Corner coordinates [tl, tr, br, bl] in source pixel space"`
+	SnapshotW int       `json:"snapshot_w,omitempty" example:"1920" doc:"Source pixel width the corners are expressed in"`
+	SnapshotH int       `json:"snapshot_h,omitempty" example:"1080" doc:"Source pixel height the corners are expressed in"`
 }
 
 // ComposerInputData is one composer input entry, referencing an upstream

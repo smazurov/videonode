@@ -257,8 +257,6 @@ export default function ComposerInputs() {
                   inputRef={editingInput.ref}
                   effect={editingInput.effect ?? null}
                   snapshotSourceId={sourceIdFromRef(editingInput.ref)}
-                  inputWidth={canvasW}
-                  inputHeight={canvasH}
                   saving={saving}
                   onSave={(effect) => handleSaveEffect(editingInput.ref, effect)}
                   onCancel={() => setEditingRef(null)}

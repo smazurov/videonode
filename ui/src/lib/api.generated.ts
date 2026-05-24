@@ -890,6 +890,16 @@ export interface components {
         ComposerEffect: {
             /** @description Perspective corners when type='perspective' */
             corners?: (number[] | null)[] | null;
+            /**
+             * Format: int64
+             * @description Source pixel height the corners are expressed in
+             */
+            snapshot_h?: number;
+            /**
+             * Format: int64
+             * @description Source pixel width the corners are expressed in
+             */
+            snapshot_w?: number;
             /** @description Effect type, e.g. 'perspective' */
             type: string;
         };
@@ -1199,8 +1209,20 @@ export interface components {
             applied: boolean;
         };
         EffectData: {
-            /** @description Corner coordinates [tl, tr, br, bl] for perspective effects */
+            /** @description Corner coordinates [tl, tr, br, bl] in source pixel space */
             corners?: (number[] | null)[] | null;
+            /**
+             * Format: int64
+             * @description Source pixel height the corners are expressed in
+             * @example 1080
+             */
+            snapshot_h?: number;
+            /**
+             * Format: int64
+             * @description Source pixel width the corners are expressed in
+             * @example 1920
+             */
+            snapshot_w?: number;
             /**
              * @description Effect type identifier
              * @example perspective
@@ -1371,7 +1393,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "h264" | "yv12" | "nv24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "rgb24" | "nv16";
+            format_name: "yuyv422" | "nv12" | "h264" | "yv12" | "rgb24" | "nv24" | "mjpeg" | "yu12" | "bgr24" | "nv16";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1729,7 +1751,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "rgb24" | "nv16" | "h264" | "yv12" | "nv24";
+            format_name: "yv12" | "rgb24" | "nv24" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "yuyv422" | "nv12" | "h264";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -2799,7 +2821,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "h264" | "yv12" | "nv24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "rgb24" | "nv16";
+                format_name?: "bgr24" | "nv16" | "yuyv422" | "nv12" | "h264" | "yv12" | "rgb24" | "nv24" | "mjpeg" | "yu12";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2865,7 +2887,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "rgb24" | "nv16" | "h264" | "yv12" | "nv24";
+                format_name?: "rgb24" | "nv24" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "yuyv422" | "nv12" | "h264" | "yv12";
             };
             header?: never;
             path: {

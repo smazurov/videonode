@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Button } from '../Button';
-import { PerspectiveCanvas, type Corner } from './PerspectiveCanvas';
+import { PerspectiveCanvas, type Corner, type SnapshotDims } from './PerspectiveCanvas';
 import type { ComposerEffect } from '../../hooks/useComposerStore';
 
 export type PerspectiveValue = [Corner, Corner, Corner, Corner];
@@ -13,8 +13,6 @@ interface PerspectiveEditorProps {
   // Source id whose raw NV12 snapshot drives the live preview backdrop. Null
   // when the input ref does not resolve to a source (e.g. composer-as-input).
   snapshotSourceId: string | null;
-  inputWidth: number;
-  inputHeight: number;
   saving: boolean;
   onSave: (effect: ComposerEffect | null) => Promise<void>;
   onCancel: () => void;
@@ -24,8 +22,6 @@ export function PerspectiveEditor({
   inputRef,
   initialCorners,
   snapshotSourceId,
-  inputWidth,
-  inputHeight,
   saving,
   onSave,
   onCancel,
@@ -43,6 +39,7 @@ export function PerspectiveEditor({
     setCorners(initialSeed());
     setSorted(initialCorners?.length === 4);
   }
+  const [snapshotDims, setSnapshotDims] = useState<SnapshotDims | null>(null);
 
   const handleCornersChange = useCallback((next: Corner[], isSorted: boolean) => {
     setCorners(next);
@@ -50,16 +47,21 @@ export function PerspectiveEditor({
   }, []);
 
   const handleApply = useCallback(async () => {
-    if (corners.length !== 4) return;
+    if (corners.length !== 4 || !snapshotDims) return;
     try {
       const corners4 = corners as PerspectiveValue;
-      await onSave({ type: 'perspective', corners: corners4 });
+      await onSave({
+        type: 'perspective',
+        corners: corners4,
+        snapshot_w: snapshotDims.w,
+        snapshot_h: snapshotDims.h,
+      });
       toast.success(`Perspective applied to ${inputRef}`);
     } catch (error) {
       toast.error('Failed to apply perspective');
       console.error(error);
     }
-  }, [corners, inputRef, onSave]);
+  }, [corners, snapshotDims, inputRef, onSave]);
 
   const handleClear = useCallback(() => {
     setCorners([]);
@@ -90,8 +92,7 @@ export function PerspectiveEditor({
         corners={corners}
         sorted={sorted}
         onCornersChange={handleCornersChange}
-        inputWidth={inputWidth}
-        inputHeight={inputHeight}
+        onSnapshotDimsChange={setSnapshotDims}
       />
       <div className="flex items-center gap-2">
         {corners.length > 0 && (
@@ -103,7 +104,7 @@ export function PerspectiveEditor({
             size="SM"
             text={saving ? 'Applying...' : 'Apply'}
             onClick={handleApply}
-            disabled={saving}
+            disabled={saving || !snapshotDims}
           />
         )}
         {corners.length === 0 && hadInitial && (
