@@ -1,6 +1,23 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useSourceStore } from './useSourceStore';
 import type { SourceData, SourceRequestData } from './slices/types';
+import type { components } from '../lib/api.generated';
+
+type SourceFormatBody = components['schemas']['SourceFormatBody'];
+
+function formatsEqual(
+  a: SourceFormatBody | null | undefined,
+  b: SourceFormatBody | null | undefined,
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.format_name === b.format_name &&
+    a.width === b.width &&
+    a.height === b.height &&
+    (a.fps ?? 0) === (b.fps ?? 0)
+  );
+}
 
 // Manual kebab-case check — avoids the security/detect-unsafe-regex lint
 // trip from anchored `^([a-z0-9]+)(-[a-z0-9]+)*$`.
@@ -48,8 +65,18 @@ export function useSourceForm(initialData?: SourceData) {
   const mode = initialData ? ('edit' as const) : ('create' as const);
 
   const [id, setId] = useState(initialData?.id ?? '');
-  const [device, setDevice] = useState(initialData?.device ?? '');
+  const [device, setDeviceState] = useState(initialData?.device ?? '');
   const [testMode, setTestMode] = useState<boolean>(initialData?.test_mode ?? false);
+  const [format, setFormat] = useState<SourceFormatBody | null>(
+    initialData?.format ?? null,
+  );
+
+  const setDevice = useCallback((next: string) => {
+    setDeviceState((prev) => {
+      if (prev !== next) setFormat(null);
+      return next;
+    });
+  }, []);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,21 +106,43 @@ export function useSourceForm(initialData?: SourceData) {
     if (!initialData) return false;
     return (
       device !== initialData.device ||
-      testMode !== initialData.test_mode
+      testMode !== initialData.test_mode ||
+      !formatsEqual(format, initialData.format)
     );
-  }, [mode, initialData, device, testMode]);
+  }, [mode, initialData, device, testMode, format]);
 
-  const toggleTestMode = useCallback((next: boolean) => {
-    setTestMode(next);
-    if (next) setDevice('');
-  }, []);
+  const toggleTestMode = useCallback(
+    (next: boolean) => {
+      setTestMode(next);
+      if (next) {
+        setDevice('');
+        setFormat(null);
+      }
+    },
+    [setDevice],
+  );
 
   const buildRequest = useCallback((): SourceRequestData => {
     if (testMode) {
       return { id, test_mode: true, device: '' };
     }
-    return { id, device, test_mode: false };
-  }, [id, device, testMode]);
+    const base: SourceRequestData = { id, device, test_mode: false };
+    if (format) base.format = format;
+    return base;
+  }, [id, device, testMode, format]);
+
+  const buildPatch = useCallback(
+    (prev: SourceData): Partial<SourceRequestData> => {
+      const payload: Partial<SourceRequestData> = {};
+      if (device !== prev.device) payload.device = testMode ? '' : device;
+      if (testMode !== prev.test_mode) payload.test_mode = testMode;
+      if (!testMode && format && !formatsEqual(format, prev.format)) {
+        payload.format = format;
+      }
+      return payload;
+    },
+    [device, testMode, format],
+  );
 
   const submit = useCallback(async (): Promise<boolean> => {
     if (!isValid) return false;
@@ -103,9 +152,7 @@ export function useSourceForm(initialData?: SourceData) {
       if (mode === 'create') {
         await createSource(buildRequest());
       } else if (initialData) {
-        const payload: Partial<SourceRequestData> = {};
-        if (device !== initialData.device) payload.device = testMode ? '' : device;
-        if (testMode !== initialData.test_mode) payload.test_mode = testMode;
+        const payload = buildPatch(initialData);
         if (Object.keys(payload).length > 0) {
           await updateSource(initialData.id, payload);
         }
@@ -117,16 +164,7 @@ export function useSourceForm(initialData?: SourceData) {
     } finally {
       setSaving(false);
     }
-  }, [
-    isValid,
-    mode,
-    initialData,
-    device,
-    testMode,
-    buildRequest,
-    createSource,
-    updateSource,
-  ]);
+  }, [isValid, mode, initialData, buildRequest, buildPatch, createSource, updateSource]);
 
   return {
     mode,
@@ -136,6 +174,8 @@ export function useSourceForm(initialData?: SourceData) {
     setDevice,
     testMode,
     toggleTestMode,
+    format,
+    setFormat,
     errors,
     isValid,
     isDirty,

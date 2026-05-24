@@ -156,11 +156,22 @@ func (e StreamCrashedEvent) Type() uint32 { return TypeStreamCrashed }
 // events → pipeline import cycle; integrator may swap to models.SourceData
 // once B5 lands.
 type SourcePayload struct {
-	ID        string `json:"id" doc:"Source identifier"`
-	Device    string `json:"device,omitempty" doc:"Stable device identifier"`
-	TestMode  bool   `json:"test_mode,omitempty" doc:"Source uses the RPC test-pattern producer"`
-	CreatedAt string `json:"created_at,omitempty" doc:"RFC3339 creation timestamp"`
-	UpdatedAt string `json:"updated_at,omitempty" doc:"RFC3339 last-update timestamp"`
+	ID        string                 `json:"id" doc:"Source identifier"`
+	Device    string                 `json:"device,omitempty" doc:"Stable device identifier"`
+	TestMode  bool                   `json:"test_mode,omitempty" doc:"Source uses the RPC test-pattern producer"`
+	Format    *SourceFormatEventBody `json:"format,omitempty" doc:"V4L2 capture format the daemon pushed to the source"`
+	CreatedAt string                 `json:"created_at,omitempty" doc:"RFC3339 creation timestamp"`
+	UpdatedAt string                 `json:"updated_at,omitempty" doc:"RFC3339 last-update timestamp"`
+}
+
+// SourceFormatEventBody mirrors the persisted V4L2 capture format on
+// SSE source events. Defined inline here to avoid an events → api/models
+// import cycle.
+type SourceFormatEventBody struct {
+	FormatName string `json:"format_name" doc:"Lowercase video format name"`
+	Width      uint32 `json:"width" doc:"Capture width in pixels"`
+	Height     uint32 `json:"height" doc:"Capture height in pixels"`
+	FPS        uint32 `json:"fps,omitempty" doc:"Capture framerate; 0 = driver default"`
 }
 
 // SourceCreatedEvent fires when a source is added.

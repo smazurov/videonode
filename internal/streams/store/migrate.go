@@ -13,11 +13,20 @@ import (
 
 // V2Source is one frame producer.
 type V2Source struct {
-	ID        string    `toml:"id" json:"id"`
-	Device    string    `toml:"device,omitempty" json:"device,omitempty"`
-	TestMode  bool      `toml:"test_mode,omitempty" json:"test_mode,omitempty"`
-	CreatedAt time.Time `toml:"created_at" json:"created_at"`
-	UpdatedAt time.Time `toml:"updated_at" json:"updated_at"`
+	ID        string          `toml:"id" json:"id"`
+	Device    string          `toml:"device,omitempty" json:"device,omitempty"`
+	TestMode  bool            `toml:"test_mode,omitempty" json:"test_mode,omitempty"`
+	Format    *V2SourceFormat `toml:"format,omitempty" json:"format,omitempty"`
+	CreatedAt time.Time       `toml:"created_at" json:"created_at"`
+	UpdatedAt time.Time       `toml:"updated_at" json:"updated_at"`
+}
+
+// V2SourceFormat is the persisted V4L2 capture format for a source.
+type V2SourceFormat struct {
+	FourCC string `toml:"fourcc" json:"fourcc"`
+	Width  uint32 `toml:"width" json:"width"`
+	Height uint32 `toml:"height" json:"height"`
+	FPS    uint32 `toml:"fps,omitempty" json:"fps,omitempty"`
 }
 
 // V2Composer is one BGRA canvas compositing N sources.

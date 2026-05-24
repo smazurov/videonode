@@ -132,7 +132,103 @@ func (p *Pipeline) ApplySource(s Source) error {
 		GrpcUds:    GrpcSocketPathFor("source", s.ID),
 	}
 	p.replaceStage(stage)
-	return p.restartStage(stage)
+	// Drop any prior control-plane registration so the next config push
+	// re-dials the freshly-spawned UDS instead of holding a dead handle.
+	if p.cfg.ControlServer != nil {
+		p.cfg.ControlServer.Unregister(s.ID)
+	}
+	if err := p.restartStage(stage); err != nil {
+		return err
+	}
+	// Initial gRPC registration + (when the spec carries one) SetFormat
+	// push. Without registration the daemon can't reach the source over
+	// gRPC at all, so SetFormat / Snapshot / status would all silently
+	// fail. Mirrors the composer-side pushComposerConfig pattern.
+	if p.cfg.ControlServer != nil {
+		go p.registerAndConfigureSource(s, stage.GrpcUds)
+	}
+	return nil
+}
+
+// registerAndConfigureSource dials the source's gRPC UDS with a 30 s
+// deadline (100 ms retry) so the source process has time to bind, then
+// pushes the operator-selected V4L2 format if the spec carries one. Runs
+// in its own goroutine; never blocks ApplySource.
+func (p *Pipeline) registerAndConfigureSource(s Source, udsPath string) {
+	sourceID := s.ID
+	tag := []any{"source_id", sourceID, "uds", udsPath}
+
+	const dialDeadline = 30 * time.Second
+	const callTimeout = 5 * time.Second
+	mgr := p.cfg.ControlServer
+
+	deadline := time.Now().Add(dialDeadline)
+	var lastErr error
+	for {
+		if time.Now().After(deadline) {
+			p.logger.Warn("registerAndConfigureSource: register never succeeded",
+				append(tag, "error", lastErr)...)
+			return
+		}
+		regCtx, regCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		err := mgr.RegisterSource(regCtx, sourceID, udsPath)
+		regCancel()
+		if err == nil {
+			break
+		}
+		lastErr = err
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if s.Format == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+	if _, err := mgr.SendSetFormat(ctx, sourceID, pipelinectl.SetFormatParams{
+		FourCC: s.Format.FourCC,
+		W:      s.Format.Width,
+		H:      s.Format.Height,
+		FPS:    s.Format.FPS,
+	}); err != nil {
+		p.logger.Warn("registerAndConfigureSource: initial SetFormat failed",
+			append(tag, "error", err)...)
+		return
+	}
+	p.logger.Info("source initial format pushed",
+		append(tag, "fourcc", s.Format.FourCC,
+			"w", s.Format.Width, "h", s.Format.Height, "fps", s.Format.FPS)...)
+}
+
+// UpdateSourceFormat hot-applies a new V4L2 capture format to an already-
+// registered source via the gRPC control plane. Does NOT restart the
+// source process — connected SCM_RIGHTS consumers stay attached.
+// Returns an error if the source isn't registered or the RPC fails;
+// callers (source_service.Update) fall back to ApplySource on error.
+func (p *Pipeline) UpdateSourceFormat(id string, f SourceFormat) error {
+	if id == "" {
+		return errors.New("pipeline: source.ID is required")
+	}
+	if p.cfg.ControlServer == nil {
+		return errors.New("pipeline: ControlServer is nil; cannot hot-apply format")
+	}
+	cur, found := p.sources.Get(id)
+	if !found {
+		return fmt.Errorf("pipeline: source %q not registered", id)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := p.cfg.ControlServer.SendSetFormat(ctx, id, pipelinectl.SetFormatParams{
+		FourCC: f.FourCC,
+		W:      f.Width,
+		H:      f.Height,
+		FPS:    f.FPS,
+	}); err != nil {
+		return err
+	}
+	cur.Format = &f
+	p.sources.Put(cur)
+	return nil
 }
 
 // DeleteSource stops the source's `videonode-source` process and drops
@@ -148,6 +244,9 @@ func (p *Pipeline) DeleteSource(id string) error {
 	defer mu.Unlock()
 
 	p.sources.Delete(id)
+	if p.cfg.ControlServer != nil {
+		p.cfg.ControlServer.Unregister(id)
+	}
 	poolID := SourcePoolKey(id)
 	if err := p.pool.Stop(poolID); err != nil {
 		p.logger.Warn("DeleteSource: pool.Stop failed", "id", poolID, "error", err)

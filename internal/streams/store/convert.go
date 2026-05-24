@@ -12,24 +12,42 @@ import (
 
 // sourceFromV2 converts a persisted V2Source to its canonical shape.
 func sourceFromV2(v V2Source) streams.Source {
-	return streams.Source{
+	out := streams.Source{
 		ID:        v.ID,
 		Device:    v.Device,
 		TestMode:  v.TestMode,
 		CreatedAt: v.CreatedAt,
 		UpdatedAt: v.UpdatedAt,
 	}
+	if v.Format != nil {
+		out.Format = &pipeline.SourceFormat{
+			FourCC: v.Format.FourCC,
+			Width:  v.Format.Width,
+			Height: v.Format.Height,
+			FPS:    v.Format.FPS,
+		}
+	}
+	return out
 }
 
 // sourceToV2 converts a canonical pipeline.Source to its persisted form.
 func sourceToV2(s streams.Source) V2Source {
-	return V2Source{
+	out := V2Source{
 		ID:        s.ID,
 		Device:    s.Device,
 		TestMode:  s.TestMode,
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	}
+	if s.Format != nil {
+		out.Format = &V2SourceFormat{
+			FourCC: s.Format.FourCC,
+			Width:  s.Format.Width,
+			Height: s.Format.Height,
+			FPS:    s.Format.FPS,
+		}
+	}
+	return out
 }
 
 func composerFromV2(v V2Composer) streams.Composer {

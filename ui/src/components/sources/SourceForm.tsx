@@ -4,9 +4,34 @@ import { Button } from '../Button';
 import { InputField } from '../InputField';
 import { ReadOnlyField } from '../ReadOnlyField';
 import { SourceDeviceField } from './SourceDeviceField';
+import { SourceFormatSelector, type SourceFormatValue } from './SourceFormatSelector';
 import { SourceTestModeToggle } from './SourceTestModeToggle';
 import { useSourceForm } from '../../hooks/useSourceForm';
 import type { SourceData } from '../../hooks/useSourceStore';
+import type { components } from '../../lib/api.generated';
+
+type SourceFormatBody = components['schemas']['SourceFormatBody'];
+
+function formatToValue(f: SourceFormatBody | null): SourceFormatValue {
+  if (!f) return { format_name: '', width: 0, height: 0, fps: 0 };
+  return {
+    format_name: f.format_name,
+    width: f.width,
+    height: f.height,
+    fps: f.fps ?? 0,
+  };
+}
+
+function valueToFormat(v: SourceFormatValue): SourceFormatBody | null {
+  if (!v.format_name || !v.width || !v.height) return null;
+  const out: SourceFormatBody = {
+    format_name: v.format_name,
+    width: v.width,
+    height: v.height,
+  };
+  if (v.fps > 0) out.fps = v.fps;
+  return out;
+}
 
 interface SourceFormProps {
   initialData?: SourceData;
@@ -62,13 +87,23 @@ export function SourceForm({
           />
 
           {!form.testMode && (
-            <SourceDeviceField
-              value={form.device}
-              onChange={form.setDevice}
-              disabled={form.saving}
-              required
-              {...deviceErrorProps}
-            />
+            <>
+              <SourceDeviceField
+                value={form.device}
+                onChange={form.setDevice}
+                disabled={form.saving}
+                required
+                {...deviceErrorProps}
+              />
+              {form.device && (
+                <SourceFormatSelector
+                  deviceId={form.device}
+                  value={formatToValue(form.format)}
+                  onChange={(v) => form.setFormat(valueToFormat(v))}
+                  disabled={form.saving}
+                />
+              )}
+            </>
           )}
 
           {form.error && (

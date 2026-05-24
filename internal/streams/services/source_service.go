@@ -82,6 +82,7 @@ func (s *sourceService) Create(_ context.Context, src api.Source) (*api.Source, 
 		ID:        src.ID,
 		Device:    src.Device,
 		TestMode:  src.TestMode,
+		Format:    apiFormatToPipeline(src.Format),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -119,26 +120,66 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 	if patch.TestMode != nil {
 		src.TestMode = *patch.TestMode
 	}
+	if patch.Format != nil {
+		src.Format = apiFormatToPipeline(patch.Format)
+	}
 	if err := validateSourcePayload(src.Device, src.TestMode); err != nil {
 		return nil, err
+	}
+	if src.TestMode && src.Format != nil {
+		return nil, &api.SourceInvalidError{Message: "format cannot be set while test_mode is true"}
 	}
 	src.UpdatedAt = time.Now()
 	if err := s.store.UpdateSourceEntity(id, src); err != nil {
 		return nil, fmt.Errorf("persist source update: %w", err)
 	}
 	if s.pipe != nil {
-		if err := s.pipe.ApplySource(src); err != nil {
-			// Roll back to the previous spec so the persisted state stays
-			// consistent with what the pipeline accepts.
-			if restoreErr := s.store.UpdateSourceEntity(id, prev); restoreErr != nil {
-				s.logger.Error("Update: rollback after ApplySource failure also failed",
-					"source_id", id, "apply_error", err, "rollback_error", restoreErr)
+		// Format-only edit on a real device: hot-apply via gRPC so
+		// connected consumers (composer, vn-sink) stay attached. Falls
+		// back to ApplySource (restart) if the hot-apply path can't
+		// reach the source (not registered yet, RPC error).
+		formatOnly := !src.TestMode &&
+			patch.Device == nil &&
+			patch.TestMode == nil &&
+			patch.Format != nil &&
+			src.Format != nil
+		applied := false
+		if formatOnly {
+			if err := s.pipe.UpdateSourceFormat(id, *src.Format); err == nil {
+				applied = true
+			} else {
+				s.logger.Warn("Update: hot-apply SetFormat failed; falling back to restart",
+					"source_id", id, "error", err)
 			}
-			return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
+		}
+		if !applied {
+			if err := s.pipe.ApplySource(src); err != nil {
+				// Roll back to the previous spec so the persisted state stays
+				// consistent with what the pipeline accepts.
+				if restoreErr := s.store.UpdateSourceEntity(id, prev); restoreErr != nil {
+					s.logger.Error("Update: rollback after ApplySource failure also failed",
+						"source_id", id, "apply_error", err, "rollback_error", restoreErr)
+				}
+				return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
+			}
 		}
 	}
 	out := sourceToAPI(src)
 	return &out, nil
+}
+
+// apiFormatToPipeline maps the API SourceFormat (FourCC-keyed, validated
+// at the handler boundary) to the canonical pipeline shape.
+func apiFormatToPipeline(f *api.SourceFormat) *pipeline.SourceFormat {
+	if f == nil {
+		return nil
+	}
+	return &pipeline.SourceFormat{
+		FourCC: f.FourCC,
+		Width:  f.Width,
+		Height: f.Height,
+		FPS:    f.FPS,
+	}
 }
 
 // Delete refuses when the source is still referenced by a composer or
@@ -212,11 +253,20 @@ func validateSourcePayload(device string, testMode bool) error {
 }
 
 func sourceToAPI(src pipeline.Source) api.Source {
-	return api.Source{
+	out := api.Source{
 		ID:        src.ID,
 		Device:    src.Device,
 		TestMode:  src.TestMode,
 		CreatedAt: src.CreatedAt,
 		UpdatedAt: src.UpdatedAt,
 	}
+	if src.Format != nil {
+		out.Format = &api.SourceFormat{
+			FourCC: src.Format.FourCC,
+			Width:  src.Format.Width,
+			Height: src.Format.Height,
+			FPS:    src.Format.FPS,
+		}
+	}
+	return out
 }
