@@ -27,12 +27,18 @@ type Composer struct {
 	UpdatedAt time.Time       `toml:"updated_at" json:"updated_at"`
 }
 
-// CanvasDims is the output canvas size the composer renders to. Streams
-// pulling from this composer encode at these dimensions.
+// CanvasDims is the output canvas size and render rate the composer
+// renders to. Streams pulling from this composer encode at these
+// dimensions and frame rate. FPS of zero falls back to DefaultCanvasFPS.
 type CanvasDims struct {
-	W int `toml:"w" json:"w"`
-	H int `toml:"h" json:"h"`
+	W   int `toml:"w" json:"w"`
+	H   int `toml:"h" json:"h"`
+	FPS int `toml:"fps,omitempty" json:"fps,omitempty"`
 }
+
+// DefaultCanvasFPS is the fallback canvas frame rate used when a
+// composer's Canvas.FPS is zero (unset).
+const DefaultCanvasFPS = 60
 
 // ComposerInput binds a Source to this composer with an optional effect.
 // Ref is `source:<id>`.
@@ -110,7 +116,7 @@ func (c *ComposerStage) Command() ([]string, []string, error) {
 	}
 	fps := c.CanvasFPS
 	if fps <= 0 {
-		fps = 30
+		fps = DefaultCanvasFPS
 	}
 	argv := []string{
 		c.BinaryPath,

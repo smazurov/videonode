@@ -4,7 +4,10 @@ import { getAuthCredentials } from '../lib/auth';
 
 // Local stubs of backend types until /api/composers schema regen lands.
 // Integrators: swap these for `components['schemas']['ComposerData']` &c.
-export type ComposerCanvasDims = { w: number; h: number };
+export type ComposerCanvasDims = { w: number; h: number; fps?: number };
+
+// Daemon-side default canvas frame rate (pipeline.DefaultCanvasFPS).
+export const DEFAULT_CANVAS_FPS = 60;
 
 export type ComposerLayoutSlot = {
   input: string;
@@ -54,6 +57,8 @@ export interface UseComposerFormResult {
   setCustomW: (n: number) => void;
   customH: number;
   setCustomH: (n: number) => void;
+  fps: number;
+  setFps: (n: number) => void;
   canvas: ComposerCanvasDims;
 
   selectedSourceIds: string[];
@@ -138,15 +143,20 @@ export function useComposerForm(options: UseComposerFormOptions = {}): UseCompos
   const [preset, setPreset] = useState<CanvasPresetKey>('1080p');
   const [customW, setCustomW] = useState(1920);
   const [customH, setCustomH] = useState(1080);
+  const [fps, setFps] = useState<number>(DEFAULT_CANVAS_FPS);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const canvas: ComposerCanvasDims = useMemo(() => {
-    if (preset === 'custom') return { w: customW, h: customH };
-    const p = CANVAS_PRESETS[preset];
-    return { w: p.w, h: p.h };
-  }, [preset, customW, customH]);
+    const dims = preset === 'custom'
+      ? { w: customW, h: customH }
+      : { w: CANVAS_PRESETS[preset].w, h: CANVAS_PRESETS[preset].h };
+    // Persist fps only when the user picks something other than the
+    // daemon default — keeps round-tripped TOML clean for the common
+    // case where the operator didn't override.
+    return fps === DEFAULT_CANVAS_FPS ? dims : { ...dims, fps };
+  }, [preset, customW, customH, fps]);
 
   const inputRefs = useMemo(
     () => selectedSourceIds.map((id) => `source:${id}`),
@@ -170,15 +180,18 @@ export function useComposerForm(options: UseComposerFormOptions = {}): UseCompos
       if (customW % 2 !== 0) e.customW = 'Width must be even';
       if (customH % 2 !== 0) e.customH = 'Height must be even';
     }
+    if (!Number.isFinite(fps) || fps < 1 || fps > 240) {
+      e.fps = 'Frame rate must be 1-240';
+    }
     if (selectedSourceIds.length === 0) {
       e.inputs = 'Pick at least one source';
     }
     return e;
-  }, [composerId, preset, customW, customH, selectedSourceIds, existingIds]);
+  }, [composerId, preset, customW, customH, fps, selectedSourceIds, existingIds]);
 
   const stepValid: Record<WizardStep, boolean> = useMemo(
     () => ({
-      identity: !errors.composerId && !errors.customW && !errors.customH,
+      identity: !errors.composerId && !errors.customW && !errors.customH && !errors.fps,
       inputs: !errors.inputs,
       layout: true,
     }),
@@ -264,6 +277,8 @@ export function useComposerForm(options: UseComposerFormOptions = {}): UseCompos
     setCustomW,
     customH,
     setCustomH,
+    fps,
+    setFps,
     canvas,
     selectedSourceIds,
     toggleSource,

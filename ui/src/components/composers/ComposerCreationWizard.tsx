@@ -71,6 +71,8 @@ export function ComposerCreationWizard({
           setCustomW={form.setCustomW}
           customH={form.customH}
           setCustomH={form.setCustomH}
+          fps={form.fps}
+          setFps={form.setFps}
           errors={form.errors}
         />
       )}
@@ -178,6 +180,8 @@ function IdentityStep({
   setCustomW,
   customH,
   setCustomH,
+  fps,
+  setFps,
   errors,
 }: Readonly<{
   composerId: string;
@@ -188,6 +192,8 @@ function IdentityStep({
   setCustomW: (n: number) => void;
   customH: number;
   setCustomH: (n: number) => void;
+  fps: number;
+  setFps: (n: number) => void;
   errors: Record<string, string>;
 }>) {
   return (
@@ -242,6 +248,19 @@ function IdentityStep({
             />
           </div>
         )}
+
+        <InputField
+          label="Frame rate (fps)"
+          type="number"
+          min={1}
+          max={240}
+          step={1}
+          value={fps}
+          onChange={(e) => setFps(parseInt(e.target.value, 10) || 0)}
+          hint="Composer render rate. Default 60. Downstream encoders inherit this."
+          {...(errors.fps ? { error: errors.fps } : {})}
+          fullWidth
+        />
       </div>
     </Fieldset>
   );

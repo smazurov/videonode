@@ -2,10 +2,13 @@ package models
 
 import "time"
 
-// CanvasDimsData carries the composer output canvas dimensions.
+// CanvasDimsData carries the composer output canvas dimensions and
+// render rate. FPS is optional in create/patch requests; the daemon
+// substitutes a default (60) when zero.
 type CanvasDimsData struct {
-	W int `json:"w" example:"1920" doc:"Canvas width in pixels"`
-	H int `json:"h" example:"1080" doc:"Canvas height in pixels"`
+	W   int `json:"w" example:"1920" doc:"Canvas width in pixels"`
+	H   int `json:"h" example:"1080" doc:"Canvas height in pixels"`
+	FPS int `json:"fps,omitempty" minimum:"0" maximum:"240" example:"60" doc:"Canvas frame rate (0 = daemon default)"`
 }
 
 // EffectData describes a per-input visual effect. Currently only the

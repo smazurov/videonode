@@ -216,10 +216,13 @@ type ComposerPayload struct {
 	UpdatedAt string                 `json:"updated_at,omitempty" doc:"RFC3339 last-update timestamp"`
 }
 
-// ComposerCanvasDims is the canvas size for a composer payload.
+// ComposerCanvasDims is the canvas size and render rate for a composer
+// payload. FPS is omitted when unset; consumers fall back to the daemon
+// default.
 type ComposerCanvasDims struct {
-	W int `json:"w" doc:"Canvas width in pixels"`
-	H int `json:"h" doc:"Canvas height in pixels"`
+	W   int `json:"w" doc:"Canvas width in pixels"`
+	H   int `json:"h" doc:"Canvas height in pixels"`
+	FPS int `json:"fps,omitempty" doc:"Canvas frame rate (0 = daemon default)"`
 }
 
 // ComposerInputPayload mirrors a composer input ref + optional effect.

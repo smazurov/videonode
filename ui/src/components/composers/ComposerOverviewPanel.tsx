@@ -1,6 +1,14 @@
 import { Card } from '../Card';
 import type { ComposerData } from '../../lib/composer-types';
-import { formatCanvasDims } from '../../lib/composer-types';
+import { canvasFpsOrDefault, formatCanvasDims } from '../../lib/composer-types';
+
+// Short label for SVG layout slots — full source refs like
+// `source:usb-046d-hd-pro-webcam-c920-d6ba64df-video-index0` overflow
+// any sensible thumbnail; strip the prefix and clip to ~14 chars.
+function slotLabel(ref: string): string {
+  const stripped = ref.startsWith('source:') ? ref.slice('source:'.length) : ref;
+  return stripped.length > 14 ? stripped.slice(0, 13) + '…' : stripped;
+}
 
 interface ComposerOverviewPanelProps {
   composer: ComposerData;
@@ -44,8 +52,11 @@ function CanvasPreviewThumbnail({ composer }: Readonly<{ composer: ComposerData 
               fill="#ffffff"
               fontSize={Math.max(14, Math.min(slot.w, slot.h) / 8)}
               fontFamily="monospace"
+              lengthAdjust="spacingAndGlyphs"
+              textLength={Math.min(slot.w * 0.9, slotLabel(slot.input).length * Math.max(14, Math.min(slot.w, slot.h) / 8) * 0.6)}
             >
-              {slot.input}
+              <title>{slot.input}</title>
+              {slotLabel(slot.input)}
             </text>
           </g>
         ))}
@@ -67,6 +78,11 @@ export function ComposerOverviewPanel({ composer }: Readonly<ComposerOverviewPan
             <dd className="font-mono">{composer.composer_id}</dd>
             <dt className="text-fg-muted">Canvas</dt>
             <dd className="font-mono">{formatCanvasDims(composer.canvas)}</dd>
+            <dt className="text-fg-muted">Frame rate</dt>
+            <dd className="font-mono tabular-nums">
+              {canvasFpsOrDefault(composer.canvas)} fps
+              {!composer.canvas.fps && <span className="ml-1 text-fg-subtle">(default)</span>}
+            </dd>
             <dt className="text-fg-muted">Inputs</dt>
             <dd className="tabular-nums">{composer.inputs.length}</dd>
             <dt className="text-fg-muted">Layout slots</dt>

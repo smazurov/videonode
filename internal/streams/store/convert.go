@@ -53,7 +53,7 @@ func sourceToV2(s streams.Source) V2Source {
 func composerFromV2(v V2Composer) streams.Composer {
 	c := streams.Composer{
 		ID:        v.ID,
-		Canvas:    streams.ComposerCanvasDims{W: v.Canvas.W, H: v.Canvas.H},
+		Canvas:    streams.ComposerCanvasDims{W: v.Canvas.W, H: v.Canvas.H, FPS: v.Canvas.FPS},
 		CreatedAt: v.CreatedAt,
 		UpdatedAt: v.UpdatedAt,
 	}
@@ -79,7 +79,7 @@ func composerFromV2(v V2Composer) streams.Composer {
 func composerToV2(c streams.Composer) V2Composer {
 	v := V2Composer{
 		ID:        c.ID,
-		Canvas:    V2CanvasDims{W: c.Canvas.W, H: c.Canvas.H},
+		Canvas:    V2CanvasDims{W: c.Canvas.W, H: c.Canvas.H, FPS: c.Canvas.FPS},
 		CreatedAt: c.CreatedAt,
 		UpdatedAt: c.UpdatedAt,
 	}

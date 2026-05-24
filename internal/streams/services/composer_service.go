@@ -78,7 +78,7 @@ func (s *composerService) CreateComposer(_ context.Context, data models.Composer
 	now := time.Now()
 	entity := pipeline.Composer{
 		ID:        data.ID,
-		Canvas:    pipeline.CanvasDims{W: data.Canvas.W, H: data.Canvas.H},
+		Canvas:    pipeline.CanvasDims{W: data.Canvas.W, H: data.Canvas.H, FPS: data.Canvas.FPS},
 		Inputs:    apiInputsToEntity(data.Inputs),
 		Layout:    apiLayoutToEntity(data.Layout),
 		CreatedAt: now,
@@ -122,7 +122,13 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 	inputsChanged := false
 	layoutChanged := false
 	if patch.Canvas != nil {
-		next := pipeline.CanvasDims{W: patch.Canvas.W, H: patch.Canvas.H}
+		if patch.Canvas.W <= 0 || patch.Canvas.H <= 0 {
+			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "canvas dimensions must be positive"}
+		}
+		if patch.Canvas.FPS < 0 || patch.Canvas.FPS > 240 {
+			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "canvas fps must be in 0..240 (0 = daemon default)"}
+		}
+		next := pipeline.CanvasDims{W: patch.Canvas.W, H: patch.Canvas.H, FPS: patch.Canvas.FPS}
 		if next != c.Canvas {
 			canvasChanged = true
 		}
@@ -332,6 +338,9 @@ func validateComposerCreate(data models.ComposerCreateRequestData) error {
 	if data.Canvas.W <= 0 || data.Canvas.H <= 0 {
 		return &api.ComposerError{Code: api.ComposerErrInvalid, Message: "canvas dimensions must be positive"}
 	}
+	if data.Canvas.FPS < 0 || data.Canvas.FPS > 240 {
+		return &api.ComposerError{Code: api.ComposerErrInvalid, Message: "canvas fps must be in 0..240 (0 = daemon default)"}
+	}
 	if len(data.Inputs) == 0 {
 		return &api.ComposerError{Code: api.ComposerErrInvalid, Message: "at least one input is required"}
 	}
@@ -387,7 +396,7 @@ func apiLayoutToEntity(layout []models.LayoutSlotData) []pipeline.LayoutSlot {
 func composerToAPI(c pipeline.Composer) models.ComposerData {
 	out := models.ComposerData{
 		ID:        c.ID,
-		Canvas:    models.CanvasDimsData{W: c.Canvas.W, H: c.Canvas.H},
+		Canvas:    models.CanvasDimsData{W: c.Canvas.W, H: c.Canvas.H, FPS: c.Canvas.FPS},
 		CreatedAt: c.CreatedAt,
 		UpdatedAt: c.UpdatedAt,
 	}
