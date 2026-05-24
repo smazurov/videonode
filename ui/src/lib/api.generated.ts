@@ -1387,7 +1387,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "h264" | "yv12" | "bgr24" | "nv16";
+            format_name: "yuyv422" | "h264" | "nv12" | "mjpeg" | "yu12" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1747,7 +1747,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "nv16" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "h264" | "yv12" | "bgr24";
+            format_name: "nv12" | "mjpeg" | "yu12" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "h264";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -2831,7 +2831,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yu12" | "rgb24" | "nv24" | "h264" | "yv12" | "bgr24" | "nv16" | "yuyv422" | "nv12" | "mjpeg";
+                format_name?: "bgr24" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "h264" | "nv12" | "mjpeg" | "yu12" | "yv12";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2897,7 +2897,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yu12" | "rgb24" | "nv24" | "h264" | "yv12" | "bgr24" | "nv16" | "yuyv422" | "nv12" | "mjpeg";
+                format_name?: "nv12" | "mjpeg" | "yu12" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "h264";
             };
             header?: never;
             path: {
