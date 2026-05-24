@@ -135,8 +135,8 @@ func (c *ComposerStage) LogAttrs() []slog.Attr {
 	}
 }
 
-// Reconfigure: composer config (canvas dims, layout, effects, source
-// state) hot-applies via the gRPC control plane; the Pipeline routes
-// diffs to the right RPC. Truly non-hot changes (DRM device path,
-// GrpcUds path) require restart.
+// Reconfigure hot-applies composer config (canvas dims, layout, effects,
+// source state) via the gRPC control plane; the Pipeline routes diffs to
+// the right RPC. Truly non-hot changes (DRM device path, GrpcUds path)
+// require restart.
 func (c *ComposerStage) Reconfigure(_ any) error { return nil }

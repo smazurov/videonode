@@ -12,6 +12,8 @@ type MediaSource struct {
 // EncoderStage argv builder) can pick the right ffmpeg input args.
 type FrameKind int
 
+// FrameKind values: Unknown is the zero value reserved for unset; the
+// other two select the wire format vn-sink emits for ffmpeg.
 const (
 	FrameKindUnknown FrameKind = iota
 	// FrameKindNV12Y4M is what vn-sink emits when consuming a producer
@@ -37,10 +39,17 @@ type ProducerFrameSource struct {
 	Socket string
 }
 
-func (p ProducerFrameSource) Kind() FrameKind    { return FrameKindNV12Y4M }
+// Kind reports the wire format: NV12 wrapped in YUV4MPEG2.
+func (p ProducerFrameSource) Kind() FrameKind { return FrameKindNV12Y4M }
+
+// SocketPath returns the producer SCM socket vn-sink dials.
 func (p ProducerFrameSource) SocketPath() string { return p.Socket }
-func (p ProducerFrameSource) Dims() (int, int)   { return 0, 0 }
-func (p ProducerFrameSource) FPS() int           { return 0 }
+
+// Dims returns (0, 0) — producer dims come from the y4m header at runtime.
+func (p ProducerFrameSource) Dims() (int, int) { return 0, 0 }
+
+// FPS returns 0 — producer framerate comes from the y4m header at runtime.
+func (p ProducerFrameSource) FPS() int { return 0 }
 
 // ComposerFrameSource — encoder dialing a Composer's `--scm-out` socket.
 type ComposerFrameSource struct {
@@ -50,10 +59,17 @@ type ComposerFrameSource struct {
 	Fps    int
 }
 
-func (c ComposerFrameSource) Kind() FrameKind    { return FrameKindBGRARaw }
+// Kind reports the wire format: raw BGRA.
+func (c ComposerFrameSource) Kind() FrameKind { return FrameKindBGRARaw }
+
+// SocketPath returns the composer --scm-out socket vn-sink dials.
 func (c ComposerFrameSource) SocketPath() string { return c.Socket }
-func (c ComposerFrameSource) Dims() (int, int)   { return c.Width, c.Height }
-func (c ComposerFrameSource) FPS() int           { return c.Fps }
+
+// Dims returns the canvas (width, height) ffmpeg needs to interpret raw BGRA.
+func (c ComposerFrameSource) Dims() (int, int) { return c.Width, c.Height }
+
+// FPS returns the canvas framerate ffmpeg uses on its `-framerate` flag.
+func (c ComposerFrameSource) FPS() int { return c.Fps }
 
 // AudioSource emits the encoder's audio-input argv fragment.
 type AudioSource interface {

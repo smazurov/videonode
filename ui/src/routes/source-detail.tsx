@@ -63,21 +63,19 @@ export default function SourceDetail() {
     );
   }
 
+  let description = '';
+  if (source.test_mode) {
+    description = 'Test pattern source.';
+  } else if (source.device) {
+    description = `Device: ${source.device}`;
+  }
+
   return (
     <DashboardLayout onLogout={handleLogout} bottomBar={<InfoBar />}>
       <DashboardLayout.MainContent>
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <SectionHeader
-              title={source.id}
-              description={
-                source.test_mode
-                  ? 'Test pattern source.'
-                  : source.device
-                    ? `Device: ${source.device}`
-                    : ''
-              }
-            />
+            <SectionHeader title={source.id} description={description} />
             <div className="flex gap-2">
               <Button theme="light" size="SM" text="Back" onClick={() => navigate('/sources')} />
               <Button

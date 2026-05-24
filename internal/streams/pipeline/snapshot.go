@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"maps"
 	"sort"
 	"strings"
 )
@@ -27,9 +28,7 @@ func (p *Pipeline) Snapshot() []ProcessView {
 	ids := p.pool.IDs()
 	p.mu.Lock()
 	stagesCopy := make(map[string]Stage, len(p.stages))
-	for k, v := range p.stages {
-		stagesCopy[k] = v
-	}
+	maps.Copy(stagesCopy, p.stages)
 	p.mu.Unlock()
 
 	out := make([]ProcessView, 0, len(ids))

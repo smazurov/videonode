@@ -17,7 +17,7 @@ import (
 // because vn-sink retry-dials its source SCM, so encoder respawn doesn't
 // kill the producer or composer.
 type EncoderStage struct {
-	StreamID_         string
+	OwnerStreamID     string
 	Media             MediaSource
 	Cfg               EncoderConfig
 	Publish           []PublishTarget
@@ -30,13 +30,13 @@ type EncoderStage struct {
 func EncoderIDFor(streamID string) string { return "encoder:" + streamID }
 
 // ID returns the stage's process.Pool key: "encoder:<stream-id>".
-func (e *EncoderStage) ID() string { return EncoderIDFor(e.StreamID_) }
+func (e *EncoderStage) ID() string { return EncoderIDFor(e.OwnerStreamID) }
 
 // Kind reports this as an Encoder stage.
 func (e *EncoderStage) Kind() Kind { return KindEncoder }
 
 // StreamID returns the user-facing stream id.
-func (e *EncoderStage) StreamID() string { return e.StreamID_ }
+func (e *EncoderStage) StreamID() string { return e.OwnerStreamID }
 
 // Command builds the shell command `vn-sink --socket X | ffmpeg ...`.
 func (e *EncoderStage) Command() ([]string, []string, error) {
@@ -133,11 +133,11 @@ func (e *EncoderStage) LogParser() process.LogParser { return ffmpeg.ParseLogLev
 // LogAttrs tags every encoder log line with the stream id + pool-key.
 func (e *EncoderStage) LogAttrs() []slog.Attr {
 	return []slog.Attr{
-		slog.String("stream_id", e.StreamID_),
+		slog.String("stream_id", e.OwnerStreamID),
 		slog.String("stage_instance", e.ID()),
 	}
 }
 
-// Reconfigure: encoder has no live control plane today; any change
-// requires restart.
+// Reconfigure always returns ErrRequiresRestart: encoder has no live
+// control plane today; any change requires restart.
 func (e *EncoderStage) Reconfigure(_ any) error { return ErrRequiresRestart }

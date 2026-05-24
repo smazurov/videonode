@@ -486,7 +486,7 @@ func (p *Pipeline) buildEncoder(s Stream) (*EncoderStage, error) {
 		return nil, err
 	}
 	return &EncoderStage{
-		StreamID_:         s.ID,
+		OwnerStreamID:     s.ID,
 		Media:             MediaSource{Video: video, Audio: ALSADirectAudio{Config: s.Audio}},
 		Cfg:               s.Encoder,
 		Publish:           s.Publish,
