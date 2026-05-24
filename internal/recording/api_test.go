@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2/humatest"
 	"github.com/smazurov/videonode/internal/streaming"
@@ -27,6 +28,9 @@ func (nilStreamProvider) GetStream(string) *streaming.Stream { return nil }
 func (nilStreamProvider) HasStream(string) bool              { return false }
 func (nilStreamProvider) ListStreams() []string              { return nil }
 func (nilStreamProvider) GetStreamReaderCount(string) int    { return 0 }
+func (nilStreamProvider) EnsureStreamReady(string, time.Duration) *streaming.Stream {
+	return nil
+}
 
 func TestSourceSnapshotEndpoint(t *testing.T) {
 	setupTestLogging(t)
