@@ -161,21 +161,17 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
 
     CaptureSession cap;
     source_probe::SourceProbe probe(cap.cap);
-    if (a.device.empty()) {
-        // Daemon-managed sources start with no device; SetDevice arrives
-        // later. Skip the initial open() entirely to avoid logging
-        // open(""): ENOENT before the daemon has assigned a path.
-    } else if (try_open_capture(cap, a, allocator)) {
-        probe.attach();
-    } else {
-        vn::log::warn("videonode-source: capture not ready at startup");
-    }
 
     // Control plane: --grpc-listen + --device-id together bring up an
     // in-process gRPC server (nativerpc::SourceService) that the daemon
     // dials. Both empty → standalone mode (R smoke scenarios), no
     // server, no daemon-issued SetFormat / Snapshot / status stream.
     bool need_reinit_for_format_change = false;
+    // active_format mirrors the post-negotiation format whenever cap is
+    // streaming. Populated under gctx.set_format_mu after every successful
+    // try_open_capture; cleared on teardown. SourceService::SetFormat
+    // reads it to skip rebuilds when the request already matches.
+    std::optional<nativerpc::ActiveFormat> active_format;
 
     nativerpc::SourceContext gctx;
     gctx.device_id = a.device_id;
@@ -184,6 +180,30 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     gctx.args = &a;
     gctx.need_reinit_for_format_change = &need_reinit_for_format_change;
     gctx.probe = &probe;
+    gctx.active_format = &active_format;
+
+    auto publish_active_format = [&](const Args& used) {
+        std::lock_guard<std::mutex> lock(gctx.set_format_mu);
+        active_format = nativerpc::ActiveFormat{.fourcc = cap.src_fmt_name,
+                                                .w = static_cast<uint32_t>(cap.width),
+                                                .h = static_cast<uint32_t>(cap.height),
+                                                .fps = static_cast<uint32_t>(used.in_fps)};
+    };
+    auto clear_active_format = [&]() {
+        std::lock_guard<std::mutex> lock(gctx.set_format_mu);
+        active_format.reset();
+    };
+
+    if (a.device.empty()) {
+        // Daemon-managed sources start with no device; SetDevice arrives
+        // later. Skip the initial open() entirely to avoid logging
+        // open(""): ENOENT before the daemon has assigned a path.
+    } else if (try_open_capture(cap, a, allocator)) {
+        probe.attach();
+        publish_active_format(a);
+    } else {
+        vn::log::warn("videonode-source: capture not ready at startup");
+    }
     nativerpc::SourceService grpc_svc(&gctx);
     nativerpc::GrpcServer grpc_srv;
     bool grpc_enabled = !a.grpc_listen.empty() && !a.device_id.empty();
@@ -259,11 +279,14 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                 // SetDevice("") detached us; tear down any open capture
                 // and stay in placeholder mode until a new path arrives.
                 teardown_session_(cap);
+                clear_active_format();
                 need_reinit = false;
             } else if (try_open_capture(cap, snap, allocator)) {
                 probe.attach();
+                publish_active_format(snap);
                 need_reinit = false;
             } else {
+                clear_active_format();
                 need_reinit = true;
             }
         }
@@ -281,6 +304,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                 need_reinit = false;
             } else if (try_open_capture(cap, snap, allocator)) {
                 probe.attach();
+                publish_active_format(snap);
                 need_reinit = false;
             }
             // even if reinit failed we proceed — placeholder still ticks
@@ -327,6 +351,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                                 probe.note_streaming_restarted();
                             } else {
                                 teardown_session_(cap);
+                                clear_active_format();
                                 need_reinit = true;
                             }
                         }
@@ -402,6 +427,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                             probe.note_dqbuf_failure(e);
                             if (e == ENODEV) {
                                 teardown_session_(cap);
+                                clear_active_format();
                                 last_good_decoded = {};
                                 need_reinit = true;
                             }

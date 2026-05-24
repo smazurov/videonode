@@ -56,6 +56,23 @@ grpc::Status SourceService::SetFormat(grpc::ServerContext* /*ctx*/,
     }
     {
         std::lock_guard<std::mutex> lock(ctx_->set_format_mu);
+        // Short-circuit when the orchestrator's active capture already
+        // matches the request. The daemon pushes the operator-configured
+        // format every time it (re-)registers a source; when the source
+        // autoprobed to that same format on startup, a rebuild would drop
+        // and re-init the V4L2 buffers + decoder for no gain and emit a
+        // spurious SIGNAL CHANGING. fps == 0 on either side is a wildcard:
+        // the requester didn't pin a rate, or we never did.
+        if (ctx_->active_format && ctx_->active_format->has_value()) {
+            const auto& af = **ctx_->active_format;
+            const bool fps_match = req->fps() == 0 || af.fps == 0 || af.fps == req->fps();
+            if (af.fourcc == req->fourcc() && af.w == req->w() && af.h == req->h() && fps_match) {
+                resp->set_applied(false);
+                vn::log::info("videonode-source: set_format no-op (already running: %s %ux%u@%u)",
+                              af.fourcc.c_str(), af.w, af.h, af.fps);
+                return grpc::Status::OK;
+            }
+        }
         if (ctx_->args) {
             ctx_->args->in_format = req->fourcc();
             ctx_->args->in_width = static_cast<int>(req->w());
