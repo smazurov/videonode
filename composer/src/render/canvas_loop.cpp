@@ -199,9 +199,16 @@ bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_
 } // namespace
 
 int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
-                  std::atomic<bool>& running, const std::string& scm_out_path) {
+                  std::atomic<bool>& running, const std::string& scm_out_path,
+                  RenderStats* stats) {
     auto start = std::chrono::steady_clock::now();
     int frames_rendered = 0;
+    // fps_observed is a sliding 1-second sample: count frames between
+    // ticks of `next_fps_sample` and publish (delta * 100) to the atomic
+    // so observers see something close to instantaneous fps, not the
+    // run-average.
+    auto next_fps_sample = start + std::chrono::seconds(1);
+    int frames_at_last_sample = 0;
 
     // gl_compose is constructed lazily on the first ready snapshot, since
     // we don't know the canvas dims until the daemon's set_canvas lands.
@@ -276,6 +283,8 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
                 }
             }
             ++frames_rendered;
+            if (stats)
+                stats->frames_rendered.store(uint64_t(frames_rendered), std::memory_order_relaxed);
             next_tick += period(int(snap.canvas_fps ? snap.canvas_fps : uint32_t(target_fps)));
             continue;
         }
@@ -294,6 +303,11 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
             compose_h = int(snap.canvas_h);
             vn::log::info("canvas_loop: ready canvas %dx%d (%u fps)", compose_w, compose_h,
                           snap.canvas_fps);
+            if (stats) {
+                stats->canvas_w.store(snap.canvas_w, std::memory_order_relaxed);
+                stats->canvas_h.store(snap.canvas_h, std::memory_order_relaxed);
+                stats->canvas_fps.store(snap.canvas_fps, std::memory_order_relaxed);
+            }
             // Export the canvas BO's dma-buf fd once for the SCM mode.
             // gbm_bo_get_fd() returns a new fd each call; we hold this one
             // for the producer's lifetime and broadcast() lets the kernel
@@ -428,6 +442,8 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
             break;
         }
         ++frames_rendered;
+        if (stats)
+            stats->frames_rendered.store(uint64_t(frames_rendered), std::memory_order_relaxed);
 
         // Periodic consumer-list reap in SCM mode. broadcast() catches
         // EPIPE drops on the next send, but if a consumer dies during a
@@ -447,17 +463,23 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
                 vn::log::info("canvas_loop: SCM consumer connected (count=%d)", cur);
             }
             prev_consumer_count = cur;
+            if (stats)
+                stats->consumer_count.store(cur, std::memory_order_relaxed);
             next_consumer_prune = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         }
 
-        int fps = snap.canvas_fps ? int(snap.canvas_fps) : target_fps;
-        if (fps > 0 && (frames_rendered % fps) == 0) {
+        if (stats) {
             auto now = std::chrono::steady_clock::now();
-            double elapsed = std::chrono::duration<double>(now - start).count();
-            vn::log::info("[%6.1fs] rendered=%d (%.1f fps)", elapsed, frames_rendered,
-                          elapsed > 0.0 ? frames_rendered / elapsed : 0.0);
+            if (now >= next_fps_sample) {
+                int delta = frames_rendered - frames_at_last_sample;
+                frames_at_last_sample = frames_rendered;
+                next_fps_sample = now + std::chrono::seconds(1);
+                stats->fps_observed_centi.store(uint32_t(delta * 100),
+                                                std::memory_order_relaxed);
+            }
         }
 
+        int fps = snap.canvas_fps ? int(snap.canvas_fps) : target_fps;
         next_tick += period(fps);
         if (next_tick < std::chrono::steady_clock::now()) {
             // Fell behind — rebase rather than burn loop iterations.

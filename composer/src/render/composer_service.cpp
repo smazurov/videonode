@@ -1,5 +1,6 @@
 #include "src/render/composer_service.hpp"
 
+#include "src/render/canvas_loop.hpp"
 #include "src/render/world.hpp"
 #include "src/rpc/composer_rpc.hpp"
 
@@ -144,6 +145,23 @@ grpc::Status ComposerService::SetSourceState(grpc::ServerContext* /*ctx*/,
     if (!ctx_.world->apply_set_source_state(r, e)) {
         return from_parse_error(e);
     }
+    return grpc::Status::OK;
+}
+
+grpc::Status ComposerService::GetStats(grpc::ServerContext* /*ctx*/,
+                                       const ::google::protobuf::Empty* /*req*/,
+                                       ::videonode::control::ComposerStats* resp) {
+    if (!ctx_.stats) {
+        return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                            "render stats not attached to ComposerContext");
+    }
+    const auto& s = *ctx_.stats;
+    resp->set_frames_rendered(s.frames_rendered.load(std::memory_order_relaxed));
+    resp->set_fps_observed(s.fps_observed_centi.load(std::memory_order_relaxed) / 100.0);
+    resp->set_canvas_w(s.canvas_w.load(std::memory_order_relaxed));
+    resp->set_canvas_h(s.canvas_h.load(std::memory_order_relaxed));
+    resp->set_canvas_fps(s.canvas_fps.load(std::memory_order_relaxed));
+    resp->set_consumer_count(s.consumer_count.load(std::memory_order_relaxed));
     return grpc::Status::OK;
 }
 

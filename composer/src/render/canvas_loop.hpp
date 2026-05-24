@@ -28,6 +28,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <string>
 
 namespace egl_ctx {
@@ -38,6 +39,19 @@ class World;
 }
 
 namespace render {
+
+// Lock-free counters the canvas loop writes once per frame and the gRPC
+// `Composer.GetStats` handler reads from another thread. fps_observed is
+// stored as centi-fps (fps × 100) so it can fit in a plain atomic and
+// stays consistent with the rest of the snapshot.
+struct RenderStats {
+    std::atomic<uint64_t> frames_rendered{0};
+    std::atomic<uint32_t> fps_observed_centi{0}; // fps * 100, recomputed every ~1s
+    std::atomic<uint32_t> canvas_w{0};
+    std::atomic<uint32_t> canvas_h{0};
+    std::atomic<uint32_t> canvas_fps{0};
+    std::atomic<int32_t> consumer_count{0}; // SCM mode only; 0 in stdout mode
+};
 
 // Render at the target frame rate until `running` goes false, the
 // composer's stdout closes (EPIPE in stdout mode) or all SCM consumers
@@ -55,8 +69,13 @@ namespace render {
 //                   from any one consumer; encoder restart no longer kills
 //                   the composer via EPIPE.
 //
+// `stats` (optional) is updated each frame and on each consumer-prune
+// tick. Pass nullptr when no observer is wired up (smoke tests, no-gRPC
+// diagnostic runs).
+//
 // Returns the number of frames rendered (placeholder + real).
 int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
-                  std::atomic<bool>& running, const std::string& scm_out_path = "");
+                  std::atomic<bool>& running, const std::string& scm_out_path = "",
+                  RenderStats* stats = nullptr);
 
 } // namespace render
