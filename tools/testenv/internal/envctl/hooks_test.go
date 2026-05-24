@@ -145,6 +145,33 @@ func TestEvalPreToolUse_MalformedJSON(t *testing.T) {
 	}
 }
 
+func TestEvalPostToolUse_EnterWorktree(t *testing.T) {
+	dir := t.TempDir()
+	statePath := dir + "/state.db"
+	payload := `{"tool_name":"EnterWorktree","session_id":"sess-42","cwd":"/home/user/dev/proj/.claude/worktrees/my-branch"}`
+	EvalPostToolUse(strings.NewReader(payload), statePath)
+
+	cwd, err := LookupSession(statePath, "sess-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cwd != "/home/user/dev/proj/.claude/worktrees/my-branch" {
+		t.Errorf("got %q", cwd)
+	}
+}
+
+func TestEvalPostToolUse_OtherTool(t *testing.T) {
+	dir := t.TempDir()
+	statePath := dir + "/state.db"
+	payload := `{"tool_name":"Bash","session_id":"sess-42","cwd":"/tmp"}`
+	EvalPostToolUse(strings.NewReader(payload), statePath)
+
+	cwd, _ := LookupSession(statePath, "sess-42")
+	if cwd != "" {
+		t.Errorf("non-EnterWorktree should not register; got %q", cwd)
+	}
+}
+
 func jsonStr(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)

@@ -109,6 +109,9 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	envID := "env-" + randHex(4)
 	dataDir := filepath.Join(filepath.Dir(s.Path()), "envs", envID)
 	worktree := filepath.Dir(cfg.Path)
+	if sessionCwd, _ := LookupSession(p.StatePath, p.Session); sessionCwd != "" {
+		worktree = sessionCwd
+	}
 
 	var held *slots.Held
 	err = s.WithLock(func() error {

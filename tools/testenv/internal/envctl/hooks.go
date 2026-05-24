@@ -122,6 +122,31 @@ func isManualDaemonKill(cmd string) bool {
 	return hasKill && hasTarget
 }
 
+// PostToolUsePayload is the JSON stdin from a PostToolUse hook.
+type PostToolUsePayload struct {
+	ToolName  string `json:"tool_name"`
+	SessionID string `json:"session_id"`
+	Cwd       string `json:"cwd"`
+}
+
+// EvalPostToolUse handles the PostToolUse hook. If the tool was
+// EnterWorktree, it registers the session's new cwd so the MCP
+// server can resolve the worktree path.
+func EvalPostToolUse(r io.Reader, statePath string) HookDecision {
+	var payload PostToolUsePayload
+	if err := json.NewDecoder(r).Decode(&payload); err != nil {
+		return HookDecision{}
+	}
+	if payload.ToolName != "EnterWorktree" {
+		return HookDecision{}
+	}
+	if payload.SessionID == "" || payload.Cwd == "" {
+		return HookDecision{}
+	}
+	RegisterSession(statePath, payload.SessionID, payload.Cwd)
+	return HookDecision{}
+}
+
 // SessionStartContext returns inventory text to inject into the
 // session as additional context.
 func SessionStartContext(ctx context.Context, statePath string) string {
