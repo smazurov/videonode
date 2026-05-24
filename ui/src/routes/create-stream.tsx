@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { StreamForm } from '../components/StreamForm';
+import { StreamForm } from '../components/streams/StreamForm';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { Button } from '../components/Button';
 import { InfoBar } from '../components/InfoBar';
@@ -27,7 +27,7 @@ export default function CreateStream() {
                 Create New Stream
               </h1>
               <p className="text-gray-600 dark:text-gray-300 mt-1">
-                Configure a stream from one capture device, or compose 2&ndash;4 existing streams.
+                Define an encoder + audio + publish for an existing source or composer upstream.
               </p>
             </div>
             <Button theme="light" onClick={handleCancel} size="SM" text="Back to Streams" />
