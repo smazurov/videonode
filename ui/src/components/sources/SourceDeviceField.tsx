@@ -1,8 +1,14 @@
+// Pending U7: Source-form device picker.
+// This is a relocation of the capability-fetching logic from the old
+// `StreamCreation/DeviceSelector.tsx` that U14 deleted. U7 will wire it
+// into the source create/edit forms and surface SourceTestModeToggle next
+// to it; for now it is a self-contained picker that lists devices and
+// shows their supported formats.
 import { useEffect } from 'react';
 import { Button } from '../Button';
+import { Spinner } from '../Spinner';
 import { useDeviceStore } from '../../hooks/useDeviceStore';
 import { useDeviceFormats } from '../../hooks/useDeviceCapabilities';
-import { Spinner } from '../Spinner';
 
 type DeviceFormat = {
   format_name: string;
@@ -10,7 +16,7 @@ type DeviceFormat = {
   emulated: boolean;
 };
 
-interface DeviceSelectorProps {
+interface SourceDeviceFieldProps {
   value: string;
   onChange: (deviceId: string) => void;
   error?: string | undefined;
@@ -21,13 +27,13 @@ interface DeviceSelectorProps {
 const selectClasses =
   'block w-full px-3 py-2 border border-border rounded-md shadow-sm bg-surface text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:border-accent';
 
-export function DeviceSelector({
+export function SourceDeviceField({
   value,
   onChange,
   error,
   disabled = false,
-  required = false
-}: Readonly<DeviceSelectorProps>) {
+  required = false,
+}: Readonly<SourceDeviceFieldProps>) {
   const devices = useDeviceStore((state) => state.devices);
   const loadingDevices = useDeviceStore((state) => state.loading);
   const deviceError = useDeviceStore((state) => state.error);
@@ -46,7 +52,7 @@ export function DeviceSelector({
     }
   }, [devices, value, onChange]);
 
-  const selectedDevice = devices.find(d => d.device_id === value);
+  const selectedDevice = devices.find((d) => d.device_id === value);
 
   const renderDeviceSelection = () => {
     if (loadingDevices) {
@@ -104,11 +110,11 @@ export function DeviceSelector({
     );
   };
 
-  const renderFormatsList = (formats: DeviceFormat[]) => (
+  const renderFormatsList = (deviceFormats: DeviceFormat[]) => (
     <div className="text-sm">
       <p className="text-fg font-medium mb-1">Available Input Formats:</p>
       <div className="flex flex-wrap gap-1">
-        {formats.map(format => (
+        {deviceFormats.map((format) => (
           <span
             key={format.format_name}
             className={`px-2 py-1 rounded text-xs ${
