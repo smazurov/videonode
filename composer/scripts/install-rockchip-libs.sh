@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # install-rockchip-libs.sh — fetch tsukumijima's prebuilt librga + librockchip-mpp
-# arm64 .debs and install them. Used by CI lanes and by build-deb-arm64-docker.sh.
-# Versions are pinned here; bump deliberately.
+# arm64 .debs and install them. Used by the CI deb-arm64 lane (native arm64
+# runner). Versions are pinned here; bump deliberately.
 set -euo pipefail
 
 LIBRGA_VER=2.2.0-1

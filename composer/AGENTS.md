@@ -43,9 +43,9 @@ cmake --build build/dev --target tidy-all   # clang-tidy whole tree (slow)
 - gRPC + protobuf for the daemon ↔ native control plane. Fedora:
   `sudo dnf install protobuf-compiler protobuf-devel grpc-devel grpc-plugins`.
   Debian (rig): `sudo apt install libgrpc++-dev libprotobuf-dev
-  protobuf-compiler protobuf-compiler-grpc`. The deb-build Docker
-  image installs these automatically (see
-  `composer/scripts/build-deb-arm64-docker.sh`).
+  protobuf-compiler protobuf-compiler-grpc`. CI's `deb-arm64` lane
+  installs the same set in its native arm64 runner; there is no
+  qemu-based local Docker build (it was too slow to be useful).
 - MCP setup:
   - `mcp-cpp-server`: download the prebuilt binary from
     [mpsm/mcp-cpp releases](https://github.com/mpsm/mcp-cpp/releases) to
