@@ -73,8 +73,7 @@ cmake --build build/dev --target tidy-all   # clang-tidy whole tree (slow)
   V4L2 buffer views). Raw `(void*, size_t)` is only acceptable at the
   syscall itself; wrap on return.
 - dma-buf fds: `dup()` before storing; set `FD_CLOEXEC` on every export.
-- Never `new` / `delete` / `malloc` outside `gsl::owner<>` annotation.
-  Prefer `std::make_unique` or stack allocation.
+- Prefer `std::make_unique` or stack allocation over raw `new` / `delete`.
 - Template error walls: fix the call site. Do not refactor templates to
   silence diagnostics.
 - **Never add `NOLINT` comments.** Fix the code instead. If clang-tidy
