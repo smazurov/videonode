@@ -26,6 +26,11 @@ const (
 	TypeComposerUpdated
 	TypeComposerDeleted
 	TypeComposerLayoutChanged
+	// TypeEntity is the uniform entity envelope (see EntityEvent in
+	// registry.go) that replaces all per-action structs above. Old
+	// constants are kept during the dual-publish migration; they're
+	// removed in Step 5 of the live-sync rewire.
+	TypeEntity
 )
 
 // SourceStatusEvent carries a status snapshot published by a
