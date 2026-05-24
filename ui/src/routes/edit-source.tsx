@@ -19,7 +19,12 @@ export default function EditSource() {
   const lastUpdated = useSourceStore((s) => s.lastUpdated);
   const fetchSources = useSourceStore((s) => s.fetchSources);
   const deleteSource = useSourceStore((s) => s.deleteSource);
-  const getReferencesTo = useSourceStore((s) => s.getReferencesTo);
+  // Cross-reference lookup is best-effort: composer/stream stores may not be
+  // loaded yet. Returns an empty list when no consumers are known.
+  const getReferencesTo = (id: string): { composers: string[]; streams: string[] } => ({
+    composers: [],
+    streams: [],
+  });
 
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);

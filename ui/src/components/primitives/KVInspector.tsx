@@ -8,17 +8,24 @@ export interface KVItem {
   readonly key?: string;
 }
 
+// KVEntry is an alias for KVItem retained for back-compat with earlier
+// consumers that imported the name directly.
+export type KVEntry = KVItem;
+
 export interface KVInspectorProps {
-  readonly items: readonly KVItem[];
+  readonly items?: readonly KVItem[];
+  readonly entries?: readonly KVItem[]; // alias for items (back-compat)
   readonly dense?: boolean;
   readonly className?: string;
 }
 
 export function KVInspector({
   items,
+  entries,
   dense = false,
   className,
 }: Readonly<KVInspectorProps>) {
+  const rows: readonly KVItem[] = items ?? entries ?? [];
   return (
     <dl
       className={cn(
@@ -27,7 +34,7 @@ export function KVInspector({
         className,
       )}
     >
-      {items.map((item, idx) => {
+      {rows.map((item, idx) => {
         const rowKey = item.key ?? `${idx}`;
         return (
           <React.Fragment key={rowKey}>

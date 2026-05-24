@@ -32,7 +32,8 @@ const tableVariants = cva({
 export interface DataTableProps<T> extends VariantProps<typeof tableVariants> {
   readonly columns: ReadonlyArray<DataTableColumn<T>>;
   readonly rows: readonly T[];
-  readonly getRowId: (row: T) => string;
+  readonly getRowId?: (row: T) => string;
+  readonly rowKey?: (row: T) => string; // alias for getRowId (back-compat)
   readonly onRowClick?: (row: T) => void;
   /** Controlled multi-select state. Pass `undefined` to disable selection. */
   readonly selection?: ReadonlyArray<string>;

@@ -45,9 +45,9 @@ const dotVariants = cva({
 
 export type StatusPillStatus = NonNullable<VariantProps<typeof pillVariants>["status"]>;
 
-export interface StatusPillProps
-  extends Omit<React.HTMLAttributes<HTMLSpanElement>, "children"> {
-  readonly status: StatusPillStatus;
+export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
+  readonly status?: StatusPillStatus;
+  readonly tone?: StatusPillStatus; // alias for status (back-compat)
   readonly size?: VariantProps<typeof pillVariants>["size"];
   readonly label?: React.ReactNode;
   readonly showDot?: boolean;
@@ -65,16 +65,19 @@ const DEFAULT_LABELS: Record<StatusPillStatus, string> = {
 
 export function StatusPill({
   status,
+  tone,
   size,
   label,
+  children,
   showDot = true,
   className,
   ...props
 }: Readonly<StatusPillProps>) {
-  const text = label ?? DEFAULT_LABELS[status];
+  const effective: StatusPillStatus = status ?? tone ?? "idle";
+  const text = children ?? label ?? DEFAULT_LABELS[effective];
   return (
-    <span className={cn(pillVariants({ status, size }), className)} {...props}>
-      {showDot && <span aria-hidden="true" className={dotVariants({ status, size })} />}
+    <span className={cn(pillVariants({ status: effective, size }), className)} {...props}>
+      {showDot && <span aria-hidden="true" className={dotVariants({ status: effective, size })} />}
       <span>{text}</span>
     </span>
   );

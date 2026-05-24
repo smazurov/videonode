@@ -51,12 +51,9 @@ export default function StreamDetail() {
       } else if (event.type === 'stream-deleted' && event.stream_id === streamId) {
         removeStream(event.stream_id);
         navigate('/streams');
-      } else if (event.type === 'canvas-restarted') {
-        if (event.canvas) addStream(event.canvas);
-        bumpStreamRefreshKey(event.canvas_id);
       }
     },
-    [addStream, removeStream, bumpStreamRefreshKey, streamId, navigate],
+    [addStream, removeStream, streamId, navigate],
   );
 
   const handleStreamMetrics = useCallback(
