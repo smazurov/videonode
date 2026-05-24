@@ -87,7 +87,7 @@ void build_status_proto(::videonode::control::Status& out, const std::string& de
     }
 
     auto* bc = out.mutable_broadcast();
-    bc->set_target_fps(static_cast<uint32_t>(a.broadcast_fps));
+    bc->set_target_fps(static_cast<uint32_t>(a.placeholder_broadcast_fps));
     bc->set_real_frames(real_frame_idx);
     bc->set_placeholder_frames(placeholder_frames);
     bc->set_last_seq(last_seq);

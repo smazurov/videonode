@@ -328,7 +328,7 @@ $script")
     if [ "$total" -eq 0 ]; then
         record R1 FAIL "no frames broadcast; see $log"; return
     fi
-    # Source's --broadcast-fps default is 60. When HDMI is stable we expect
+    # Source's --placeholder-broadcast-fps default is 60. When HDMI is stable we expect
     # the full 60fps; when transitioning, state-machine overhead drops it,
     # so use 30fps as the threshold (the placeholder path's worst-case rate).
     local target_fps=60

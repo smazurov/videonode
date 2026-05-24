@@ -17,7 +17,7 @@ struct Args {
     std::string out_socket = "/tmp/videonode-source.sock";
     int max_consumers = 16;
     int run_seconds = 0;
-    int broadcast_fps = 60;
+    int placeholder_broadcast_fps = 60;
     int placeholder_w = 1920;
     int placeholder_h = 1080;
     // gRPC control plane: when set, videonode-source binds a gRPC server

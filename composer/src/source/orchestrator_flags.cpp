@@ -24,7 +24,10 @@ ABSL_FLAG(std::string, out_socket, "/tmp/videonode-source.sock",
           "Unix socket to publish NV12 dma-bufs on");
 ABSL_FLAG(int, max_consumers, 16, "soft cap on concurrent consumers");
 ABSL_FLAG(int, seconds, 0, "stop after N seconds (0 = until SIGINT)");
-ABSL_FLAG(int, broadcast_fps, 60, "publish rate");
+ABSL_FLAG(int, placeholder_broadcast_fps, 60,
+          "placeholder/keep-alive broadcast cadence (Hz). Only paces the loop "
+          "when the source is not Live; Live frames go out at the V4L2 "
+          "capture rate.");
 ABSL_FLAG(int, placeholder_w, 1920, "placeholder canvas width");
 ABSL_FLAG(int, placeholder_h, 1080, "placeholder canvas height");
 ABSL_FLAG(std::string, grpc_listen, "",
@@ -49,7 +52,7 @@ Args BuildArgsFromFlags() {
     a.out_socket = absl::GetFlag(FLAGS_out_socket);
     a.max_consumers = absl::GetFlag(FLAGS_max_consumers);
     a.run_seconds = absl::GetFlag(FLAGS_seconds);
-    a.broadcast_fps = absl::GetFlag(FLAGS_broadcast_fps);
+    a.placeholder_broadcast_fps = absl::GetFlag(FLAGS_placeholder_broadcast_fps);
     a.placeholder_w = absl::GetFlag(FLAGS_placeholder_w);
     a.placeholder_h = absl::GetFlag(FLAGS_placeholder_h);
     a.grpc_listen = absl::GetFlag(FLAGS_grpc_listen);
