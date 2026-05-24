@@ -56,13 +56,9 @@ func (e *ComposerError) Error() string {
 	return string(e.Code)
 }
 
-// registerComposerRoutes wires all /api/composers endpoints. Skipped when
-// the server was constructed without a ComposerService (legacy daemons).
+// registerComposerRoutes wires all /api/composers endpoints.
 func (s *Server) registerComposerRoutes() {
 	svc := s.composerService
-	if svc == nil {
-		return
-	}
 
 	huma.Register(s.api, huma.Operation{
 		OperationID: "list-composers",

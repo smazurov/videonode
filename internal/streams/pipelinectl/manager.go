@@ -42,12 +42,6 @@ import (
 	pb "github.com/smazurov/videonode/internal/streams/pipelinectl/pb"
 )
 
-// DefaultSocketPath was the well-known daemon control socket location
-// under the legacy JSON-RPC model. Retained as an empty-default sentinel
-// for Manager.New() callers; the new model uses per-instance UDS paths
-// the daemon allocates per spawn (see process_manager.go).
-const DefaultSocketPath = ""
-
 // HeartbeatInterval / HeartbeatTimeout are retained for compat with the
 // existing tests; the gRPC keepalive mechanism on the StreamStatus
 // stream replaces the explicit watchdog.
@@ -64,9 +58,8 @@ const (
 // server-streaming RPC that pumps the legacy `status` notifications
 // onto the manager's status channel.
 type Manager struct {
-	socketPath string // retained for API compat; unused in the gRPC path
-	logger     logging.Logger
-	statusCh   chan StatusParams
+	logger   logging.Logger
+	statusCh chan StatusParams
 
 	mu           sync.RWMutex
 	sources      map[string]*nativeConn // key: device_id
@@ -98,26 +91,18 @@ type nativeConn struct {
 	streamDone   chan struct{}
 }
 
-// New constructs an unstarted Manager. The socketPath argument is
-// retained for API compat with the legacy server-mode signature; it is
-// ignored in the gRPC client path (per-instance UDS paths flow through
-// RegisterSource / RegisterComposer instead).
-func New(socketPath string, logger logging.Logger) *Manager {
+// New constructs an unstarted Manager.
+func New(logger logging.Logger) *Manager {
 	if logger == nil {
 		logger = logging.GetLogger("pipelinectl")
 	}
 	return &Manager{
-		socketPath: socketPath,
-		logger:     logger,
-		statusCh:   make(chan StatusParams, 64),
-		sources:    make(map[string]*nativeConn),
-		composers:  make(map[string]*nativeConn),
+		logger:    logger,
+		statusCh:  make(chan StatusParams, 64),
+		sources:   make(map[string]*nativeConn),
+		composers: make(map[string]*nativeConn),
 	}
 }
-
-// SocketPath returns the legacy socket-path field. Unused in the gRPC
-// path; retained for back-compat with any caller that reads it.
-func (m *Manager) SocketPath() string { return m.socketPath }
 
 // StatusFeed returns the read-only channel of status notifications
 // proxied from each registered source's StreamStatus server stream.

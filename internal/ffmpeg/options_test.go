@@ -5,16 +5,6 @@ import (
 	"testing"
 )
 
-func TestNewCommandBuilder(t *testing.T) {
-	builder := NewCommandBuilder()
-	if builder == nil {
-		t.Fatal("NewCommandBuilder() returned nil")
-	}
-
-	// Test that it implements the CommandBuilder interface
-	_ = builder
-}
-
 func TestBuildEncodersListCommand(t *testing.T) {
 	builder := NewCommandBuilder()
 	cmd, err := builder.BuildEncodersListCommand()

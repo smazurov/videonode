@@ -234,7 +234,7 @@ func main() {
 		// available — without a sidecar binary, no clients connect.
 		var ctlServer *pipelinectl.Manager
 		if native.V4L2Source != "" {
-			ctlServer = pipelinectl.New("", nil)
+			ctlServer = pipelinectl.New(nil)
 			if err := ctlServer.Start(context.Background()); err != nil {
 				logger.Warn("control plane disabled (start failed)",
 					"error", err)

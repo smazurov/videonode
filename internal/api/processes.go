@@ -50,12 +50,8 @@ type ProcessesListResponse struct {
 }
 
 // RegisterProcessesRoutes registers the /api/processes endpoint on the
-// given huma.API. Wired from server.go when the daemon has a Pipeline
-// instance available. No-op when provider is nil (legacy daemon mode).
+// given huma.API.
 func RegisterProcessesRoutes(api huma.API, provider ProcessesProvider) {
-	if provider == nil {
-		return
-	}
 	huma.Register(api, huma.Operation{
 		OperationID: "list-processes",
 		Method:      http.MethodGet,

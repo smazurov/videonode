@@ -7,9 +7,7 @@ import (
 )
 
 // TestOpenAPI_CoreSchema is a smoke test that the openapi command produces a
-// document with the expected top-level entity paths. /api/streams is asserted
-// today; /api/sources and /api/composers are asserted once units B5 and B6
-// have landed (handled as skipped subtests below until then).
+// document with the expected top-level entity paths.
 func TestOpenAPI_CoreSchema(t *testing.T) {
 	c := CreateOpenAPICmd()
 	var buf bytes.Buffer
@@ -27,20 +25,10 @@ func TestOpenAPI_CoreSchema(t *testing.T) {
 		t.Fatalf("decode spec: %v", err)
 	}
 
-	required := []string{"/api/streams"}
+	required := []string{"/api/streams", "/api/sources", "/api/composers"}
 	for _, p := range required {
 		if _, ok := spec.Paths[p]; !ok {
 			t.Errorf("missing required path %q in openapi spec", p)
 		}
-	}
-
-	// These paths land with B5 (/api/sources) and B6 (/api/composers). Skip until merged.
-	deferred := []string{"/api/sources", "/api/composers"}
-	for _, p := range deferred {
-		t.Run("deferred_"+p, func(t *testing.T) {
-			if _, ok := spec.Paths[p]; !ok {
-				t.Skipf("path %q not in schema yet (lands with B5/B6)", p)
-			}
-		})
 	}
 }
