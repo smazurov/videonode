@@ -7,6 +7,7 @@ import Root from "./root";
 import LoginRoute from "./routes/login";
 import VideoRoute from "./routes/video";
 import Streams from "./routes/streams";
+import StreamDetail from "./routes/stream-detail";
 import CreateStream from "./routes/create-stream";
 import EditStream from "./routes/edit-stream";
 import Logs from "./routes/logs";
@@ -46,6 +47,14 @@ const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <CreateStream />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "streams/:streamId",
+        element: (
+          <ProtectedRoute>
+            <StreamDetail />
           </ProtectedRoute>
         ),
       },
