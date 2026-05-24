@@ -34,10 +34,10 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
       header: 'Source',
       cell: (row) => (
         <div className="flex flex-col">
-          <span className="font-medium text-fg">{row.source_id}</span>
+          <span className="font-medium text-fg">{row.id}</span>
         </div>
       ),
-      sortValue: (row) => row.source_id,
+      sortValue: (row) => row.id,
     },
     {
       id: 'device',
@@ -77,8 +77,8 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
     <DataTable
       columns={columns}
       rows={sources}
-      rowKey={(row) => row.source_id ?? ''}
-      onRowClick={(row) => navigate(`/sources/${row.source_id}`)}
+      rowKey={(row) => row.id}
+      onRowClick={(row) => navigate(`/sources/${row.id}`)}
       initialSort={{ columnId: 'source_id', direction: 'asc' }}
       emptyState={
         <EmptyState
