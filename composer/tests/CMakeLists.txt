@@ -12,6 +12,9 @@ vn_add_test(ffmpeg_pipe_source_argv
 
 vn_add_test(child_process       DEPS child_process                LABELS process)
 vn_add_test(y4m_writer          DEPS y4m_writer                   LABELS process)
+vn_add_test(snapshot
+    DEPS vn_snapshot Threads::Threads
+    LABELS snapshot)
 vn_add_test(scm_socket          DEPS scm_socket                   LABELS ipc)
 vn_add_test(dmabuf_header       DEPS dmabuf_header                LABELS ipc)
 
