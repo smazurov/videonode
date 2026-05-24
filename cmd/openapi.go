@@ -31,14 +31,19 @@ func CreateOpenAPICmd() *cobra.Command {
 				WebRTCManager:          &streaming.WebRTCManager{},
 				ProcessesProvider:      noopProcessesProvider{},
 			}
-			// Wire SourceService/ComposerService so /api/sources and
-			// /api/composers surface in the generated spec. The in-memory
-			// store never writes to disk during openapi gen; pipeline is
-			// nil because route registration walks the table without
-			// serving traffic.
-			if es, ok := store.NewTOML("").(streams.EntityStore); ok {
+			// Wire StreamService/SourceService/ComposerService so all CRUD
+			// routes surface in the generated spec. The in-memory store
+			// never writes to disk during openapi gen; pipeline is nil
+			// because route registration walks the table without serving
+			// traffic.
+			memStore := store.NewInMemory()
+			if es, ok := memStore.(streams.EntityStore); ok {
 				opts.SourceService = services.NewSourceService(services.SourceServiceOptions{Store: es})
 				opts.ComposerService = services.NewComposerService(services.ComposerServiceOptions{Store: es})
+				opts.StreamService = services.NewStreamService(services.StreamServiceOptions{
+					Store:          es,
+					PipelineSwitch: memStore,
+				})
 			}
 			server := api.NewServer(opts)
 

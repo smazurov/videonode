@@ -5,19 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/events"
-	"github.com/smazurov/videonode/internal/streams"
-	"github.com/smazurov/videonode/internal/types"
+	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
 
 // registerStreamRoutes registers all stream-related endpoints.
 func (s *Server) registerStreamRoutes() {
+	if s.streamService == nil {
+		return
+	}
+
 	huma.Register(s.api, huma.Operation{
 		OperationID: "list-streams",
 		Method:      http.MethodGet,
@@ -28,15 +30,14 @@ func (s *Server) registerStreamRoutes() {
 		Errors:      []int{401, 500},
 		Security:    withAuth(),
 	}, func(ctx context.Context, _ *struct{}) (*models.StreamListResponse, error) {
-		items, err := s.streamService.ListStreamsWithSpecs(ctx)
+		items, err := s.streamService.List(ctx)
 		if err != nil {
 			return nil, s.mapStreamError(err)
 		}
 
 		apiStreams := make([]models.StreamData, len(items))
-		for i, it := range items {
-			spec := it.Spec
-			apiStreams[i] = s.domainToAPIStreamWithSpec(it.Stream, &spec)
+		for i, st := range items {
+			apiStreams[i] = s.streamToAPI(st)
 		}
 
 		return &models.StreamListResponse{
@@ -57,15 +58,14 @@ func (s *Server) registerStreamRoutes() {
 		Errors:      []int{400, 401, 404, 409, 500},
 		Security:    withAuth(),
 	}, func(ctx context.Context, input *models.StreamRequest) (*models.StreamResponse, error) {
-		params := convertCreateRequest(input.Body)
+		entity := streamFromCreateRequest(input.Body)
 
-		stream, err := s.streamService.CreateStream(ctx, params)
+		created, err := s.streamService.Create(ctx, entity)
 		if err != nil {
 			return nil, s.mapStreamError(err)
 		}
 
-		apiStream := s.domainToAPIStream(*stream)
-
+		apiStream := s.streamToAPI(*created)
 		if s.eventBus != nil {
 			s.eventBus.Publish(events.StreamCreatedEvent{
 				Stream:    apiStream,
@@ -73,7 +73,6 @@ func (s *Server) registerStreamRoutes() {
 				Timestamp: time.Now().Format(time.RFC3339),
 			})
 		}
-
 		return &models.StreamResponse{Body: apiStream}, nil
 	})
 
@@ -93,21 +92,15 @@ func (s *Server) registerStreamRoutes() {
 	) (*models.StreamResponse, error) {
 		body := input.Body
 
-		stream, err := s.streamService.UpdatePartial(ctx, input.StreamID, func(spec *streams.StreamSpec) error {
-			return applySlimUpdate(spec, body)
+		updated, err := s.streamService.Update(ctx, input.StreamID, func(st *pipeline.Stream) error {
+			applyStreamPatch(st, body)
+			return nil
 		})
 		if err != nil {
 			return nil, s.mapStreamError(err)
 		}
 
-		if body.Enabled != nil {
-			if _, serr := s.streamService.SetEnabled(ctx, input.StreamID, *body.Enabled); serr != nil {
-				return nil, s.mapStreamError(serr)
-			}
-			stream.Enabled = *body.Enabled
-		}
-
-		apiStream := s.domainToAPIStream(*stream)
+		apiStream := s.streamToAPI(*updated)
 		if s.eventBus != nil {
 			s.eventBus.Publish(events.StreamUpdatedEvent{
 				Stream:    apiStream,
@@ -115,7 +108,6 @@ func (s *Server) registerStreamRoutes() {
 				Timestamp: time.Now().Format(time.RFC3339),
 			})
 		}
-
 		return &models.StreamResponse{Body: apiStream}, nil
 	})
 
@@ -132,7 +124,7 @@ func (s *Server) registerStreamRoutes() {
 		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
 	},
 	) (*struct{}, error) {
-		if err := s.streamService.DeleteStream(ctx, input.StreamID); err != nil {
+		if err := s.streamService.Delete(ctx, input.StreamID); err != nil {
 			return nil, s.mapStreamError(err)
 		}
 
@@ -160,38 +152,11 @@ func (s *Server) registerStreamRoutes() {
 		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
 	},
 	) (*models.StreamResponse, error) {
-		stream, err := s.streamService.GetStream(ctx, input.StreamID)
+		st, err := s.streamService.Get(ctx, input.StreamID)
 		if err != nil {
 			return nil, s.mapStreamError(err)
 		}
-		return &models.StreamResponse{Body: s.domainToAPIStream(*stream)}, nil
-	})
-
-	huma.Register(s.api, huma.Operation{
-		OperationID: "get-stream-ffmpeg",
-		Method:      http.MethodGet,
-		Path:        "/api/streams/{stream_id}/ffmpeg",
-		Summary:     "Get FFmpeg Command",
-		Description: "Get the generated ffmpeg argv for a stream",
-		Tags:        []string{"streams"},
-		Errors:      []int{401, 404, 500},
-		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct {
-		StreamID        string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
-		EncoderOverride string `query:"override" example:"h264_vaapi" doc:"Override the auto-selected encoder"`
-	},
-	) (*models.FFmpegCommandResponse, error) {
-		command, isCustom, err := s.streamService.GetFFmpegCommand(ctx, input.StreamID, input.EncoderOverride)
-		if err != nil {
-			return nil, s.mapStreamError(err)
-		}
-		return &models.FFmpegCommandResponse{
-			Body: models.FFmpegCommandData{
-				StreamID: input.StreamID,
-				Command:  command,
-				IsCustom: isCustom,
-			},
-		}, nil
+		return &models.StreamResponse{Body: s.streamToAPI(*st)}, nil
 	})
 
 	huma.Register(s.api, huma.Operation{
@@ -199,7 +164,7 @@ func (s *Server) registerStreamRoutes() {
 		Method:      http.MethodPost,
 		Path:        "/api/streams/{stream_id}/restart",
 		Summary:     "Restart Stream",
-		Description: "Restart the encoder process for a stream",
+		Description: "Re-apply the persisted spec to the pipeline (stop + start the encoder)",
 		Tags:        []string{"streams"},
 		Errors:      []int{401, 404, 500, 503},
 		Security:    withAuth(),
@@ -207,14 +172,14 @@ func (s *Server) registerStreamRoutes() {
 		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
 	},
 	) (*struct{}, error) {
-		if err := s.streamService.RestartStream(ctx, input.StreamID); err != nil {
+		if err := s.streamService.Restart(ctx, input.StreamID); err != nil {
 			return nil, s.mapStreamError(err)
 		}
 
 		if s.eventBus != nil {
-			if stream, gerr := s.streamService.GetStream(ctx, input.StreamID); gerr == nil {
+			if st, gerr := s.streamService.Get(ctx, input.StreamID); gerr == nil {
 				s.eventBus.Publish(events.StreamUpdatedEvent{
-					Stream:    s.domainToAPIStream(*stream),
+					Stream:    s.streamToAPI(*st),
 					Action:    "restarted",
 					Timestamp: time.Now().Format(time.RFC3339),
 				})
@@ -225,218 +190,165 @@ func (s *Server) registerStreamRoutes() {
 	})
 }
 
-// convertCreateRequest translates the slim API create payload into the
-// legacy StreamCreateParams. Both source- and composer-prefixed upstreams
-// pass through verbatim as params.Upstream and bypass the legacy
-// /dev/video* lookup — the v2 EntityStore + pipeline.resolveUpstream owns
-// those references. Source entity ids are kebab-cased and are not v4l2
-// device ids; the underlying device is resolved at apply time from the
-// source entity's Device field. Codec / bitrate come from EncoderConfig;
-// the audio device picks the first entry of Audio.Devices.
-func convertCreateRequest(body models.StreamRequestData) streams.StreamCreateParams {
-	params := streams.StreamCreateParams{
-		StreamID: body.StreamID,
-		Codec:    body.Encoder.Codec,
+// streamFromCreateRequest converts the slim API create payload into a
+// pipeline.Stream entity ready for the service layer. Timestamps and Name
+// fallbacks are filled in by the service itself.
+func streamFromCreateRequest(body models.StreamRequestData) pipeline.Stream {
+	st := pipeline.Stream{
+		ID:                body.StreamID,
+		Name:              body.Name,
+		Upstream:          body.Upstream,
+		Audio:             audioFromAPI(body.Audio),
+		Encoder:           encoderFromAPI(body.Encoder),
+		Publish:           publishFromAPI(body.Publish),
+		CustomEncoderArgs: body.CustomEncoderArgs,
 	}
-
-	switch kind, _ := splitUpstreamRef(body.Upstream); kind {
-	case "source", "composer":
-		params.Upstream = body.Upstream
-	}
-	if len(body.Audio.Devices) > 0 {
-		params.AudioDevice = body.Audio.Devices[0]
-	}
-	if mbps, ok := bitrateToMbps(body.Encoder.Bitrate); ok {
-		params.Bitrate = &mbps
-	}
-
-	return params
+	return st
 }
 
-// applySlimUpdate folds a slim partial update onto the legacy StreamSpec. It
-// only touches fields the slim shape owns; everything else is preserved.
-func applySlimUpdate(spec *streams.StreamSpec, body models.StreamUpdateRequestData) error {
+// applyStreamPatch folds a slim partial-update payload onto an existing
+// pipeline.Stream in-place. Touches only fields the caller marked as set.
+func applyStreamPatch(st *pipeline.Stream, body models.StreamUpdateRequestData) {
 	if body.Name != nil {
-		spec.Name = *body.Name
+		st.Name = *body.Name
 	}
 	if body.Upstream != nil {
-		switch kind, _ := splitUpstreamRef(*body.Upstream); kind {
-		case "source", "composer":
-			// applySpec honors spec.Upstream verbatim and ignores
-			// spec.Device; the entity store + resolver own the lookup.
-			spec.Device = ""
-			spec.Upstream = *body.Upstream
-		}
+		st.Upstream = *body.Upstream
 	}
-	if body.Encoder.Sent && !body.Encoder.Null {
-		spec.FFmpeg.Codec = body.Encoder.Value.Codec
-		if mbps, ok := bitrateToMbps(body.Encoder.Value.Bitrate); ok {
-			ensureQualityParams(spec)
-			spec.FFmpeg.QualityParams.TargetBitrate = &mbps
-		}
-	}
-	if body.Audio.Sent && !body.Audio.Null {
-		if len(body.Audio.Value.Devices) > 0 {
-			spec.FFmpeg.AudioDevice = body.Audio.Value.Devices[0]
+	if body.Encoder.Sent {
+		if body.Encoder.Null {
+			st.Encoder = pipeline.EncoderConfig{}
 		} else {
-			spec.FFmpeg.AudioDevice = ""
+			st.Encoder = encoderFromAPI(body.Encoder.Value)
+		}
+	}
+	if body.Audio.Sent {
+		if body.Audio.Null {
+			st.Audio = pipeline.AudioConfig{}
+		} else {
+			st.Audio = audioFromAPI(body.Audio.Value)
+		}
+	}
+	if body.Publish.Sent {
+		if body.Publish.Null {
+			st.Publish = nil
+		} else {
+			st.Publish = publishFromAPI(body.Publish.Value)
 		}
 	}
 	if body.CustomEncoderArgs != nil {
-		spec.CustomFFmpegCommand = *body.CustomEncoderArgs
-	}
-	return nil
-}
-
-// parseUpstreamRef matches "<kind>:<id>" and returns the id when kind matches.
-func parseUpstreamRef(kind, ref string) (string, bool) {
-	prefix := kind + ":"
-	if !strings.HasPrefix(ref, prefix) {
-		return "", false
-	}
-	id := strings.TrimPrefix(ref, prefix)
-	if id == "" {
-		return "", false
-	}
-	return id, true
-}
-
-// splitUpstreamRef parses "source:<id>" or "composer:<id>" into (kind, id).
-// Returns empty strings when the ref is malformed.
-func splitUpstreamRef(ref string) (string, string) {
-	for _, kind := range []string{"source", "composer"} {
-		if id, ok := parseUpstreamRef(kind, ref); ok {
-			return kind, id
-		}
-	}
-	return "", ""
-}
-
-// bitrateToMbps converts pipeline-style bitrate strings ("4M", "1500k", "2.5")
-// into the legacy Mbps float used by FFmpegConfig.QualityParams.
-func bitrateToMbps(s string) (float64, bool) {
-	if s == "" {
-		return 0, false
-	}
-	idx := len(s)
-	for i, r := range s {
-		if (r >= '0' && r <= '9') || r == '.' {
-			continue
-		}
-		idx = i
-		break
-	}
-	numPart, unit := s[:idx], strings.ToLower(s[idx:])
-	if numPart == "" {
-		return 0, false
-	}
-	var n float64
-	if _, err := fmt.Sscanf(numPart, "%f", &n); err != nil || n <= 0 {
-		return 0, false
-	}
-	switch unit {
-	case "", "m", "mb", "mbps":
-		return n, true
-	case "k", "kb", "kbps":
-		return n / 1000.0, true
-	}
-	return 0, false
-}
-
-func ensureQualityParams(spec *streams.StreamSpec) {
-	if spec.FFmpeg.QualityParams == nil {
-		spec.FFmpeg.QualityParams = &types.QualityParams{}
+		st.CustomEncoderArgs = *body.CustomEncoderArgs
 	}
 }
 
-// domainToAPIStream fetches the spec and converts to the slim wire shape.
-func (s *Server) domainToAPIStream(stream streams.Stream) models.StreamData {
-	spec, err := s.streamService.GetStreamSpec(context.Background(), stream.ID)
-	if err != nil {
-		spec = nil
+// streamToAPI converts a pipeline.Stream into the slim API view, filling
+// in runtime-derived fields (RTSP/SRT URLs).
+func (s *Server) streamToAPI(st pipeline.Stream) models.StreamData {
+	return models.StreamData{
+		StreamID:          st.ID,
+		Name:              st.Name,
+		Upstream:          st.Upstream,
+		Audio:             audioToAPI(st.Audio),
+		Encoder:           encoderToAPI(st.Encoder),
+		Publish:           publishToAPI(st.Publish),
+		CustomEncoderArgs: st.CustomEncoderArgs,
+		// In v2 the encoder process is lazy: it spins up when a consumer
+		// attaches and idles when the last consumer leaves. There is no
+		// per-stream enabled toggle anymore; "true" here means "the stream
+		// is configured and the daemon will start the encoder on demand".
+		Enabled:   true,
+		RTSPURL:   fmt.Sprintf("%s/%s", s.rtspPortOrDefault(), st.ID),
+		SRTURL:    fmt.Sprintf("%s?streamid=%s", s.srtPortOrDefault(), st.ID),
+		CreatedAt: st.CreatedAt,
+		UpdatedAt: st.UpdatedAt,
 	}
-	return s.domainToAPIStreamWithSpec(stream, spec)
 }
 
-// domainToAPIStreamWithSpec is the spec-supplied variant.
-func (s *Server) domainToAPIStreamWithSpec(stream streams.Stream, spec *streams.StreamSpec) models.StreamData {
-	apiData := models.StreamData{
-		StreamID: stream.ID,
-		Enabled:  stream.Enabled,
-		RTSPURL:  fmt.Sprintf("%s/%s", s.rtspPortOrDefault(), stream.ID),
-		SRTURL:   fmt.Sprintf("%s?streamid=%s", s.srtPortOrDefault(), stream.ID),
+func audioFromAPI(a models.AudioConfigData) pipeline.AudioConfig {
+	return pipeline.AudioConfig{
+		Devices: append([]string(nil), a.Devices...),
+		Codec:   a.Codec,
+		Bitrate: a.Bitrate,
+		Filters: a.Filters,
 	}
-
-	if spec == nil {
-		// Minimal payload — runtime-only knowledge.
-		apiData.Enabled = false
-		return apiData
-	}
-
-	apiData.Name = spec.Name
-	apiData.Upstream = deriveUpstream(spec)
-	apiData.Encoder = encoderConfigFromSpec(spec)
-	apiData.Audio = audioConfigFromSpec(spec)
-	apiData.CustomEncoderArgs = spec.CustomFFmpegCommand
-	apiData.CreatedAt = spec.CreatedAt
-	apiData.UpdatedAt = spec.UpdatedAt
-
-	return apiData
 }
 
-// deriveUpstream produces a slim upstream ref from the legacy spec shape.
-// An explicit spec.Upstream wins; canvas streams synthesize a composer ref
-// keyed by the stream id; single-device streams point at "source:<device>".
-func deriveUpstream(spec *streams.StreamSpec) string {
-	if spec.Upstream != "" {
-		return spec.Upstream
+func audioToAPI(a pipeline.AudioConfig) models.AudioConfigData {
+	return models.AudioConfigData{
+		Devices: append([]string(nil), a.Devices...),
+		Codec:   a.Codec,
+		Bitrate: a.Bitrate,
+		Filters: a.Filters,
 	}
-	if spec.Canvas != nil {
-		return "composer:" + spec.ID
-	}
-	if spec.Device != "" {
-		return "source:" + spec.Device
-	}
-	return ""
 }
 
-func encoderConfigFromSpec(spec *streams.StreamSpec) models.EncoderConfigData {
-	out := models.EncoderConfigData{
-		Codec: spec.FFmpeg.Codec,
+func encoderFromAPI(e models.EncoderConfigData) pipeline.EncoderConfig {
+	return pipeline.EncoderConfig{
+		Codec:        e.Codec,
+		EncoderName:  e.EncoderName,
+		GlobalArgs:   append([]string(nil), e.GlobalArgs...),
+		VideoFilters: e.VideoFilters,
+		Bitrate:      e.Bitrate,
+		GOP:          e.GOP,
+		BFrames:      e.BFrames,
+		RateControl:  e.RateControl,
+		Preset:       e.Preset,
 	}
-	if spec.FFmpeg.QualityParams != nil && spec.FFmpeg.QualityParams.TargetBitrate != nil {
-		out.Bitrate = fmt.Sprintf("%.1fM", *spec.FFmpeg.QualityParams.TargetBitrate)
+}
+
+func encoderToAPI(e pipeline.EncoderConfig) models.EncoderConfigData {
+	return models.EncoderConfigData{
+		Codec:        e.Codec,
+		EncoderName:  e.EncoderName,
+		GlobalArgs:   append([]string(nil), e.GlobalArgs...),
+		VideoFilters: e.VideoFilters,
+		Bitrate:      e.Bitrate,
+		GOP:          e.GOP,
+		BFrames:      e.BFrames,
+		RateControl:  e.RateControl,
+		Preset:       e.Preset,
+	}
+}
+
+func publishFromAPI(targets []models.PublishTargetData) []pipeline.PublishTarget {
+	if len(targets) == 0 {
+		return nil
+	}
+	out := make([]pipeline.PublishTarget, len(targets))
+	for i, t := range targets {
+		out[i] = pipeline.PublishTarget{Type: t.Type, URL: t.URL}
 	}
 	return out
 }
 
-func audioConfigFromSpec(spec *streams.StreamSpec) models.AudioConfigData {
-	if spec.FFmpeg.AudioDevice == "" {
-		return models.AudioConfigData{}
+func publishToAPI(targets []pipeline.PublishTarget) []models.PublishTargetData {
+	if len(targets) == 0 {
+		return nil
 	}
-	return models.AudioConfigData{
-		Devices: []string{spec.FFmpeg.AudioDevice},
+	out := make([]models.PublishTargetData, len(targets))
+	for i, t := range targets {
+		out[i] = models.PublishTargetData{Type: t.Type, URL: t.URL}
 	}
+	return out
 }
 
-// mapStreamError maps domain errors to HTTP errors.
+// mapStreamError maps stream-service errors to HTTP errors.
 func (s *Server) mapStreamError(err error) error {
-	streamErr := &streams.StreamError{}
-	if errors.As(err, &streamErr) {
-		switch streamErr.Code {
-		case streams.ErrCodeStreamNotFound:
-			return huma.Error404NotFound(streamErr.Message, err)
-		case streams.ErrCodeDeviceNotFound:
-			return huma.Error404NotFound(streamErr.Message, err)
-		case streams.ErrCodeStreamExists:
-			return huma.Error409Conflict(streamErr.Message, err)
-		case streams.ErrCodeInvalidParams:
-			return huma.Error400BadRequest(streamErr.Message, err)
-		case streams.ErrCodeConfigError:
-			return huma.Error500InternalServerError(streamErr.Message, err)
-		default:
-			return huma.Error500InternalServerError("internal server error", err)
-		}
+	var notFound *StreamNotFoundError
+	if errors.As(err, &notFound) {
+		return huma.Error404NotFound(notFound.Error(), err)
+	}
+	var upstreamMissing *StreamUpstreamMissingError
+	if errors.As(err, &upstreamMissing) {
+		return huma.Error404NotFound(upstreamMissing.Error(), err)
+	}
+	var exists *StreamExistsError
+	if errors.As(err, &exists) {
+		return huma.Error409Conflict(exists.Error(), err)
+	}
+	var invalid *StreamInvalidError
+	if errors.As(err, &invalid) {
+		return huma.Error400BadRequest(invalid.Error(), err)
 	}
 	return huma.Error500InternalServerError("internal server error", err)
 }

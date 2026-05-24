@@ -12,9 +12,9 @@ import (
 )
 
 // getValidatedEncoders returns only encoders that passed validation, sourced from the shared
-// validation provider on the StreamService (backed by the same TOML store the server loaded at boot).
+// validation provider (backed by the same TOML store the server loaded at boot).
 func (s *Server) getValidatedEncoders() (*encoders.EncoderList, error) {
-	provider := s.streamService.ValidationProvider()
+	provider := s.validationProvider
 	if provider == nil {
 		return nil, fmt.Errorf("validation data not found - run encoder validation first")
 	}
