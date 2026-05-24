@@ -67,13 +67,55 @@ format = "text"
 # Module-specific levels: streams, streaming, devices, encoders, capture, api, webrtc
 ```
 
-### Stream shape (post pipeline-rip)
+### Streams (v2 config shape)
 
-A stream is a single `[[streams]]` entry with 1..N inputs. Canvases are no longer a distinct concept — a "canvas" is just a stream with multiple inputs. The internal Composer stage engages automatically when `len(inputs) > 1` OR any input has an effect (e.g. perspective). See [`examples/streams-new-shape.toml`](examples/streams-new-shape.toml) for three worked examples (solo, solo + effect, two-input canvas with dual publish).
+VideoNode v2 splits the config into three top-level entities. Each one
+is independent and references the others by id:
 
-Two field-level notes:
+- **`[[sources]]`** — a frame producer. Either a V4L2 device
+  (`device = "usb-1-2"`) or a device-less test pattern (`test_mode = true`).
+- **`[[composers]]`** — an optional GLES compositor that reads N sources
+  and writes a single BGRA canvas. Multiple streams can share one composer:
+  the GPU work runs once, each stream pays only its own encoder cost.
+- **`[[streams]]`** — an encoder + audio + publish targets. Each stream
+  points at a single `upstream`, either a source (`"source:<id>"`) or a
+  composer (`"composer:<id>"`).
 
-- `test_mode = true` — currently a no-op. The surface (Go field, API, UI toggle) is preserved for follow-up work that adds an RPC to `videonode-source` for device-less test pattern emission. Setting it today yields no functional output.
+Pipeline shape per stream: `source -> [composer] -> encoder -> publish`.
+A composer is engaged only when explicitly defined; a stream that points
+directly at a source skips the GLES stage.
+
+Minimal example:
+
+```toml
+version = 2
+
+[[sources]]
+id = "cam-host"
+device = "usb-1-2"
+
+[[streams]]
+id = "host-solo"
+upstream = "source:cam-host"
+  [streams.host-solo.encoder]
+  codec = "h264"
+  bitrate = "4M"
+  [[streams.host-solo.publish]]
+  type = "rtsp"
+  url = "rtsp://localhost:8554/host-solo"
+```
+
+For a realistic multi-entity layout (4 sources, 2 composers, 4 streams
+including multi-encode of one shared scene), see
+[`examples/sources-composers-streams.toml`](examples/sources-composers-streams.toml).
+
+**Upgrading from v1?** v1 configs are migrated automatically on daemon
+load (or explicitly via `videonode migrate-config <path>`). See
+[`examples/MIGRATION.md`](examples/MIGRATION.md) for what gets converted
+and how to revert.
+
+One field-level note:
+
 - `custom_encoder_args` — when non-empty, replaces the daemon-generated encoder argv from `-c:v` onward. The daemon always prepends the input fragment (`vn-sink --socket X | ffmpeg -f yuv4mpegpipe -i pipe:0` for NV12, `-f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0` for BGRA composer output) so user-supplied args can't break the plumbing.
 
 ## Playback
