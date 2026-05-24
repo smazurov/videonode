@@ -15,9 +15,6 @@ interface ComposerList {
 }
 import { ComposerStore } from '../../useComposerStore';
 
-// Endpoints below land with backend unit B6. Until then the calls fail at
-// runtime (404) but compile cleanly.
-
 const COMPOSERS_PATH = '/api/composers';
 
 async function requestJSON<T>(
@@ -117,7 +114,7 @@ export const createComposerAPISlice: StateCreator<
   },
 
   createComposer: async (request) => {
-    const { setError } = get();
+    const { setError, addComposer } = get();
     try {
       const data = await requestJSON<Composer>(
         'POST',
@@ -125,6 +122,7 @@ export const createComposerAPISlice: StateCreator<
         request,
         'Failed to create composer',
       );
+      addComposer(data);
       setError(null);
       return data;
     } catch (error) {
@@ -135,7 +133,7 @@ export const createComposerAPISlice: StateCreator<
   },
 
   updateComposer: async (composerId, data) => {
-    const { setError } = get();
+    const { setError, addComposer } = get();
     try {
       const composer = await requestJSON<Composer>(
         'PATCH',
@@ -143,6 +141,7 @@ export const createComposerAPISlice: StateCreator<
         data,
         'Failed to update composer',
       );
+      addComposer(composer);
       setError(null);
       return composer;
     } catch (error) {
@@ -153,7 +152,7 @@ export const createComposerAPISlice: StateCreator<
   },
 
   deleteComposer: async (composerId) => {
-    const { setError } = get();
+    const { setError, removeComposer } = get();
     try {
       await requestJSON<void>(
         'DELETE',
@@ -161,6 +160,7 @@ export const createComposerAPISlice: StateCreator<
         undefined,
         'Failed to delete composer',
       );
+      removeComposer(composerId);
       setError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete composer';
@@ -170,7 +170,7 @@ export const createComposerAPISlice: StateCreator<
   },
 
   updateComposerLayout: async (composerId, layout) => {
-    const { setError } = get();
+    const { setError, addComposer } = get();
     try {
       const composer = await requestJSON<Composer>(
         'PATCH',
@@ -178,6 +178,7 @@ export const createComposerAPISlice: StateCreator<
         { layout },
         'Failed to update composer layout',
       );
+      addComposer(composer);
       setError(null);
       return composer;
     } catch (error) {
@@ -189,7 +190,7 @@ export const createComposerAPISlice: StateCreator<
   },
 
   updateComposerInputEffect: async (composerId, inputRef, effect) => {
-    const { setError } = get();
+    const { setError, addComposer } = get();
     try {
       const composer = await requestJSON<Composer>(
         'PATCH',
@@ -197,6 +198,7 @@ export const createComposerAPISlice: StateCreator<
         { effect },
         'Failed to update input effect',
       );
+      addComposer(composer);
       setError(null);
       return composer;
     } catch (error) {

@@ -10,10 +10,6 @@ interface SourceList {
 }
 import { SourceStore } from '../../useSourceStore';
 
-// Endpoints below land with backend unit B5. Until then the calls fail at
-// runtime (404) but compile cleanly. Wrapping fetch here keeps the slice
-// independent of api.generated regen ordering.
-
 const SOURCES_PATH = '/api/sources';
 
 async function requestJSON<T>(
@@ -104,7 +100,7 @@ export const createSourceAPISlice: StateCreator<
   },
 
   createSource: async (request) => {
-    const { setError } = get();
+    const { setError, addSource } = get();
     try {
       const data = await requestJSON<Source>(
         'POST',
@@ -112,6 +108,7 @@ export const createSourceAPISlice: StateCreator<
         request,
         'Failed to create source',
       );
+      addSource(data);
       setError(null);
       return data;
     } catch (error) {
@@ -122,7 +119,7 @@ export const createSourceAPISlice: StateCreator<
   },
 
   updateSource: async (sourceId, data) => {
-    const { setError } = get();
+    const { setError, addSource } = get();
     try {
       const source = await requestJSON<Source>(
         'PATCH',
@@ -130,6 +127,7 @@ export const createSourceAPISlice: StateCreator<
         data,
         'Failed to update source',
       );
+      addSource(source);
       setError(null);
       return source;
     } catch (error) {
@@ -140,7 +138,7 @@ export const createSourceAPISlice: StateCreator<
   },
 
   deleteSource: async (sourceId) => {
-    const { setError } = get();
+    const { setError, removeSource } = get();
     try {
       await requestJSON<void>(
         'DELETE',
@@ -148,6 +146,7 @@ export const createSourceAPISlice: StateCreator<
         undefined,
         'Failed to delete source',
       );
+      removeSource(sourceId);
       setError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete source';
