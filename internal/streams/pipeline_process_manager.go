@@ -12,6 +12,7 @@ import (
 	"github.com/smazurov/videonode/internal/encoders/validation"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/recording"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 	"github.com/smazurov/videonode/internal/types"
@@ -561,18 +562,20 @@ func (m *pipelineProcessManager) IsCrashed(streamID string) bool {
 	return info.State == "error"
 }
 
-// CaptureRawSnapshot pulls a snapshot via the producer's gRPC Snapshot
-// RPC (the only path in the new model — vision pipe machinery is gone).
-func (m *pipelineProcessManager) CaptureRawSnapshot(sourceStreamID string) ([]byte, error) {
+// CaptureSourceSnapshot pulls a raw NV12-derived JPEG snapshot from a
+// source producer via the pipelinectl Snapshot RPC. Today the source-id
+// maps 1:1 to a stream entry whose Device drives the producer; once
+// sources become first-class (B2/B5) this lookup swaps to a source store.
+func (m *pipelineProcessManager) CaptureSourceSnapshot(sourceID string) ([]byte, error) {
 	if m.controlServer == nil {
 		return nil, fmt.Errorf("no control server for snapshot")
 	}
-	spec, ok := m.store.GetStream(sourceStreamID)
+	spec, ok := m.store.GetStream(sourceID)
 	if !ok {
-		return nil, fmt.Errorf("stream %s not found", sourceStreamID)
+		return nil, recording.ErrSourceNotFound
 	}
 	if spec.Device == "" {
-		return nil, fmt.Errorf("stream %s has no device", sourceStreamID)
+		return nil, fmt.Errorf("source %s has no device", sourceID)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

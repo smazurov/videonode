@@ -306,19 +306,19 @@ func main() {
 		}, logger)
 
 		apiOpts := &api.Options{
-			Authenticator:       authenticator,
-			StreamService:       streamService,
-			EventBus:            eventBus,
-			WebRTCManager:       webrtcManager,
-			StreamProvider:      streamingServer,
-			RawSnapshotProvider: streamService.GetProcessManager(),
-			RecordingDir:        opts.RecordingDataDir,
-			PrometheusHandler:   promhttp.Handler(), // Prometheus metrics via promauto
-			UpdateService:       updateService,
-			ControlServer:       ctlServer,
-			ProcessesProvider:   nativePipeline,
-			StreamingRTSPPort:   opts.StreamingRTSPPort,
-			StreamingSRTPort:    opts.SRTAddr,
+			Authenticator:          authenticator,
+			StreamService:          streamService,
+			EventBus:               eventBus,
+			WebRTCManager:          webrtcManager,
+			StreamProvider:         streamingServer,
+			SourceSnapshotProvider: streamService.GetProcessManager(),
+			RecordingDir:           opts.RecordingDataDir,
+			PrometheusHandler:      promhttp.Handler(), // Prometheus metrics via promauto
+			UpdateService:          updateService,
+			ControlServer:          ctlServer,
+			ProcessesProvider:      nativePipeline,
+			StreamingRTSPPort:      opts.StreamingRTSPPort,
+			StreamingSRTPort:       opts.SRTAddr,
 		}
 
 		// Add LED controller if available

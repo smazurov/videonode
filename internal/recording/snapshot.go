@@ -18,17 +18,20 @@ const (
 	ffmpegTimeout   = 5 * time.Second
 )
 
-// Snapshot captures a single JPEG frame from a running stream and writes it to disk.
-// Files are organized as <baseDir>/<streamID>/<timestamp>.jpg.
-// Returns the path relative to baseDir (e.g. "test/20260404_005015.jpg").
-func Snapshot(stream *streaming.Stream, baseDir string, timeout time.Duration) (string, error) {
-	logger := logging.GetLogger("recording")
+// SnapshotKind identifies which entity owns a snapshot on disk.
+// Files live at <baseDir>/<kind>/<id>/<timestamp>.jpg.
+type SnapshotKind string
 
-	streamDir := filepath.Join(baseDir, stream.ID())
-	if err := os.MkdirAll(streamDir, 0o755); err != nil {
-		return "", fmt.Errorf("create snapshot dir: %w", err)
-	}
+// Supported snapshot kinds.
+const (
+	SnapshotKindSource SnapshotKind = "sources"
+	SnapshotKindStream SnapshotKind = "streams"
+)
 
+// SnapshotStream captures a single JPEG frame from a running stream via its
+// RTSP keyframe path and writes it to disk under SnapshotKindStream.
+// Returns the path relative to baseDir (e.g. "streams/test/20260404_005015.jpg").
+func SnapshotStream(stream *streaming.Stream, baseDir string, timeout time.Duration) (string, error) {
 	keyframe, err := CaptureKeyframe(stream, timeout)
 	if err != nil {
 		return "", err
@@ -39,15 +42,27 @@ func Snapshot(stream *streaming.Stream, baseDir string, timeout time.Duration) (
 		return "", err
 	}
 
-	filename := time.Now().Format("20060102_150405") + ".jpg"
-	absPath := filepath.Join(streamDir, filename)
+	return writeSnapshotFile(jpegData, SnapshotKindStream, stream.ID(), baseDir)
+}
 
-	if err := os.WriteFile(absPath, jpegData, 0o644); err != nil {
+// writeSnapshotFile writes JPEG bytes under <baseDir>/<kind>/<id>/<timestamp>.jpg
+// and returns the path relative to baseDir.
+func writeSnapshotFile(jpeg []byte, kind SnapshotKind, id, baseDir string) (string, error) {
+	logger := logging.GetLogger("recording")
+
+	dir := filepath.Join(baseDir, string(kind), id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create snapshot dir: %w", err)
+	}
+
+	filename := time.Now().Format("20060102_150405") + ".jpg"
+	absPath := filepath.Join(dir, filename)
+	if err := os.WriteFile(absPath, jpeg, 0o644); err != nil {
 		return "", fmt.Errorf("write snapshot: %w", err)
 	}
 
-	relPath := filepath.Join(stream.ID(), filename)
-	logger.Debug("Snapshot written", "stream_id", stream.ID(), "path", absPath, "bytes", len(jpegData))
+	relPath := filepath.Join(string(kind), id, filename)
+	logger.Debug("Snapshot written", "kind", string(kind), "id", id, "path", absPath, "bytes", len(jpeg))
 	return relPath, nil
 }
 

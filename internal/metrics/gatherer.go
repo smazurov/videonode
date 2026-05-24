@@ -50,6 +50,42 @@ func GetFFmpegMetricsFromRegistry() (map[string]*FFmpegStreamMetrics, error) {
 	return result, nil
 }
 
+// GetProducerMetricsFromRegistry extracts per-source producer-process metrics
+// (RSS / CPU) from Prometheus registry keyed by source_id.
+func GetProducerMetricsFromRegistry() (map[string]*ProducerProcessMetrics, error) {
+	families, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]*ProducerProcessMetrics)
+
+	for _, mf := range families {
+		name := mf.GetName()
+		if !strings.HasPrefix(name, "videonode_producer_") {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			sourceID := getLabelValue(m.GetLabel(), "source_id")
+			if sourceID == "" {
+				continue
+			}
+			if result[sourceID] == nil {
+				result[sourceID] = &ProducerProcessMetrics{}
+			}
+			value := m.GetGauge().GetValue()
+			switch name {
+			case "videonode_producer_rss_bytes":
+				result[sourceID].RSSBytes = value
+			case "videonode_producer_cpu_percent":
+				result[sourceID].CPUPercent = value
+			}
+		}
+	}
+
+	return result, nil
+}
+
 func getLabelValue(labels []*dto.LabelPair, name string) string {
 	for _, lp := range labels {
 		if lp.GetName() == name {
