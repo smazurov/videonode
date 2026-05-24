@@ -8,17 +8,42 @@ Multiple parallel Claude Code sessions (worktrees under `.claude/worktrees/`) te
 
 Full design rationale in `/home/stepan/.claude/plans/lets-plan-this-cli-lazy-sutton.md`.
 
+## Install
+
+```bash
+cd tools/testenv
+go install -ldflags "-X github.com/smazurov/videonode/tools/testenv/cmd.Version=$(git rev-parse --short HEAD)" .
+```
+
+This puts `testenv` into `$GOPATH/bin` (typically `~/go/bin`). Verify with `testenv version` — it should print the commit you just installed from. If it says `dev`, the ldflags were missing.
+
+After installing the binary, self-install the Claude Code integration (skills, hooks, MCP) into the videonode project:
+
+```bash
+testenv install --project-dir ~/dev/videonode
+```
+
+This writes `.claude/skills/testenv-{up,down,list}/SKILL.md`, merges `SessionStart`/`SessionEnd` hook entries into `.claude/settings.json`, and writes `.mcp.json` registering the testenv MCP server.
+
+**Version freshness check** (run from any videonode worktree):
+
+```bash
+testenv version   # shows embedded commit
+git rev-parse --short HEAD   # shows current HEAD
+# Should match. If not: cd tools/testenv && go install -ldflags ... .
+```
+
+Note: Go's `runtime/debug.ReadBuildInfo()` VCS detection doesn't work reliably in git worktrees (reads the main repo's HEAD, not the worktree's). That's why we use `-ldflags` to stamp the version explicitly.
+
 ## Build / Run / Test
 
 ```bash
 cd tools/testenv
-go build .                              # produces ./testenv
-go test ./...                           # unit tests (none yet)
-golangci-lint run ./...                 # lint (videonode rule applies)
+go build .                              # produces ./testenv (for dev iteration)
+go test ./...                           # unit tests
+golangci-lint run ./...                 # lint
 go mod tidy                             # after dep changes
 ```
-
-The binary is **self-installing** into a project: `./testenv install --project-dir /path/to/project` writes embedded SKILL.md files into `<project>/.claude/skills/`, merges SessionStart/SessionEnd hook entries into `<project>/.claude/settings.json`, and writes a `<project>/.mcp.json` pointing at this binary.
 
 ## CLI surface
 
