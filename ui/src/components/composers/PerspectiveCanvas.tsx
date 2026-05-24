@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
-import { api, API_BASE_URL } from '../../lib/api';
+import { API_BASE_URL } from '../../lib/api';
 import { ICON_SIZE } from '../../utils';
 
 export type Corner = [number, number];
@@ -8,8 +8,6 @@ export type Corner = [number, number];
 const CORNER_LABELS = ['TL', 'TR', 'BR', 'BL'] as const;
 const DOT_RADIUS = 10;
 const DOT_HIT_RADIUS = 18;
-
-const SOURCE_SNAPSHOT_ENDPOINT = '/api/sources/{source_id}/snapshot' as const;
 
 function sortCornersClockwise(points: Corner[]): Corner[] {
   if (points.length !== 4) return points;
@@ -61,7 +59,7 @@ export function PerspectiveCanvas({
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  const takeSnapshot = useCallback(async () => {
+  const takeSnapshot = useCallback(() => {
     if (!snapshotSourceId) {
       setError('No preview source available');
       return;
@@ -69,18 +67,12 @@ export function PerspectiveCanvas({
     setLoading(true);
     setError(null);
     setNaturalDims(null);
-    try {
-      const { data, error: snapErr } = await api.POST(SOURCE_SNAPSHOT_ENDPOINT, {
-        params: { path: { source_id: snapshotSourceId } },
-      });
-      if (snapErr) throw new Error(snapErr.detail ?? 'Snapshot failed');
-      if (data?.url) setSnapshotUrl(`${API_BASE_URL}${data.url}`);
-    } catch (error_) {
-      setError('Failed to capture snapshot');
-      console.error(error_);
-    } finally {
-      setLoading(false);
-    }
+    // GET /api/sources/{id}/snapshot.jpg returns image/jpeg directly. Cache-bust
+    // with a fresh query so a repeated click pulls a new frame from the daemon
+    // cache instead of the browser cache.
+    setSnapshotUrl(
+      `${API_BASE_URL}/api/sources/${encodeURIComponent(snapshotSourceId)}/snapshot.jpg?t=${Date.now()}`,
+    );
   }, [snapshotSourceId]);
 
   useEffect(() => {
@@ -213,9 +205,18 @@ export function PerspectiveCanvas({
                   setNaturalDims(dims);
                   onSnapshotDimsChange?.(dims);
                 }
+                setLoading(false);
+              }}
+              onError={() => {
+                setLoading(false);
+                setError('Failed to load snapshot');
               }}
               draggable={false}
             />
+            {/* eslint-disable-next-line react-hooks/refs -- overlay reads
+                imgRef.current to size the SVG after first paint; safe per
+                React docs since the ref is set by the time renderOverlay
+                runs on subsequent renders */}
             {renderOverlay()}
             {snapshotSourceId && (
               <button
