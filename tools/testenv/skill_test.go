@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"io/fs"
 	"os/exec"
 	"strings"
@@ -206,6 +207,72 @@ func checkSkillReferences(t *testing.T, path, body string, validCmds map[string]
 		if !validCmds[name] {
 			t.Errorf("%s: invokes `testenv %s` but %q is not a valid subcommand",
 				path, name, name)
+		}
+	}
+}
+
+// TestHookTemplateCommandsAreValid verifies that every hook command
+// in the embedded settings.json.tmpl is a valid `testenv` invocation.
+func TestHookTemplateCommandsAreValid(t *testing.T) {
+	bin := t.TempDir() + "/testenv"
+	build := exec.Command("go", "build", "-o", bin, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+
+	var tmpl map[string]any
+	if err := json.Unmarshal(assets.HooksTemplate, &tmpl); err != nil {
+		t.Fatalf("parse hooks template: %v", err)
+	}
+
+	hooks, ok := tmpl["hooks"].(map[string]any)
+	if !ok {
+		t.Fatal("template has no 'hooks' key")
+	}
+
+	for event, groups := range hooks {
+		groupList, ok := groups.([]any)
+		if !ok {
+			t.Errorf("event %s: expected array of hook groups", event)
+			continue
+		}
+		for _, g := range groupList {
+			gm, ok := g.(map[string]any)
+			if !ok {
+				continue
+			}
+			hooksList, ok := gm["hooks"].([]any)
+			if !ok {
+				continue
+			}
+			for _, h := range hooksList {
+				hm, ok := h.(map[string]any)
+				if !ok {
+					continue
+				}
+				command, _ := hm["command"].(string)
+				if command == "" {
+					continue
+				}
+				// Every command should start with "testenv" and its
+				// subcommand chain should be valid.
+				if !strings.HasPrefix(command, "testenv ") {
+					t.Errorf("event %s: command %q doesn't start with 'testenv'", event, command)
+					continue
+				}
+				// Extract subcommand chain: "testenv hook pre-tool-use" → ["hook", "pre-tool-use"]
+				parts := strings.Fields(command)
+				// Run testenv <subcommands...> --help to verify it's valid.
+				args := append(parts[1:], "--help")
+				helpCmd := exec.Command(bin, args...)
+				out, err := helpCmd.CombinedOutput()
+				// Kong exits 0 on --help, or 1 with usage. Either is fine.
+				// An exit code of 1 with "unknown command" means it's invalid.
+				if err != nil && strings.Contains(string(out), "unknown command") {
+					t.Errorf("event %s: command %q references unknown subcommand; output:\n%s",
+						event, command, out)
+				}
+			}
 		}
 	}
 }

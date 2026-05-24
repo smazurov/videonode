@@ -30,6 +30,7 @@ type cli struct {
 	Reap           cmd.ReapCmd           `cmd:"" help:"Sweep stale env records."`
 	MCP            cmd.MCPCmd            `cmd:"" help:"Run as a stdio MCP server."`
 	Install        cmd.InstallCmd        `cmd:"" help:"Write skills, hooks, and .mcp.json into a project."`
+	Hook           cmd.HookCmd           `cmd:"" help:"Hook handlers invoked by Claude Code settings.json."`
 	Version        cmd.VersionCmd        `cmd:"" help:"Print version + git commit captured at build."`
 }
 

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "testenv reap >/dev/null 2>&1 || true"
+            "command": "testenv hook session-start"
           }
         ]
       }
@@ -15,7 +15,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": "testenv release-session \"${CLAUDE_SESSION_ID:-}\" >/dev/null 2>&1 || true"
+            "command": "testenv hook session-end"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "testenv hook pre-tool-use"
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "testenv hook worktree-remove"
           }
         ]
       }

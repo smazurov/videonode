@@ -300,6 +300,31 @@ func ReleaseSession(ctx context.Context, statePath, session string) ([]string, e
 	return s.DeleteEnvsForSession(session)
 }
 
+func ReleaseWorktree(ctx context.Context, statePath, worktreeDir string) ([]string, error) {
+	if worktreeDir == "" {
+		return nil, nil
+	}
+	s, err := openStore(statePath)
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	envs, err := s.ListEnvs()
+	if err != nil {
+		return nil, err
+	}
+	var released []string
+	for _, e := range envs {
+		if e.OwnerWorktree == worktreeDir {
+			signalDaemon(e.OwnerPID)
+			if delErr := s.DeleteEnv(e.ID); delErr == nil {
+				released = append(released, e.ID)
+			}
+		}
+	}
+	return released, nil
+}
+
 func Reap(ctx context.Context, statePath string) (ReapResult, error) {
 	s, err := openStore(statePath)
 	if err != nil {
