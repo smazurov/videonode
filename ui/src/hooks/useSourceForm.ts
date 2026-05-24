@@ -49,6 +49,8 @@ interface ErrorInputs {
   testMode: boolean;
   device: string;
   existingIds: Set<string>;
+  // device path -> owning source id, excluding the edited source itself
+  existingDevices: Map<string, string>;
 }
 
 function validate(inputs: ErrorInputs): Record<string, string> {
@@ -62,8 +64,15 @@ function validate(inputs: ErrorInputs): Record<string, string> {
       e.id = `A source with id "${inputs.id}" already exists`;
     }
   }
-  if (!inputs.testMode && !inputs.device.trim()) {
-    e.device = 'Device is required when test mode is off';
+  if (!inputs.testMode) {
+    if (!inputs.device.trim()) {
+      e.device = 'Device is required when test mode is off';
+    } else {
+      const owner = inputs.existingDevices.get(inputs.device);
+      if (owner) {
+        e.device = `Device is already used by source "${owner}"`;
+      }
+    }
   }
   return e;
 }
@@ -101,9 +110,19 @@ export function useSourceForm(initialData?: SourceData) {
     return set;
   }, [sourcesById, initialData]);
 
+  const existingDevices = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of Object.values(sourcesById)) {
+      if (initialData && s.id === initialData.id) continue;
+      if (s.test_mode) continue;
+      if (s.device) map.set(s.device, s.id);
+    }
+    return map;
+  }, [sourcesById, initialData]);
+
   const errors = useMemo(
-    () => validate({ mode, id, testMode, device, existingIds }),
-    [mode, id, testMode, device, existingIds],
+    () => validate({ mode, id, testMode, device, existingIds, existingDevices }),
+    [mode, id, testMode, device, existingIds, existingDevices],
   );
 
   const isValid = Object.keys(errors).length === 0;
