@@ -34,7 +34,6 @@ export default function Streams() {
   const addStream = useStreamStore((state) => state.addStream);
   const removeStream = useStreamStore((state) => state.removeStream);
   const updateStreamMetrics = useStreamStore((state) => state.updateStreamMetrics);
-  const bumpStreamRefreshKey = useStreamStore((state) => state.bumpStreamRefreshKey);
 
   const handleStreamLifecycle = useCallback((event: StreamLifecycleEvent) => {
     if (event.type === 'stream-created') {
@@ -50,13 +49,8 @@ export default function Streams() {
       }
     } else if (event.type === 'stream-deleted') {
       removeStream(event.stream_id);
-    } else if (event.type === 'canvas-restarted') {
-      if (event.canvas) {
-        addStream(event.canvas);
-      }
-      bumpStreamRefreshKey(event.canvas_id);
     }
-  }, [addStream, removeStream, bumpStreamRefreshKey]);
+  }, [addStream, removeStream]);
 
   const handleStreamMetrics = useCallback((event: StreamMetricsEvent) => {
     updateStreamMetrics(event);
