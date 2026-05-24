@@ -5,6 +5,7 @@
 
 #include <EGL/egl.h>
 #include <drm_fourcc.h>
+#include <fcntl.h>
 #include <gbm.h>
 #include <libplacebo/dispatch.h>
 #include <libplacebo/gpu.h>
@@ -12,20 +13,40 @@
 #include <libplacebo/opengl.h>
 #include <libplacebo/renderer.h>
 #include <libplacebo/shaders/custom.h>
+#include <libplacebo/vulkan.h>
 
 #include <cstring>
 #include <unistd.h>
 
 namespace pl_compose {
 
+namespace {
+
+constexpr uint64_t kModInvalid = (uint64_t{1} << 56) - 1;
+
+// Vulkan requires an explicit modifier; GL accepts INVALID as "driver picks".
+// When GBM reports INVALID but we allocated with GBM_BO_USE_LINEAR, pass LINEAR
+// for Vulkan. For GL, INVALID is fine.
+uint64_t normalize_mod(uint64_t mod, bool vulkan) {
+    if (vulkan && mod == kModInvalid)
+        return DRM_FORMAT_MOD_LINEAR;
+    return mod;
+}
+
+} // namespace
+
 struct PlCompose::Impl {
     egl_ctx::EglCtx ctx;
     pl_log logger = nullptr;
+    // Exactly one of these is non-null after init.
+    pl_vulkan vk = nullptr;
+    pl_vk_inst vk_inst = nullptr;
     pl_opengl gl = nullptr;
     pl_gpu gpu = nullptr;
     pl_renderer renderer = nullptr;
     pl_dispatch dispatch = nullptr;
     pl_tex canvas_tex = nullptr;
+    bool using_vulkan = false;
 };
 
 bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
@@ -33,6 +54,7 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
         return false;
 
     impl_ = new Impl;
+    // EGL context is needed for GBM device regardless of backend.
     if (!impl_->ctx.init(device_path)) {
         vn::log::error("pl_compose: EglCtx::init(%.*s)", int(device_path.size()),
                        device_path.data());
@@ -46,18 +68,42 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
     lp.log_level = PL_LOG_ERR;
     impl_->logger = pl_log_create(PL_API_VER, &lp);
 
-    struct pl_opengl_params glp = {};
-    glp.egl_display = impl_->ctx.display();
-    glp.egl_context = impl_->ctx.context();
-    glp.get_proc_addr = reinterpret_cast<pl_voidfunc_t (*)(const char*)>(eglGetProcAddress);
-    impl_->gl = pl_opengl_create(impl_->logger, &glp);
-    if (!impl_->gl) {
-        vn::log::error("pl_compose: pl_opengl_create failed");
-        delete impl_;
-        impl_ = nullptr;
-        return false;
+    // Try Vulkan first — 20% faster on Mali-G610 (PanVK).
+    struct pl_vk_inst_params ip = {};
+    impl_->vk_inst = pl_vk_inst_create(impl_->logger, &ip);
+    if (impl_->vk_inst) {
+        struct pl_vulkan_params vkp = {};
+        vkp.instance = impl_->vk_inst->instance;
+        vkp.get_proc_addr = impl_->vk_inst->get_proc_addr;
+        vkp.allow_software = false;
+        impl_->vk = pl_vulkan_create(impl_->logger, &vkp);
+        if (impl_->vk && (impl_->vk->gpu->import_caps.tex & PL_HANDLE_DMA_BUF)) {
+            impl_->gpu = impl_->vk->gpu;
+            impl_->using_vulkan = true;
+            vn::log::info("pl_compose: using Vulkan backend");
+        } else {
+            if (impl_->vk)
+                pl_vulkan_destroy(&impl_->vk);
+            pl_vk_inst_destroy(&impl_->vk_inst);
+        }
     }
-    impl_->gpu = impl_->gl->gpu;
+
+    // Fall back to OpenGL if Vulkan didn't work.
+    if (!impl_->gpu) {
+        struct pl_opengl_params glp = {};
+        glp.egl_display = impl_->ctx.display();
+        glp.egl_context = impl_->ctx.context();
+        glp.get_proc_addr = reinterpret_cast<pl_voidfunc_t (*)(const char*)>(eglGetProcAddress);
+        impl_->gl = pl_opengl_create(impl_->logger, &glp);
+        if (!impl_->gl) {
+            vn::log::error("pl_compose: both Vulkan and OpenGL backends failed");
+            delete impl_;
+            impl_ = nullptr;
+            return false;
+        }
+        impl_->gpu = impl_->gl->gpu;
+        vn::log::info("pl_compose: using OpenGL backend");
+    }
 
     impl_->renderer = pl_renderer_create(impl_->logger, impl_->gpu);
     impl_->dispatch = pl_dispatch_create(impl_->logger, impl_->gpu);
@@ -101,7 +147,7 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
     tp.import_handle = PL_HANDLE_DMA_BUF;
     tp.shared_mem.handle.fd = dup(canvas_fd_);
     tp.shared_mem.size = static_cast<size_t>(canvas_stride_) * canvas_h;
-    tp.shared_mem.drm_format_mod = gbm_bo_get_modifier(canvas_bo_);
+    tp.shared_mem.drm_format_mod = normalize_mod(gbm_bo_get_modifier(canvas_bo_), impl_->using_vulkan);
     tp.shared_mem.stride_w = static_cast<int>(canvas_stride_);
     impl_->canvas_tex = pl_tex_create(impl_->gpu, &tp);
     if (!impl_->canvas_tex) {
@@ -124,6 +170,10 @@ PlCompose::~PlCompose() {
         pl_dispatch_destroy(&impl_->dispatch);
     if (impl_->renderer)
         pl_renderer_destroy(&impl_->renderer);
+    if (impl_->vk)
+        pl_vulkan_destroy(&impl_->vk);
+    if (impl_->vk_inst)
+        pl_vk_inst_destroy(&impl_->vk_inst);
     if (impl_->gl)
         pl_opengl_destroy(&impl_->gl);
     if (impl_->logger)
@@ -146,7 +196,7 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
     // Clear canvas to black
     pl_tex_clear(impl_->gpu, impl_->canvas_tex, (float[4]){0, 0, 0, 1});
 
-    constexpr uint64_t kModInvalid = (uint64_t{1} << 56) - 1;
+    const uint64_t src_mod = normalize_mod(kModInvalid, impl_->using_vulkan);
     pl_fmt fmt_r8 = pl_find_named_fmt(impl_->gpu, "r8");
     pl_fmt fmt_rg8 = pl_find_named_fmt(impl_->gpu, "rg8");
     if (!fmt_r8 || !fmt_rg8)
@@ -170,7 +220,7 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
         tp_y.import_handle = PL_HANDLE_DMA_BUF;
         tp_y.shared_mem.handle.fd = dup(slot.src_y_fd);
         tp_y.shared_mem.size = static_cast<size_t>(src_y_pitch) * slot.src_h;
-        tp_y.shared_mem.drm_format_mod = kModInvalid;
+        tp_y.shared_mem.drm_format_mod = src_mod;
         tp_y.shared_mem.stride_w = src_y_pitch;
         pl_tex tex_y = pl_tex_create(impl_->gpu, &tp_y);
         if (!tex_y)
@@ -185,7 +235,7 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
         tp_uv.import_handle = PL_HANDLE_DMA_BUF;
         tp_uv.shared_mem.handle.fd = dup(slot.src_uv_fd);
         tp_uv.shared_mem.size = static_cast<size_t>(src_uv_pitch) * (slot.src_h / 2);
-        tp_uv.shared_mem.drm_format_mod = kModInvalid;
+        tp_uv.shared_mem.drm_format_mod = src_mod;
         tp_uv.shared_mem.stride_w = src_uv_pitch;
         pl_tex tex_uv = pl_tex_create(impl_->gpu, &tp_uv);
         if (!tex_uv) {
