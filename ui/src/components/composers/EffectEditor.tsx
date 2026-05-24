@@ -19,7 +19,7 @@ interface EffectEditorProps {
   composerId: string;
   inputRef: string;
   effect: ComposerEffect | null | undefined;
-  snapshotStreamId: string | null;
+  snapshotSourceId: string | null;
   inputWidth: number;
   inputHeight: number;
   saving: boolean;
@@ -31,7 +31,7 @@ export function EffectEditor({
   composerId,
   inputRef,
   effect,
-  snapshotStreamId,
+  snapshotSourceId,
   inputWidth,
   inputHeight,
   saving,
@@ -75,7 +75,7 @@ export function EffectEditor({
           composerId={composerId}
           inputRef={inputRef}
           initialCorners={initialCorners}
-          snapshotStreamId={snapshotStreamId}
+          snapshotSourceId={snapshotSourceId}
           inputWidth={inputWidth}
           inputHeight={inputHeight}
           saving={saving}

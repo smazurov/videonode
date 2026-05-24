@@ -468,6 +468,26 @@ export interface paths {
         patch: operations["update-source"];
         trace?: never;
     };
+    "/api/sources/{source_id}/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Capture source snapshot
+         * @description Captures a raw NV12-derived JPEG snapshot from a running source producer.
+         */
+        post: operations["capture-source-snapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/streams": {
         parameters: {
             query?: never;
@@ -1340,7 +1360,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "h264" | "yu12" | "yuyv422" | "nv12" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16";
+            format_name: "h264" | "yu12" | "yv12" | "rgb24" | "nv24" | "nv16" | "mjpeg" | "bgr24" | "yuyv422" | "nv12";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1698,7 +1718,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yuyv422" | "nv12" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "h264" | "yu12";
+            format_name: "mjpeg" | "bgr24" | "yuyv422" | "nv12" | "h264" | "yu12" | "yv12" | "rgb24" | "nv24" | "nv16";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -2768,7 +2788,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "nv12" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "h264" | "yu12" | "yuyv422";
+                format_name?: "yuyv422" | "nv12" | "h264" | "yu12" | "yv12" | "rgb24" | "nv24" | "nv16" | "mjpeg" | "bgr24";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2834,7 +2854,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "nv16" | "h264" | "yu12" | "yuyv422" | "nv12" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24";
+                format_name?: "h264" | "yu12" | "yv12" | "rgb24" | "nv24" | "nv16" | "mjpeg" | "bgr24" | "yuyv422" | "nv12";
             };
             header?: never;
             path: {
@@ -3765,6 +3785,74 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "capture-source-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Source ID to capture snapshot from */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Gateway Timeout */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };
