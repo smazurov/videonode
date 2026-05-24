@@ -10,7 +10,10 @@ import (
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/streaming"
+	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
+	"github.com/smazurov/videonode/internal/streams/services"
+	"github.com/smazurov/videonode/internal/streams/store"
 )
 
 // CreateOpenAPICmd creates the openapi command that dumps the OpenAPI spec to stdout.
@@ -19,13 +22,23 @@ func CreateOpenAPICmd() *cobra.Command {
 		Use:   "openapi",
 		Short: "Dump OpenAPI spec to stdout",
 		RunE: func(c *cobra.Command, _ []string) error {
-			server := api.NewServer(&api.Options{
+			opts := &api.Options{
 				EventBus:          events.New(),
 				StreamProvider:    noopStreamProvider{},
 				RecordingDir:      "/tmp",
 				WebRTCManager:     &streaming.WebRTCManager{},
 				ProcessesProvider: noopProcessesProvider{},
-			})
+			}
+			// Wire SourceService/ComposerService so /api/sources and
+			// /api/composers surface in the generated spec. The in-memory
+			// store never writes to disk during openapi gen; pipeline is
+			// nil because route registration walks the table without
+			// serving traffic.
+			if es, ok := store.NewTOML("").(streams.EntityStore); ok {
+				opts.SourceService = services.NewSourceService(services.SourceServiceOptions{Store: es})
+				opts.ComposerService = services.NewComposerService(services.ComposerServiceOptions{Store: es})
+			}
+			server := api.NewServer(opts)
 
 			enc := json.NewEncoder(c.OutOrStdout())
 			enc.SetIndent("", "  ")
