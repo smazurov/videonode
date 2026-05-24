@@ -81,6 +81,10 @@ class SourceService final : public videonode::control::Source::Service {
                            const ::videonode::control::SetFormatRequest* req,
                            ::videonode::control::SetFormatResponse* resp) override;
 
+    grpc::Status SetDevice(grpc::ServerContext* ctx,
+                           const ::videonode::control::SetDeviceRequest* req,
+                           ::videonode::control::SetDeviceResponse* resp) override;
+
     grpc::Status GetStatus(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                            ::videonode::control::Status* resp) override;
 

@@ -135,6 +135,97 @@ func (x *SetFormatResponse) GetApplied() bool {
 	return false
 }
 
+type SetDeviceRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty string detaches: source closes its V4L2 fd (if any) and resumes
+	// placeholder broadcast. Non-empty must be a /dev/videoN path the source
+	// process can open.
+	DevicePath    string `protobuf:"bytes,1,opt,name=device_path,json=devicePath,proto3" json:"device_path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetDeviceRequest) Reset() {
+	*x = SetDeviceRequest{}
+	mi := &file_control_source_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetDeviceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetDeviceRequest) ProtoMessage() {}
+
+func (x *SetDeviceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_control_source_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetDeviceRequest.ProtoReflect.Descriptor instead.
+func (*SetDeviceRequest) Descriptor() ([]byte, []int) {
+	return file_control_source_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SetDeviceRequest) GetDevicePath() string {
+	if x != nil {
+		return x.DevicePath
+	}
+	return ""
+}
+
+type SetDeviceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Applied       bool                   `protobuf:"varint,1,opt,name=applied,proto3" json:"applied,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetDeviceResponse) Reset() {
+	*x = SetDeviceResponse{}
+	mi := &file_control_source_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetDeviceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetDeviceResponse) ProtoMessage() {}
+
+func (x *SetDeviceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_control_source_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetDeviceResponse.ProtoReflect.Descriptor instead.
+func (*SetDeviceResponse) Descriptor() ([]byte, []int) {
+	return file_control_source_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SetDeviceResponse) GetApplied() bool {
+	if x != nil {
+		return x.Applied
+	}
+	return false
+}
+
 type SnapshotRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -143,7 +234,7 @@ type SnapshotRequest struct {
 
 func (x *SnapshotRequest) Reset() {
 	*x = SnapshotRequest{}
-	mi := &file_control_source_proto_msgTypes[2]
+	mi := &file_control_source_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -155,7 +246,7 @@ func (x *SnapshotRequest) String() string {
 func (*SnapshotRequest) ProtoMessage() {}
 
 func (x *SnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_control_source_proto_msgTypes[2]
+	mi := &file_control_source_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -168,7 +259,7 @@ func (x *SnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotRequest.ProtoReflect.Descriptor instead.
 func (*SnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_control_source_proto_rawDescGZIP(), []int{2}
+	return file_control_source_proto_rawDescGZIP(), []int{4}
 }
 
 type SnapshotResponse struct {
@@ -190,7 +281,7 @@ type SnapshotResponse struct {
 
 func (x *SnapshotResponse) Reset() {
 	*x = SnapshotResponse{}
-	mi := &file_control_source_proto_msgTypes[3]
+	mi := &file_control_source_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -202,7 +293,7 @@ func (x *SnapshotResponse) String() string {
 func (*SnapshotResponse) ProtoMessage() {}
 
 func (x *SnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_control_source_proto_msgTypes[3]
+	mi := &file_control_source_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -215,7 +306,7 @@ func (x *SnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotResponse.ProtoReflect.Descriptor instead.
 func (*SnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_control_source_proto_rawDescGZIP(), []int{3}
+	return file_control_source_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SnapshotResponse) GetNv12() []byte {
@@ -278,6 +369,11 @@ const file_control_source_proto_rawDesc = "" +
 	"\x01h\x18\x03 \x01(\rR\x01h\x12\x10\n" +
 	"\x03fps\x18\x04 \x01(\rR\x03fps\"-\n" +
 	"\x11SetFormatResponse\x12\x18\n" +
+	"\aapplied\x18\x01 \x01(\bR\aapplied\"3\n" +
+	"\x10SetDeviceRequest\x12\x1f\n" +
+	"\vdevice_path\x18\x01 \x01(\tR\n" +
+	"devicePath\"-\n" +
+	"\x11SetDeviceResponse\x12\x18\n" +
 	"\aapplied\x18\x01 \x01(\bR\aapplied\"\x11\n" +
 	"\x0fSnapshotRequest\"\xcb\x01\n" +
 	"\x10SnapshotResponse\x12\x12\n" +
@@ -287,10 +383,11 @@ const file_control_source_proto_rawDesc = "" +
 	"\apitch_y\x18\x04 \x01(\rR\x06pitchY\x12\x19\n" +
 	"\bpitch_uv\x18\x05 \x01(\rR\apitchUv\x12\x1b\n" +
 	"\tframe_idx\x18\x06 \x01(\x04R\bframeIdx\x12$\n" +
-	"\x0ecaptured_at_ns\x18\a \x01(\x04R\fcapturedAtNs2\xb9\x03\n" +
+	"\x0ecaptured_at_ns\x18\a \x01(\x04R\fcapturedAtNs2\x91\x04\n" +
 	"\x06Source\x12A\n" +
 	"\bDescribe\x12\x16.google.protobuf.Empty\x1a\x1d.videonode.control.NativeInfo\x12V\n" +
-	"\tSetFormat\x12#.videonode.control.SetFormatRequest\x1a$.videonode.control.SetFormatResponse\x12>\n" +
+	"\tSetFormat\x12#.videonode.control.SetFormatRequest\x1a$.videonode.control.SetFormatResponse\x12V\n" +
+	"\tSetDevice\x12#.videonode.control.SetDeviceRequest\x1a$.videonode.control.SetDeviceResponse\x12>\n" +
 	"\tGetStatus\x12\x16.google.protobuf.Empty\x1a\x19.videonode.control.Status\x12C\n" +
 	"\fStreamStatus\x12\x16.google.protobuf.Empty\x1a\x19.videonode.control.Status0\x01\x12S\n" +
 	"\bSnapshot\x12\".videonode.control.SnapshotRequest\x1a#.videonode.control.SnapshotResponse\x12:\n" +
@@ -308,31 +405,35 @@ func file_control_source_proto_rawDescGZIP() []byte {
 	return file_control_source_proto_rawDescData
 }
 
-var file_control_source_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_control_source_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_control_source_proto_goTypes = []any{
 	(*SetFormatRequest)(nil),  // 0: videonode.control.SetFormatRequest
 	(*SetFormatResponse)(nil), // 1: videonode.control.SetFormatResponse
-	(*SnapshotRequest)(nil),   // 2: videonode.control.SnapshotRequest
-	(*SnapshotResponse)(nil),  // 3: videonode.control.SnapshotResponse
-	(*emptypb.Empty)(nil),     // 4: google.protobuf.Empty
-	(*NativeInfo)(nil),        // 5: videonode.control.NativeInfo
-	(*Status)(nil),            // 6: videonode.control.Status
+	(*SetDeviceRequest)(nil),  // 2: videonode.control.SetDeviceRequest
+	(*SetDeviceResponse)(nil), // 3: videonode.control.SetDeviceResponse
+	(*SnapshotRequest)(nil),   // 4: videonode.control.SnapshotRequest
+	(*SnapshotResponse)(nil),  // 5: videonode.control.SnapshotResponse
+	(*emptypb.Empty)(nil),     // 6: google.protobuf.Empty
+	(*NativeInfo)(nil),        // 7: videonode.control.NativeInfo
+	(*Status)(nil),            // 8: videonode.control.Status
 }
 var file_control_source_proto_depIdxs = []int32{
-	4, // 0: videonode.control.Source.Describe:input_type -> google.protobuf.Empty
+	6, // 0: videonode.control.Source.Describe:input_type -> google.protobuf.Empty
 	0, // 1: videonode.control.Source.SetFormat:input_type -> videonode.control.SetFormatRequest
-	4, // 2: videonode.control.Source.GetStatus:input_type -> google.protobuf.Empty
-	4, // 3: videonode.control.Source.StreamStatus:input_type -> google.protobuf.Empty
-	2, // 4: videonode.control.Source.Snapshot:input_type -> videonode.control.SnapshotRequest
-	4, // 5: videonode.control.Source.Shutdown:input_type -> google.protobuf.Empty
-	5, // 6: videonode.control.Source.Describe:output_type -> videonode.control.NativeInfo
-	1, // 7: videonode.control.Source.SetFormat:output_type -> videonode.control.SetFormatResponse
-	6, // 8: videonode.control.Source.GetStatus:output_type -> videonode.control.Status
-	6, // 9: videonode.control.Source.StreamStatus:output_type -> videonode.control.Status
-	3, // 10: videonode.control.Source.Snapshot:output_type -> videonode.control.SnapshotResponse
-	4, // 11: videonode.control.Source.Shutdown:output_type -> google.protobuf.Empty
-	6, // [6:12] is the sub-list for method output_type
-	0, // [0:6] is the sub-list for method input_type
+	2, // 2: videonode.control.Source.SetDevice:input_type -> videonode.control.SetDeviceRequest
+	6, // 3: videonode.control.Source.GetStatus:input_type -> google.protobuf.Empty
+	6, // 4: videonode.control.Source.StreamStatus:input_type -> google.protobuf.Empty
+	4, // 5: videonode.control.Source.Snapshot:input_type -> videonode.control.SnapshotRequest
+	6, // 6: videonode.control.Source.Shutdown:input_type -> google.protobuf.Empty
+	7, // 7: videonode.control.Source.Describe:output_type -> videonode.control.NativeInfo
+	1, // 8: videonode.control.Source.SetFormat:output_type -> videonode.control.SetFormatResponse
+	3, // 9: videonode.control.Source.SetDevice:output_type -> videonode.control.SetDeviceResponse
+	8, // 10: videonode.control.Source.GetStatus:output_type -> videonode.control.Status
+	8, // 11: videonode.control.Source.StreamStatus:output_type -> videonode.control.Status
+	5, // 12: videonode.control.Source.Snapshot:output_type -> videonode.control.SnapshotResponse
+	6, // 13: videonode.control.Source.Shutdown:output_type -> google.protobuf.Empty
+	7, // [7:14] is the sub-list for method output_type
+	0, // [0:7] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -350,7 +451,7 @@ func file_control_source_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_control_source_proto_rawDesc), len(file_control_source_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

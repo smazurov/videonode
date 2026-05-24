@@ -22,6 +22,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	Source_Describe_FullMethodName     = "/videonode.control.Source/Describe"
 	Source_SetFormat_FullMethodName    = "/videonode.control.Source/SetFormat"
+	Source_SetDevice_FullMethodName    = "/videonode.control.Source/SetDevice"
 	Source_GetStatus_FullMethodName    = "/videonode.control.Source/GetStatus"
 	Source_StreamStatus_FullMethodName = "/videonode.control.Source/StreamStatus"
 	Source_Snapshot_FullMethodName     = "/videonode.control.Source/Snapshot"
@@ -44,6 +45,11 @@ type SourceClient interface {
 	// `applied` bit reports whether the source actually re-armed (it may
 	// refuse if the request matches the running format).
 	SetFormat(ctx context.Context, in *SetFormatRequest, opts ...grpc.CallOption) (*SetFormatResponse, error)
+	// SetDevice swaps the V4L2 device path the source captures from. Empty
+	// path detaches and resumes placeholder broadcast. Same lock as
+	// SetFormat; the orchestrator loop sees the new path on its next reinit
+	// pass.
+	SetDevice(ctx context.Context, in *SetDeviceRequest, opts ...grpc.CallOption) (*SetDeviceResponse, error)
 	// GetStatus returns the current status snapshot synchronously. Useful
 	// for one-shot probes; the long-lived push is StreamStatus below.
 	GetStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*Status, error)
@@ -82,6 +88,16 @@ func (c *sourceClient) SetFormat(ctx context.Context, in *SetFormatRequest, opts
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SetFormatResponse)
 	err := c.cc.Invoke(ctx, Source_SetFormat_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sourceClient) SetDevice(ctx context.Context, in *SetDeviceRequest, opts ...grpc.CallOption) (*SetDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetDeviceResponse)
+	err := c.cc.Invoke(ctx, Source_SetDevice_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -153,6 +169,11 @@ type SourceServer interface {
 	// `applied` bit reports whether the source actually re-armed (it may
 	// refuse if the request matches the running format).
 	SetFormat(context.Context, *SetFormatRequest) (*SetFormatResponse, error)
+	// SetDevice swaps the V4L2 device path the source captures from. Empty
+	// path detaches and resumes placeholder broadcast. Same lock as
+	// SetFormat; the orchestrator loop sees the new path on its next reinit
+	// pass.
+	SetDevice(context.Context, *SetDeviceRequest) (*SetDeviceResponse, error)
 	// GetStatus returns the current status snapshot synchronously. Useful
 	// for one-shot probes; the long-lived push is StreamStatus below.
 	GetStatus(context.Context, *emptypb.Empty) (*Status, error)
@@ -182,6 +203,9 @@ func (UnimplementedSourceServer) Describe(context.Context, *emptypb.Empty) (*Nat
 }
 func (UnimplementedSourceServer) SetFormat(context.Context, *SetFormatRequest) (*SetFormatResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetFormat not implemented")
+}
+func (UnimplementedSourceServer) SetDevice(context.Context, *SetDeviceRequest) (*SetDeviceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetDevice not implemented")
 }
 func (UnimplementedSourceServer) GetStatus(context.Context, *emptypb.Empty) (*Status, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetStatus not implemented")
@@ -248,6 +272,24 @@ func _Source_SetFormat_Handler(srv interface{}, ctx context.Context, dec func(in
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(SourceServer).SetFormat(ctx, req.(*SetFormatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Source_SetDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SourceServer).SetDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Source_SetDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SourceServer).SetDevice(ctx, req.(*SetDeviceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -331,6 +373,10 @@ var Source_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetFormat",
 			Handler:    _Source_SetFormat_Handler,
+		},
+		{
+			MethodName: "SetDevice",
+			Handler:    _Source_SetDevice_Handler,
 		},
 		{
 			MethodName: "GetStatus",

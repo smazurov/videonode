@@ -11,7 +11,9 @@
 
 #include <string>
 
-ABSL_FLAG(std::string, device, "/dev/video0", "V4L2 capture device path (/dev/videoN)");
+ABSL_FLAG(std::string, device, "",
+          "V4L2 capture device path (/dev/videoN). Empty = no device; the "
+          "source paints placeholders and waits for SetDevice via gRPC.");
 ABSL_FLAG(std::string, in_format, "",
           "input pixel format: NV24/NV16/NV12/BGR3/YUYV/UYVY/MJPG (empty = auto)");
 ABSL_FLAG(int, in_width, 0, "input frame width when --in_format is set");

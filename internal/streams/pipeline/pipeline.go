@@ -334,6 +334,62 @@ func (p *Pipeline) Delete(streamID string) error {
 // Pool exposes the underlying process.Pool for callers that need
 // status lookups (process-manager UI follow-up). Not used by Apply /
 // Delete; only diagnostics should reach for it.
+// EnsurePersistentSource registers a videonode-source for deviceID and
+// starts the process. Pins the device in the producer registry so any
+// future Reconcile call from an encoder treats it as already-running and
+// never surfaces it in ToStart / ToStop. The stage is spawned with no
+// --device argv; the daemon follows up with a SendSetDevice once the
+// source's gRPC socket is reachable and a /dev path has been resolved.
+//
+// Idempotent: re-pins on every call; spawns the process only on the
+// first call per device_id.
+func (p *Pipeline) EnsurePersistentSource(deviceID string) error {
+	if deviceID == "" {
+		return errors.New("pipeline: deviceID is required")
+	}
+	id := ProducerPoolKey(deviceID)
+	p.producers.Pin(deviceID)
+	p.mu.Lock()
+	_, exists := p.stages[id]
+	p.mu.Unlock()
+	if exists {
+		return nil
+	}
+	stage := &ProducerStage{
+		DeviceID:   deviceID,
+		DevicePath: "",
+		BinaryPath: p.cfg.VNSourceBin,
+		GrpcUds:    GrpcSocketPathFor("source", deviceID),
+	}
+	if err := p.ensureUdsDir(); err != nil {
+		return fmt.Errorf("pipeline: mkdir uds dir: %w", err)
+	}
+	return p.startStage(stage)
+}
+
+// StopPersistentSource unpins the device and stops its videonode-source
+// process. Used by the device pool's Stop path. Safe for unknown
+// deviceIDs (no-op).
+func (p *Pipeline) StopPersistentSource(deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	p.producers.Unpin(deviceID)
+	id := ProducerPoolKey(deviceID)
+	p.mu.Lock()
+	_, exists := p.stages[id]
+	p.mu.Unlock()
+	if !exists {
+		return
+	}
+	if err := p.pool.Stop(id); err != nil {
+		p.logger.Warn("StopPersistentSource: pool.Stop failed", "id", id, "error", err)
+	}
+	p.mu.Lock()
+	delete(p.stages, id)
+	p.mu.Unlock()
+}
+
 func (p *Pipeline) Pool() process.Pool { return p.pool }
 
 // Producers exposes the ProducerRegistry for diagnostics.

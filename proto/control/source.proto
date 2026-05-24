@@ -21,6 +21,12 @@ service Source {
   // refuse if the request matches the running format).
   rpc SetFormat(SetFormatRequest) returns (SetFormatResponse);
 
+  // SetDevice swaps the V4L2 device path the source captures from. Empty
+  // path detaches and resumes placeholder broadcast. Same lock as
+  // SetFormat; the orchestrator loop sees the new path on its next reinit
+  // pass.
+  rpc SetDevice(SetDeviceRequest) returns (SetDeviceResponse);
+
   // GetStatus returns the current status snapshot synchronously. Useful
   // for one-shot probes; the long-lived push is StreamStatus below.
   rpc GetStatus(google.protobuf.Empty) returns (Status);
@@ -49,6 +55,17 @@ message SetFormatRequest {
 }
 
 message SetFormatResponse {
+  bool applied = 1;
+}
+
+message SetDeviceRequest {
+  // Empty string detaches: source closes its V4L2 fd (if any) and resumes
+  // placeholder broadcast. Non-empty must be a /dev/videoN path the source
+  // process can open.
+  string device_path = 1;
+}
+
+message SetDeviceResponse {
   bool applied = 1;
 }
 

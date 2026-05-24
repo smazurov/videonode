@@ -161,7 +161,11 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
 
     CaptureSession cap;
     source_probe::SourceProbe probe(cap.cap);
-    if (try_open_capture(cap, a, allocator)) {
+    if (a.device.empty()) {
+        // Daemon-managed sources start with no device; SetDevice arrives
+        // later. Skip the initial open() entirely to avoid logging
+        // open(""): ENOENT before the daemon has assigned a path.
+    } else if (try_open_capture(cap, a, allocator)) {
         probe.attach();
     } else {
         vn::log::warn("videonode-source: capture not ready at startup");
@@ -251,7 +255,12 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                 std::lock_guard<std::mutex> lock(gctx.set_format_mu);
                 snap = a;
             }
-            if (try_open_capture(cap, snap, allocator)) {
+            if (snap.device.empty()) {
+                // SetDevice("") detached us; tear down any open capture
+                // and stay in placeholder mode until a new path arrives.
+                teardown_session_(cap);
+                need_reinit = false;
+            } else if (try_open_capture(cap, snap, allocator)) {
                 probe.attach();
                 need_reinit = false;
             } else {
@@ -259,14 +268,18 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
             }
         }
 
-        // Reinit capture if we lost it.
+        // Reinit capture if we lost it. Empty device means daemon hasn't
+        // assigned one yet (or detached us); skip silently so the loop
+        // doesn't spin on open() retries.
         if (need_reinit) {
             Args snap;
             {
                 std::lock_guard<std::mutex> lock(gctx.set_format_mu);
                 snap = a;
             }
-            if (try_open_capture(cap, snap, allocator)) {
+            if (snap.device.empty()) {
+                need_reinit = false;
+            } else if (try_open_capture(cap, snap, allocator)) {
                 probe.attach();
                 need_reinit = false;
             }

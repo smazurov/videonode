@@ -23,6 +23,7 @@ import (
 	"github.com/smazurov/videonode/internal/metrics/exporters"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
+	"github.com/smazurov/videonode/internal/streams/devicepool"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 	"github.com/smazurov/videonode/internal/streams/store"
@@ -248,6 +249,41 @@ func main() {
 			EventBus:       eventBus,
 		}, logger)
 
+		// Persistent device pool: spawns one videonode-source per unique
+		// device_id derived from streams.toml, pins them so encoder
+		// reconciliation never tears them down, and pushes the resolved
+		// /dev path via Source.SetDevice once each source's gRPC UDS is
+		// reachable. Only enabled when the native control plane is up;
+		// otherwise the pool can't push SetDevice anyway.
+		var devicePool *devicepool.Pool
+		if ctlServer != nil && native.V4L2Source != "" {
+			deviceResolver := streams.MakeDeviceResolver(logger)
+			devicePool = devicepool.New(devicepool.Config{
+				Pipeline: nativePipeline,
+				Setter:   ctlServer,
+				Resolver: deviceResolver,
+				Lister: func() []string {
+					seen := make(map[string]struct{})
+					ids := make([]string, 0)
+					for _, spec := range streamStore.GetAllStreams() {
+						if spec.Device == "" {
+							continue
+						}
+						if _, dup := seen[spec.Device]; dup {
+							continue
+						}
+						seen[spec.Device] = struct{}{}
+						ids = append(ids, spec.Device)
+					}
+					return ids
+				},
+				Logger: logger,
+			})
+			if err := devicePool.Start(context.Background()); err != nil {
+				logger.Warn("device pool: some sources failed to spawn", "error", err)
+			}
+		}
+
 		serviceOpts := &streams.ServiceOptions{
 			Store:            streamStore,
 			EventBus:         eventBus,
@@ -260,6 +296,9 @@ func main() {
 		}
 		if ctlServer != nil {
 			serviceOpts.ControlServer = ctlServer
+		}
+		if devicePool != nil {
+			serviceOpts.DevicePool = devicePool
 		}
 
 		streamService := streams.NewStreamService(serviceOpts)
@@ -401,6 +440,17 @@ func main() {
 			}
 			if mppCollector != nil {
 				_ = mppCollector.Stop()
+			}
+
+			// Stop the device pool BEFORE the control plane so any in-flight
+			// SetDevice round-trips complete. The pool unpins every device
+			// in the producer registry and asks the pipeline to stop each
+			// persistent source — the existing pool.StopAll later picks up
+			// anything else the encoder/composer side spawned.
+			if devicePool != nil {
+				if err := devicePool.Stop(); err != nil {
+					logger.Error("Error stopping device pool", "error", err)
+				}
 			}
 
 			// Tear down the native control plane: closes every per-source

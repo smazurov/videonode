@@ -40,10 +40,23 @@ type ServiceOptions struct {
 	// commanded and the GPU compose path renders black frames forever.
 	// main.go owns the lifecycle.
 	ControlServer *pipelinectl.Manager
+	// DevicePool owns the persistent videonode-source processes. When
+	// non-nil, BroadcastDeviceDiscovery forwards hotplug events to it
+	// instead of restarting per-stream pipelines. Nil keeps the legacy
+	// behavior (stream.Enabled flips on device-state changes).
+	DevicePool DevicePoolNotifier
 	// RTSPPort is the host:port the daemon's embedded RTSP server is
 	// listening on. The GPU compose path's ffmpeg sink targets it. Empty
 	// = the well-known default "127.0.0.1:8554".
 	RTSPPort string
+}
+
+// DevicePoolNotifier is the subset of *devicepool.Pool the service uses.
+// Defined as an interface to keep the streams package free of an import
+// dependency on devicepool (which itself depends on pipeline).
+type DevicePoolNotifier interface {
+	OnDeviceEvent(deviceID, devicePath string)
+	Managed(deviceID string) bool
 }
 
 type service struct {
@@ -55,6 +68,7 @@ type service struct {
 	validationProvider types.ValidationProvider
 	eventBus           *events.Bus
 	deviceResolver     func(string) string
+	devicePool         DevicePoolNotifier // nil = legacy stream-restart on device events
 	rtspHost           string
 	logger             logging.Logger
 }
@@ -83,6 +97,7 @@ func NewStreamService(opts *ServiceOptions) StreamService {
 		encoderSelector:    encoderSelector,
 		validationProvider: NewValidationService(repo),
 		deviceResolver:     deviceResolverFunc,
+		devicePool:         opts.DevicePool,
 		rtspHost:           rtspHost,
 		logger:             logger,
 	}
