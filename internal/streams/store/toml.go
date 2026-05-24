@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -47,8 +48,11 @@ type streamsRawV1Entry struct {
 	Canvas              *v1LegacyCanvas      `toml:"canvas"`
 	CustomFFmpegCommand string               `toml:"custom_ffmpeg_command"`
 	Perspective         *v1LegacyPerspective `toml:"perspective"`
-	CreatedAt           string               `toml:"created_at"`
-	UpdatedAt           string               `toml:"updated_at"`
+	// CreatedAt/UpdatedAt are accepted but unused by the migrator. Typed as
+	// time.Time because legacy on-disk files write these as bare TOML
+	// datetimes; decoding into a string field panics in go-toml.
+	CreatedAt time.Time `toml:"created_at"`
+	UpdatedAt time.Time `toml:"updated_at"`
 }
 
 type v1LegacyFFmpeg struct {
