@@ -143,25 +143,31 @@ func resolveEncoder(codec string, provider types.ValidationProvider) resolvedEnc
 
 // applySpec applies one stream spec to the pipeline. Stub: one Source
 // per stream id (TestMode lifts from spec.TestMode), one Stream pointing
-// at it.
+// at it. When spec.Upstream is set, the upstream is honored verbatim and
+// the implicit same-id Source is skipped — the v2 EntityStore owns the
+// referenced source / composer.
 func (m *pipelineProcessManager) applySpec(spec StreamSpec) error {
-	src := pipeline.Source{
-		ID:       spec.ID,
-		Device:   "",
-		TestMode: spec.TestMode,
-	}
-	if !spec.TestMode {
-		src.Device = spec.Device
-	}
-	if err := m.pipe.ApplySource(src); err != nil {
-		return fmt.Errorf("applySpec: ApplySource: %w", err)
+	upstream := spec.Upstream
+	if upstream == "" {
+		src := pipeline.Source{
+			ID:       spec.ID,
+			Device:   "",
+			TestMode: spec.TestMode,
+		}
+		if !spec.TestMode {
+			src.Device = spec.Device
+		}
+		if err := m.pipe.ApplySource(src); err != nil {
+			return fmt.Errorf("applySpec: ApplySource: %w", err)
+		}
+		upstream = pipeline.SourceIDFor(spec.ID)
 	}
 
 	r := resolveEncoder(spec.FFmpeg.Codec, m.validation)
 	stream := pipeline.Stream{
 		ID:       spec.ID,
 		Name:     spec.Name,
-		Upstream: pipeline.SourceIDFor(spec.ID),
+		Upstream: upstream,
 		Audio:    audioFromSpec(spec),
 		Encoder: pipeline.EncoderConfig{
 			Codec:        spec.FFmpeg.Codec,

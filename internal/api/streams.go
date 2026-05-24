@@ -226,18 +226,24 @@ func (s *Server) registerStreamRoutes() {
 }
 
 // convertCreateRequest translates the slim API create payload into the
-// legacy StreamCreateParams. The mapping is best-effort until B9 lands a
-// slim StreamService: source-prefixed upstream populates DeviceID; codec
-// and bitrate are pulled from the EncoderConfig; the audio device picks
-// the first entry of Audio.Devices.
+// legacy StreamCreateParams. Source-prefixed upstreams populate DeviceID
+// (legacy device-validation path); composer-prefixed upstreams pass
+// through verbatim as params.Upstream and bypass /dev/video* lookup —
+// the v2 EntityStore + pipeline.resolveUpstream owns those references.
+// Codec / bitrate come from EncoderConfig; the audio device picks the
+// first entry of Audio.Devices.
 func convertCreateRequest(body models.StreamRequestData) streams.StreamCreateParams {
 	params := streams.StreamCreateParams{
 		StreamID: body.StreamID,
 		Codec:    body.Encoder.Codec,
 	}
 
-	if dev, ok := parseUpstreamRef("source", body.Upstream); ok {
-		params.DeviceID = dev
+	switch kind, id := splitUpstreamRef(body.Upstream); kind {
+	case "source":
+		params.DeviceID = id
+		params.Upstream = body.Upstream
+	case "composer":
+		params.Upstream = body.Upstream
 	}
 	if len(body.Audio.Devices) > 0 {
 		params.AudioDevice = body.Audio.Devices[0]
@@ -256,8 +262,13 @@ func applySlimUpdate(spec *streams.StreamSpec, body models.StreamUpdateRequestDa
 		spec.Name = *body.Name
 	}
 	if body.Upstream != nil {
-		if dev, ok := parseUpstreamRef("source", *body.Upstream); ok {
-			spec.Device = dev
+		switch kind, id := splitUpstreamRef(*body.Upstream); kind {
+		case "source":
+			spec.Device = id
+			spec.Upstream = *body.Upstream
+		case "composer":
+			spec.Device = ""
+			spec.Upstream = *body.Upstream
 		}
 	}
 	if body.Encoder.Sent && !body.Encoder.Null {
@@ -291,6 +302,17 @@ func parseUpstreamRef(kind, ref string) (string, bool) {
 		return "", false
 	}
 	return id, true
+}
+
+// splitUpstreamRef parses "source:<id>" or "composer:<id>" into (kind, id).
+// Returns empty strings when the ref is malformed.
+func splitUpstreamRef(ref string) (string, string) {
+	for _, kind := range []string{"source", "composer"} {
+		if id, ok := parseUpstreamRef(kind, ref); ok {
+			return kind, id
+		}
+	}
+	return "", ""
 }
 
 // bitrateToMbps converts pipeline-style bitrate strings ("4M", "1500k", "2.5")
@@ -366,9 +388,12 @@ func (s *Server) domainToAPIStreamWithSpec(stream streams.Stream, spec *streams.
 }
 
 // deriveUpstream produces a slim upstream ref from the legacy spec shape.
-// Canvas streams synthesize a composer ref keyed by the stream id; single-
-// device streams point at "source:<device>".
+// An explicit spec.Upstream wins; canvas streams synthesize a composer ref
+// keyed by the stream id; single-device streams point at "source:<device>".
 func deriveUpstream(spec *streams.StreamSpec) string {
+	if spec.Upstream != "" {
+		return spec.Upstream
+	}
 	if spec.Canvas != nil {
 		return "composer:" + spec.ID
 	}

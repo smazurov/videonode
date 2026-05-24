@@ -64,7 +64,12 @@ type Stream struct {
 
 // StreamCreateParams contains parameters for creating a new stream.
 type StreamCreateParams struct {
-	StreamID    string
+	StreamID string
+	// Upstream is the raw v2-style upstream ref ("source:<id>" / "composer:<id>").
+	// When non-empty, the daemon uses it verbatim and the pipeline resolves to
+	// either a producer SCM socket or a composer SCM socket. DeviceID is the
+	// legacy single-source shorthand and remains supported for compatibility.
+	Upstream    string
 	DeviceID    string
 	Codec       string
 	InputFormat string
