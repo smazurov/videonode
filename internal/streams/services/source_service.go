@@ -123,6 +123,12 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 	if patch.Format != nil {
 		src.Format = apiFormatToPipeline(patch.Format)
 	}
+	// Flipping to test_mode clears any previously-persisted V4L2 format —
+	// the two are mutually exclusive, and toggling test_mode on shouldn't
+	// need a separate "clear format" step from the client.
+	if src.TestMode {
+		src.Format = nil
+	}
 	if err := validateSourcePayload(src.Device, src.TestMode); err != nil {
 		return nil, err
 	}
