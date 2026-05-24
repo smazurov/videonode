@@ -1,12 +1,11 @@
 {
   "mcpServers": {
-    "cpp": {
-      "command": "mcp-cpp-server",
-      "args": ["--root", "composer"]
-    },
-    "lldb": {
-      "command": "nc",
-      "args": ["localhost", "59999"]
+    "testenv": {
+      "args": [
+        "mcp"
+      ],
+      "command": "/home/stepan/go/bin/testenv",
+      "env": {}
     }
   }
 }

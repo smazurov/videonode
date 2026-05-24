@@ -1,11 +1,19 @@
 package cmd
 
-import "errors"
+import (
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-// MCPCmd runs testenv as a stdio MCP server. Stubbed until the
-// modelcontextprotocol/go-sdk wiring lands.
+	"github.com/smazurov/videonode/tools/testenv/internal/mcpsrv"
+)
+
+// MCPCmd runs testenv as a stdio MCP server.
 type MCPCmd struct{}
 
 func (c *MCPCmd) Run(ctx *Context) error {
-	return errors.New("mcp subcommand not implemented yet — host/fake CLI path is the v1 surface")
+	server := mcp.NewServer(
+		&mcp.Implementation{Name: "testenv", Version: Version},
+		nil,
+	)
+	mcpsrv.Register(server, ctx.StatePath)
+	return server.Run(ctx.Ctx, &mcp.StdioTransport{})
 }

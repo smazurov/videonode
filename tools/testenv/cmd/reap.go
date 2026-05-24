@@ -3,26 +3,20 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/smazurov/videonode/tools/testenv/internal/reaper"
+	"github.com/smazurov/videonode/tools/testenv/internal/envctl"
 )
 
-// ReapCmd runs a one-shot stale-PID sweep.
 type ReapCmd struct{}
 
 func (c *ReapCmd) Run(ctx *Context) error {
-	s, err := ctx.OpenStore()
+	r, err := envctl.Reap(ctx.Ctx, ctx.StatePath)
 	if err != nil {
 		return err
 	}
-	defer s.Close()
-	released, err := reaper.Reap(s)
-	if err != nil {
-		return err
-	}
-	if len(released) == 0 {
+	if len(r.Released) == 0 {
 		fmt.Fprintln(stdout(), "no stale envs to reap")
 		return nil
 	}
-	fmt.Fprintf(stdout(), "reaped %d env(s): %v\n", len(released), released)
+	fmt.Fprintf(stdout(), "reaped %d env(s): %v\n", len(r.Released), r.Released)
 	return nil
 }
