@@ -18,7 +18,6 @@ Checks: >
   performance-unnecessary-value-param,
   performance-move-const-arg,
   performance-noexcept-move-constructor,
-  cppcoreguidelines-owning-memory,
   cppcoreguidelines-pro-bounds-pointer-arithmetic,
   cppcoreguidelines-rvalue-reference-param-not-moved,
   modernize-use-nodiscard,
