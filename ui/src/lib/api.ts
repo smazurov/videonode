@@ -47,6 +47,19 @@ const authMiddleware: Middleware = {
 export const api = createClient<paths>({ baseUrl: API_BASE_URL });
 api.use(authMiddleware);
 
+// Path-scoped typed clients. They share the underlying authenticated client
+// (same fetch + middleware) but constrain the path generic, so call sites for
+// a given entity only see the relevant routes in autocomplete.
+type Pick<P extends keyof paths> = { [K in P]: paths[K] };
+
+type SourcePath = Extract<keyof paths, `/api/sources${string}`>;
+type ComposerPath = Extract<keyof paths, `/api/composers${string}`>;
+type StreamPath = Extract<keyof paths, `/api/streams${string}` | `/api/v2/streams${string}`>;
+
+export const apiSources = api as unknown as ReturnType<typeof createClient<Pick<SourcePath>>>;
+export const apiComposers = api as unknown as ReturnType<typeof createClient<Pick<ComposerPath>>>;
+export const apiStreams = api as unknown as ReturnType<typeof createClient<Pick<StreamPath>>>;
+
 export function buildStreamURL(partialUrl: string | undefined, protocol: 'http' | 'rtsp' | 'srt' = 'http'): string | undefined {
   if (!partialUrl) return undefined;
 
