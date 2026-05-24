@@ -40,8 +40,30 @@ service Composer {
   // state is "live" or "transitioning".
   rpc SetSourceState(SetSourceStateRequest) returns (google.protobuf.Empty);
 
+  // GetStats returns a point-in-time snapshot of the render loop's
+  // counters: frames rendered, observed fps (last ~1s window), the
+  // current canvas dimensions, and the SCM consumer count. Cheap;
+  // intended for periodic polling by the daemon. Process uptime lives
+  // in the Go process supervisor and is not duplicated here.
+  rpc GetStats(google.protobuf.Empty) returns (ComposerStats);
+
   // Shutdown asks the composer to exit cleanly.
   rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+message ComposerStats {
+  // Total frames the canvas loop has produced since the process started,
+  // including the pre-ready solid-black frames. Monotonically increasing.
+  uint64 frames_rendered = 1;
+  // Frames observed in the most recent ~1s sampling window. 0 until the
+  // first window closes.
+  double fps_observed = 2;
+  // Current canvas dimensions; 0 before the first SetCanvas + ready snapshot.
+  uint32 canvas_w = 3;
+  uint32 canvas_h = 4;
+  uint32 canvas_fps = 5;
+  // SCM consumer count. Always 0 in stdout-output mode.
+  int32 consumer_count = 6;
 }
 
 message SetCanvasRequest {

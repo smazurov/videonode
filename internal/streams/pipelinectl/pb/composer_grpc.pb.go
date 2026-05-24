@@ -27,6 +27,7 @@ const (
 	Composer_SetLayout_FullMethodName      = "/videonode.control.Composer/SetLayout"
 	Composer_SetEffects_FullMethodName     = "/videonode.control.Composer/SetEffects"
 	Composer_SetSourceState_FullMethodName = "/videonode.control.Composer/SetSourceState"
+	Composer_GetStats_FullMethodName       = "/videonode.control.Composer/GetStats"
 	Composer_Shutdown_FullMethodName       = "/videonode.control.Composer/Shutdown"
 )
 
@@ -60,6 +61,12 @@ type ComposerClient interface {
 	// health state changed. Composer applies the user warp only when
 	// state is "live" or "transitioning".
 	SetSourceState(ctx context.Context, in *SetSourceStateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// GetStats returns a point-in-time snapshot of the render loop's
+	// counters: frames rendered, observed fps (last ~1s window), the
+	// current canvas dimensions, and the SCM consumer count. Cheap;
+	// intended for periodic polling by the daemon. Process uptime lives
+	// in the Go process supervisor and is not duplicated here.
+	GetStats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ComposerStats, error)
 	// Shutdown asks the composer to exit cleanly.
 	Shutdown(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
@@ -142,6 +149,16 @@ func (c *composerClient) SetSourceState(ctx context.Context, in *SetSourceStateR
 	return out, nil
 }
 
+func (c *composerClient) GetStats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ComposerStats, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ComposerStats)
+	err := c.cc.Invoke(ctx, Composer_GetStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *composerClient) Shutdown(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -182,6 +199,12 @@ type ComposerServer interface {
 	// health state changed. Composer applies the user warp only when
 	// state is "live" or "transitioning".
 	SetSourceState(context.Context, *SetSourceStateRequest) (*emptypb.Empty, error)
+	// GetStats returns a point-in-time snapshot of the render loop's
+	// counters: frames rendered, observed fps (last ~1s window), the
+	// current canvas dimensions, and the SCM consumer count. Cheap;
+	// intended for periodic polling by the daemon. Process uptime lives
+	// in the Go process supervisor and is not duplicated here.
+	GetStats(context.Context, *emptypb.Empty) (*ComposerStats, error)
 	// Shutdown asks the composer to exit cleanly.
 	Shutdown(context.Context, *emptypb.Empty) (*emptypb.Empty, error)
 	mustEmbedUnimplementedComposerServer()
@@ -214,6 +237,9 @@ func (UnimplementedComposerServer) SetEffects(context.Context, *SetEffectsReques
 }
 func (UnimplementedComposerServer) SetSourceState(context.Context, *SetSourceStateRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetSourceState not implemented")
+}
+func (UnimplementedComposerServer) GetStats(context.Context, *emptypb.Empty) (*ComposerStats, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetStats not implemented")
 }
 func (UnimplementedComposerServer) Shutdown(context.Context, *emptypb.Empty) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Shutdown not implemented")
@@ -365,6 +391,24 @@ func _Composer_SetSourceState_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Composer_GetStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ComposerServer).GetStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Composer_GetStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ComposerServer).GetStats(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Composer_Shutdown_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -417,6 +461,10 @@ var Composer_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetSourceState",
 			Handler:    _Composer_SetSourceState_Handler,
+		},
+		{
+			MethodName: "GetStats",
+			Handler:    _Composer_GetStats_Handler,
 		},
 		{
 			MethodName: "Shutdown",

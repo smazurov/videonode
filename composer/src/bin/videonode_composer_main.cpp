@@ -110,6 +110,7 @@ int main(int argc, char** argv) {
         return 1;
 
     render::World world;
+    render::RenderStats render_stats;
 
     // Control plane is optional. Without --grpc-listen + --composer-id
     // the composer renders solid black until SIGINT — useful only for
@@ -120,6 +121,7 @@ int main(int argc, char** argv) {
         nativerpc::ComposerContext gctx;
         gctx.world = &world;
         gctx.running = &g_running;
+        gctx.stats = &render_stats;
         gctx.composer_id = composer_id;
         gctx.version = vn::kVersion;
         grpc_svc = std::make_unique<nativerpc::ComposerService>(std::move(gctx));
@@ -154,7 +156,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    int frames = render::RunCanvasLoop(ctx, world, target_fps, run_seconds, g_running, scm_out);
+    int frames =
+        render::RunCanvasLoop(ctx, world, target_fps, run_seconds, g_running, scm_out, &render_stats);
 
     grpc_srv.Shutdown();
 

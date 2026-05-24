@@ -17,6 +17,7 @@
 
 namespace render {
 class World;
+struct RenderStats;
 }
 
 namespace nativerpc {
@@ -24,6 +25,7 @@ namespace nativerpc {
 struct ComposerContext {
     render::World* world = nullptr;       // mutated by handlers
     std::atomic<bool>* running = nullptr; // flipped false on Shutdown
+    render::RenderStats* stats = nullptr; // read by GetStats
     std::string composer_id;              // returned by Describe
     std::string version;                  // returned by Describe
 };
@@ -58,6 +60,9 @@ class ComposerService final : public videonode::control::Composer::Service {
     grpc::Status SetSourceState(grpc::ServerContext* ctx,
                                 const ::videonode::control::SetSourceStateRequest* req,
                                 ::google::protobuf::Empty* resp) override;
+
+    grpc::Status GetStats(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
+                          ::videonode::control::ComposerStats* resp) override;
 
     grpc::Status Shutdown(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                           ::google::protobuf::Empty* resp) override;
