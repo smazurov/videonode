@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -224,14 +225,16 @@ func (s *streamService) StartPipeline(_ context.Context) (bool, error) {
 	if err := s.psw.SetPipeline(streams.PipelineConfig{Enabled: true}); err != nil {
 		return false, fmt.Errorf("persist pipeline state: %w", err)
 	}
+	var errs []error
 	if s.pipe != nil {
 		for _, st := range s.store.ListPipelineStreams() {
 			if err := s.pipe.ApplyStream(st); err != nil {
-				s.logger.Warn("StartPipeline: ApplyStream failed", "stream_id", st.ID, "error", err)
+				s.logger.Error("StartPipeline: ApplyStream failed", "stream_id", st.ID, "error", err)
+				errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
 			}
 		}
 	}
-	return !wasEnabled, nil
+	return !wasEnabled, errors.Join(errs...)
 }
 
 // StopPipeline flips the persisted master switch off and stops every
@@ -245,14 +248,16 @@ func (s *streamService) StopPipeline(_ context.Context) (bool, error) {
 	if err := s.psw.SetPipeline(streams.PipelineConfig{Enabled: false}); err != nil {
 		return false, fmt.Errorf("persist pipeline state: %w", err)
 	}
+	var errs []error
 	if s.pipe != nil {
 		for _, st := range s.store.ListPipelineStreams() {
 			if err := s.pipe.DeleteStream(st.ID); err != nil {
-				s.logger.Warn("StopPipeline: DeleteStream failed", "stream_id", st.ID, "error", err)
+				s.logger.Error("StopPipeline: DeleteStream failed", "stream_id", st.ID, "error", err)
+				errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
 			}
 		}
 	}
-	return wasEnabled, nil
+	return wasEnabled, errors.Join(errs...)
 }
 
 // validateStream runs static-shape validation that doesn't depend on the
