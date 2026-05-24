@@ -1,0 +1,239 @@
+package api
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/smazurov/videonode/internal/api/models"
+)
+
+// Source is the canonical source descriptor consumed by the API layer.
+//
+// Mirrors pipeline.Source defined by unit B1 of the
+// sources/composers/streams split; the service-layer unit (B9) bridges
+// this to the pipeline registry. Defined locally so this unit compiles
+// independently of B1/B9 — the integrator deduplicates at merge.
+type Source struct {
+	ID        string
+	Device    string
+	TestMode  bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// SourcePatch describes a partial source update. Nil fields are
+// untouched.
+type SourcePatch struct {
+	Device   *string
+	TestMode *bool
+}
+
+// SourceService is the contract the API layer requires of the service
+// layer (B9). Methods are intentionally small and focused.
+type SourceService interface {
+	List(ctx context.Context) ([]Source, error)
+	Get(ctx context.Context, id string) (*Source, error)
+	Create(ctx context.Context, src Source) (*Source, error)
+	Update(ctx context.Context, id string, patch SourcePatch) (*Source, error)
+	// Delete refuses (returning an *SourceInUseError) when any composer
+	// or stream still references the source.
+	Delete(ctx context.Context, id string) error
+}
+
+// SourceInUseError reports references blocking a delete. Service-layer
+// implementations return this from SourceService.Delete; the API maps it
+// to a 409 with each reference as an ErrorDetail.
+type SourceInUseError struct {
+	SourceID   string
+	References []models.SourceReference
+}
+
+func (e *SourceInUseError) Error() string {
+	return fmt.Sprintf("source %q is referenced by %d entit(y/ies)", e.SourceID, len(e.References))
+}
+
+// SourceNotFoundError reports a missing source. The API maps it to 404.
+type SourceNotFoundError struct {
+	SourceID string
+}
+
+func (e *SourceNotFoundError) Error() string {
+	return fmt.Sprintf("source %q not found", e.SourceID)
+}
+
+// SourceExistsError reports a duplicate source ID on create. Mapped to 409.
+type SourceExistsError struct {
+	SourceID string
+}
+
+func (e *SourceExistsError) Error() string {
+	return fmt.Sprintf("source %q already exists", e.SourceID)
+}
+
+// SourceInvalidError reports validation failures (e.g. both device and
+// test_mode set, or both empty). Mapped to 400.
+type SourceInvalidError struct {
+	Message string
+}
+
+func (e *SourceInvalidError) Error() string { return e.Message }
+
+// registerSourceRoutes wires the /api/sources CRUD surface.
+func (s *Server) registerSourceRoutes() {
+	if s.sourceService == nil {
+		return
+	}
+
+	huma.Register(s.api, huma.Operation{
+		OperationID: "list-sources",
+		Method:      http.MethodGet,
+		Path:        "/api/sources",
+		Summary:     "List Sources",
+		Description: "List all configured sources (V4L2 producers and test-pattern producers).",
+		Tags:        []string{"sources"},
+		Errors:      []int{401, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, _ *struct{}) (*models.SourceListResponse, error) {
+		items, err := s.sourceService.List(ctx)
+		if err != nil {
+			return nil, mapSourceError(err)
+		}
+		apiSources := make([]models.SourceData, len(items))
+		for i, src := range items {
+			apiSources[i] = sourceToAPI(src)
+		}
+		return &models.SourceListResponse{
+			Body: models.SourceListData{
+				Sources: apiSources,
+				Count:   len(apiSources),
+			},
+		}, nil
+	})
+
+	huma.Register(s.api, huma.Operation{
+		OperationID: "create-source",
+		Method:      http.MethodPost,
+		Path:        "/api/sources",
+		Summary:     "Create Source",
+		Description: "Register a new source. Provide either device for a V4L2 producer or test_mode=true for the test-pattern producer (mutually exclusive).",
+		Tags:        []string{"sources"},
+		Errors:      []int{400, 401, 409, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *models.SourceCreateRequest) (*models.SourceResponse, error) {
+		src := Source{
+			ID:       input.Body.SourceID,
+			Device:   input.Body.Device,
+			TestMode: input.Body.TestMode,
+		}
+		created, err := s.sourceService.Create(ctx, src)
+		if err != nil {
+			return nil, mapSourceError(err)
+		}
+		return &models.SourceResponse{Body: sourceToAPI(*created)}, nil
+	})
+
+	huma.Register(s.api, huma.Operation{
+		OperationID: "get-source",
+		Method:      http.MethodGet,
+		Path:        "/api/sources/{source_id}",
+		Summary:     "Get Source",
+		Description: "Fetch a single source by ID.",
+		Tags:        []string{"sources"},
+		Errors:      []int{401, 404, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *struct {
+		SourceID string `path:"source_id" example:"hdmi-slides" doc:"Source identifier"`
+	},
+	) (*models.SourceResponse, error) {
+		src, err := s.sourceService.Get(ctx, input.SourceID)
+		if err != nil {
+			return nil, mapSourceError(err)
+		}
+		return &models.SourceResponse{Body: sourceToAPI(*src)}, nil
+	})
+
+	huma.Register(s.api, huma.Operation{
+		OperationID: "update-source",
+		Method:      http.MethodPatch,
+		Path:        "/api/sources/{source_id}",
+		Summary:     "Update Source",
+		Description: "Patch a source. Only the supplied fields are modified.",
+		Tags:        []string{"sources"},
+		Errors:      []int{400, 401, 404, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *models.SourceUpdateRequest) (*models.SourceResponse, error) {
+		patch := SourcePatch{
+			Device:   input.Body.Device,
+			TestMode: input.Body.TestMode,
+		}
+		updated, err := s.sourceService.Update(ctx, input.SourceID, patch)
+		if err != nil {
+			return nil, mapSourceError(err)
+		}
+		return &models.SourceResponse{Body: sourceToAPI(*updated)}, nil
+	})
+
+	huma.Register(s.api, huma.Operation{
+		OperationID: "delete-source",
+		Method:      http.MethodDelete,
+		Path:        "/api/sources/{source_id}",
+		Summary:     "Delete Source",
+		Description: "Delete a source. Refused with 409 if any composer or stream still references it.",
+		Tags:        []string{"sources"},
+		Errors:      []int{401, 404, 409, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *struct {
+		SourceID string `path:"source_id" example:"hdmi-slides" doc:"Source identifier"`
+	},
+	) (*struct{}, error) {
+		if err := s.sourceService.Delete(ctx, input.SourceID); err != nil {
+			return nil, mapSourceError(err)
+		}
+		return &struct{}{}, nil
+	})
+}
+
+// sourceToAPI converts the internal source descriptor to the wire model.
+func sourceToAPI(src Source) models.SourceData {
+	return models.SourceData{
+		SourceID:  src.ID,
+		Device:    src.Device,
+		TestMode:  src.TestMode,
+		CreatedAt: src.CreatedAt,
+		UpdatedAt: src.UpdatedAt,
+	}
+}
+
+// mapSourceError translates service-layer errors into huma StatusErrors.
+func mapSourceError(err error) error {
+	var notFound *SourceNotFoundError
+	if errors.As(err, &notFound) {
+		return huma.Error404NotFound(notFound.Error(), err)
+	}
+	var exists *SourceExistsError
+	if errors.As(err, &exists) {
+		return huma.Error409Conflict(exists.Error(), err)
+	}
+	var invalid *SourceInvalidError
+	if errors.As(err, &invalid) {
+		return huma.Error400BadRequest(invalid.Error(), err)
+	}
+	var inUse *SourceInUseError
+	if errors.As(err, &inUse) {
+		details := make([]error, len(inUse.References))
+		for i, ref := range inUse.References {
+			details[i] = &huma.ErrorDetail{
+				Message:  fmt.Sprintf("%s %q still references this source", ref.Kind, ref.ID),
+				Location: fmt.Sprintf("%s:%s", ref.Kind, ref.ID),
+				Value:    ref.ID,
+			}
+		}
+		return huma.Error409Conflict(inUse.Error(), details...)
+	}
+	return huma.Error500InternalServerError("internal server error", err)
+}
