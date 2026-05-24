@@ -27,6 +27,12 @@ export function Header({ onLogout, className }: Readonly<HeaderProps>) {
             {/* Navigation */}
             <nav className="flex items-center space-x-4">
               <Link
+                to="/sources"
+                className="text-sm font-medium text-fg-muted hover:text-fg"
+              >
+                Sources
+              </Link>
+              <Link
                 to="/streams"
                 className="text-sm font-medium text-fg-muted hover:text-fg"
               >
