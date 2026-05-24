@@ -9,7 +9,6 @@ import (
 
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/events"
-	"github.com/smazurov/videonode/internal/recording"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
@@ -24,12 +23,10 @@ func CreateOpenAPICmd() *cobra.Command {
 		Short: "Dump OpenAPI spec to stdout",
 		RunE: func(c *cobra.Command, _ []string) error {
 			opts := &api.Options{
-				EventBus:               events.New(),
-				StreamProvider:         noopStreamProvider{},
-				SourceSnapshotProvider: noopSourceSnapshotProvider{},
-				RecordingDir:           "/tmp",
-				WebRTCManager:          &streaming.WebRTCManager{},
-				ProcessesProvider:      noopProcessesProvider{},
+				EventBus:          events.New(),
+				StreamProvider:    noopStreamProvider{},
+				WebRTCManager:     &streaming.WebRTCManager{},
+				ProcessesProvider: noopProcessesProvider{},
 			}
 			// Wire StreamService/SourceService/ComposerService so all CRUD
 			// routes surface in the generated spec. The in-memory store
@@ -78,10 +75,3 @@ type noopProcessesProvider struct{}
 
 // Snapshot implements api.ProcessesProvider.
 func (noopProcessesProvider) Snapshot() []pipeline.ProcessView { return nil }
-
-type noopSourceSnapshotProvider struct{}
-
-// CaptureSourceSnapshot implements recording.SourceSnapshotProvider.
-func (noopSourceSnapshotProvider) CaptureSourceSnapshot(string) ([]byte, error) {
-	return nil, recording.ErrSourceNotFound
-}
