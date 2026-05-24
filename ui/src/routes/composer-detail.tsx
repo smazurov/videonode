@@ -1,3 +1,117 @@
+import { useEffect, useMemo } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+
+import { useAuthStore } from '../hooks/useAuthStore';
+import { useComposerStore } from '../hooks/useComposerStore';
+import { DashboardLayout } from '../components/DashboardLayout';
+import { InfoBar } from '../components/InfoBar';
+import { Button } from '../components/Button';
+import { Card } from '../components/Card';
+import { Spinner } from '../components/Spinner';
+import { SectionHeader } from '../components/primitives/SectionHeader';
+import { ComposerOverviewPanel } from '../components/composers/ComposerOverviewPanel';
+import { ComposerInputsPanel } from '../components/composers/ComposerInputsPanel';
+import { ComposerConsumersPanel } from '../components/composers/ComposerConsumersPanel';
+import type { ComposerData } from '../lib/composer-types';
+
 export default function ComposerDetail() {
-  return <div className="p-6 text-fg">TODO U8: Composer detail</div>;
+  const navigate = useNavigate();
+  const { composerId } = useParams<{ composerId: string }>();
+  const { logout } = useAuthStore();
+
+  const composer = useComposerStore((s) =>
+    composerId ? s.composersById[composerId] : undefined,
+  );
+  const { loading, error, lastUpdated } = useComposerStore(
+    useShallow((s) => ({ loading: s.loading, error: s.error, lastUpdated: s.lastUpdated })),
+  );
+  const fetchComposers = useComposerStore((s) => s.fetchComposers);
+
+  useEffect(() => {
+    if (lastUpdated === null) void fetchComposers();
+  }, [lastUpdated, fetchComposers]);
+
+  // Bridge: API returns `id`; ComposerData uses `composer_id`.
+  const data = useMemo<ComposerData | undefined>(() => {
+    if (!composer) return undefined;
+    const { id, inputs, layout, ...rest } = composer;
+    return { composer_id: id, inputs: inputs ?? [], layout: layout ?? [], ...rest } as ComposerData;
+  }, [composer]);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  if (lastUpdated === null && loading) {
+    return (
+      <DashboardLayout onLogout={handleLogout} bottomBar={<InfoBar />}>
+        <DashboardLayout.MainContent>
+          <div className="flex items-center justify-center py-12">
+            <Spinner />
+          </div>
+        </DashboardLayout.MainContent>
+      </DashboardLayout>
+    );
+  }
+
+  if (!composerId || !data) {
+    return (
+      <DashboardLayout onLogout={handleLogout} bottomBar={<InfoBar />}>
+        <DashboardLayout.MainContent>
+          <Card padding="lg">
+            <p className="text-fg-muted">
+              Composer not found.{' '}
+              <Link to="/composers" className="underline">
+                Back to composers
+              </Link>
+            </p>
+          </Card>
+        </DashboardLayout.MainContent>
+      </DashboardLayout>
+    );
+  }
+
+  return (
+    <DashboardLayout onLogout={handleLogout} bottomBar={<InfoBar />}>
+      <DashboardLayout.MainContent>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <SectionHeader
+              title={data.composer_id}
+              description={`Canvas ${data.canvas.w}×${data.canvas.h}, ${data.inputs.length} input${data.inputs.length === 1 ? '' : 's'}`}
+            />
+            <div className="flex gap-2">
+              <Button theme="light" size="SM" text="Back" onClick={() => navigate('/composers')} />
+              <Button
+                theme="light"
+                size="SM"
+                text="Inputs"
+                onClick={() => navigate(`/composers/${data.composer_id}/inputs`)}
+              />
+              <Button
+                theme="primary"
+                size="SM"
+                text="Edit layout"
+                onClick={() => navigate(`/composers/${data.composer_id}/layout`)}
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="p-3 border border-danger rounded-md bg-danger-soft text-sm text-danger-soft-fg">
+              {error}
+            </div>
+          )}
+
+          <ComposerOverviewPanel composer={data} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <ComposerInputsPanel composer={data} />
+            <ComposerConsumersPanel composer={data} />
+          </div>
+        </div>
+      </DashboardLayout.MainContent>
+    </DashboardLayout>
+  );
 }
