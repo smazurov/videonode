@@ -18,6 +18,8 @@ The supervisor exposes the API on `:8090` and serves RTSP on `:8554`. Per-stream
 
 **Do not run anything out of `/tmp/smoke-vn/`**. That directory is a stale smoke-test artifact; if it exists, delete it and let smoke recreate its own scratch dir on the next run.
 
+**Do not try to build arm64 binaries locally in Docker via qemu** — `arm64v8/debian:trixie` + qemu-user-static on an x86_64 host runs `pkg-config`/`gcc` 10–30× slower than native and a full build takes 30+ minutes. CI uses native arm64 runners (`ubuntu-26.04-arm`) so its container path is fast, but it is not usable interactively on a dev machine. Build on the rig.
+
 ## Run
 
 From the repo root:

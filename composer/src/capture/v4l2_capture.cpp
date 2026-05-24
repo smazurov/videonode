@@ -1,7 +1,8 @@
 #include "src/capture/v4l2_capture.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <cerrno>
-#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <linux/videodev2.h>
@@ -37,15 +38,15 @@ void close_planes(BufferRef& b) {
 bool Streamer::open(const std::string& device_path) {
     fd_ = ::open(device_path.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (fd_ < 0) {
-        fprintf(stderr, "v4l2_capture: open(%s): %s\n", device_path.c_str(), strerror(errno));
+        vn::log::error("v4l2_capture: open(%s): %s", device_path.c_str(), strerror(errno));
         return false;
     }
     device_path_ = device_path;
 
     v4l2_capability cap{};
     if (xioctl(fd_, VIDIOC_QUERYCAP, &cap) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_QUERYCAP %s: %s\n", device_path.c_str(),
-                strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_QUERYCAP %s: %s", device_path.c_str(),
+                       strerror(errno));
         close();
         return false;
     }
@@ -54,8 +55,8 @@ bool Streamer::open(const std::string& device_path) {
     bool single = caps & V4L2_CAP_VIDEO_CAPTURE;
     bool multi = caps & V4L2_CAP_VIDEO_CAPTURE_MPLANE;
     if (!single && !multi) {
-        fprintf(stderr, "v4l2_capture: %s: neither single- nor multi-plane capture\n",
-                device_path.c_str());
+        vn::log::error("v4l2_capture: %s: neither single- nor multi-plane capture",
+                       device_path.c_str());
         close();
         return false;
     }
@@ -110,11 +111,11 @@ bool Streamer::request_buffers(int count, std::vector<BufferRef>& out) {
     req.type = buf_type_();
     req.memory = V4L2_MEMORY_MMAP;
     if (xioctl(fd_, VIDIOC_REQBUFS, &req) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_REQBUFS count=%d: %s\n", count, strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_REQBUFS count=%d: %s", count, strerror(errno));
         return false;
     }
     if (req.count == 0) {
-        fprintf(stderr, "v4l2_capture: driver refused buffer allocation\n");
+        vn::log::error("v4l2_capture: driver refused buffer allocation");
         return false;
     }
 
@@ -140,7 +141,7 @@ bool Streamer::query_buffer_(uint32_t index, BufferRef& out) {
         buf.length = VIDEO_MAX_PLANES;
     }
     if (xioctl(fd_, VIDIOC_QUERYBUF, &buf) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_QUERYBUF index=%u: %s\n", index, strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_QUERYBUF index=%u: %s", index, strerror(errno));
         return false;
     }
     out.index = index;
@@ -174,8 +175,8 @@ bool Streamer::export_buffer(uint32_t index, uint32_t plane, int& out_fd) {
     ex.plane = plane;
     ex.flags = O_RDWR | O_CLOEXEC;
     if (xioctl(fd_, VIDIOC_EXPBUF, &ex) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_EXPBUF index=%u plane=%u: %s\n", index, plane,
-                strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_EXPBUF index=%u plane=%u: %s", index, plane,
+                       strerror(errno));
         return false;
     }
     out_fd = ex.fd;
@@ -214,7 +215,7 @@ bool Streamer::queue_buffer(uint32_t index) {
         }
     }
     if (xioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_QBUF index=%u: %s\n", index, strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_QBUF index=%u: %s", index, strerror(errno));
         return false;
     }
     return true;
@@ -276,7 +277,7 @@ bool Streamer::stream_on() {
     }
     uint32_t type = buf_type_();
     if (xioctl(fd_, VIDIOC_STREAMON, &type) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_STREAMON: %s\n", strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_STREAMON: %s", strerror(errno));
         return false;
     }
     streaming_ = true;
@@ -333,7 +334,7 @@ bool Streamer::subscribe_source_change() {
     v4l2_event_subscription sub{};
     sub.type = V4L2_EVENT_SOURCE_CHANGE;
     if (xioctl(fd_, VIDIOC_SUBSCRIBE_EVENT, &sub) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_SUBSCRIBE_EVENT: %s\n", strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_SUBSCRIBE_EVENT: %s", strerror(errno));
         return false;
     }
     return true;
@@ -355,7 +356,7 @@ bool Streamer::drain_events(bool* drained) {
         }
         if (drained)
             *drained = true;
-        fprintf(stderr, "v4l2_capture: drained event type=0x%x seq=%u\n", ev.type, ev.sequence);
+        vn::log::info("v4l2_capture: drained event type=0x%x seq=%u", ev.type, ev.sequence);
     }
 }
 
@@ -374,7 +375,7 @@ bool Streamer::stream_off() {
         return true;
     uint32_t type = buf_type_();
     if (xioctl(fd_, VIDIOC_STREAMOFF, &type) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_STREAMOFF: %s\n", strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_STREAMOFF: %s", strerror(errno));
         return false;
     }
     streaming_ = false;
@@ -387,7 +388,7 @@ std::optional<std::span<std::byte>> Streamer::mmap_buffer_span(uint32_t index) {
         return std::nullopt;
     }
     if (multiplanar_) {
-        fprintf(stderr, "v4l2_capture: mmap_buffer_span not supported on multiplanar device\n");
+        vn::log::error("v4l2_capture: mmap_buffer_span not supported on multiplanar device");
         errno = ENOTSUP;
         return std::nullopt;
     }
@@ -402,7 +403,7 @@ std::optional<std::span<std::byte>> Streamer::mmap_buffer_span(uint32_t index) {
     }
     void* m = ::mmap(nullptr, p.length, PROT_READ, MAP_SHARED, fd_, p.mmap_offset);
     if (m == MAP_FAILED) {
-        fprintf(stderr, "v4l2_capture: mmap index=%u: %s\n", index, strerror(errno));
+        vn::log::error("v4l2_capture: mmap index=%u: %s", index, strerror(errno));
         return std::nullopt;
     }
     in_maps_.emplace_back(m, p.length);

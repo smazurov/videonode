@@ -15,6 +15,16 @@ pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)
 add_library(grpc_bundle INTERFACE)
 target_link_libraries(grpc_bundle INTERFACE PkgConfig::GRPCPP PkgConfig::PROTOBUF)
 
+# Abseil's flag parser. Abseil is already pulled in transitively by gRPC's
+# pkg-config link line, but the symbols we use (ABSL_FLAG, absl::ParseCommandLine,
+# absl::SetProgramUsageMessage) require an explicit link against absl_flags +
+# absl_flags_parse. Both Debian trixie (libabsl-dev ≥ 20230802) and Fedora 43+
+# (abseil-cpp-devel) ship the upstream CMake config files; pkg-config files
+# also exist but the CONFIG form is what upstream documents.
+find_package(absl CONFIG REQUIRED)
+add_library(absl_bundle INTERFACE)
+target_link_libraries(absl_bundle INTERFACE absl::flags absl::flags_parse)
+
 # Plugin + compiler binaries. Same path on Debian and Fedora (/usr/bin).
 find_program(GRPC_CPP_PLUGIN_PATH grpc_cpp_plugin REQUIRED)
 find_program(PROTOC_PATH          protoc          REQUIRED)

@@ -1,141 +1,78 @@
 package streams
 
 import (
-	"time"
-
 	"github.com/smazurov/videonode/internal/devices"
-	"github.com/smazurov/videonode/internal/events"
 )
 
 // BroadcastDeviceDiscovery implements devices.EventBroadcaster.
+//
+// With a device pool configured (production path), this fans hotplug
+// events out to it: the pool issues `Source.SetDevice` against the
+// persistent source for the device_id. Stream-level `Enabled` no longer
+// flips on device presence — sources stay alive and broadcast
+// placeholders when their device is gone, encoders/composers see a
+// stable SCM socket regardless. The canvas-input visibility map is
+// still updated so the UI can show per-input presence.
+//
+// With no device pool (legacy / smoke), no per-stream restart is
+// triggered. Hotplug events become diagnostics only.
 func (s *service) BroadcastDeviceDiscovery(action string, device devices.DeviceInfo, _ string) {
-	s.streamsMutex.Lock()
-
 	deviceReady := device.Ready
 	if action == "removed" {
 		deviceReady = false
+	}
+	devicePath := device.DevicePath
+	if !deviceReady {
+		devicePath = ""
 	}
 
 	s.logger.Debug("Device broadcast received",
 		"action", action,
 		"device_id", device.DeviceID,
-		"device_ready", deviceReady)
+		"device_ready", deviceReady,
+		"device_path", devicePath)
 
-	allStreamConfigs := s.store.GetAllStreams()
+	// Forward to the device pool. Pool decides whether to issue
+	// SetDevice based on whether it manages this device_id. Called
+	// outside any service lock to avoid deadlock with the pool's gRPC
+	// round-trip (SetDevice can take up to SetDeviceTimeout).
+	if s.devicePool != nil {
+		s.devicePool.OnDeviceEvent(device.DeviceID, devicePath)
+	}
 
-	var streamsToRestart []string
-	updated := false
-	matchFound := false
-
-	for streamID, streamConfig := range allStreamConfigs {
-		stream, exists := s.streams[streamID]
-		if !exists {
+	// Update per-canvas InputsEnabled visibility map. The composer keeps
+	// running across device flaps, so we no longer restart anything from
+	// this code path — but the UI still wants to see which inputs have
+	// signal.
+	s.streamsMutex.Lock()
+	defer s.streamsMutex.Unlock()
+	for streamID, cfg := range s.store.GetAllStreams() {
+		if cfg.Canvas == nil {
 			continue
 		}
-
-		if streamConfig.Canvas != nil {
-			changed := s.handleCanvasDeviceEvent(streamID, &streamConfig, stream, device.DeviceID, deviceReady)
-			if changed {
-				matchFound = true
-				updated = true
-				if s.processManager != nil {
-					streamsToRestart = append(streamsToRestart, streamID)
-				}
-			}
-		} else {
-			changed := s.handleSingleDeviceEvent(streamID, &streamConfig, stream, device, deviceReady)
-			if changed {
-				matchFound = true
-				updated = true
-				if s.processManager != nil {
-					streamsToRestart = append(streamsToRestart, streamID)
-				}
-			}
+		stream, ok := s.streams[streamID]
+		if !ok {
+			continue
 		}
-	}
-
-	if !matchFound && len(allStreamConfigs) > 0 {
-		s.logger.Debug("No streams configured for device",
-			"device_id", device.DeviceID,
-			"stream_count", len(allStreamConfigs))
-	}
-
-	s.streamsMutex.Unlock()
-
-	// Restart outside the lock to avoid deadlock with the process manager.
-	for _, streamID := range streamsToRestart {
-		if err := s.processManager.Restart(streamID); err != nil {
-			s.logger.Warn("Failed to restart stream process", "stream_id", streamID, "error", err)
-		}
-	}
-
-	if updated {
-		s.logger.Debug("Updated stream states after device state change")
+		s.refreshCanvasInputVisibility(streamID, &cfg, stream, device.DeviceID, deviceReady)
 	}
 }
 
-// handleSingleDeviceEvent updates a single-camera stream's enabled flag. Caller holds streamsMutex.
-func (s *service) handleSingleDeviceEvent(streamID string, streamConfig *StreamSpec, stream *Stream, device devices.DeviceInfo, deviceReady bool) bool {
-	if streamConfig.Device == "" {
-		return false
-	}
-
-	s.logger.Debug("Checking stream device match",
-		"stream_id", streamID,
-		"stream_device", streamConfig.Device,
-		"discovered_device", device.DeviceID,
-		"match", streamConfig.Device == device.DeviceID)
-
-	if streamConfig.Device != device.DeviceID {
-		return false
-	}
-
-	if stream.Enabled == deviceReady {
-		return false
-	}
-
-	stream.Enabled = deviceReady
-
-	if deviceReady {
-		s.logger.Info("Device ready, stream enabled",
-			"stream_id", streamID,
-			"device_id", device.DeviceID,
-			"device_name", device.DeviceName)
-	} else {
-		s.logger.Info("Device not ready, stream disabled",
-			"stream_id", streamID,
-			"device_id", device.DeviceID,
-			"device_name", device.DeviceName)
-	}
-
-	if s.eventBus != nil {
-		s.eventBus.Publish(events.StreamStateChangedEvent{
-			StreamID:  streamID,
-			Enabled:   deviceReady,
-			Timestamp: time.Now().Format(time.RFC3339),
-		})
-	}
-
-	return true
-}
-
-// handleCanvasDeviceEvent flips InputsEnabled per source matching deviceID. Caller holds streamsMutex.
-func (s *service) handleCanvasDeviceEvent(streamID string, streamConfig *StreamSpec, stream *Stream, deviceID string, deviceReady bool) bool {
+// refreshCanvasInputVisibility updates the per-canvas InputsEnabled flag
+// for any input whose configured Device matches deviceID. UI-only —
+// composer keeps running and the pool drives the underlying source.
+// Caller holds streamsMutex.
+func (s *service) refreshCanvasInputVisibility(streamID string, streamConfig *StreamSpec, stream *Stream, deviceID string, deviceReady bool) {
 	if stream.InputsEnabled == nil {
-		return false
+		return
 	}
-
-	stateChanged := false
 	for _, srcID := range streamConfig.Canvas.SourceStreams {
 		src, exists := s.store.GetStream(srcID)
 		if !exists || src.Device != deviceID {
 			continue
 		}
-
 		if stream.InputsEnabled[srcID] != deviceReady {
 			stream.InputsEnabled[srcID] = deviceReady
-			stateChanged = true
-
 			if deviceReady {
 				s.logger.Info("Canvas source device ready",
 					"stream_id", streamID, "source_id", srcID, "device_id", deviceID)
@@ -145,14 +82,4 @@ func (s *service) handleCanvasDeviceEvent(streamID string, streamConfig *StreamS
 			}
 		}
 	}
-
-	if stateChanged && s.eventBus != nil {
-		s.eventBus.Publish(events.StreamStateChangedEvent{
-			StreamID:  streamID,
-			Enabled:   true,
-			Timestamp: time.Now().Format(time.RFC3339),
-		})
-	}
-
-	return stateChanged
 }

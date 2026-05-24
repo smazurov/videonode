@@ -1,10 +1,11 @@
 // Tests for scm_rights_producer. End-to-end with real Unix sockets +
 // dup'd memfd fds standing in for dma-bufs. Host-runnable.
 
+#include "src/common/unique_fd.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 #include "src/ipc/scm_rights_producer.hpp"
 #include "src/ipc/scm_rights_source.hpp"
 #include "src/ipc/scm_socket.hpp"
-#include "src/ipc/dmabuf_header.hpp"
 
 #include <gtest/gtest.h>
 
@@ -15,19 +16,21 @@
 #include <sys/syscall.h>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace {
 
+using vn::base::unique_fd;
+
 // Use memfd as a stand-in for a dma-buf fd. Any fd survives SCM_RIGHTS;
 // the receiver doesn't care it's not a real dma-buf for the protocol test.
-int make_fd(size_t size) {
-    int fd = ::memfd_create("scm_producer_test", 0);
-    if (fd < 0)
-        return -1;
-    if (::ftruncate(fd, static_cast<off_t>(size)) < 0) {
-        ::close(fd);
-        return -1;
+unique_fd make_fd(size_t size) {
+    unique_fd fd(::memfd_create("scm_producer_test", 0));
+    if (!fd)
+        return {};
+    if (::ftruncate(fd.get(), static_cast<off_t>(size)) < 0) {
+        return {};
     }
     return fd;
 }
@@ -64,6 +67,18 @@ template <typename F> bool wait_for(F cond, std::chrono::milliseconds timeout) {
     return cond();
 }
 
+// Adopt every fd in `fds` into unique_fd so the test cleans them up on scope
+// exit. `fds` is left holding raw ints that have been released; callers
+// should ignore them after this.
+std::vector<unique_fd> adopt_fds(std::vector<int>& fds) {
+    std::vector<unique_fd> out;
+    out.reserve(fds.size());
+    for (int f : fds)
+        out.emplace_back(f);
+    fds.clear();
+    return out;
+}
+
 } // namespace
 
 TEST(ScmRightsProducer, SingleConsumerReceivesBroadcast) {
@@ -74,31 +89,30 @@ TEST(ScmRightsProducer, SingleConsumerReceivesBroadcast) {
     EXPECT_TRUE(prod.init(p));
     EXPECT_TRUE(prod.start());
 
-    int client = scm_socket::ConnectClient(path);
-    EXPECT_TRUE(client >= 0);
+    unique_fd client = scm_socket::ConnectClient(path);
+    EXPECT_TRUE(client.ok());
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 1; }, std::chrono::milliseconds(500)));
 
-    int fd1 = make_fd(4096);
-    int fd2 = make_fd(4096);
-    EXPECT_TRUE(fd1 >= 0);
-    EXPECT_TRUE(fd2 >= 0);
+    unique_fd fd1 = make_fd(4096);
+    unique_fd fd2 = make_fd(4096);
+    EXPECT_TRUE(fd1.ok());
+    EXPECT_TRUE(fd2.ok());
 
-    EXPECT_TRUE(prod.broadcast(make_header(7), {fd1, fd2}));
-    ::close(fd1); // caller closes after broadcast — kernel dup'd
-    ::close(fd2);
+    EXPECT_TRUE(prod.broadcast(make_header(7), {fd1.get(), fd2.get()}));
+    // Caller still owns fd1/fd2 — kernel dup'd them across the socket.
+    fd1.reset();
+    fd2.reset();
 
     dmabuf_header::Header rh;
     std::vector<int> rfds;
     bool eof = false;
-    EXPECT_TRUE(scm_socket::RecvMessage(client, rh, rfds, &eof));
+    EXPECT_TRUE(scm_socket::RecvMessage(client.get(), rh, rfds, &eof));
     EXPECT_EQ(uint64_t(7), rh.frame_idx);
     EXPECT_EQ(size_t(2), rfds.size());
     EXPECT_EQ(std::string("NV12"), rh.format);
 
-    for (int fd : rfds)
-        ::close(fd);
-    ::close(client);
+    auto owned_rfds = adopt_fds(rfds);
     prod.stop();
 }
 
@@ -110,26 +124,24 @@ TEST(ScmRightsProducer, TwoConsumersBothReceive) {
     EXPECT_TRUE(prod.init(p));
     EXPECT_TRUE(prod.start());
 
-    int c1 = scm_socket::ConnectClient(path);
-    int c2 = scm_socket::ConnectClient(path);
-    EXPECT_TRUE(c1 >= 0);
-    EXPECT_TRUE(c2 >= 0);
+    unique_fd c1 = scm_socket::ConnectClient(path);
+    unique_fd c2 = scm_socket::ConnectClient(path);
+    EXPECT_TRUE(c1.ok());
+    EXPECT_TRUE(c2.ok());
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 2; }, std::chrono::milliseconds(500)));
 
-    int fd = make_fd(4096);
-    EXPECT_TRUE(prod.broadcast(make_header(42), {fd, fd}));
-    ::close(fd);
+    unique_fd fd = make_fd(4096);
+    EXPECT_TRUE(prod.broadcast(make_header(42), {fd.get(), fd.get()}));
+    fd.reset();
 
-    for (int c : {c1, c2}) {
+    for (unique_fd* c : {&c1, &c2}) {
         dmabuf_header::Header rh;
         std::vector<int> rfds;
-        EXPECT_TRUE(scm_socket::RecvMessage(c, rh, rfds));
+        EXPECT_TRUE(scm_socket::RecvMessage(c->get(), rh, rfds));
         EXPECT_EQ(uint64_t(42), rh.frame_idx);
         EXPECT_EQ(size_t(2), rfds.size());
-        for (int f : rfds)
-            ::close(f);
-        ::close(c);
+        auto owned = adopt_fds(rfds);
     }
     prod.stop();
 }
@@ -142,9 +154,8 @@ TEST(ScmRightsProducer, BroadcastWithNoConsumersReturnsFalse) {
     EXPECT_TRUE(prod.init(p));
     EXPECT_TRUE(prod.start());
 
-    int fd = make_fd(4096);
-    bool ok = prod.broadcast(make_header(1), {fd, fd});
-    ::close(fd);
+    unique_fd fd = make_fd(4096);
+    bool ok = prod.broadcast(make_header(1), {fd.get(), fd.get()});
     EXPECT_FALSE(ok); // no consumers → nothing happened
     EXPECT_EQ(0, prod.consumer_count());
 
@@ -159,48 +170,46 @@ TEST(ScmRightsProducer, DisconnectedConsumerEvicted) {
     EXPECT_TRUE(prod.init(p));
     EXPECT_TRUE(prod.start());
 
-    int c1 = scm_socket::ConnectClient(path);
-    int c2 = scm_socket::ConnectClient(path);
+    unique_fd c1 = scm_socket::ConnectClient(path);
+    unique_fd c2 = scm_socket::ConnectClient(path);
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 2; }, std::chrono::milliseconds(500)));
 
     // c1 disconnects without reading anything.
-    ::close(c1);
+    c1.reset();
 
     // Pump frames; on one of these the producer's send to c1 will hit
     // EPIPE/ECONNRESET and evict.
-    int fd = make_fd(4096);
+    unique_fd fd = make_fd(4096);
     for (int i = 0; i < 5; ++i) {
-        prod.broadcast(make_header(uint64_t(i + 1)), {fd, fd});
+        prod.broadcast(make_header(uint64_t(i + 1)), {fd.get(), fd.get()});
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    ::close(fd);
+    fd.reset();
 
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 1; }, std::chrono::milliseconds(500)));
 
     // c2 should still receive subsequent broadcasts.
-    int fd2 = make_fd(4096);
-    EXPECT_TRUE(prod.broadcast(make_header(99), {fd2, fd2}));
-    ::close(fd2);
+    unique_fd fd2 = make_fd(4096);
+    EXPECT_TRUE(prod.broadcast(make_header(99), {fd2.get(), fd2.get()}));
+    fd2.reset();
 
     // Drain c2 — pre-eviction broadcasts also queued for c2.
     bool saw_99 = false;
     for (int i = 0; i < 10; ++i) {
         dmabuf_header::Header rh;
         std::vector<int> rfds;
-        if (!scm_socket::RecvMessage(c2, rh, rfds))
+        if (!scm_socket::RecvMessage(c2.get(), rh, rfds))
             break;
         if (rh.frame_idx == 99)
             saw_99 = true;
-        for (int f : rfds)
-            ::close(f);
+        auto owned = adopt_fds(rfds);
         if (saw_99)
             break;
     }
     EXPECT_TRUE(saw_99);
 
-    ::close(c2);
     prod.stop();
 }
 
@@ -220,17 +229,17 @@ TEST(ScmRightsProducer, PruneDeadConsumersEvictsWithoutBroadcast) {
     EXPECT_TRUE(prod.init(p));
     EXPECT_TRUE(prod.start());
 
-    int c1 = scm_socket::ConnectClient(path);
-    int c2 = scm_socket::ConnectClient(path);
-    int c3 = scm_socket::ConnectClient(path);
+    unique_fd c1 = scm_socket::ConnectClient(path);
+    unique_fd c2 = scm_socket::ConnectClient(path);
+    unique_fd c3 = scm_socket::ConnectClient(path);
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 3; }, std::chrono::milliseconds(500)));
 
     // Disconnect two; do NOT call broadcast(). prune_dead_consumers() alone
     // must reap them, since real source code may go many ticks without a
     // frame to broadcast.
-    ::close(c1);
-    ::close(c3);
+    c1.reset();
+    c3.reset();
 
     // Brief settle for the kernel to propagate the peer close into POLLHUP.
     EXPECT_TRUE(
@@ -241,18 +250,16 @@ TEST(ScmRightsProducer, PruneDeadConsumersEvictsWithoutBroadcast) {
     EXPECT_EQ(1, prod.consumer_count());
 
     // Confirm c2 still works end-to-end after the prune.
-    int fd = make_fd(4096);
-    EXPECT_TRUE(prod.broadcast(make_header(42), {fd, fd}));
-    ::close(fd);
+    unique_fd fd = make_fd(4096);
+    EXPECT_TRUE(prod.broadcast(make_header(42), {fd.get(), fd.get()}));
+    fd.reset();
 
     dmabuf_header::Header rh;
     std::vector<int> rfds;
-    EXPECT_TRUE(scm_socket::RecvMessage(c2, rh, rfds));
+    EXPECT_TRUE(scm_socket::RecvMessage(c2.get(), rh, rfds));
     EXPECT_EQ(uint64_t(42), rh.frame_idx);
-    for (int f : rfds)
-        ::close(f);
+    auto owned = adopt_fds(rfds);
 
-    ::close(c2);
     prod.stop();
 }
 
@@ -270,11 +277,11 @@ TEST(ScmRightsProducer, ChurnCyclesDoNotLeakConsumers) {
     EXPECT_TRUE(prod.start());
 
     for (int i = 0; i < 10; ++i) {
-        int c = scm_socket::ConnectClient(path);
-        ASSERT_TRUE(c >= 0);
+        unique_fd c = scm_socket::ConnectClient(path);
+        ASSERT_TRUE(c.ok());
         EXPECT_TRUE(
             wait_for([&] { return prod.consumer_count() >= 1; }, std::chrono::milliseconds(200)));
-        ::close(c);
+        c.reset();
         // Reap without broadcasting — that's the whole point of prune.
         EXPECT_TRUE(wait_for(
             [&] {
@@ -296,21 +303,18 @@ TEST(ScmRightsProducer, MaxConsumersCapEnforced) {
     EXPECT_TRUE(prod.init(p));
     EXPECT_TRUE(prod.start());
 
-    int c1 = scm_socket::ConnectClient(path);
-    int c2 = scm_socket::ConnectClient(path);
-    int c3 = scm_socket::ConnectClient(path);
-    EXPECT_TRUE(c1 >= 0);
-    EXPECT_TRUE(c2 >= 0);
-    EXPECT_TRUE(c3 >= 0);
+    unique_fd c1 = scm_socket::ConnectClient(path);
+    unique_fd c2 = scm_socket::ConnectClient(path);
+    unique_fd c3 = scm_socket::ConnectClient(path);
+    EXPECT_TRUE(c1.ok());
+    EXPECT_TRUE(c2.ok());
+    EXPECT_TRUE(c3.ok());
 
     // Give the accept loop a moment to process all three dials.
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 2; }, std::chrono::milliseconds(500)));
     // c3 was accepted then immediately closed; consumer_count stays at 2.
 
-    ::close(c1);
-    ::close(c2);
-    ::close(c3);
     prod.stop();
 }
 
@@ -334,9 +338,9 @@ TEST(ScmRightsProducer, SourceDialModeConsumesProducer) {
     EXPECT_TRUE(
         wait_for([&] { return prod.consumer_count() == 1; }, std::chrono::milliseconds(500)));
 
-    int fd = make_fd(4096);
-    EXPECT_TRUE(prod.broadcast(make_header(123), {fd, fd}));
-    ::close(fd);
+    unique_fd fd = make_fd(4096);
+    EXPECT_TRUE(prod.broadcast(make_header(123), {fd.get(), fd.get()}));
+    fd.reset();
 
     EXPECT_TRUE(wait_for([&] { return src.latest_frame().frame_idx == 123; },
                          std::chrono::milliseconds(500)));

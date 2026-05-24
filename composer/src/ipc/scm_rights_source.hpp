@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include "src/common/unique_fd.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -90,25 +92,28 @@ class ScmRightsSource {
     FrameView latest_frame() const;
 
     bool running() const { return running_.load(); }
-    int listen_fd() const { return listen_fd_; }
-    int client_fd() const { return client_fd_; }
+    int listen_fd() const { return listen_fd_.get(); }
+    int client_fd() const { return client_fd_.get(); }
 
   private:
     void thread_main_();
 
     InitParams params_;
-    int listen_fd_ = -1;
-    int client_fd_ = -1;
+    vn::base::unique_fd listen_fd_;
+    vn::base::unique_fd client_fd_;
 
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
 
     mutable std::mutex latest_mu_;
+    // FrameView's `fd`/`plane1_fd` borrow into latest_owned_fds_. Consumers
+    // see raw ints (the view contract); ownership lives in unique_fd here.
     FrameView latest_;
-    // Holds the previous frame's fds so we can close them on the NEXT
-    // frame arrival (gives the consumer some window of validity).
-    std::vector<int> prev_fds_;
+    std::vector<vn::base::unique_fd> latest_owned_fds_;
+    // Holds the previous frame's fds so the consumer has a one-cycle window
+    // of validity after a new frame replaces latest_.
+    std::vector<vn::base::unique_fd> prev_fds_;
 };
 
 } // namespace scm_rights_source

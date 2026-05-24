@@ -142,8 +142,8 @@ void reconcile_sources_(std::map<std::string, LiveSource>& live,
         ls.src = std::move(s);
         ls.scm_path = b.scm_path;
         live[b.slot] = std::move(ls);
-        vn::log::info("canvas_loop: dialed slot %s -> %s (%s)", b.slot.c_str(),
-                      b.source_id.c_str(), b.scm_path.c_str());
+        vn::log::info("canvas_loop: dialed slot %s -> %s (%s)", b.slot.c_str(), b.source_id.c_str(),
+                      b.scm_path.c_str());
     }
 }
 
@@ -409,8 +409,8 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
             size_t bytes_per_frame = size_t(compose_w) * compose_h * 4;
             if (map_stride == uint32_t(compose_w) * 4) {
                 write_ok =
-                    write_full_(STDOUT_FILENO,
-                                std::span(static_cast<const uint8_t*>(canvas_map), bytes_per_frame));
+                    write_full_(STDOUT_FILENO, std::span(static_cast<const uint8_t*>(canvas_map),
+                                                         bytes_per_frame));
             } else {
                 for (int y = 0; y < compose_h && write_ok; ++y) {
                     const uint8_t* row = static_cast<const uint8_t*>(canvas_map) + y * map_stride;

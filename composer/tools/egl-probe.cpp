@@ -1,12 +1,20 @@
 // egl-probe — success gate for the GPU composer's EGL/GBM setup.
 //
 // What it proves:
-//  1. We can open a DRM render node, create a GBM device, initialize EGL,
-//     and bind a surfaceless GLES2 context on Mali-G610 via Mesa+Panthor.
+//  1. egl_ctx::EglCtx::init brings up DRM render node → GBM device → EGL
+//     display → surfaceless GLES2 context on the target driver
+//     (Mali-G610/Panthor on the rig, radeonsi on the dev box).
 //  2. We can allocate a GBM buffer object, export it as a dma-buf fd,
-//     import that fd back as an EGLImage, attach it to an FBO renderbuffer,
-//     render to it, and read the result back via mmap.
+//     import that fd back as an EGLImage via EglCtx::import_dmabuf, attach
+//     it to an FBO renderbuffer, render to it, and read the result via mmap.
 //  3. The full dma-buf round-trip the composer depends on works.
+//
+// Also dumps:
+//   - EGL_EXTENSIONS string (driver capability bitmap)
+//   - Modifier matrix from EGL_EXT_image_dma_buf_import_modifiers
+//     (eglQueryDmaBufFormatsEXT + eglQueryDmaBufModifiersEXT). For
+//     end-to-end format viability use dmabuf-format-probe; this list is
+//     just what the driver claims.
 //
 // Usage:  ./egl-probe [/dev/dri/renderD130] [out.ppm]
 //   - Default device: /dev/dri/renderD130 (panthor on this rig)
@@ -14,236 +22,175 @@
 //
 // Exit status: 0 on full success; non-zero with a diagnostic line on failure.
 
+#include "src/common/probe_check.hpp"
+#include "src/render/egl_ctx.hpp"
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
-#include <gbm.h>
 #include <drm_fourcc.h>
+#include <gbm.h>
 
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <unistd.h>
+#include <span>
+#include <vector>
 
-#define DIE(...)                                                                                   \
-    do {                                                                                           \
-        fprintf(stderr, "FAIL: " __VA_ARGS__);                                                     \
-        fprintf(stderr, "\n");                                                                     \
-        return 1;                                                                                  \
-    } while (0)
-#define LOG(...)                                                                                   \
-    do {                                                                                           \
-        fprintf(stderr, "ok: " __VA_ARGS__);                                                       \
-        fprintf(stderr, "\n");                                                                     \
-    } while (0)
+namespace {
 
-static const char* egl_err_str(EGLint e) {
-    switch (e) {
-    case EGL_SUCCESS:
-        return "EGL_SUCCESS";
-    case EGL_NOT_INITIALIZED:
-        return "EGL_NOT_INITIALIZED";
-    case EGL_BAD_ACCESS:
-        return "EGL_BAD_ACCESS";
-    case EGL_BAD_ALLOC:
-        return "EGL_BAD_ALLOC";
-    case EGL_BAD_ATTRIBUTE:
-        return "EGL_BAD_ATTRIBUTE";
-    case EGL_BAD_CONFIG:
-        return "EGL_BAD_CONFIG";
-    case EGL_BAD_CONTEXT:
-        return "EGL_BAD_CONTEXT";
-    case EGL_BAD_CURRENT_SURFACE:
-        return "EGL_BAD_CURRENT_SURFACE";
-    case EGL_BAD_DISPLAY:
-        return "EGL_BAD_DISPLAY";
-    case EGL_BAD_MATCH:
-        return "EGL_BAD_MATCH";
-    case EGL_BAD_NATIVE_PIXMAP:
-        return "EGL_BAD_NATIVE_PIXMAP";
-    case EGL_BAD_NATIVE_WINDOW:
-        return "EGL_BAD_NATIVE_WINDOW";
-    case EGL_BAD_PARAMETER:
-        return "EGL_BAD_PARAMETER";
-    case EGL_BAD_SURFACE:
-        return "EGL_BAD_SURFACE";
-    case EGL_CONTEXT_LOST:
-        return "EGL_CONTEXT_LOST";
-    default:
-        return "EGL_?";
+void dump_modifier_matrix(EGLDisplay dpy) {
+    const char* exts = eglQueryString(dpy, EGL_EXTENSIONS);
+    if (!exts || !std::strstr(exts, "EGL_EXT_image_dma_buf_import_modifiers")) {
+        std::fprintf(stderr, "ok: EGL_EXT_image_dma_buf_import_modifiers not advertised\n");
+        return;
+    }
+    auto eglQueryDmaBufFormatsEXT_ =
+        (PFNEGLQUERYDMABUFFORMATSEXTPROC)eglGetProcAddress("eglQueryDmaBufFormatsEXT");
+    auto eglQueryDmaBufModifiersEXT_ =
+        (PFNEGLQUERYDMABUFMODIFIERSEXTPROC)eglGetProcAddress("eglQueryDmaBufModifiersEXT");
+    if (!eglQueryDmaBufFormatsEXT_ || !eglQueryDmaBufModifiersEXT_) {
+        std::fprintf(stderr, "ok: modifier query entry points missing\n");
+        return;
+    }
+    EGLint n_fmt = 0;
+    if (!eglQueryDmaBufFormatsEXT_(dpy, 0, nullptr, &n_fmt) || n_fmt <= 0) {
+        std::fprintf(stderr, "ok: 0 dma-buf formats reported\n");
+        return;
+    }
+    std::vector<EGLint> formats(n_fmt);
+    if (!eglQueryDmaBufFormatsEXT_(dpy, n_fmt, formats.data(), &n_fmt)) {
+        std::fprintf(stderr, "ok: eglQueryDmaBufFormatsEXT enumerate failed\n");
+        return;
+    }
+    std::fprintf(stderr, "ok: %d dma-buf formats advertised\n", n_fmt);
+    for (EGLint f : formats) {
+        char fc[5] = {char(f & 0xFF), char((f >> 8) & 0xFF), char((f >> 16) & 0xFF),
+                      char((f >> 24) & 0xFF), 0};
+        EGLint n_mod = 0;
+        eglQueryDmaBufModifiersEXT_(dpy, f, 0, nullptr, nullptr, &n_mod);
+        std::fprintf(stderr, "  fourcc=0x%08x '%s' modifiers=%d\n", f, fc, n_mod);
     }
 }
 
-#define EGL_CHECK(call)                                                                            \
-    do {                                                                                           \
-        auto _r = (call);                                                                          \
-        if (_r == 0) {                                                                             \
-            EGLint _e = eglGetError();                                                             \
-            DIE(#call ": %s", egl_err_str(_e));                                                    \
-        }                                                                                          \
-    } while (0)
+} // namespace
 
 int main(int argc, char** argv) {
-    const char* device = (argc > 1) ? argv[1] : "/dev/dri/renderD130";
-    const char* outpath = (argc > 2) ? argv[2] : "/tmp/egl-probe.ppm";
-    constexpr int W = 64, H = 64;
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    const char* device = (args.size() > 1) ? args[1] : "/dev/dri/renderD130";
+    const char* outpath = (args.size() > 2) ? args[2] : "/tmp/egl-probe.ppm";
+    constexpr int W = 64;
+    constexpr int H = 64;
 
-    // 1. DRM render node + GBM device.
-    int drm_fd = open(device, O_RDWR | O_CLOEXEC);
-    if (drm_fd < 0)
-        DIE("open(%s): %s", device, strerror(errno));
-    LOG("opened %s fd=%d", device, drm_fd);
+    // 1. EGL/GBM/GLES2 bootstrap via the shared helper.
+    egl_ctx::EglCtx ctx;
+    VN_CHECK(ctx.init(device), "EglCtx::init(%s)", device);
+    std::fprintf(stderr, "ok: EglCtx up on %s\n", device);
+    std::fprintf(stderr, "ok: GL renderer=%s\n", glGetString(GL_RENDERER));
+    std::fprintf(stderr, "ok: GL version=%s\n", glGetString(GL_VERSION));
 
-    gbm_device* gbm = gbm_create_device(drm_fd);
-    if (!gbm)
-        DIE("gbm_create_device");
-    LOG("gbm_device backend=%s", gbm_device_get_backend_name(gbm));
+    // Driver capability dump — useful when a probe fails on a new rig.
+    const char* exts = eglQueryString(ctx.display(), EGL_EXTENSIONS);
+    std::fprintf(stderr, "ok: EGL_EXTENSIONS=%s\n", exts ? exts : "(null)");
+    dump_modifier_matrix(ctx.display());
 
-    // 2. EGL display via GBM platform.
-    EGLDisplay dpy = eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm, nullptr);
-    if (dpy == EGL_NO_DISPLAY)
-        DIE("eglGetPlatformDisplay");
-
-    EGLint major, minor;
-    EGL_CHECK(eglInitialize(dpy, &major, &minor));
-    LOG("EGL %d.%d vendor=%s", major, minor, eglQueryString(dpy, EGL_VENDOR));
-    LOG("EGL driver=%s", eglQueryString(dpy, EGL_VENDOR));
-
-    // 3. Bind GLES2 + a surfaceless context.
-    // We render only into FBOs backed by dma-buf EGLImages, so we want no window
-    // surface at all. EGL_KHR_no_config_context (advertised by panthor's Mesa
-    // driver) lets us skip eglChooseConfig entirely. This is also more portable
-    // across Mesa drivers than requesting EGL_SURFACE_TYPE = EGL_PBUFFER_BIT.
-    EGL_CHECK(eglBindAPI(EGL_OPENGL_ES_API));
-
-    const char* exts = eglQueryString(dpy, EGL_EXTENSIONS);
-    if (!exts || !strstr(exts, "EGL_KHR_no_config_context"))
-        DIE("driver lacks EGL_KHR_no_config_context");
-    if (!strstr(exts, "EGL_KHR_surfaceless_context"))
-        DIE("driver lacks EGL_KHR_surfaceless_context");
-
-    const EGLint ctx_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
-    EGLContext ctx = eglCreateContext(dpy, EGL_NO_CONFIG_KHR, EGL_NO_CONTEXT, ctx_attribs);
-    if (ctx == EGL_NO_CONTEXT)
-        DIE("eglCreateContext: %s", egl_err_str(eglGetError()));
-    LOG("created EGL_NO_CONFIG_KHR GLES2 context");
-
-    EGL_CHECK(eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx));
-    LOG("GL renderer=%s", glGetString(GL_RENDERER));
-    LOG("GL version=%s", glGetString(GL_VERSION));
-
-    // 4. Allocate a GBM bo we can render to and export as dma-buf.
-    gbm_bo* bo =
-        gbm_bo_create(gbm, W, H, GBM_FORMAT_ARGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
-    if (!bo)
-        DIE("gbm_bo_create");
+    // 2. Allocate a GBM bo we can render to and export as dma-buf.
+    gbm_bo* bo = gbm_bo_create(ctx.gbm(), W, H, GBM_FORMAT_ARGB8888,
+                               GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
+    VN_CHECK(bo, "gbm_bo_create");
     uint32_t stride = gbm_bo_get_stride(bo);
     int dmabuf_fd = gbm_bo_get_fd(bo);
-    if (dmabuf_fd < 0)
-        DIE("gbm_bo_get_fd");
-    LOG("gbm_bo %dx%d stride=%u dmabuf_fd=%d", W, H, stride, dmabuf_fd);
+    VN_CHECK(dmabuf_fd >= 0, "gbm_bo_get_fd");
+    std::fprintf(stderr, "ok: gbm_bo %dx%d stride=%u dmabuf_fd=%d\n", W, H, stride, dmabuf_fd);
 
-    // 5. Import the dma-buf back as an EGLImage (the round-trip the composer depends on).
-    EGLAttrib img_attribs[] = {
-        EGL_WIDTH,
-        W,
-        EGL_HEIGHT,
-        H,
-        EGL_LINUX_DRM_FOURCC_EXT,
-        (EGLAttrib)DRM_FORMAT_ARGB8888,
-        EGL_DMA_BUF_PLANE0_FD_EXT,
-        (EGLAttrib)dmabuf_fd,
-        EGL_DMA_BUF_PLANE0_OFFSET_EXT,
-        0,
-        EGL_DMA_BUF_PLANE0_PITCH_EXT,
-        (EGLAttrib)stride,
-        EGL_NONE,
-    };
-    EGLImage img = eglCreateImage(dpy, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT,
-                                  (EGLClientBuffer) nullptr, img_attribs);
-    if (img == EGL_NO_IMAGE)
-        DIE("eglCreateImage: %s", egl_err_str(eglGetError()));
-    LOG("eglCreateImage(dmabuf) OK");
+    // 3. Import the dma-buf back as an EGLImage via EglCtx (the round-trip
+    // the composer depends on).
+    egl_ctx::EglCtx::ImageDesc desc;
+    desc.fd = dmabuf_fd;
+    desc.fourcc = DRM_FORMAT_ARGB8888;
+    desc.modifier = DRM_FORMAT_MOD_LINEAR;
+    desc.width = W;
+    desc.height = H;
+    desc.plane0_offset = 0;
+    desc.plane0_pitch = static_cast<int>(stride);
+    EGLImage img = ctx.import_dmabuf(desc);
+    VN_CHECK(img != EGL_NO_IMAGE, "EglCtx::import_dmabuf");
+    std::fprintf(stderr, "ok: imported dma-buf as EGLImage\n");
 
-    // 6. Attach EGLImage to an FBO renderbuffer, clear red, finish.
-    GLuint rbo;
+    // 4. Attach EGLImage to an FBO renderbuffer, clear red, finish.
+    GLuint rbo = 0;
     glGenRenderbuffers(1, &rbo);
     glBindRenderbuffer(GL_RENDERBUFFER, rbo);
 
-    auto glEGLImageTargetRenderbufferStorageOES =
+    auto glEGLImageTargetRenderbufferStorageOES_ =
         (PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC)eglGetProcAddress(
             "glEGLImageTargetRenderbufferStorageOES");
-    if (!glEGLImageTargetRenderbufferStorageOES)
-        DIE("no glEGLImageTargetRenderbufferStorageOES");
-    glEGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, img);
-    if (GLenum e = glGetError(); e != GL_NO_ERROR)
-        DIE("RBStorageOES: 0x%x", e);
+    VN_CHECK(glEGLImageTargetRenderbufferStorageOES_, "no glEGLImageTargetRenderbufferStorageOES");
+    glEGLImageTargetRenderbufferStorageOES_(GL_RENDERBUFFER, img);
+    GL_CHECK("RBStorageOES");
 
-    GLuint fbo;
+    GLuint fbo = 0;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-        DIE("framebuffer incomplete");
+    VN_CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
+             "framebuffer incomplete");
 
     glViewport(0, 0, W, H);
     glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     glFinish();
-    LOG("rendered red to dma-buf FBO");
+    std::fprintf(stderr, "ok: rendered red to dma-buf FBO\n");
 
-    // 7. mmap the bo and write a PPM. Verifies CPU can read what GPU wrote.
+    // 5. mmap the bo and write a PPM. Verifies CPU can read what GPU wrote.
     uint32_t map_stride = 0;
     void* map_data = nullptr;
     void* mapped = gbm_bo_map(bo, 0, 0, W, H, GBM_BO_TRANSFER_READ, &map_stride, &map_data);
-    if (!mapped)
-        DIE("gbm_bo_map");
+    VN_CHECK(mapped, "gbm_bo_map");
 
-    FILE* f = fopen(outpath, "wb");
-    if (!f)
-        DIE("fopen(%s): %s", outpath, strerror(errno));
-    fprintf(f, "P6\n%d %d\n255\n", W, H);
+    // Probe tool — keep PPM writer minimal. Bare FILE* is fine here; the
+    // owning-memory checks below are pacified with NOLINT.
+    FILE* f = std::fopen(outpath, "wb"); // NOLINT(cppcoreguidelines-owning-memory)
+    VN_CHECK(f, "fopen(%s): %s", outpath, std::strerror(errno));
+    std::fprintf(f, "P6\n%d %d\n255\n", W, H);
     int red_pixels = 0;
+    const std::span<const uint8_t> pixels(static_cast<const uint8_t*>(mapped),
+                                          static_cast<size_t>(map_stride) * H);
     for (int y = 0; y < H; ++y) {
-        uint8_t* row = (uint8_t*)mapped + y * map_stride;
+        const std::span<const uint8_t> row =
+            pixels.subspan(static_cast<size_t>(y) * map_stride, static_cast<size_t>(W) * 4);
         for (int x = 0; x < W; ++x) {
-            // ARGB8888 in memory little-endian = BGRA bytes; B=row[0], G=row[1], R=row[2],
-            // A=row[3].
-            uint8_t b = row[x * 4 + 0];
-            uint8_t g = row[x * 4 + 1];
-            uint8_t r = row[x * 4 + 2];
+            // ARGB8888 in memory little-endian = BGRA bytes: B=row[0], G=row[1], R=row[2].
+            const size_t off = static_cast<size_t>(x) * 4;
+            uint8_t b = row[off + 0];
+            uint8_t g = row[off + 1];
+            uint8_t r = row[off + 2];
             uint8_t out[3] = {r, g, b};
-            fwrite(out, 1, 3, f);
+            std::fwrite(out, 1, 3, f);
             if (r >= 250 && g <= 5 && b <= 5)
                 red_pixels++;
         }
     }
-    fclose(f);
+    std::fclose(f); // NOLINT(cppcoreguidelines-owning-memory)
     gbm_bo_unmap(bo, map_data);
 
     int expected = W * H;
-    LOG("PPM written to %s, %d/%d red pixels", outpath, red_pixels, expected);
-    if (red_pixels != expected)
-        DIE("only %d/%d pixels matched red; GPU did not actually clear the surface (or mapping is "
-            "wrong)",
-            red_pixels, expected);
+    std::fprintf(stderr, "ok: PPM written to %s, %d/%d red pixels\n", outpath, red_pixels,
+                 expected);
+    VN_CHECK(red_pixels == expected,
+             "only %d/%d pixels matched red; GPU did not actually clear the surface (or mapping "
+             "is wrong)",
+             red_pixels, expected);
 
-    // Teardown.
-    eglDestroyImage(dpy, img);
+    // Teardown. EglCtx's destructor handles display/context/gbm/drm cleanup.
+    eglDestroyImage(ctx.display(), img);
     glDeleteFramebuffers(1, &fbo);
     glDeleteRenderbuffers(1, &rbo);
-    eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroyContext(dpy, ctx);
-    eglTerminate(dpy);
     gbm_bo_destroy(bo);
-    gbm_device_destroy(gbm);
-    close(drm_fd);
 
-    printf("PASS\n");
+    std::printf("PASS\n");
     return 0;
 }

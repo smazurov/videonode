@@ -74,28 +74,28 @@ class SourceService final : public videonode::control::Source::Service {
 
     // gRPC handlers ------------------------------------------------------
 
-    grpc::Status Describe(grpc::ServerContext* ctx,
-                          const ::google::protobuf::Empty* req,
+    grpc::Status Describe(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                           ::videonode::control::NativeInfo* resp) override;
 
     grpc::Status SetFormat(grpc::ServerContext* ctx,
                            const ::videonode::control::SetFormatRequest* req,
                            ::videonode::control::SetFormatResponse* resp) override;
 
-    grpc::Status GetStatus(grpc::ServerContext* ctx,
-                           const ::google::protobuf::Empty* req,
+    grpc::Status SetDevice(grpc::ServerContext* ctx,
+                           const ::videonode::control::SetDeviceRequest* req,
+                           ::videonode::control::SetDeviceResponse* resp) override;
+
+    grpc::Status GetStatus(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                            ::videonode::control::Status* resp) override;
 
-    grpc::Status StreamStatus(grpc::ServerContext* ctx,
-                              const ::google::protobuf::Empty* req,
+    grpc::Status StreamStatus(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                               grpc::ServerWriter<::videonode::control::Status>* writer) override;
 
     grpc::Status Snapshot(grpc::ServerContext* ctx,
                           const ::videonode::control::SnapshotRequest* req,
                           ::videonode::control::SnapshotResponse* resp) override;
 
-    grpc::Status Shutdown(grpc::ServerContext* ctx,
-                          const ::google::protobuf::Empty* req,
+    grpc::Status Shutdown(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                           ::google::protobuf::Empty* resp) override;
 
     // Producer-thread entry points --------------------------------------

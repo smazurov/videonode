@@ -1,13 +1,14 @@
 #include "src/process/ffmpeg_pipe_source.hpp"
-#include "src/process/child_process.hpp"
+#include "src/common/log_levels.hpp"
 #include "src/ipc/dma_heap.hpp" // for sync_start/sync_end on dma-buf fds (works on any dma-buf, not just dma_heap-allocated)
+#include "src/process/child_process.hpp"
 
 #include <cerrno>
 #include <csignal>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <span>
+#include <string>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -37,11 +38,11 @@ bool FfmpegPipeSource::init(const InitParams& p) {
     width_ = p.width;
     height_ = p.height;
     if ((width_ & 1) || (height_ & 1)) {
-        fprintf(stderr, "ffmpeg_pipe_source: dims %dx%d must be even (NV12)\n", width_, height_);
+        vn::log::error("ffmpeg_pipe_source: dims %dx%d must be even (NV12)", width_, height_);
         return false;
     }
     if (!p.gbm) {
-        fprintf(stderr, "ffmpeg_pipe_source: InitParams.gbm is required (pass EglCtx::gbm())\n");
+        vn::log::error("ffmpeg_pipe_source: InitParams.gbm is required (pass EglCtx::gbm())");
         return false;
     }
     frame_bytes_ = static_cast<size_t>(width_) * height_ * 3 / 2;
@@ -51,7 +52,7 @@ bool FfmpegPipeSource::init(const InitParams& p) {
     for (int i = 0; i < ring_n; ++i) {
         ring_[i].buf = gbm_alloc::alloc(p.gbm, width_, height_);
         if (!ring_[i].buf.valid()) {
-            fprintf(stderr, "ffmpeg_pipe_source: gbm_alloc[%d]\n", i);
+            vn::log::error("ffmpeg_pipe_source: gbm_alloc[%d]", i);
             return false;
         }
         // Don't map at init. Per-frame map/unmap is required for radeonsi:
@@ -112,10 +113,12 @@ bool FfmpegPipeSource::spawn_ffmpeg_() {
     ffmpeg_pid_ = r.pid;
     ffmpeg_stdout_fd_ = r.pipe_fd;
 
-    fprintf(stderr, "ffmpeg_pipe_source: pid=%d cmd:", r.pid);
-    for (auto& s : argv)
-        fprintf(stderr, " %s", s.c_str());
-    fprintf(stderr, "\n");
+    std::string cmd;
+    for (const auto& s : argv) {
+        cmd.push_back(' ');
+        cmd.append(s);
+    }
+    vn::log::info("ffmpeg_pipe_source: pid=%d cmd:%s", r.pid, cmd.c_str());
     return true;
 }
 
@@ -138,7 +141,7 @@ void FfmpegPipeSource::thread_main_() {
         // GPU sample the bytes we wrote.
         gbm_alloc::Mapped m = gbm_alloc::map_rw(slot.buf);
         if (!m.y || !m.uv) {
-            fprintf(stderr, "ffmpeg_pipe_source: per-frame map failed\n");
+            vn::log::error("ffmpeg_pipe_source: per-frame map failed");
             break;
         }
         bool ok = true;
@@ -164,7 +167,7 @@ void FfmpegPipeSource::thread_main_() {
         gbm_alloc::unmap(slot.buf);
         if (!ok) {
             if (running_.load()) {
-                fprintf(stderr, "ffmpeg_pipe_source: read_exact EOF/err; ffmpeg died?\n");
+                vn::log::error("ffmpeg_pipe_source: read_exact EOF/err; ffmpeg died?");
             }
             break;
         }

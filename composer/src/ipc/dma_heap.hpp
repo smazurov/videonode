@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "src/common/unique_fd.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -34,20 +36,17 @@ inline constexpr std::string_view kHeapUncached = "system-uncached";
 inline constexpr std::string_view kHeapReserved = "reserved";
 
 struct Buffer {
-    int fd = -1;
+    vn::base::unique_fd fd;
     size_t size = 0;
 
     Buffer() = default;
     Buffer(const Buffer&) = delete;
     Buffer& operator=(const Buffer&) = delete;
-    Buffer(Buffer&& other) noexcept : fd(other.fd), size(other.size) {
-        other.fd = -1;
-        other.size = 0;
-    }
-    Buffer& operator=(Buffer&& other) noexcept;
-    ~Buffer();
+    Buffer(Buffer&&) noexcept = default;
+    Buffer& operator=(Buffer&&) noexcept = default;
+    ~Buffer() = default;
 
-    bool valid() const { return fd >= 0; }
+    [[nodiscard]] bool valid() const { return fd.ok(); }
 };
 
 // Allocate `size` bytes from the named heap. Returns an invalid Buffer on

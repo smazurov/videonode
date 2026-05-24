@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "src/common/unique_fd.hpp"
 #include "src/ipc/dmabuf_header.hpp"
 
 #include <atomic>
@@ -98,21 +99,23 @@ class ScmRightsProducer {
     int consumer_count() const;
     std::vector<ConsumerStats> stats() const;
 
-    int listen_fd() const { return listen_fd_; }
+    int listen_fd() const { return listen_fd_.get(); }
     bool running() const { return running_.load(); }
 
   private:
     void accept_loop_();
 
-    // Internal per-consumer entry. Mutated under consumers_mu_.
+    // Internal per-consumer entry. Mutated under consumers_mu_. The
+    // unique_fd owns the consumer socket; eviction destroys the Consumer
+    // (and thus closes the fd) by erasing from consumers_.
     struct Consumer {
-        int fd = -1;
+        vn::base::unique_fd fd;
         uint64_t frames_sent = 0;
         uint64_t frames_dropped = 0;
     };
 
     InitParams params_;
-    int listen_fd_ = -1;
+    vn::base::unique_fd listen_fd_;
 
     std::thread accept_thread_;
     std::atomic<bool> running_{false};

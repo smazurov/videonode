@@ -14,11 +14,12 @@ vn_add_library(source_service
     PUBLIC_DEPS source_probe vn_proto grpc_server)
 
 vn_add_library(orchestrator
-    SOURCES orchestrator.cpp capture_session.cpp broadcast.cpp
+    SOURCES orchestrator.cpp orchestrator_flags.cpp capture_session.cpp broadcast.cpp
     PUBLIC_DEPS v4l2_capture csc nv12_buf placeholder_painter source_probe
                 scm_rights_producer dmabuf_header dma_heap
                 jpeg_dec_turbo
                 source_service grpc_server vn_proto
+                absl_bundle
                 Threads::Threads)
 if(HAVE_RGA)
     target_compile_definitions(orchestrator PRIVATE HAVE_RGA=1)

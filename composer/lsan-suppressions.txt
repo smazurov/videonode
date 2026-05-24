@@ -1,0 +1,22 @@
+# LeakSanitizer suppressions for the composer/ test suite.
+#
+# These ignore leaks reported in third-party libraries that allocate
+# process-lifetime state but don't free it before exit. None of these
+# are bugs in composer/ code.
+#
+# Format: leak:<substring> matches against function names and DSO basenames
+# in the leak backtrace. See
+# https://github.com/google/sanitizers/wiki/AddressSanitizerLeakSanitizer
+
+# Mesa EGL/DRI loader keeps driver state alive until process exit (33MB+
+# of strdup'd extension strings, driver-config blobs, etc.). Visible as
+# leaks under dri2_initialize / eglInitialize / dri_loader callpaths.
+leak:libEGL_mesa.so
+leak:libgallium-*
+leak:libglapi.so
+leak:libgbm.so
+leak:dri2_initialize
+leak:dri2_initialize_drm
+leak:dri_loader
+leak:eglInitialize
+leak:gbm_create_device

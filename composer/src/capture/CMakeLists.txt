@@ -20,4 +20,8 @@ if(HAVE_MPP)
     vn_add_library(mpp_jpeg_dec
         SOURCES mpp_jpeg_dec.cpp
         PUBLIC_DEPS mpp_iface)
+    # mpp_jpeg_dec.hpp/.cpp gate their <rockchip/rk_mpi.h> include on
+    # HAVE_MPP — pass the define so the macro check actually fires when
+    # the target is built. Mirrors the HAVE_RGA pattern in render/.
+    target_compile_definitions(mpp_jpeg_dec PUBLIC HAVE_MPP=1)
 endif()

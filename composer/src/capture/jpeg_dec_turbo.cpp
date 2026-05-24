@@ -1,8 +1,9 @@
 #include "src/capture/jpeg_dec_turbo.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <turbojpeg.h>
 
-#include <cstdio>
 #include <cstring>
 
 namespace jpeg_dec {
@@ -16,23 +17,24 @@ TurboJpegDec::~TurboJpegDec() {
 
 bool TurboJpegDec::init(int width, int height, std::vector<Slot> ring) {
     if (width <= 0 || height <= 0 || (width & 1) || (height & 1)) {
-        fprintf(stderr, "jpeg_dec_turbo: bad dims %dx%d (must be even, NV12)\n", width, height);
+        vn::log::error("jpeg_dec_turbo: bad dims %dx%d (must be even, NV12)", width, height);
         return false;
     }
     if (ring.empty()) {
-        fprintf(stderr, "jpeg_dec_turbo: empty ring\n");
+        vn::log::error("jpeg_dec_turbo: empty ring");
         return false;
     }
     for (const auto& s : ring) {
-        if (s.fd < 0 || !s.mapped) {
-            fprintf(stderr, "jpeg_dec_turbo: ring slot fd=%d mapped=%p invalid\n", s.fd,
-                    static_cast<void*>(s.mapped));
+        if (s.y_fd < 0 || s.uv_fd < 0 || !s.y_mapped || !s.uv_mapped) {
+            vn::log::error(
+                "jpeg_dec_turbo: ring slot invalid (y_fd=%d uv_fd=%d y_mapped=%p uv_mapped=%p)",
+                s.y_fd, s.uv_fd, static_cast<void*>(s.y_mapped), static_cast<void*>(s.uv_mapped));
             return false;
         }
     }
     handle_ = tjInitDecompress();
     if (!handle_) {
-        fprintf(stderr, "jpeg_dec_turbo: tjInitDecompress failed: %s\n", tjGetErrorStr());
+        vn::log::error("jpeg_dec_turbo: tjInitDecompress failed: %s", tjGetErrorStr());
         return false;
     }
     width_ = width;
@@ -54,19 +56,18 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
     int jw = 0, jh = 0, jsubsamp = 0, jcs = 0;
     if (tjDecompressHeader3(h, jpeg.data(), static_cast<unsigned long>(jpeg.size()), &jw, &jh,
                             &jsubsamp, &jcs) != 0) {
-        fprintf(stderr, "jpeg_dec_turbo: tjDecompressHeader3: %s\n", tjGetErrorStr2(h));
+        vn::log::error("jpeg_dec_turbo: tjDecompressHeader3: %s", tjGetErrorStr2(h));
         return false;
     }
     if (jw != width_ || jh != height_) {
-        fprintf(stderr, "jpeg_dec_turbo: dim mismatch jpeg=%dx%d expected=%dx%d\n", jw, jh, width_,
-                height_);
+        vn::log::error("jpeg_dec_turbo: dim mismatch jpeg=%dx%d expected=%dx%d", jw, jh, width_,
+                       height_);
         return false;
     }
     if (jsubsamp != TJSAMP_420 && jsubsamp != TJSAMP_422) {
-        fprintf(stderr,
-                "jpeg_dec_turbo: unsupported subsampling=%d (only 4:2:0/TJSAMP_420 and "
-                "4:2:2/TJSAMP_422)\n",
-                jsubsamp);
+        vn::log::error("jpeg_dec_turbo: unsupported subsampling=%d (only 4:2:0/TJSAMP_420 and "
+                       "4:2:2/TJSAMP_422)",
+                       jsubsamp);
         return false;
     }
 
@@ -84,20 +85,23 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
     Slot& s = ring_[next_];
     next_ = (next_ + 1) % ring_.size();
 
-    unsigned char* planes[3] = {s.mapped, u_scratch_.data(), v_scratch_.data()};
+    unsigned char* planes[3] = {s.y_mapped, u_scratch_.data(), v_scratch_.data()};
     int strides[3] = {width_, chroma_pw, chroma_pw};
     if (tjDecompressToYUVPlanes(h, jpeg.data(), static_cast<unsigned long>(jpeg.size()), planes,
                                 width_, strides, height_, 0) != 0) {
-        fprintf(stderr, "jpeg_dec_turbo: tjDecompressToYUVPlanes: %s\n", tjGetErrorStr2(h));
+        vn::log::error("jpeg_dec_turbo: tjDecompressToYUVPlanes: %s", tjGetErrorStr2(h));
         return false;
     }
 
     // Convert native chroma → NV12's 4:2:0 interleaved UV. NV12 chroma
     // plane geometry is (W/2)x(H/2). For 4:2:0 input it's a straight
     // interleave; for 4:2:2 we average pairs of chroma rows vertically.
+    // Writes into s.uv_mapped, which is the caller's UV-plane mmap — same
+    // pointer as `s.y_mapped + W*H` on contiguous slots (rig), or a
+    // separate mmap on split slots (Fedora GBM).
     const int nv12_cw = width_ / 2;
     const int nv12_ch = height_ / 2;
-    uint8_t* uv = s.mapped + std::size_t(width_) * height_;
+    uint8_t* uv = s.uv_mapped;
     const uint8_t* up = u_scratch_.data();
     const uint8_t* vp = v_scratch_.data();
 
@@ -121,13 +125,19 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
         }
     }
 
-    out.fd = s.fd;
+    out.fd = s.y_fd;
+    // plane1_fd carries the UV dma-buf for split slots (Fedora GBM); -1
+    // signals the consumer to reuse `fd` (rig dma_heap, contiguous).
+    out.plane1_fd = (s.uv_fd == s.y_fd) ? -1 : s.uv_fd;
     out.width = width_;
     out.height = height_;
     out.y_pitch = static_cast<uint32_t>(width_);
     out.uv_pitch = static_cast<uint32_t>(width_);
     out.y_offset = 0;
-    out.uv_offset = static_cast<uint32_t>(width_) * static_cast<uint32_t>(height_);
+    // Contiguous slot: UV lives at W*H in the same bo. Split slot: UV is
+    // its own bo, offset 0.
+    out.uv_offset =
+        (s.uv_fd == s.y_fd) ? static_cast<uint32_t>(width_) * static_cast<uint32_t>(height_) : 0;
     return true;
 }
 

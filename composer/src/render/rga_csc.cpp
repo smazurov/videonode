@@ -1,6 +1,14 @@
 #include "src/render/rga_csc.hpp"
 
-#include <cstdio>
+#include "src/common/log_levels.hpp"
+
+// Gated on HAVE_RGA so the file can sit in compile_commands.json even on
+// dev hosts where librga is absent — clang-tidy / IDE indexers still parse
+// it without bailing out on missing RK_FORMAT_* / IM_STATUS / rga_buffer_*
+// identifiers. The CMake rule (composer/src/render/CMakeLists.txt) only
+// links this TU when HAVE_RGA is on, so the empty translation unit on
+// non-rig builds is benign.
+#if defined(HAVE_RGA)
 
 namespace rga {
 
@@ -51,8 +59,8 @@ ImportedBuffer import_(const ConvertParams& p) {
     hp.format = to_rk_format(p.fmt);
     ib.handle = importbuffer_fd(p.fd, &hp);
     if (ib.handle == 0) {
-        fprintf(stderr, "rga_csc: importbuffer_fd failed (fd=%d fmt=%d w=%d h=%d)\n", p.fd,
-                hp.format, p.width, p.height);
+        vn::log::error("rga_csc: importbuffer_fd failed (fd=%d fmt=%d w=%d h=%d)", p.fd, hp.format,
+                       p.width, p.height);
         return ib;
     }
     ib.buf = wrapbuffer_handle_t(ib.handle, p.width, p.height, wstride, hstride, hp.format);
@@ -78,10 +86,12 @@ bool convert(const ConvertParams& src, const ConvertParams& dst) {
     releasebuffer_handle(db.handle);
 
     if (st != IM_STATUS_SUCCESS && st != IM_STATUS_NOERROR) {
-        fprintf(stderr, "rga_csc: imcvtcolor failed (status=%d)\n", static_cast<int>(st));
+        vn::log::error("rga_csc: imcvtcolor failed (status=%d)", static_cast<int>(st));
         return false;
     }
     return true;
 }
 
 } // namespace rga
+
+#endif // HAVE_RGA

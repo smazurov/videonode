@@ -1,12 +1,12 @@
 #include "src/render/csc_gles.hpp"
 
+#include "src/common/log_levels.hpp"
 #include "src/render/egl_ctx.hpp"
 
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <atomic>
-#include <cstdio>
 #include <cstring>
 #include <drm_fourcc.h>
 
@@ -106,7 +106,7 @@ GLuint compile_shader(GLenum type, const char* src) {
         char log[2048];
         GLsizei len = 0;
         glGetShaderInfoLog(s, sizeof(log), &len, log);
-        std::fprintf(stderr, "csc_gles: shader compile failed:\n%.*s\n", len, log);
+        vn::log::error("csc_gles: shader compile failed:\n%.*s", len, log);
         glDeleteShader(s);
         return 0;
     }
@@ -131,7 +131,7 @@ GLuint link_program(const char* vs_src, const char* fs_src) {
         char log[2048];
         GLsizei len = 0;
         glGetProgramInfoLog(p, sizeof(log), &len, log);
-        std::fprintf(stderr, "csc_gles: program link failed:\n%.*s\n", len, log);
+        vn::log::error("csc_gles: program link failed:\n%.*s", len, log);
         glDeleteProgram(p);
         return 0;
     }
@@ -141,7 +141,7 @@ GLuint link_program(const char* vs_src, const char* fs_src) {
 void log_once(const char* msg) {
     static std::atomic<bool> warned{false};
     if (!warned.exchange(true))
-        std::fprintf(stderr, "csc_gles: %s\n", msg);
+        vn::log::warn("csc_gles: %s", msg);
 }
 
 } // namespace
@@ -162,12 +162,12 @@ bool init() {
     for (const char* d : candidates) {
         if (s.ctx.init(d)) {
             opened = true;
-            std::fprintf(stderr, "csc_gles: EGL on %s\n", d);
+            vn::log::info("csc_gles: EGL on %s", d);
             break;
         }
     }
     if (!opened) {
-        std::fprintf(stderr, "csc_gles: no DRM render node found\n");
+        vn::log::error("csc_gles: no DRM render node found");
         return false;
     }
 
@@ -176,7 +176,7 @@ bool init() {
     s.egl_image_to_rbo = (PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC)eglGetProcAddress(
         "glEGLImageTargetRenderbufferStorageOES");
     if (!s.egl_image_to_tex2d || !s.egl_image_to_rbo) {
-        std::fprintf(stderr, "csc_gles: required EGLImage GL ext entrypoints missing\n");
+        vn::log::error("csc_gles: required EGLImage GL ext entrypoints missing");
         return false;
     }
 

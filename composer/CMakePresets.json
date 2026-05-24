@@ -98,6 +98,10 @@
       "configurePreset": "dev-asan",
       "output": {
         "outputOnFailure": true
+      },
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1",
+        "LSAN_OPTIONS": "suppressions=${sourceDir}/lsan-suppressions.txt:print_suppressions=0"
       }
     },
     {
@@ -105,6 +109,9 @@
       "configurePreset": "dev-tsan",
       "output": {
         "outputOnFailure": true
+      },
+      "environment": {
+        "TSAN_OPTIONS": "suppressions=${sourceDir}/tsan-suppressions.txt:second_deadlock_stack=1"
       }
     }
   ]

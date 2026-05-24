@@ -1,7 +1,8 @@
 #include "src/render/csc.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <atomic>
-#include <cstdio>
 
 #ifdef HAVE_RGA
 #include "src/render/rga_csc.hpp"
@@ -59,9 +60,8 @@ bool convert(const ConvertParams& src, const ConvertParams& dst) {
 #else
     static std::atomic<bool> warned{false};
     if (!warned.exchange(true)) {
-        std::fprintf(stderr,
-                     "csc: no backend compiled in (HAVE_RGA off, HAVE_GLES_CSC off); convert() "
-                     "returns false; non-NV12 frames will be dropped\n");
+        vn::log::warn("csc: no backend compiled in (HAVE_RGA off, HAVE_GLES_CSC off); convert() "
+                      "returns false; non-NV12 frames will be dropped");
     }
     (void)src;
     (void)dst;

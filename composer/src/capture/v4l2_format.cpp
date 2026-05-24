@@ -4,8 +4,9 @@
 
 #include "src/capture/v4l2_capture.hpp"
 
+#include "src/common/log_levels.hpp"
+
 #include <cerrno>
-#include <cstdio>
 #include <cstring>
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
@@ -35,7 +36,7 @@ bool Streamer::get_format(StreamFormat& out) const {
     v4l2_format vfmt{};
     vfmt.type = buf_type_();
     if (xioctl(fd_, VIDIOC_G_FMT, &vfmt) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_G_FMT: %s\n", strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_G_FMT: %s", strerror(errno));
         return false;
     }
     if (multiplanar_) {
@@ -70,7 +71,7 @@ bool Streamer::set_format(const StreamFormat& f) {
         vfmt.fmt.pix.field = V4L2_FIELD_NONE;
     }
     if (xioctl(fd_, VIDIOC_S_FMT, &vfmt) < 0) {
-        fprintf(stderr, "v4l2_capture: VIDIOC_S_FMT: %s\n", strerror(errno));
+        vn::log::error("v4l2_capture: VIDIOC_S_FMT: %s", strerror(errno));
         return false;
     }
 
@@ -81,7 +82,7 @@ bool Streamer::set_format(const StreamFormat& f) {
         parm.parm.capture.timeperframe.denominator = f.fps;
         if (xioctl(fd_, VIDIOC_S_PARM, &parm) < 0) {
             // Many drivers (rk_hdmirx) silently ignore S_PARM; log + continue.
-            fprintf(stderr, "v4l2_capture: VIDIOC_S_PARM ignored: %s\n", strerror(errno));
+            vn::log::warn("v4l2_capture: VIDIOC_S_PARM ignored: %s", strerror(errno));
         }
     }
     return true;

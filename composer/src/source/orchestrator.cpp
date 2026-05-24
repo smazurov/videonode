@@ -1,22 +1,15 @@
 // SourceOrchestrator implementation. See orchestrator.hpp.
 //
-// Main loop is event-driven: poll(fd, POLLIN|POLLPRI) wakes us on either
-// a ready frame or a V4L2 event. SourceProbe consumes those events plus
-// DQBUF results to compute a health state (Live / Transitioning /
-// NoCable / NoLock / Gone / Probing). The broadcaster ticks at a fixed
-// rate and chooses what to send:
+// Main loop is event-driven: poll(fd, POLLIN|POLLPRI) wakes on a ready
+// frame or a V4L2 event. SourceProbe consumes those plus DQBUF results
+// to compute a health state (Live / Transitioning / NoCable / NoLock /
+// Gone / Probing). The broadcaster ticks at a fixed rate:
 //
-//   Live           → newest real-frame fd
-//                    raw V4L2 formats: RGA-CSC'd to NV12 into out_ring
-//                    MJPEG: MPP-HW decode (rig) → MPP-pool fd, or
-//                           TurboJPEG SW decode (host) → out_ring fd
-//   Transitioning  → last-good real-frame fd, re-broadcast with new idx
-//                    (driver renegotiation gap — content didn't really
-//                     change, downstream sees no flicker)
-//   NoCable/NoLock/Gone/Probing → painted placeholder with status text
+//   Live          -> newest real-frame fd (RGA-CSC NV12, or MPP/TurboJPEG MJPEG decode)
+//   Transitioning -> last-good real-frame fd, re-broadcast (no flicker)
+//   else          -> painted placeholder with status text
 //
-// There are no time-based "stale" thresholds anywhere. State is whatever
-// the driver tells us via V4L2 events and ctrl reads.
+// No time-based "stale" thresholds: state comes from V4L2 events + ctrls.
 
 #include "src/source/orchestrator.hpp"
 
@@ -37,14 +30,11 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <linux/videodev2.h>
 #include <poll.h>
 #include <span>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -118,120 +108,6 @@ struct PlaceholderRing {
 
 } // namespace
 
-void print_help(const Args& d) {
-    printf("videonode-source — V4L2 capture → (RGA-CSC | JPEG-decode) → NV12 dma-buf → SCM_RIGHTS\n"
-           "  with event-driven placeholder when the source is absent or in flux.\n"
-           "\n"
-           "  --device PATH                 /dev/videoN (default %s)\n"
-           "  --in-format FMT               NV24/NV16/NV12/BGR3/YUYV/UYVY/MJPG (empty = auto)\n"
-           "  --in-width W / --in-height H  geometry for explicit format\n"
-           "  --in-fps N                    requested capture rate\n"
-           "  --buffers N                   V4L2 ring size (default %d)\n"
-           "  --out-socket PATH             Unix socket to publish NV12 dma-bufs on (default %s)\n"
-           "  --max-consumers N             soft cap on concurrent consumers (default %d)\n"
-           "  --seconds N                   stop after N seconds (default %d = until SIGINT)\n"
-           "  --broadcast-fps N             publish rate (default %d)\n"
-           "  --placeholder-w W             placeholder canvas width  (default %d)\n"
-           "  --placeholder-h H             placeholder canvas height (default %d)\n"
-           "  --grpc-listen PATH            per-instance UDS where the source's gRPC server\n"
-           "                                  binds (the daemon dials in). Omit for standalone.\n"
-           "  --device-id ID                stable device ID advertised via Source.Describe()\n",
-           d.device.c_str(), d.buffers, d.out_socket.c_str(), d.max_consumers, d.run_seconds,
-           d.broadcast_fps, d.placeholder_w, d.placeholder_h);
-}
-
-bool parse_args(int argc, char** argv, Args& a) {
-    auto eat = [&](int& i) -> const char* {
-        if (i + 1 >= argc)
-            return nullptr;
-        return argv[++i];
-    };
-    for (int i = 1; i < argc; ++i) {
-        std::string s = argv[i];
-        if (s == "--device") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.device = v;
-        } else if (s == "--in-format") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.in_format = v;
-        } else if (s == "--in-width") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.in_width = atoi(v);
-        } else if (s == "--in-height") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.in_height = atoi(v);
-        } else if (s == "--in-fps") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.in_fps = atoi(v);
-        } else if (s == "--buffers") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.buffers = atoi(v);
-        } else if (s == "--out-socket") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.out_socket = v;
-        } else if (s == "--max-consumers") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.max_consumers = atoi(v);
-        } else if (s == "--seconds") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.run_seconds = atoi(v);
-        } else if (s == "--broadcast-fps") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.broadcast_fps = atoi(v);
-        } else if (s == "--placeholder-w") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.placeholder_w = atoi(v);
-        } else if (s == "--placeholder-h") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.placeholder_h = atoi(v);
-        } else if (s == "--device-id") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.device_id = v;
-        } else if (s == "--grpc-listen") {
-            const char* v = eat(i);
-            if (!v)
-                return false;
-            a.grpc_listen = v;
-        } else if (s == "-h" || s == "--help") {
-            print_help(a);
-            exit(0);
-        } else if (s == "--version") {
-            printf("videonode-source %s\n", vn::kVersion);
-            exit(0);
-        } else {
-            vn::log::error("videonode-source: unknown flag %s", s.c_str());
-            return false;
-        }
-    }
-    return true;
-}
-
 int Run(const Args& a_in, std::atomic<bool>& running) {
     // Local mutable copy: set_format requests at runtime mutate in_format/
     // width/height/fps for the reinit-with-new-args path below.
@@ -285,7 +161,11 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
 
     CaptureSession cap;
     source_probe::SourceProbe probe(cap.cap);
-    if (try_open_capture(cap, a, allocator)) {
+    if (a.device.empty()) {
+        // Daemon-managed sources start with no device; SetDevice arrives
+        // later. Skip the initial open() entirely to avoid logging
+        // open(""): ENOENT before the daemon has assigned a path.
+    } else if (try_open_capture(cap, a, allocator)) {
         probe.attach();
     } else {
         vn::log::warn("videonode-source: capture not ready at startup");
@@ -318,7 +198,6 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                           a.grpc_listen.c_str(), a.device_id.c_str());
         }
     }
-
 
     using clock = std::chrono::steady_clock;
     const auto broadcast_period =
@@ -376,7 +255,12 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                 std::lock_guard<std::mutex> lock(gctx.set_format_mu);
                 snap = a;
             }
-            if (try_open_capture(cap, snap, allocator)) {
+            if (snap.device.empty()) {
+                // SetDevice("") detached us; tear down any open capture
+                // and stay in placeholder mode until a new path arrives.
+                teardown_session_(cap);
+                need_reinit = false;
+            } else if (try_open_capture(cap, snap, allocator)) {
                 probe.attach();
                 need_reinit = false;
             } else {
@@ -384,14 +268,18 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
             }
         }
 
-        // Reinit capture if we lost it.
+        // Reinit capture if we lost it. Empty device means daemon hasn't
+        // assigned one yet (or detached us); skip silently so the loop
+        // doesn't spin on open() retries.
         if (need_reinit) {
             Args snap;
             {
                 std::lock_guard<std::mutex> lock(gctx.set_format_mu);
                 snap = a;
             }
-            if (try_open_capture(cap, snap, allocator)) {
+            if (snap.device.empty()) {
+                need_reinit = false;
+            } else if (try_open_capture(cap, snap, allocator)) {
                 probe.attach();
                 need_reinit = false;
             }
