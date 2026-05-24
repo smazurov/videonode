@@ -44,9 +44,9 @@ type StreamProcessManager interface {
 	StopAll()
 	IsRunning(streamID string) bool
 	IsCrashed(streamID string) bool
-	// CaptureRawSnapshot pulls a snapshot from the source's
-	// pipelinectl Snapshot RPC.
-	CaptureRawSnapshot(sourceStreamID string) ([]byte, error)
+	// CaptureSourceSnapshot pulls a raw NV12-derived JPEG snapshot from a
+	// source producer via the pipelinectl Snapshot RPC.
+	CaptureSourceSnapshot(sourceID string) ([]byte, error)
 	OwnedBy(sourceStreamID string) string
 	// CanvasOwner: in the unified pipeline model, same as OwnedBy —
 	// kept on the interface so the perspective-PATCH path (api/streams.go)

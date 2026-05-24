@@ -144,12 +144,12 @@ type Options struct {
 		Available() []string
 		Patterns() []string
 	}
-	WebRTCManager       *streaming.WebRTCManager      // WebRTC signaling manager
-	StreamProvider      streaming.StreamProvider      // Stream access for snapshots/recording
-	RawSnapshotProvider recording.RawSnapshotProvider // Raw vision pipe snapshot provider
-	RecordingDir        string                        // Directory for snapshot images
-	ControlServer       *pipelinectl.Manager          // Optional control plane for native sidecars
-	ProcessesProvider   ProcessesProvider             // Optional: enables GET /api/processes when set
+	WebRTCManager          *streaming.WebRTCManager         // WebRTC signaling manager
+	StreamProvider         streaming.StreamProvider         // Stream access for snapshots/recording
+	SourceSnapshotProvider recording.SourceSnapshotProvider // Producer-side raw snapshot provider
+	RecordingDir           string                           // Directory for snapshot images
+	ControlServer          *pipelinectl.Manager             // Optional control plane for native sidecars
+	ProcessesProvider      ProcessesProvider                // Optional: enables GET /api/processes when set
 	// StreamingRTSPPort is the daemon's RTSP listen address as configured
 	// at startup (":8554" by default). Used in API responses (rtsp_url
 	// field) so clients dial the actual published port, not a hardcoded
@@ -375,7 +375,7 @@ func (s *Server) registerRoutes() {
 
 	// Recording endpoints (snapshots, future: video recording)
 	if s.options.StreamProvider != nil && s.options.RecordingDir != "" {
-		recording.RegisterAPI(s.api, s.mux, s.options.StreamProvider, s.options.RawSnapshotProvider, s.options.RecordingDir)
+		recording.RegisterAPI(s.api, s.mux, s.options.StreamProvider, s.options.SourceSnapshotProvider, s.options.RecordingDir)
 	}
 
 	// SSE endpoints
