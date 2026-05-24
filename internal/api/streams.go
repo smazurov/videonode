@@ -59,6 +59,7 @@ func (s *Server) registerStreamRoutes() {
 		Security:    withAuth(),
 	}, func(ctx context.Context, input *models.StreamRequest) (*models.StreamResponse, error) {
 		entity := streamFromCreateRequest(input.Body)
+		s.ensureLocalPublishTargets(&entity)
 
 		created, err := s.streamService.Create(ctx, entity)
 		if err != nil {
@@ -94,6 +95,7 @@ func (s *Server) registerStreamRoutes() {
 
 		updated, err := s.streamService.Update(ctx, input.StreamID, func(st *pipeline.Stream) error {
 			applyStreamPatch(st, body)
+			s.ensureLocalPublishTargets(st)
 			return nil
 		})
 		if err != nil {
@@ -308,6 +310,38 @@ func encoderToAPI(e pipeline.EncoderConfig) models.EncoderConfigData {
 		RateControl:  e.RateControl,
 		Preset:       e.Preset,
 	}
+}
+
+// ensureLocalPublishTargets makes sure st.Publish contains the canonical
+// local rtsp + srt entries so the synthesized rtsp_url/srt_url in the
+// response actually correspond to a publishing encoder. Idempotent.
+func (s *Server) ensureLocalPublishTargets(st *pipeline.Stream) {
+	if st == nil || st.ID == "" {
+		return
+	}
+	want := []pipeline.PublishTarget{
+		{Type: "rtsp", URL: "rtsp://" + localHost(s.rtspPortOrDefault()) + "/" + st.ID},
+		{Type: "srt", URL: "srt://" + localHost(s.srtPortOrDefault()) + "?streamid=" + st.ID},
+	}
+	for _, w := range want {
+		found := false
+		for _, h := range st.Publish {
+			if h.Type == w.Type && h.URL == w.URL {
+				found = true
+				break
+			}
+		}
+		if !found {
+			st.Publish = append(st.Publish, w)
+		}
+	}
+}
+
+func localHost(portSpec string) string {
+	if len(portSpec) > 0 && portSpec[0] == ':' {
+		return "localhost" + portSpec
+	}
+	return portSpec
 }
 
 func publishFromAPI(targets []models.PublishTargetData) []pipeline.PublishTarget {
