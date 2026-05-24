@@ -59,8 +59,8 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
     {
       id: 'consumers',
       header: 'Consumers',
-      cell: (row) => <span className="text-fg">{row.consumer_count}</span>,
-      sortValue: (row) => row.consumer_count,
+      cell: (row) => <span className="text-fg">{row.consumer_count ?? row.consumers?.length ?? 0}</span>,
+      sortValue: (row) => row.consumer_count ?? row.consumers?.length ?? 0,
       className: 'text-right',
     },
     {

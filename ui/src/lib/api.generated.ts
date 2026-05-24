@@ -847,6 +847,14 @@ export interface components {
              */
             created_at?: string;
             /**
+             * @description Server-denormalized list of stream IDs whose upstream is composer:<this>. Auto-republished via dependency graph when streams change.
+             * @example [
+             *       "main-720p",
+             *       "main-1080p"
+             *     ]
+             */
+            downstream_stream_ids?: string[] | null;
+            /**
              * @description Composer identifier
              * @example main-scene
              */
@@ -855,6 +863,11 @@ export interface components {
             inputs: components["schemas"]["ComposerInputData"][] | null;
             /** @description Layout slots placing each input on the canvas */
             layout: components["schemas"]["LayoutSlotData"][] | null;
+            /**
+             * @description Runtime composer status: warm (process up) | cold (no referent / process down) | unknown
+             * @example warm
+             */
+            status?: string;
             /**
              * Format: date-time
              * @description Last update timestamp
@@ -1374,7 +1387,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "nv24" | "nv16" | "h264" | "yv12" | "bgr24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24";
+            format_name: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "h264" | "yv12" | "rgb24" | "nv24";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1734,7 +1747,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yv12" | "bgr24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "nv16" | "h264";
+            format_name: "nv16" | "h264" | "yv12" | "rgb24" | "nv24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -2816,7 +2829,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "nv16" | "h264" | "yv12" | "bgr24";
+                format_name?: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "h264" | "yv12" | "rgb24" | "nv24";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2882,7 +2895,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "h264" | "yv12" | "bgr24" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "rgb24" | "nv24" | "nv16";
+                format_name?: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "bgr24" | "nv16" | "h264" | "yv12" | "rgb24" | "nv24";
             };
             header?: never;
             path: {

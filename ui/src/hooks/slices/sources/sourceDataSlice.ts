@@ -92,23 +92,80 @@ export const createSourceDataSlice: StateCreator<
       case 'deleted':
         removeSource(id);
         return;
-      case 'status':
-        set((state) => ({
-          statusById: { ...state.statusById, [id]: payload },
-        }));
+      case 'status': {
+        const snap = payload as Partial<{
+          health: string;
+          ts_ms: number;
+          broadcast: { real_frames?: number };
+        }> | null | undefined;
+        set((state) => {
+          const next = { ...state.statusById, [id]: payload };
+          const src = state.sourcesById[id];
+          if (!src || !snap) return { statusById: next };
+          const status = healthToPill(snap.health);
+          const lastAt = snap.ts_ms ? new Date(snap.ts_ms).toISOString() : new Date().toISOString();
+          const prevRunning = src.running_since;
+          const merged: Source = { ...src, status, last_status_at: lastAt };
+          if (payload) merged.latest_status = payload as NonNullable<Source['latest_status']>;
+          if (status === 'running') merged.running_since = prevRunning ?? lastAt;
+          else delete merged.running_since;
+          return {
+            statusById: next,
+            sourcesById: { ...state.sourcesById, [id]: merged },
+          };
+        });
         return;
+      }
       case 'metrics':
         set((state) => ({
           metricsById: { ...state.metricsById, [id]: payload },
         }));
         return;
-      case 'consumers':
-        set((state) => ({
-          consumersById: { ...state.consumersById, [id]: payload },
-        }));
+      case 'consumers': {
+        const snap = payload as Partial<{ count: number }> | null | undefined;
+        set((state) => {
+          const next = { ...state.consumersById, [id]: payload };
+          const src = state.sourcesById[id];
+          if (!src || !snap || typeof snap.count !== 'number') {
+            return { consumersById: next };
+          }
+          return {
+            consumersById: next,
+            sourcesById: {
+              ...state.sourcesById,
+              [id]: { ...src, consumer_count: snap.count },
+            },
+          };
+        });
         return;
+      }
       default:
         assertNever(action);
     }
   },
 });
+
+// Map the source binary's collapsed health enum onto the small
+// StatusPill vocabulary the UI ships. videonode-source emits health
+// strings either lower-case ("live") or upper-case ("INITIALIZING"),
+// so normalise before matching.
+function healthToPill(
+  health: string | undefined,
+): 'running' | 'idle' | 'error' | 'warm' | 'stopped' {
+  switch ((health ?? '').toLowerCase()) {
+    case 'live':
+    case 'transitioning':
+      return 'running';
+    case 'placeholder':
+    case 'no_signal':
+    case 'initializing':
+      return 'warm';
+    case 'error':
+    case 'failed':
+      return 'error';
+    case '':
+      return 'stopped';
+    default:
+      return 'idle';
+  }
+}

@@ -45,9 +45,11 @@ func NewComposerService(opts ComposerServiceOptions) api.ComposerService {
 // ListComposers returns all persisted composers in API wire shape.
 func (s *composerService) ListComposers(_ context.Context) ([]models.ComposerData, error) {
 	entries := s.store.ListComposerEntities()
+	streams := s.store.ListPipelineStreams()
 	out := make([]models.ComposerData, len(entries))
 	for i, e := range entries {
 		out[i] = composerToAPI(e)
+		s.enrichRuntime(&out[i], streams)
 	}
 	return out, nil
 }
@@ -59,7 +61,30 @@ func (s *composerService) GetComposer(_ context.Context, id string) (*models.Com
 		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
 	}
 	out := composerToAPI(c)
+	s.enrichRuntime(&out, s.store.ListPipelineStreams())
 	return &out, nil
+}
+
+// enrichRuntime layers in the denormalized DownstreamStreamIDs (cheap
+// store-side join across streams whose upstream == "composer:<id>")
+// and the warm/cold Status (taken from the pipeline pool when available).
+// Kept out of composerToAPI so the static helper stays pure for tests.
+func (s *composerService) enrichRuntime(out *models.ComposerData, streams []streams.PipelineStream) {
+	downstream := make([]string, 0)
+	wanted := "composer:" + out.ID
+	for _, st := range streams {
+		if st.Upstream == wanted {
+			downstream = append(downstream, st.ID)
+		}
+	}
+	out.DownstreamStreamIDs = downstream
+	if s.pipe != nil {
+		if s.pipe.Pool().IsRunning(pipeline.ComposerPoolKey(out.ID)) {
+			out.Status = "warm"
+		} else {
+			out.Status = "cold"
+		}
+	}
 }
 
 // CreateComposer validates, persists, and applies a new composer.

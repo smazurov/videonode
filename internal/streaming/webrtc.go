@@ -379,6 +379,15 @@ func (m *WebRTCManager) PeerCount() int {
 	return len(m.peers)
 }
 
+// StreamPeerCount returns the number of WebRTC peers attached to a
+// specific stream. Used by the per-stream consumer-count emitter so
+// the UI can show RTSP + WebRTC + SRT reader totals.
+func (m *WebRTCManager) StreamPeerCount(streamID string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.streamPeers[streamID])
+}
+
 // CloseStreamConsumers closes all WebRTC peers for a given stream.
 func (m *WebRTCManager) CloseStreamConsumers(streamID string) {
 	m.mu.Lock()

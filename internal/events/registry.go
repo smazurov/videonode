@@ -275,6 +275,21 @@ func (r *Registry) PublishLifecycle(entityType, action, id string, payload any) 
 	entry.publishRaw(action, id, payload)
 }
 
+// Publish emits an EntityEvent for any action (lifecycle, status,
+// metrics, consumers) without requiring a typed Entity[T] handle.
+// Used by long-running pumps (e.g. pipelinectl StatusFeed, reader
+// connect/disconnect callbacks) that live outside the package owning
+// the typed handle.
+func (r *Registry) Publish(entityType, action, id string, payload any) {
+	r.mu.RLock()
+	entry, ok := r.byType[entityType]
+	r.mu.RUnlock()
+	if !ok {
+		return
+	}
+	entry.publishRaw(action, id, payload)
+}
+
 // RegisteredTypes returns all registered entity type names. Useful for
 // SelfCheck and for the SSE handler that needs to enumerate them.
 func (r *Registry) RegisteredTypes() []string {

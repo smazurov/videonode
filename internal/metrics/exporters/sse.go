@@ -15,9 +15,18 @@ type EventPublisher interface {
 	Publish(ev events.Event)
 }
 
+// EntityPublisher emits a per-entity event envelope. Wired to
+// *events.Registry so the SSE exporter can mirror its legacy
+// stream-metrics broadcast onto the uniform entity envelope the UI
+// stores consume.
+type EntityPublisher interface {
+	Publish(entityType, action, id string, payload any)
+}
+
 // SSEExporter exports FFmpeg stream metrics via Server-Sent Events.
 type SSEExporter struct {
 	eventBus EventPublisher
+	registry EntityPublisher
 	interval time.Duration
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -30,6 +39,14 @@ func NewSSEExporter(eventBus EventPublisher) *SSEExporter {
 		eventBus: eventBus,
 		interval: 1 * time.Second,
 	}
+}
+
+// WithEntityRegistry attaches a registry so emitted metrics also
+// publish on the uniform entity envelope (action=metrics). Optional —
+// when nil the legacy stream-metrics event is still broadcast.
+func (s *SSEExporter) WithEntityRegistry(r EntityPublisher) *SSEExporter {
+	s.registry = r
+	return s
 }
 
 // Start begins the SSE export loop.
@@ -68,13 +85,21 @@ func (s *SSEExporter) publishMetrics() {
 		return
 	}
 	for streamID, m := range allMetrics {
-		s.eventBus.Publish(events.StreamMetricsEvent{
+		metricsEvent := events.StreamMetricsEvent{
 			EventType:       "stream_metrics",
 			StreamID:        streamID,
 			FPS:             strconv.FormatFloat(m.FPS, 'f', 2, 64),
 			DroppedFrames:   strconv.FormatFloat(m.DroppedFrames, 'f', 0, 64),
 			DuplicateFrames: strconv.FormatFloat(m.DuplicateFrames, 'f', 0, 64),
-		})
+		}
+		s.eventBus.Publish(metricsEvent)
+		if s.registry != nil {
+			s.registry.Publish("stream", events.ActionMetrics, streamID, map[string]any{
+				"fps":              m.FPS,
+				"dropped_frames":   m.DroppedFrames,
+				"duplicate_frames": m.DuplicateFrames,
+			})
+		}
 	}
 }
 

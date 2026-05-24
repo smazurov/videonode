@@ -42,12 +42,14 @@ type LayoutSlotData struct {
 
 // ComposerData is the full wire shape for a composer entity.
 type ComposerData struct {
-	ID        string              `json:"id" example:"main-scene" doc:"Composer identifier"`
-	Canvas    CanvasDimsData      `json:"canvas" doc:"Output canvas dimensions"`
-	Inputs    []ComposerInputData `json:"inputs" doc:"Composer inputs (refs + optional effects)"`
-	Layout    []LayoutSlotData    `json:"layout" doc:"Layout slots placing each input on the canvas"`
-	CreatedAt time.Time           `json:"created_at,omitzero" doc:"Creation timestamp"`
-	UpdatedAt time.Time           `json:"updated_at,omitzero" doc:"Last update timestamp"`
+	ID                  string              `json:"id" example:"main-scene" doc:"Composer identifier"`
+	Canvas              CanvasDimsData      `json:"canvas" doc:"Output canvas dimensions"`
+	Inputs              []ComposerInputData `json:"inputs" doc:"Composer inputs (refs + optional effects)"`
+	Layout              []LayoutSlotData    `json:"layout" doc:"Layout slots placing each input on the canvas"`
+	DownstreamStreamIDs []string            `json:"downstream_stream_ids,omitempty" example:"[\"main-720p\",\"main-1080p\"]" doc:"Server-denormalized list of stream IDs whose upstream is composer:<this>. Auto-republished via dependency graph when streams change."`
+	Status              string              `json:"status,omitempty" example:"warm" doc:"Runtime composer status: warm (process up) | cold (no referent / process down) | unknown"`
+	CreatedAt           time.Time           `json:"created_at,omitzero" doc:"Creation timestamp"`
+	UpdatedAt           time.Time           `json:"updated_at,omitzero" doc:"Last update timestamp"`
 }
 
 // ComposerListData wraps a list of composers with a count.
