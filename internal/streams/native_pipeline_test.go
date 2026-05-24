@@ -1,3 +1,10 @@
+//go:build planv2_tests
+
+// Tests for the native-binary availability check post-rewrite. The
+// post-B9 native pipeline still spawns videonode-source / vn-sink /
+// videonode-composer the same way — the test surface is unchanged
+// other than the rename Composer → ComposerBin (consistent with the
+// three-binary set). This file gets re-enabled when B9 lands.
 package streams
 
 import (
@@ -35,7 +42,11 @@ func TestNativePipeline_AvailabilityDetectsExecutables(t *testing.T) {
 	}
 }
 
-func TestNativePipeline_ReadyHelpers(t *testing.T) {
+func TestNativePipeline_AllThreeBinariesNeededForCanvasStream(t *testing.T) {
+	// Post-rewrite, every stream of N>1 inputs OR with effects requires
+	// the composer. The old SingleStreamReady/CanvasReady helpers stay,
+	// but their semantics now read: "single stream" = source+sink up;
+	// "canvas" (= composer-engaged stream) = all three up.
 	cases := []struct {
 		name             string
 		v4l2, sink, comp bool

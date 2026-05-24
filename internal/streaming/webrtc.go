@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
@@ -72,7 +73,7 @@ func (m *WebRTCManager) generatePeerID() string {
 
 // CreateConsumer creates a WebRTC consumer for a stream.
 func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
-	stream := m.streams.GetStream(streamID)
+	stream := m.streams.EnsureStreamReady(streamID, 3*time.Second)
 	if stream == nil {
 		return "", ErrStreamNotFound
 	}

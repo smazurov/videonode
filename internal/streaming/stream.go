@@ -2,6 +2,7 @@ package streaming
 
 import (
 	"sync"
+	"time"
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
@@ -16,6 +17,9 @@ type StreamProvider interface {
 	HasStream(id string) bool
 	ListStreams() []string
 	GetStreamReaderCount(id string) int
+	// EnsureStreamReady returns an existing stream or kicks the lazy-start
+	// hook and waits up to timeout for OnAnnounce.
+	EnsureStreamReady(id string, timeout time.Duration) *Stream
 }
 
 // OnDataFunc is called when media data is received.

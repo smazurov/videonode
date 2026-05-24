@@ -1,23 +1,22 @@
 package pipeline
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"slices"
-	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
 // Config holds the daemon-wide knobs the Pipeline needs at construction
-// time: paths to the three native binaries and the DRM render node the
-// composer should target.
+// time: paths to the three native binaries and the DRM render node.
 type Config struct {
 	VNSourceBin   string
 	VNComposerBin string
@@ -26,45 +25,50 @@ type Config struct {
 
 	// DeviceResolver maps an opaque device id (USB bus-port etc.) to a
 	// canonical /dev/videoN path. Returns empty string when the device
-	// can't be resolved; Pipeline.Apply surfaces that as an error.
+	// can't be resolved; ApplySource surfaces that as an error. Optional
+	// when every Source uses TestMode.
 	DeviceResolver func(deviceID string) string
 
 	// EventBus, when non-nil, receives StageStateChangedEvent on every
-	// pool state transition. Nil = no events emitted (test path).
+	// pool state transition.
 	EventBus *events.Bus
+
+	// ControlServer, when non-nil, is used by ApplyComposer to register
+	// the spawned videonode-composer over gRPC and push its initial
+	// SetCanvas / SetSource / SetLayout / SetEffects RPCs. Without this
+	// the composer starts but its canvas stays uninitialized and
+	// downstream encoders see only black frames.
+	ControlServer *pipelinectl.Manager
 }
 
-// Pipeline is the stage assembler. One Pipeline owns the runtime
-// state for all streams: the ProducerRegistry (refcounted producers),
-// per-stream Composer + Encoder stage instances, and the process.Pool
-// that supervises every spawned binary.
+// Pipeline is the stage assembler. One Pipeline owns the runtime state
+// for all sources/composers/streams: registries, per-entity Stage
+// instances, and the process.Pool that supervises every spawned binary.
 //
-// Public surface: Apply(stream) brings the runtime to match the spec;
-// Delete(streamID) tears down everything owned by that stream and
-// releases its producer claims. Both are idempotent — Apply twice with
-// the same spec is a no-op; Delete on an unknown stream is a no-op.
+// Public surface:
+//   - ApplySource(s) / DeleteSource(id)
+//   - ApplyComposer(c) / DeleteComposer(id)
+//   - ApplyStream(s) / DeleteStream(id)
+//
+// Each Apply is idempotent — calling twice with the same spec is a no-op.
+// Apply calls for the same id serialize via per-entity locks; calls for
+// different ids run in parallel.
 type Pipeline struct {
 	cfg       Config
 	pool      process.Pool
 	logger    logging.Logger
-	producers *ProducerRegistry
+	sources   *SourceRegistry
+	composers *ComposerRegistry
 
 	mu     sync.Mutex
-	stages map[string]Stage // pool key → stage (for CommandProvider + Configurer lookup)
-	// per-stream owned stage IDs (composer, encoder). Used by Delete()
-	// to find what to stop for a given stream.
-	owned map[string][]string
-	// per-stream mutex serializing Apply/Delete calls for the same
-	// stream. Different streams proceed in parallel. Prevents the
-	// replaceStage race where two concurrent Applies for the same id
-	// see IsRunning=false during a 10s Stop window and both spawn.
-	streamLocksMu sync.Mutex
-	streamLocks   map[string]*sync.Mutex
+	stages map[string]Stage // pool key → stage
+
+	entityLocksMu sync.Mutex
+	entityLocks   map[string]*sync.Mutex
 }
 
-// New constructs a Pipeline. The pool is constructed internally so the
-// Pipeline can wire CommandProvider / ConfigureProcess against its
-// stage map. Logger is optional (defaults to a no-attr slog logger).
+// New constructs a Pipeline. Logger is optional (defaults to a
+// no-attr slog logger).
 func New(cfg Config, logger logging.Logger) *Pipeline {
 	if logger == nil {
 		logger = logging.GetLogger("pipeline")
@@ -72,10 +76,10 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 	p := &Pipeline{
 		cfg:         cfg,
 		logger:      logger,
-		producers:   NewProducerRegistry(),
+		sources:     NewSourceRegistry(),
+		composers:   NewComposerRegistry(),
 		stages:      make(map[string]Stage),
-		owned:       make(map[string][]string),
-		streamLocks: make(map[string]*sync.Mutex),
+		entityLocks: make(map[string]*sync.Mutex),
 	}
 	p.pool = process.NewPool(&process.PoolOptions{
 		Logger:           logger,
@@ -86,11 +90,523 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 	return p
 }
 
-// onStateChange forwards pool state transitions to the event bus as
-// StageStateChangedEvent (when a bus is configured). Kind/StreamID
-// come from the registered stage; lookup is best-effort — a stage that
-// was deleted between state-change and lookup just emits with empty
-// kind/stream_id.
+// ApplySource creates or updates the per-source `videonode-source`
+// process. Validates that exactly one of Device or TestMode is set.
+func (p *Pipeline) ApplySource(s Source) error {
+	if s.ID == "" {
+		return errors.New("pipeline: source.ID is required")
+	}
+	if s.TestMode && s.Device != "" {
+		return fmt.Errorf("pipeline: source %s has both Device and TestMode set", s.ID)
+	}
+	if !s.TestMode && s.Device == "" {
+		return fmt.Errorf("pipeline: source %s requires one of Device or TestMode", s.ID)
+	}
+
+	mu := p.entityLock("source:" + s.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if err := p.ensureUdsDir(); err != nil {
+		return fmt.Errorf("pipeline: mkdir uds dir: %w", err)
+	}
+
+	var devicePath string
+	if !s.TestMode {
+		if p.cfg.DeviceResolver == nil {
+			return errors.New("pipeline: Config.DeviceResolver is nil")
+		}
+		devicePath = p.cfg.DeviceResolver(s.Device)
+		if devicePath == "" {
+			return fmt.Errorf("pipeline: device %q did not resolve to a path", s.Device)
+		}
+	}
+
+	p.sources.Put(s)
+
+	stage := &ProducerStage{
+		SourceID:   s.ID,
+		DevicePath: devicePath,
+		TestMode:   s.TestMode,
+		BinaryPath: p.cfg.VNSourceBin,
+		GrpcUds:    GrpcSocketPathFor("source", s.ID),
+	}
+	p.replaceStage(stage)
+	return p.restartStage(stage)
+}
+
+// DeleteSource stops the source's `videonode-source` process and drops
+// the registry entry. No-op for unknown ids. Callers are responsible
+// for guaranteeing no composer or stream references this source — the
+// service layer enforces that constraint.
+func (p *Pipeline) DeleteSource(id string) error {
+	if id == "" {
+		return nil
+	}
+	mu := p.entityLock("source:" + id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	p.sources.Delete(id)
+	poolID := SourcePoolKey(id)
+	if err := p.pool.Stop(poolID); err != nil {
+		p.logger.Warn("DeleteSource: pool.Stop failed", "id", poolID, "error", err)
+	}
+	p.mu.Lock()
+	delete(p.stages, poolID)
+	p.mu.Unlock()
+	return nil
+}
+
+// ApplyComposer creates or updates the per-composer `videonode-composer`
+// process. Per-frame layout/inputs/effects are pushed via the gRPC
+// control plane post-spawn; this only manages the process lifecycle.
+func (p *Pipeline) ApplyComposer(c Composer) error {
+	if c.ID == "" {
+		return errors.New("pipeline: composer.ID is required")
+	}
+
+	mu := p.entityLock("composer:" + c.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if err := p.ensureUdsDir(); err != nil {
+		return fmt.Errorf("pipeline: mkdir uds dir: %w", err)
+	}
+
+	p.composers.Put(c)
+
+	stage := &ComposerStage{
+		ComposerID: c.ID,
+		BinaryPath: p.cfg.VNComposerBin,
+		DRMDevice:  p.cfg.DRMDevice,
+		CanvasFPS:  30,
+		GrpcUds:    GrpcSocketPathFor("composer", c.ID),
+	}
+	p.replaceStage(stage)
+	// Drop any prior control-plane registration so the next config push
+	// re-dials the freshly-spawned UDS instead of holding a dead handle.
+	if p.cfg.ControlServer != nil {
+		p.cfg.ControlServer.Unregister(c.ID)
+	}
+	if err := p.restartStage(stage); err != nil {
+		return err
+	}
+	// Initial gRPC config push (SetCanvas/SetSource/SetLayout/SetEffects).
+	// Without this the composer process runs but its canvas stays
+	// uninitialized and every downstream encoder sees black frames.
+	if p.cfg.ControlServer != nil {
+		go p.pushComposerConfig(c, stage.GrpcUds)
+	}
+	return nil
+}
+
+// pushComposerConfig waits for the composer's gRPC UDS to come up,
+// registers it with the control plane, then issues the initial
+// SetCanvas / SetSource(per input) / SetLayout / SetEffects(per input
+// with effect) RPCs. Runs in its own goroutine; bounded by a 30 s
+// register deadline and a 5 s per-call timeout.
+func (p *Pipeline) pushComposerConfig(c Composer, udsPath string) {
+	composerID := c.ID
+	tag := []any{"composer_id", composerID, "uds", udsPath}
+
+	const dialDeadline = 30 * time.Second
+	const callTimeout = 5 * time.Second
+	mgr := p.cfg.ControlServer
+
+	deadline := time.Now().Add(dialDeadline)
+	var lastErr error
+	for {
+		if time.Now().After(deadline) {
+			p.logger.Warn("pushComposerConfig: register never succeeded",
+				append(tag, "error", lastErr)...)
+			return
+		}
+		regCtx, regCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		err := mgr.RegisterComposer(regCtx, composerID, udsPath)
+		regCancel()
+		if err == nil {
+			break
+		}
+		lastErr = err
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	push := func(name string, fn func(context.Context) error) bool {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		if err := fn(ctx); err != nil {
+			p.logger.Warn("pushComposerConfig: rpc failed",
+				append(append([]any{}, tag...), "method", name, "error", err)...)
+			return false
+		}
+		return true
+	}
+
+	canvasW, canvasH := c.Canvas.W, c.Canvas.H
+	if canvasW <= 0 || canvasH <= 0 {
+		canvasW, canvasH = 1920, 1080
+	}
+	fps := uint32(30)
+	if !push("set_canvas", func(ctx context.Context) error {
+		return mgr.SendSetCanvas(ctx, composerID, pipelinectl.SetCanvasParams{
+			W: uint32(canvasW), H: uint32(canvasH), FPS: fps,
+		})
+	}) {
+		return
+	}
+
+	// Bind each input to a slot. Slot label is positional ("a", "b", …)
+	// to stay wire-compatible with the existing composer protocol.
+	for i, in := range c.Inputs {
+		slot := slotNameFor(i)
+		sourceID := strings.TrimPrefix(in.Ref, "source:")
+		if !push("set_source", func(ctx context.Context) error {
+			return mgr.SendSetSource(ctx, composerID, pipelinectl.SetSourceParams{
+				Slot:     slot,
+				SourceID: sourceID,
+				ScmPath:  SCMSocketPathFor(sourceID),
+				Width:    uint32(canvasW),
+				Height:   uint32(canvasH),
+				FPS:      fps,
+			})
+		}) {
+			return
+		}
+	}
+
+	// SetLayout — map each LayoutSlot's Input ref to the matching input
+	// index (slot label). When no layout is provided, fall back to a
+	// single full-canvas slot referencing input 0.
+	slots := make([]pipelinectl.LayoutSlotEntry, 0, len(c.Layout))
+	if len(c.Layout) > 0 {
+		inputIdx := make(map[string]int, len(c.Inputs))
+		for i, in := range c.Inputs {
+			inputIdx[in.Ref] = i
+		}
+		for _, l := range c.Layout {
+			idx, ok := inputIdx[l.Input]
+			if !ok {
+				p.logger.Warn("pushComposerConfig: layout references unknown input",
+					append(tag, "input", l.Input)...)
+				continue
+			}
+			slots = append(slots, pipelinectl.LayoutSlotEntry{
+				Slot: slotNameFor(idx),
+				X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
+			})
+		}
+	} else if len(c.Inputs) > 0 {
+		slots = append(slots, pipelinectl.LayoutSlotEntry{
+			Slot: slotNameFor(0), X: 0, Y: 0, W: int32(canvasW), H: int32(canvasH),
+		})
+	}
+	if !push("set_layout", func(ctx context.Context) error {
+		return mgr.SendSetLayout(ctx, composerID, pipelinectl.SetLayoutParams{Slots: slots})
+	}) {
+		return
+	}
+
+	// SetEffects per input that carries one.
+	for _, in := range c.Inputs {
+		if in.Effect == nil {
+			continue
+		}
+		sourceID := strings.TrimPrefix(in.Ref, "source:")
+		effect := *in.Effect
+		if !push("set_effects", func(ctx context.Context) error {
+			return mgr.SendSetEffects(ctx, composerID, pipelinectl.SetEffectsParams{
+				SourceID: sourceID,
+				Effects: []pipelinectl.EffectParams{{
+					Type:    effect.Type,
+					Corners: effect.Corners,
+				}},
+			})
+		}) {
+			return
+		}
+	}
+
+	p.logger.Info("composer initial config pushed",
+		append(tag, "canvas", fmt.Sprintf("%dx%d@%dfps", canvasW, canvasH, fps),
+			"sources", len(c.Inputs))...)
+}
+
+// slotNameFor returns the alphabetic slot label used by the composer
+// control plane ("a"..."z"; "slotN" past 26 for safety).
+func slotNameFor(i int) string {
+	if i < 0 || i > 25 {
+		return fmt.Sprintf("slot%d", i)
+	}
+	return string(rune('a' + i))
+}
+
+// UpdateComposerLayout hot-applies a new layout to a running composer
+// via the gRPC control plane. Does NOT restart the composer process —
+// callers use this for layout-only edits to avoid killing downstream
+// vn-sink consumers. Returns an error if the composer isn't registered
+// (e.g. spawn hasn't finished) or if any RPC fails.
+func (p *Pipeline) UpdateComposerLayout(id string, layout []LayoutSlot) error {
+	if id == "" {
+		return errors.New("pipeline: composer.ID is required")
+	}
+	if p.cfg.ControlServer == nil {
+		return errors.New("pipeline: ControlServer is nil; cannot hot-apply layout")
+	}
+	c, found := p.composers.Get(id)
+	if !found {
+		return fmt.Errorf("pipeline: composer %q not registered", id)
+	}
+	inputIdx := make(map[string]int, len(c.Inputs))
+	for i, in := range c.Inputs {
+		inputIdx[in.Ref] = i
+	}
+	slots := make([]pipelinectl.LayoutSlotEntry, 0, len(layout))
+	for _, l := range layout {
+		idx, ok := inputIdx[l.Input]
+		if !ok {
+			return fmt.Errorf("pipeline: layout references unknown input %q", l.Input)
+		}
+		slots = append(slots, pipelinectl.LayoutSlotEntry{
+			Slot: slotNameFor(idx),
+			X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return p.cfg.ControlServer.SendSetLayout(ctx, id, pipelinectl.SetLayoutParams{Slots: slots})
+}
+
+// UpdateComposerEffect hot-applies an effect change for one input. A
+// nil effect clears the input's effect list. Does NOT restart the
+// composer process.
+func (p *Pipeline) UpdateComposerEffect(id, inputRef string, effect *Effect) error {
+	if id == "" {
+		return errors.New("pipeline: composer.ID is required")
+	}
+	if p.cfg.ControlServer == nil {
+		return errors.New("pipeline: ControlServer is nil; cannot hot-apply effect")
+	}
+	if _, found := p.composers.Get(id); !found {
+		return fmt.Errorf("pipeline: composer %q not registered", id)
+	}
+	sourceID := strings.TrimPrefix(inputRef, "source:")
+	params := pipelinectl.SetEffectsParams{SourceID: sourceID}
+	if effect != nil {
+		params.Effects = []pipelinectl.EffectParams{{
+			Type:    effect.Type,
+			Corners: effect.Corners,
+		}}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return p.cfg.ControlServer.SendSetEffects(ctx, id, params)
+}
+
+// DeleteComposer stops the composer process and drops the registry
+// entry. No-op for unknown ids.
+func (p *Pipeline) DeleteComposer(id string) error {
+	if id == "" {
+		return nil
+	}
+	mu := p.entityLock("composer:" + id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	p.composers.Delete(id)
+	if p.cfg.ControlServer != nil {
+		p.cfg.ControlServer.Unregister(id)
+	}
+	poolID := ComposerPoolKey(id)
+	if err := p.pool.Stop(poolID); err != nil {
+		p.logger.Warn("DeleteComposer: pool.Stop failed", "id", poolID, "error", err)
+	}
+	p.mu.Lock()
+	delete(p.stages, poolID)
+	p.mu.Unlock()
+	return nil
+}
+
+// ApplyStream creates or updates the per-stream encoder process. The
+// Upstream string is resolved against the source/composer registries:
+//   - "source:<id>"   → ProducerFrameSource against the source's SCM
+//   - "composer:<id>" → ComposerFrameSource against the composer's
+//     SCM-out
+//
+// Dangling references (the named source/composer isn't registered) are
+// an error.
+func (p *Pipeline) ApplyStream(s Stream) error {
+	if s.ID == "" {
+		return errors.New("pipeline: stream.ID is required")
+	}
+	if s.Upstream == "" {
+		return fmt.Errorf("pipeline: stream %s requires Upstream", s.ID)
+	}
+
+	mu := p.entityLock("stream:" + s.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	enc, err := p.buildEncoder(s)
+	if err != nil {
+		return fmt.Errorf("pipeline: build encoder %s: %w", s.ID, err)
+	}
+	p.replaceStage(enc)
+	if err := p.restartStage(enc); err != nil {
+		return fmt.Errorf("pipeline: start encoder %s: %w", enc.ID(), err)
+	}
+	return nil
+}
+
+// DeleteStream stops the encoder process and drops the registry entry.
+// No-op for unknown ids. Upstream sources/composers stay warm.
+func (p *Pipeline) DeleteStream(id string) error {
+	if id == "" {
+		return nil
+	}
+	mu := p.entityLock("stream:" + id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	poolID := EncoderIDFor(id)
+	if err := p.pool.Stop(poolID); err != nil {
+		p.logger.Warn("DeleteStream: pool.Stop failed", "id", poolID, "error", err)
+	}
+	p.mu.Lock()
+	delete(p.stages, poolID)
+	p.mu.Unlock()
+	return nil
+}
+
+// buildEncoder resolves the stream's Upstream string and constructs the
+// matching EncoderStage. The Source/Composer must already be registered.
+func (p *Pipeline) buildEncoder(s Stream) (*EncoderStage, error) {
+	video, err := p.resolveUpstream(s.Upstream)
+	if err != nil {
+		return nil, err
+	}
+	return &EncoderStage{
+		StreamID_:         s.ID,
+		Media:             MediaSource{Video: video, Audio: ALSADirectAudio{Config: s.Audio}},
+		Cfg:               s.Encoder,
+		Publish:           s.Publish,
+		CustomEncoderArgs: s.CustomEncoderArgs,
+		VNSinkBin:         p.cfg.VNSinkBin,
+	}, nil
+}
+
+// resolveUpstream maps a stream's Upstream reference ("source:<id>" or
+// "composer:<id>") to a FrameSource that points at the right SCM socket.
+func (p *Pipeline) resolveUpstream(upstream string) (FrameSource, error) {
+	kind, id, ok := splitUpstream(upstream)
+	if !ok {
+		return nil, fmt.Errorf("pipeline: invalid upstream %q (want source:<id> or composer:<id>)", upstream)
+	}
+	switch kind {
+	case "source":
+		if _, found := p.sources.Get(id); !found {
+			return nil, fmt.Errorf("pipeline: upstream source %q not registered", id)
+		}
+		return ProducerFrameSource{Socket: SCMSocketPathFor(id)}, nil
+	case "composer":
+		c, found := p.composers.Get(id)
+		if !found {
+			return nil, fmt.Errorf("pipeline: upstream composer %q not registered", id)
+		}
+		w := c.Canvas.W
+		h := c.Canvas.H
+		if w == 0 || h == 0 {
+			w, h = 1920, 1080
+		}
+		sock := SCMSocketPathFor("composer-" + id)
+		return ComposerFrameSource{Socket: sock, Width: w, Height: h, Fps: 30}, nil
+	default:
+		return nil, fmt.Errorf("pipeline: unknown upstream kind %q", kind)
+	}
+}
+
+// splitUpstream parses "source:foo" / "composer:bar" into (kind, id).
+func splitUpstream(s string) (kind, id string, ok bool) {
+	idx := strings.IndexByte(s, ':')
+	if idx <= 0 || idx == len(s)-1 {
+		return "", "", false
+	}
+	return s[:idx], s[idx+1:], true
+}
+
+// StopEncoder stops the encoder stage for a stream if it is running.
+// No-op when the encoder isn't running. Sources and composers stay
+// warm — only the encoder cycles.
+func (p *Pipeline) StopEncoder(streamID string) error {
+	if streamID == "" {
+		return errors.New("pipeline: streamID is required")
+	}
+	mu := p.entityLock("stream:" + streamID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	id := EncoderIDFor(streamID)
+	if !p.pool.IsRunning(id) {
+		return nil
+	}
+	if err := p.pool.Stop(id); err != nil {
+		return fmt.Errorf("pipeline: stop encoder %s: %w", id, err)
+	}
+	return nil
+}
+
+// EnsureEncoder starts the encoder stage for a stream if it isn't
+// already running. Requires ApplyStream to have been called previously.
+func (p *Pipeline) EnsureEncoder(streamID string) error {
+	if streamID == "" {
+		return errors.New("pipeline: streamID is required")
+	}
+	mu := p.entityLock("stream:" + streamID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	id := EncoderIDFor(streamID)
+	if p.pool.IsRunning(id) {
+		return nil
+	}
+	p.mu.Lock()
+	_, ok := p.stages[id]
+	p.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("pipeline: no cached encoder stage for stream %s (ApplyStream not called)", streamID)
+	}
+	if err := p.pool.Start(id); err != nil {
+		return fmt.Errorf("pipeline: start encoder %s: %w", id, err)
+	}
+	return nil
+}
+
+// Pool exposes the underlying process.Pool for callers that need status
+// lookups. Not used by Apply/Delete; only diagnostics should reach for
+// it.
+func (p *Pipeline) Pool() process.Pool { return p.pool }
+
+// Sources exposes the SourceRegistry for diagnostics.
+func (p *Pipeline) Sources() *SourceRegistry { return p.sources }
+
+// Composers exposes the ComposerRegistry for diagnostics.
+func (p *Pipeline) Composers() *ComposerRegistry { return p.composers }
+
+// ----- internal helpers -----
+
+// entityLock returns a per-entity mutex, creating one on first use.
+func (p *Pipeline) entityLock(key string) *sync.Mutex {
+	p.entityLocksMu.Lock()
+	defer p.entityLocksMu.Unlock()
+	if mu, ok := p.entityLocks[key]; ok {
+		return mu
+	}
+	mu := &sync.Mutex{}
+	p.entityLocks[key] = mu
+	return mu
+}
+
+// onStateChange forwards pool state transitions to the event bus.
 func (p *Pipeline) onStateChange(id string, oldState, newState process.State, err error) {
 	if p.cfg.EventBus == nil {
 		return
@@ -117,232 +633,7 @@ func (p *Pipeline) onStateChange(id string, oldState, newState process.State, er
 	p.cfg.EventBus.Publish(ev)
 }
 
-// streamLock returns the per-stream mutex, creating one on first use.
-// Two concurrent Apply (or Apply + Delete) calls for the same stream
-// serialize on this lock; different streams run in parallel.
-func (p *Pipeline) streamLock(streamID string) *sync.Mutex {
-	p.streamLocksMu.Lock()
-	defer p.streamLocksMu.Unlock()
-	if mu, ok := p.streamLocks[streamID]; ok {
-		return mu
-	}
-	mu := &sync.Mutex{}
-	p.streamLocks[streamID] = mu
-	return mu
-}
-
-// Apply reconciles the runtime state to match the given stream spec.
-// Idempotent. Serialized per-stream — two concurrent Apply calls for
-// the same stream queue; calls for different streams run in parallel.
-//
-// On producer-spawn failure: rolls back the just-made registry claims
-// before returning, so the next Apply (or a Delete) sees a consistent
-// view. Errors during composer / encoder spawn are NOT rolled back —
-// callers can retry Apply or Delete the stream to clean up.
-//
-// Flow:
-//  1. Compute the unique device set from stream.Inputs and Reconcile
-//     against ProducerRegistry. Spawn newly-claimed producers; stop
-//     producers whose refcount dropped to zero (this stream was the
-//     last holder). On spawn failure, release the new claims first.
-//  2. NeedsComposer(stream) decides whether a Composer process exists.
-//     If yes, ensure a ComposerStage is registered and started; build
-//     a ComposerFrameSource against its --scm-out socket. If no, tear
-//     down any prior composer for this stream and build a
-//     ProducerFrameSource against the single input's producer socket.
-//  3. Build/refresh the EncoderStage with the resolved FrameSource +
-//     AudioSource + EncoderConfig + Publish targets. Restart it if its
-//     argv changed since the last apply (today: always restart on
-//     Apply; reconfigure-without-restart is a follow-up).
-func (p *Pipeline) Apply(s Stream) error {
-	if s.ID == "" {
-		return errors.New("pipeline: stream.ID is required")
-	}
-	mu := p.streamLock(s.ID)
-	mu.Lock()
-	defer mu.Unlock()
-
-	if p.cfg.DeviceResolver == nil {
-		return errors.New("pipeline: Config.DeviceResolver is nil")
-	}
-	// Resolve device paths up front so we fail fast on unknown devices.
-	devices := make([]string, 0, len(s.Inputs))
-	devicePaths := make(map[string]string, len(s.Inputs))
-	for _, in := range s.Inputs {
-		if in.Device == "" {
-			return fmt.Errorf("pipeline: stream %s input %s has no device", s.ID, in.ID)
-		}
-		path := p.cfg.DeviceResolver(in.Device)
-		if path == "" {
-			return fmt.Errorf("pipeline: device %q did not resolve to a path", in.Device)
-		}
-		if _, seen := devicePaths[in.Device]; !seen {
-			devices = append(devices, in.Device)
-			devicePaths[in.Device] = path
-		}
-	}
-
-	// Step 1: Reconcile producers.
-	delta := p.producers.Reconcile(s.ID, devices)
-	if err := p.ensureUdsDir(); err != nil {
-		// Roll back: the Reconcile already mutated the registry.
-		p.producers.ReleaseAll(s.ID)
-		return fmt.Errorf("pipeline: mkdir uds dir: %w", err)
-	}
-	if err := p.startNewProducers(delta.ToStart, devicePaths); err != nil {
-		// Roll back: the partially-applied delta would leak claims (the
-		// registry holds them but processes aren't running) AND the
-		// devices in delta.ToStop never get released. Replay both: drop
-		// the new claims, then process the original ToStop list since
-		// we never reached stopReleasedProducers below.
-		p.producers.Reconcile(s.ID, p.heldDevicesExcluding(s.ID, delta.ToStart))
-		p.stopReleasedProducers(delta.ToStop)
-		return err
-	}
-	p.stopReleasedProducers(delta.ToStop)
-
-	// Step 2: Composer engage/disengage.
-	// Inline-composer mode: composer is bundled into the encoder shell
-	// pipe (`composer | ffmpeg`) instead of running as a separate pool
-	// entry. Works around the GBM-allocated-BGRA cross-process mmap
-	// kernel limitation (vn-sink reports ENOSYS on the dma-buf fd).
-	// Composer's gRPC control plane still works the same — daemon
-	// dials the UDS regardless of who's its parent.
-	p.stopComposerIfRunning(s.ID) // no separate composer pool entry today
-
-	// Step 3: Build / restart the encoder. Inline composer is wired
-	// inside buildEncoder when NeedsComposer(s).
-	enc, err := p.buildEncoderInline(s)
-	if err != nil {
-		return fmt.Errorf("pipeline: build encoder %s: %w", s.ID, err)
-	}
-	p.replaceStage(enc) // unconditional restart on Apply (reconfigure-without-restart is follow-up)
-	if err := p.restartStage(enc); err != nil {
-		return fmt.Errorf("pipeline: start encoder %s: %w", enc.ID(), err)
-	}
-	return nil
-}
-
-// buildEncoderInline picks the right FrameSource:
-//   - NeedsComposer(s): InlineComposerFrameSource (composer is a child
-//     of the encoder shell pipe; daemon orchestrates via gRPC UDS)
-//   - else: ProducerFrameSource (vn-sink dials producer SCM directly)
-func (p *Pipeline) buildEncoderInline(s Stream) (*EncoderStage, error) {
-	var video FrameSource
-	switch {
-	case NeedsComposer(s):
-		w, h := canvasDimsHint(s)
-		composerID := ComposerIDFor(s.ID)
-		video = InlineComposerFrameSource{
-			ComposerBin: p.cfg.VNComposerBin,
-			DRMDevice:   p.cfg.DRMDevice,
-			GrpcUds:     GrpcSocketPathFor("composer", composerID),
-			ComposerID:  composerID,
-			Width:       w,
-			Height:      h,
-			Fps:         parseFPSHintWithDefault(s, 30),
-		}
-	case len(s.Inputs) == 1:
-		video = ProducerFrameSource{Socket: SCMSocketPathFor(s.Inputs[0].Device)}
-	default:
-		return nil, errors.New("encoder build: 0 inputs and no composer — nothing to encode")
-	}
-	return &EncoderStage{
-		StreamID_:         s.ID,
-		Media:             MediaSource{Video: video, Audio: ALSADirectAudio{Config: s.Audio}},
-		Cfg:               s.Encoder,
-		Publish:           s.Publish,
-		CustomEncoderArgs: s.CustomEncoderArgs,
-		VNSinkBin:         p.cfg.VNSinkBin,
-	}, nil
-}
-
-// heldDevicesExcluding returns the device set this consumer would
-// reconcile to in order to drop a specific subset. Used by Apply's
-// rollback path: when startNewProducers fails partway, we want to
-// release the new claims without touching pre-existing ones.
-func (p *Pipeline) heldDevicesExcluding(consumerID string, excluded []string) []string {
-	bad := make(map[string]struct{}, len(excluded))
-	for _, d := range excluded {
-		bad[d] = struct{}{}
-	}
-	all := p.producers.Devices()
-	out := make([]string, 0, len(all))
-	for dev := range all {
-		if _, drop := bad[dev]; drop {
-			continue
-		}
-		// Only keep devices this consumer actually holds — Devices()
-		// returns the global map, not per-consumer view.
-		if slices.Contains(p.producers.ConsumersOf(dev), consumerID) {
-			out = append(out, dev)
-		}
-	}
-	return out
-}
-
-// Delete tears down all stages owned by the stream and releases its
-// producer claims. Producers whose refcount drops to zero are stopped.
-// Safe for unknown streamIDs (no-op). Serialized per-stream with Apply.
-//
-// Stops are fanned out in goroutines because pool.Stop blocks up to
-// 10s per process; serial teardown of a 4-stage stream (composer +
-// encoder + 2 producers) would exceed an HTTP request timeout. Mirrors
-// pool.StopAll's fan-out pattern.
-func (p *Pipeline) Delete(streamID string) error {
-	if streamID == "" {
-		return nil
-	}
-	mu := p.streamLock(streamID)
-	mu.Lock()
-	defer mu.Unlock()
-
-	// Collect stream-owned stages and released producers up front.
-	p.mu.Lock()
-	owned := append([]string(nil), p.owned[streamID]...)
-	delete(p.owned, streamID)
-	p.mu.Unlock()
-
-	delta := p.producers.ReleaseAll(streamID)
-
-	// Fan out all Stop calls (owned stages + dropped producers).
-	// Each Stop blocks independently; total wall time is bounded by
-	// the slowest single Stop.
-	stopIDs := make([]string, 0, len(owned)+len(delta.ToStop))
-	stopIDs = append(stopIDs, owned...)
-	for _, dev := range delta.ToStop {
-		stopIDs = append(stopIDs, ProducerPoolKey(dev))
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(len(stopIDs))
-	for _, id := range stopIDs {
-		go func(id string) {
-			defer wg.Done()
-			if err := p.pool.Stop(id); err != nil {
-				p.logger.Warn("Delete: pool.Stop failed", "id", id, "error", err)
-			}
-			p.mu.Lock()
-			delete(p.stages, id)
-			p.mu.Unlock()
-		}(id)
-	}
-	wg.Wait()
-	return nil
-}
-
-// Pool exposes the underlying process.Pool for callers that need
-// status lookups (process-manager UI follow-up). Not used by Apply /
-// Delete; only diagnostics should reach for it.
-func (p *Pipeline) Pool() process.Pool { return p.pool }
-
-// Producers exposes the ProducerRegistry for diagnostics.
-func (p *Pipeline) Producers() *ProducerRegistry { return p.producers }
-
-// ----- internal helpers -----
-
-// commandFor is the pool's CommandProvider callback. Looks up the
-// stage by pool id, asks it for argv, joins to a shell command string.
+// commandFor is the pool's CommandProvider callback.
 func (p *Pipeline) commandFor(id string) (string, error) {
 	p.mu.Lock()
 	stage, ok := p.stages[id]
@@ -357,18 +648,9 @@ func (p *Pipeline) commandFor(id string) (string, error) {
 	return shellJoinArgv(argv), nil
 }
 
-// configureProcess is the pool's Configurer callback. Wires the
-// stage's LogParser + LogAttrs into the process.Process so each stage's
-// stderr lands in journald with the right module + structured fields.
-//
-// Does NOT call back into Pool methods that take Pool's mu — this is
-// invoked from inside pool.startProcess which already holds it.
-// Snapshot reads stage kind from the Pipeline's stages map, so
-// Info.Kind on the pool side isn't load-bearing for /api/processes.
-//
-// Passes slog.Attr through With() as the typed Attr (not key+Any()) so
-// non-scalar kinds (slog.Group, LogValuer) survive — Go's slog handles
-// Attr-typed args specially.
+// configureProcess is the pool's Configurer callback. Wires the stage's
+// LogParser + LogAttrs into the process.Process so each stage's stderr
+// lands in journald with the right module + structured fields.
 func (p *Pipeline) configureProcess(id string, proc *process.Process) {
 	p.mu.Lock()
 	stage, ok := p.stages[id]
@@ -388,121 +670,11 @@ func (p *Pipeline) configureProcess(id string, proc *process.Process) {
 	proc.SetLogParser(moduleLogger, stage.LogParser())
 }
 
-func (p *Pipeline) startNewProducers(toStart []string, devicePaths map[string]string) error {
-	for _, dev := range toStart {
-		stage := &ProducerStage{
-			DeviceID:   dev,
-			DevicePath: devicePaths[dev],
-			BinaryPath: p.cfg.VNSourceBin,
-			GrpcUds:    GrpcSocketPathFor("source", dev),
-		}
-		if err := p.startStage(stage); err != nil {
-			return fmt.Errorf("pipeline: start producer for %s: %w", dev, err)
-		}
-	}
-	return nil
-}
-
-func (p *Pipeline) stopReleasedProducers(toStop []string) {
-	for _, dev := range toStop {
-		id := ProducerPoolKey(dev)
-		if err := p.pool.Stop(id); err != nil {
-			p.logger.Warn("stopReleasedProducers: pool.Stop failed", "id", id, "error", err)
-		}
-		p.mu.Lock()
-		delete(p.stages, id)
-		p.mu.Unlock()
-	}
-}
-
-func (p *Pipeline) ensureComposer(s Stream) *ComposerStage {
-	fps := 30
-	if len(s.Layout) > 0 {
-		// Layout doesn't carry FPS today — pull from EncoderConfig if
-		// the user set it implicitly via "fps". For now leave at 30
-		// and let SetCanvas push from the daemon override.
-	}
-	if s.Encoder.GOP > 0 {
-		// GOP without FPS doesn't decide tick rate; fall through.
-	}
-	if fpsHint := parseFPSHint(s); fpsHint > 0 {
-		fps = fpsHint
-	}
-	return &ComposerStage{
-		StreamID_:  s.ID,
-		BinaryPath: p.cfg.VNComposerBin,
-		DRMDevice:  p.cfg.DRMDevice,
-		CanvasFPS:  fps,
-		GrpcUds:    GrpcSocketPathFor("composer", ComposerIDFor(s.ID)),
-	}
-}
-
-func (p *Pipeline) stopComposerIfRunning(streamID string) {
-	id := ComposerPoolKey(streamID)
-	p.mu.Lock()
-	_, exists := p.stages[id]
-	p.mu.Unlock()
-	if !exists {
-		return
-	}
-	if err := p.pool.Stop(id); err != nil {
-		p.logger.Warn("stopComposerIfRunning: pool.Stop failed", "id", id, "error", err)
-	}
-	p.mu.Lock()
-	delete(p.stages, id)
-	p.unbindOwnedLocked(streamID, id)
-	p.mu.Unlock()
-}
-
-func (p *Pipeline) buildEncoder(s Stream, composerSock string) (*EncoderStage, error) {
-	var video FrameSource
-	switch {
-	case composerSock != "":
-		w, h := canvasDimsHint(s)
-		video = ComposerFrameSource{
-			Socket: composerSock,
-			Width:  w,
-			Height: h,
-			Fps:    parseFPSHintWithDefault(s, 30),
-		}
-	case len(s.Inputs) == 1:
-		video = ProducerFrameSource{Socket: SCMSocketPathFor(s.Inputs[0].Device)}
-	default:
-		return nil, errors.New("encoder build: 0 inputs and no composer — nothing to encode")
-	}
-
-	return &EncoderStage{
-		StreamID_:         s.ID,
-		Media:             MediaSource{Video: video, Audio: ALSADirectAudio{Config: s.Audio}},
-		Cfg:               s.Encoder,
-		Publish:           s.Publish,
-		CustomEncoderArgs: s.CustomEncoderArgs,
-		VNSinkBin:         p.cfg.VNSinkBin,
-	}, nil
-}
-
-func (p *Pipeline) startStage(stage Stage) error {
-	id := stage.ID()
-	p.mu.Lock()
-	p.stages[id] = stage
-	if sid := stage.StreamID(); sid != "" {
-		p.bindOwnedLocked(sid, id)
-	}
-	p.mu.Unlock()
-	if p.pool.IsRunning(id) {
-		return nil
-	}
-	return p.pool.Start(id)
-}
-
-// replaceStage swaps the registered stage for an id (e.g. encoder
-// argv changed). Caller must follow with restartStage.
+// replaceStage swaps the registered stage for an id. Caller follows
+// with restartStage to spawn/respawn under the new spec.
 func (p *Pipeline) replaceStage(stage Stage) {
 	p.mu.Lock()
 	p.stages[stage.ID()] = stage
-	if sid := stage.StreamID(); sid != "" {
-		p.bindOwnedLocked(sid, stage.ID())
-	}
 	p.mu.Unlock()
 }
 
@@ -516,72 +688,6 @@ func (p *Pipeline) restartStage(stage Stage) error {
 	return p.pool.Start(id)
 }
 
-func (p *Pipeline) bindOwnedLocked(streamID, stageID string) {
-	if slices.Contains(p.owned[streamID], stageID) {
-		return
-	}
-	p.owned[streamID] = append(p.owned[streamID], stageID)
-}
-
-func (p *Pipeline) unbindOwnedLocked(streamID, stageID string) {
-	cur := p.owned[streamID]
-	for i, id := range cur {
-		if id == stageID {
-			p.owned[streamID] = append(cur[:i], cur[i+1:]...)
-			return
-		}
-	}
-}
-
 func (p *Pipeline) ensureUdsDir() error {
-	if err := os.MkdirAll(NativeUdsDir, 0o755); err != nil {
-		return err
-	}
-	return nil
+	return os.MkdirAll(NativeUdsDir, 0o755)
 }
-
-// parseFPSHint extracts the canvas FPS from a stream spec. For now,
-// we only consult the encoder GOP (treating GOP/2 as a frame-rate
-// hint) until layout/canvas carries an explicit FPS field.
-func parseFPSHint(s Stream) int {
-	return 0
-}
-
-func parseFPSHintWithDefault(s Stream, def int) int {
-	if v := parseFPSHint(s); v > 0 {
-		return v
-	}
-	return def
-}
-
-// canvasDimsHint returns the canvas dimensions implied by the layout.
-// Today the canvas is the bounding box of all slots; falls back to
-// 1920x1080 when no layout is set.
-func canvasDimsHint(s Stream) (int, int) {
-	if len(s.Layout) == 0 {
-		return 1920, 1080
-	}
-	maxX, maxY := 0, 0
-	for _, l := range s.Layout {
-		if r := l.X + l.W; r > maxX {
-			maxX = r
-		}
-		if b := l.Y + l.H; b > maxY {
-			maxY = b
-		}
-	}
-	if maxX == 0 || maxY == 0 {
-		return 1920, 1080
-	}
-	return maxX, maxY
-}
-
-// joinPaths is a small helper used internally for composing socket
-// paths; lifted out so tests can swap it for deterministic output
-// without poking at filepath.Join semantics.
-func joinPaths(parts ...string) string {
-	return filepath.Join(parts...)
-}
-
-// _ keeps strconv referenced; some upcoming follow-up plumbing uses it.
-var _ = strconv.Itoa

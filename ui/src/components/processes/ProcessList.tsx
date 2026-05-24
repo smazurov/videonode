@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Badge } from '../Badge';
-import { useProcesses, type ProcessView } from '../../hooks/useProcesses';
+import { useProcesses, type ProcessEntry } from '../../hooks/useProcesses';
 
 const STATE_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
   running: 'success',
@@ -33,7 +33,7 @@ function formatUptime(startedAtUS?: number): string {
 }
 
 interface ProcessRowProps {
-  readonly proc: ProcessView;
+  readonly proc: ProcessEntry;
 }
 
 function ProcessRow({ proc }: ProcessRowProps) {

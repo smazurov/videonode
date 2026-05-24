@@ -4,63 +4,100 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/process"
 )
 
-// ComposerStage is the per-stream videonode-composer process. One
-// instance per stream when NeedsComposer(stream) is true (N>1 OR any
-// effects). Reads N producer SCM sockets, GLES-composites onto a BGRA
-// canvas, broadcasts the canvas dma-buf via SCM_RIGHTS to the encoder
-// (--scm-out).
+// Composer is a daemon-managed GLES compositor keyed by stable id. One
+// Composer per `videonode-composer` process; Streams reference it by id
+// (`composer:<id>`). Multi-stream sharing is expressed by two Streams
+// naming the same composer — they pay one GPU compose, two encodes.
 //
-// Per-frame layout / effect / source-state config is daemon-pushed
-// over the per-instance gRPC control plane (Composer.SetCanvas /
-// SetSource / SetLayout / SetEffects / SetSourceState). The composer
-// boot argv is intentionally bare; everything dynamic flows through
-// the control plane post-spawn.
+// Inputs reference Sources via `source:<id>`. Layout is by-name (matches
+// ComposerInput.Ref), not positional, so reordering inputs doesn't
+// silently reshuffle the canvas.
+type Composer struct {
+	ID        string          `toml:"id" json:"id"`
+	Canvas    CanvasDims      `toml:"canvas" json:"canvas"`
+	Inputs    []ComposerInput `toml:"inputs" json:"inputs"`
+	Layout    []LayoutSlot    `toml:"layout" json:"layout"`
+	CreatedAt time.Time       `toml:"created_at" json:"created_at"`
+	UpdatedAt time.Time       `toml:"updated_at" json:"updated_at"`
+}
+
+// CanvasDims is the output canvas size the composer renders to. Streams
+// pulling from this composer encode at these dimensions.
+type CanvasDims struct {
+	W int `toml:"w" json:"w"`
+	H int `toml:"h" json:"h"`
+}
+
+// ComposerInput binds a Source to this composer with an optional effect.
+// Ref is `source:<id>`.
+type ComposerInput struct {
+	Ref    string  `toml:"ref" json:"ref"`
+	Effect *Effect `toml:"effect,omitempty" json:"effect,omitempty"`
+}
+
+// LayoutSlot positions one input on the canvas. Input is the matching
+// ComposerInput.Ref (by name, not positional).
+type LayoutSlot struct {
+	Input string `toml:"input" json:"input"`
+	X     int    `toml:"x" json:"x"`
+	Y     int    `toml:"y" json:"y"`
+	W     int    `toml:"w" json:"w"`
+	H     int    `toml:"h" json:"h"`
+}
+
+// Effect is a per-input transformation applied by the composer. Today
+// only "perspective" is implemented; new types tag-union via Type and
+// extend with their own fields.
+type Effect struct {
+	Type    string    `toml:"type" json:"type"`
+	Corners [4][2]int `toml:"corners,omitempty" json:"corners,omitempty"`
+}
+
+// ComposerStage is the per-Composer supervised `videonode-composer`
+// process. Reads N source SCM sockets, GLES-composites onto a BGRA
+// canvas, broadcasts the canvas dma-buf via SCM_RIGHTS (`--scm-out`).
+//
+// Per-frame layout / effect / source-state config flows over the
+// per-instance gRPC control plane (Composer.SetCanvas / SetSource /
+// SetLayout / SetEffects / SetSourceState). The boot argv is bare;
+// everything dynamic is daemon-pushed post-spawn.
 type ComposerStage struct {
-	StreamID_  string // user-facing stream id
-	BinaryPath string // path to videonode-composer binary
-	DRMDevice  string // e.g. "/dev/dri/renderD130" on the rig
-	CanvasFPS  int    // pre-ready tick rate (daemon's SetCanvas wins once pushed)
-	// GrpcUds is the per-instance UDS the composer binds. Required —
-	// the GPU composer path needs the daemon's control plane (without
-	// it, the composer renders solid black forever).
-	GrpcUds string
+	ComposerID string
+	BinaryPath string
+	DRMDevice  string
+	CanvasFPS  int
+	GrpcUds    string
 }
 
-// ComposerPoolKey returns the pool.Pool key for a stream's composer.
-func ComposerPoolKey(streamID string) string {
-	return "composer:" + streamID
-}
+// ComposerPoolKey returns the pool.Pool key for a composer.
+func ComposerPoolKey(composerID string) string { return "composer:" + composerID }
 
-// ComposerIDFor returns the stable composer-id the daemon tells the
-// composer to identify as. Matches the convention used by the legacy
-// canvas_processor_gpu.go composerIDFor.
-func ComposerIDFor(streamID string) string {
-	return streamID + "-composer"
-}
+// ComposerIDFor returns the stable composer-id identifier used by the
+// daemon control plane.
+func ComposerIDFor(composerID string) string { return composerID }
 
 // ID returns the stage's process.Pool key.
-func (c *ComposerStage) ID() string { return ComposerPoolKey(c.StreamID_) }
+func (c *ComposerStage) ID() string { return ComposerPoolKey(c.ComposerID) }
 
 // Kind reports this as a Composer stage.
 func (c *ComposerStage) Kind() Kind { return KindComposer }
 
-// StreamID returns the user-facing stream id.
-func (c *ComposerStage) StreamID() string { return c.StreamID_ }
+// StreamID returns "" — composers are independent entities, not stream-
+// scoped, in the post-refactor model.
+func (c *ComposerStage) StreamID() string { return "" }
 
-// SCMOutSocketPath returns the canvas output socket the composer binds
-// (--scm-out). The encoder dials this via vn-sink.
+// SCMOutSocketPath returns the canvas output socket the composer binds.
 func (c *ComposerStage) SCMOutSocketPath() string {
-	return SCMSocketPathFor("composer-" + c.StreamID_)
+	return SCMSocketPathFor("composer-" + c.ComposerID)
 }
 
-// Command returns the videonode-composer argv. Always uses --scm-out
-// (no stdout-pipe mode in production), so encoder restart doesn't kill
-// the composer via EPIPE.
+// Command returns the videonode-composer argv.
 func (c *ComposerStage) Command() ([]string, []string, error) {
 	if c.BinaryPath == "" {
 		return nil, nil, errors.New("composer: BinaryPath is required")
@@ -79,7 +116,7 @@ func (c *ComposerStage) Command() ([]string, []string, error) {
 		c.BinaryPath,
 		"--drm-device", c.DRMDevice,
 		"--grpc-listen", c.GrpcUds,
-		"--composer-id", ComposerIDFor(c.StreamID_),
+		"--composer-id", c.ComposerID,
 		"--scm-out", c.SCMOutSocketPath(),
 		"--target-fps", strconv.Itoa(fps),
 	}
@@ -88,30 +125,18 @@ func (c *ComposerStage) Command() ([]string, []string, error) {
 
 // LogParser uses the ffmpeg parser — composer emits the same
 // `[level] msg` format via vn::log helpers.
-func (c *ComposerStage) LogParser() process.LogParser {
-	return ffmpeg.ParseLogLevel
-}
+func (c *ComposerStage) LogParser() process.LogParser { return ffmpeg.ParseLogLevel }
 
-// LogAttrs tags composer logs with the user-facing stream id + the
-// pool-key instance.
+// LogAttrs tags composer logs with the composer id + pool-key instance.
 func (c *ComposerStage) LogAttrs() []slog.Attr {
 	return []slog.Attr{
-		slog.String("stream_id", c.StreamID_),
+		slog.String("composer_id", c.ComposerID),
 		slog.String("stage_instance", c.ID()),
 	}
 }
 
-// Reconfigure: most composer config (canvas dims, slot bindings,
-// layout, per-source effects + state) lives on the control plane and
-// applies hot via the existing pipelinectl RPCs. The Pipeline's
-// reconfigure path is responsible for routing the diff to the right
-// RPC; this Stage.Reconfigure returns nil to signal "hot updates
-// available — caller should push via control plane." Truly
-// non-hot-applicable changes (DRM device path, GrpcUds path) return
-// ErrRequiresRestart.
-//
-// For the initial cut we accept anything as "control-plane handled" —
-// the Pipeline will refine the spec-diff routing in a follow-up
-// commit. Callers that explicitly want restart pass a non-nil spec
-// with a sentinel; today we don't surface that.
+// Reconfigure: composer config (canvas dims, layout, effects, source
+// state) hot-applies via the gRPC control plane; the Pipeline routes
+// diffs to the right RPC. Truly non-hot changes (DRM device path,
+// GrpcUds path) require restart.
 func (c *ComposerStage) Reconfigure(_ any) error { return nil }

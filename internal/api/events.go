@@ -26,16 +26,22 @@ func (s *Server) registerSSERoutes() {
 		Errors:      []int{401},
 	}, func() map[string]any {
 		eventTypes := map[string]any{
-			"device-discovery":       events.DeviceDiscoveryEvent{},
-			"stream-created":         events.StreamCreatedEvent{},
-			"stream-updated":         events.StreamUpdatedEvent{},
-			"stream-deleted":         events.StreamDeletedEvent{},
-			"stream-state-changed":   events.StreamStateChangedEvent{},
-			"stage-state-changed":    events.StageStateChangedEvent{},
-			"pipeline-state-changed": events.PipelineStateChangedEvent{},
-			"canvas-restarted":       events.CanvasRestartedEvent{},
-			"source-status":          events.SourceStatusEvent{},
-			"heartbeat":              events.HeartbeatEvent{},
+			"device-discovery":        events.DeviceDiscoveryEvent{},
+			"stream-created":          events.StreamCreatedEvent{},
+			"stream-updated":          events.StreamUpdatedEvent{},
+			"stream-deleted":          events.StreamDeletedEvent{},
+			"stream-state-changed":    events.StreamStateChangedEvent{},
+			"stage-state-changed":     events.StageStateChangedEvent{},
+			"pipeline-state-changed":  events.PipelineStateChangedEvent{},
+			"source-status":           events.SourceStatusEvent{},
+			"source-created":          events.SourceCreatedEvent{},
+			"source-updated":          events.SourceUpdatedEvent{},
+			"source-deleted":          events.SourceDeletedEvent{},
+			"composer-created":        events.ComposerCreatedEvent{},
+			"composer-updated":        events.ComposerUpdatedEvent{},
+			"composer-deleted":        events.ComposerDeletedEvent{},
+			"composer-layout-changed": events.ComposerLayoutChangedEvent{},
+			"heartbeat":               events.HeartbeatEvent{},
 		}
 
 		// Add OBS events for this endpoint
@@ -52,10 +58,16 @@ func (s *Server) registerSSERoutes() {
 			events.SubscribeToChannel[events.StreamDeletedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.StreamStateChangedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.StreamMetricsEvent](s.eventBus, eventCh),
-			events.SubscribeToChannel[events.CanvasRestartedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.SourceStatusEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.StageStateChangedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.PipelineStateChangedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.SourceCreatedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.SourceUpdatedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.SourceDeletedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.ComposerCreatedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.ComposerUpdatedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.ComposerDeletedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.ComposerLayoutChangedEvent](s.eventBus, eventCh),
 		}
 		defer func() {
 			for _, unsub := range unsubscribers {

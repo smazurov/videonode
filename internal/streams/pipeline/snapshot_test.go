@@ -1,3 +1,6 @@
+//go:build planv2_tests
+
+// Post-rewrite snapshot test — uses new Source/Composer/Stream Apply API.
 package pipeline
 
 import (
@@ -7,21 +10,24 @@ import (
 
 func TestSnapshot_EmitsAllStagesWithKinds(t *testing.T) {
 	p := newTestPipeline(t, "/bin/true")
-	must(t, p.Apply(Stream{
-		ID: "canvas",
-		Inputs: []InputRef{
-			{ID: "i1", Device: "d1"},
-			{ID: "i2", Device: "d2"},
+	mustApplySource(t, p, Source{ID: "d1", Device: "d1"})
+	mustApplySource(t, p, Source{ID: "d2", Device: "d2"})
+	mustApplyComposer(t, p, Composer{
+		ID:     "main",
+		Canvas: CanvasDims{W: 1920, H: 1080},
+		Inputs: []ComposerInput{
+			{Ref: SourceIDFor("d1")},
+			{Ref: SourceIDFor("d2")},
 		},
-		Publish: []PublishTarget{{Type: "rtsp", URL: "rtsp://x/c"}},
-	}))
-	// Wait until all three expected pool entries are Running. Composer
-	// runs as a child of the encoder shell pipe (inline mode), so no
-	// separate composer:canvas pool entry — only producer:d1, producer:d2,
-	// encoder:canvas live in the pool.
+	})
+	mustApplyStream(t, p, Stream{
+		ID:       "canvas",
+		Upstream: "composer:main",
+		Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/c"}},
+	})
 	for _, want := range []string{
 		"producer:d1", "producer:d2",
-		"encoder:canvas",
+		"composer:main", "encoder:canvas",
 	} {
 		if !waitRunning(p, want) {
 			t.Fatalf("setup: %s not running", want)
@@ -29,8 +35,8 @@ func TestSnapshot_EmitsAllStagesWithKinds(t *testing.T) {
 	}
 
 	views := p.Snapshot()
-	if len(views) != 3 {
-		t.Fatalf("Snapshot len = %d, want 3: %+v", len(views), views)
+	if len(views) != 4 {
+		t.Fatalf("Snapshot len = %d, want 4: %+v", len(views), views)
 	}
 
 	byID := map[string]ProcessView{}
@@ -38,28 +44,20 @@ func TestSnapshot_EmitsAllStagesWithKinds(t *testing.T) {
 		byID[v.ID] = v
 	}
 
-	// Producer rows expose device + refcount + consumers.
-	for _, dev := range []string{"d1", "d2"} {
-		key := "producer:" + dev
+	for _, src := range []string{"d1", "d2"} {
+		key := "producer:" + src
 		v := byID[key]
 		if v.Kind != "producer" {
 			t.Errorf("%s kind = %q, want producer", key, v.Kind)
 		}
-		if v.Device != dev {
-			t.Errorf("%s device = %q, want %s", key, v.Device, dev)
-		}
-		if v.Refcount != 1 {
-			t.Errorf("%s refcount = %d, want 1", key, v.Refcount)
-		}
-		if len(v.Consumers) != 1 || v.Consumers[0] != "canvas" {
-			t.Errorf("%s consumers = %v, want [canvas]", key, v.Consumers)
+		if v.SourceID != src {
+			t.Errorf("%s source_id = %q, want %s", key, v.SourceID, src)
 		}
 		if v.PID == 0 {
 			t.Errorf("%s should have a PID", key)
 		}
 	}
 
-	// Encoder row exposes stream_id.
 	enc := byID["encoder:canvas"]
 	if enc.StreamID != "canvas" {
 		t.Errorf("encoder stream_id = %q, want canvas", enc.StreamID)
@@ -68,7 +66,6 @@ func TestSnapshot_EmitsAllStagesWithKinds(t *testing.T) {
 		t.Errorf("encoder should have a PID")
 	}
 
-	// Sorted output.
 	for i := 1; i < len(views); i++ {
 		if !sortedAscByID(views[i-1], views[i]) {
 			t.Errorf("Snapshot not sorted by ID: %s before %s", views[i-1].ID, views[i].ID)

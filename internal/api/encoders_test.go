@@ -1,3 +1,8 @@
+//go:build !planv2_tests
+
+// Pre-rewrite encoders-validation test — drives the monolithic
+// StreamService interface (StreamSpec, etc.) which B9 splits up.
+// Excluded from planv2_tests builds; replaced once B9 lands.
 package api
 
 import (

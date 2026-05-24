@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { components } from '../lib/api.generated';
 import { api, unwrap } from '../lib/api';
 
-export type ProcessView = components['schemas']['ProcessView'];
+export type ProcessEntry = components['schemas']['ProcessEntry'];
 
 interface UseProcessesOptions {
   enabled?: boolean;
@@ -10,7 +10,7 @@ interface UseProcessesOptions {
 }
 
 interface UseProcessesResult {
-  processes: ProcessView[];
+  processes: ProcessEntry[];
   loading: boolean;
   error: string | null;
 }
@@ -19,7 +19,7 @@ export function useProcesses({
   enabled = true,
   intervalMs = 2000,
 }: UseProcessesOptions = {}): UseProcessesResult {
-  const [processes, setProcesses] = useState<ProcessView[]>([]);
+  const [processes, setProcesses] = useState<ProcessEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

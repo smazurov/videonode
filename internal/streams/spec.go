@@ -4,8 +4,34 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/types"
 )
+
+// Source re-exports the canonical producer descriptor from the pipeline
+// package. The service-layer split (B9) treats sources as first-class
+// entities; this alias lets api/service consumers use one set of types.
+type Source = pipeline.Source
+
+// Composer re-exports the canonical composer descriptor.
+type Composer = pipeline.Composer
+
+// ComposerInput re-exports the canonical composer input descriptor.
+type ComposerInput = pipeline.ComposerInput
+
+// ComposerLayoutSlot re-exports the canonical composer layout slot.
+type ComposerLayoutSlot = pipeline.LayoutSlot
+
+// ComposerEffect re-exports the canonical composer effect descriptor.
+type ComposerEffect = pipeline.Effect
+
+// ComposerCanvasDims re-exports the canonical composer canvas dimensions.
+type ComposerCanvasDims = pipeline.CanvasDims
+
+// PipelineStream re-exports the canonical slim stream descriptor. (The
+// short name "Stream" in this package already designates a runtime
+// state struct; PipelineStream is the persisted shape used by Apply.)
+type PipelineStream = pipeline.Stream
 
 // StreamSpec is the persistent configuration for one stream.
 type StreamSpec struct {
@@ -13,6 +39,13 @@ type StreamSpec struct {
 	Name     string `toml:"name" json:"name"`
 	Device   string `toml:"device" json:"device"` // "usb-BUS-PORT", resolved to /dev/videoX at runtime
 	TestMode bool   `toml:"test_mode" json:"test_mode"`
+
+	// Upstream is the explicit v2-style upstream reference ("source:<id>" or
+	// "composer:<id>"). When non-empty it overrides the legacy Device-based
+	// derivation, letting a stream point at a composer entity instead of a
+	// same-id producer. Persisted so the daemon can replay composer-backed
+	// streams across restarts.
+	Upstream string `toml:"upstream,omitempty" json:"upstream,omitempty"`
 
 	FFmpeg FFmpegConfig `toml:"ffmpeg" json:"ffmpeg"`
 

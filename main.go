@@ -25,6 +25,7 @@ import (
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
+	"github.com/smazurov/videonode/internal/streams/services"
 	"github.com/smazurov/videonode/internal/streams/store"
 	"github.com/smazurov/videonode/internal/updater"
 )
@@ -33,9 +34,13 @@ import (
 // subcommand here when registering it below; the lightweight-boot check
 // uses this list to short-circuit the heavy server init.
 var subcommandNames = []string{
+	"composer",
+	"migrate-config",
 	"openapi",
-	"validate-encoders",
+	"source",
 	"stream",
+	"validate-config",
+	"validate-encoders",
 	"version",
 }
 
@@ -246,7 +251,18 @@ func main() {
 			DRMDevice:      "/dev/dri/renderD128",
 			DeviceResolver: streams.MakeDeviceResolver(logger),
 			EventBus:       eventBus,
+			ControlServer:  ctlServer,
 		}, logger)
+
+		// Lazy encoder lifecycle: idle the encoder once the last consumer
+		// disconnects, restart it on the next consumer attach. Producers
+		// and composers stay warm across the cycle.
+		streamingServer.SetOnLastReaderGone(func(streamID string) {
+			_ = nativePipeline.StopEncoder(streamID)
+		})
+		streamingServer.SetOnEnsureStream(func(streamID string) error {
+			return nativePipeline.EnsureEncoder(streamID)
+		})
 
 		serviceOpts := &streams.ServiceOptions{
 			Store:            streamStore,
@@ -264,11 +280,42 @@ func main() {
 
 		streamService := streams.NewStreamService(serviceOpts)
 
+		// B9: instantiate the new SourceService + ComposerService backed by
+		// the v2 EntityStore + pipeline.Pipeline. The legacy StreamService
+		// still serves /api/streams; sources and composers route through
+		// these dedicated services.
+		entityStore, _ := streamStore.(streams.EntityStore)
+		var (
+			sourceSvc   api.SourceService
+			composerSvc api.ComposerService
+		)
+		if entityStore != nil {
+			sourceSvc = services.NewSourceService(services.SourceServiceOptions{
+				Store:    entityStore,
+				Pipeline: nativePipeline,
+			})
+			composerSvc = services.NewComposerService(services.ComposerServiceOptions{
+				Store:    entityStore,
+				Pipeline: nativePipeline,
+			})
+		}
+
 		// Load existing streams from TOML config into memory at startup
 		// This must happen after stream service is created so OBS callbacks are registered
 		// Runtime stream management should use CRUD APIs (not reload)
 		if err := streamService.LoadStreamsFromConfig(); err != nil {
 			logger.Warn("Failed to load existing streams from config", "error", err)
+		}
+
+		// Replay v2 entities (sources, composers, streams) into the pipeline.
+		// LoadStreamsFromConfig only iterates legacy StreamSpec; without this
+		// pass the pipeline.stages map is empty after restart for any v2-only
+		// install, so the first consumer attach errors with
+		// "no cached encoder stage" until the user re-PUTs each entity.
+		if entityStore != nil {
+			if err := streams.ReplayV2Entities(entityStore, nativePipeline); err != nil {
+				logger.Warn("Failed to replay v2 entities", "error", err)
+			}
 		}
 
 		// Initialize update service if enabled
@@ -298,6 +345,8 @@ func main() {
 		apiOpts := &api.Options{
 			Authenticator:          authenticator,
 			StreamService:          streamService,
+			SourceService:          sourceSvc,
+			ComposerService:        composerSvc,
 			EventBus:               eventBus,
 			WebRTCManager:          webrtcManager,
 			StreamProvider:         streamingServer,
@@ -425,20 +474,20 @@ func main() {
 	// the server uses (flag → env → default). We can't reuse opts.StreamsConfigFile
 	// here because the lightweight subcommand short-circuits the humacli init that
 	// populates it.
-	validateCmd := cmd.CreateValidateEncodersCmd(cmd.ResolveStreamsConfigPath)
-	cli.Root().AddCommand(validateCmd)
+	cli.Root().AddCommand(cmd.CreateValidateEncodersCmd(cmd.ResolveStreamsConfigPath))
+	cli.Root().AddCommand(cmd.CreateValidateConfigCmd(cmd.ResolveStreamsConfigPath))
+	cli.Root().AddCommand(cmd.CreateMigrateConfigCmd())
 
-	// Add stream command
-	streamCmd := cmd.CreateStreamCmd()
-	cli.Root().AddCommand(streamCmd)
+	// Add entity-CRUD subcommands. Each is a thin REST client; the daemon owns the schema.
+	cli.Root().AddCommand(cmd.CreateSourceCmd())
+	cli.Root().AddCommand(cmd.CreateComposerCmd())
+	cli.Root().AddCommand(cmd.CreateStreamCmd())
 
 	// Add openapi command
-	openapiCmd := cmd.CreateOpenAPICmd()
-	cli.Root().AddCommand(openapiCmd)
+	cli.Root().AddCommand(cmd.CreateOpenAPICmd())
 
 	// Add version command
-	versionCmd := cmd.CreateVersionCmd()
-	cli.Root().AddCommand(versionCmd)
+	cli.Root().AddCommand(cmd.CreateVersionCmd())
 
 	// Run the CLI
 	cli.Run()

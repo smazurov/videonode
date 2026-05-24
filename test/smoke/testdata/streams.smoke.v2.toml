@@ -1,0 +1,26 @@
+version = 2
+
+# v2 shape: top-level [[sources]] / [[composers]] / [[streams]] with
+# explicit upstream refs. Used by the planv2_tests-tagged smoke run
+# (test/smoke/pipeline_test.go) once foundation units B1/B2 land.
+
+[[sources]]
+id = "smoke-virtual-pipeline"
+test_mode = true
+
+[[sources]]
+id = "smoke-virtual-source"
+test_mode = true
+
+[[streams]]
+id = "smoke-pipeline"
+name = "smoke-pipeline"
+upstream = "source:smoke-virtual-pipeline"
+
+[streams.smoke-pipeline.encoder]
+codec = "h264"
+bitrate = "2M"
+
+[[streams.smoke-pipeline.publish]]
+type = "rtsp"
+url = "rtsp://127.0.0.1:8554/smoke-pipeline"
