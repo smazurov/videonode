@@ -5,7 +5,8 @@ type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
 export interface EmptyStateProps {
   readonly icon?: IconComponent;
-  readonly headline: React.ReactNode;
+  readonly headline?: React.ReactNode;
+  readonly title?: React.ReactNode; // alias for headline (back-compat)
   readonly description?: React.ReactNode;
   readonly cta?: React.ReactNode;
   readonly className?: string;
@@ -14,10 +15,12 @@ export interface EmptyStateProps {
 export function EmptyState({
   icon: Icon,
   headline,
+  title,
   description,
   cta,
   className,
 }: Readonly<EmptyStateProps>) {
+  const effectiveHeadline = headline ?? title;
   return (
     <div
       className={cn(
@@ -31,7 +34,7 @@ export function EmptyState({
           <Icon className="h-6 w-6 text-fg-muted" />
         </div>
       )}
-      <h3 className="text-base font-semibold text-fg">{headline}</h3>
+      <h3 className="text-base font-semibold text-fg">{effectiveHeadline}</h3>
       {description && (
         <p className="mt-2 max-w-sm text-sm text-fg-muted">{description}</p>
       )}

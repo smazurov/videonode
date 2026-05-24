@@ -5,11 +5,15 @@ import { cva, cn, type VariantProps } from "../../utils";
 export type SortDirection = "asc" | "desc";
 
 export interface DataTableColumn<T> {
-  readonly id: string;
-  readonly label: React.ReactNode;
-  readonly accessor: (row: T) => React.ReactNode;
+  readonly id?: string;
+  readonly key?: string; // alias for id (back-compat)
+  readonly label?: React.ReactNode;
+  readonly header?: React.ReactNode; // alias for label (back-compat with U12 panels)
+  readonly accessor?: (row: T) => React.ReactNode;
+  readonly cell?: (row: T) => React.ReactNode; // alias for accessor
   /** Optional custom comparator. Required to mark a column sortable when accessor isn't a primitive. */
   readonly sort?: (a: T, b: T) => number;
+  readonly sortValue?: (row: T) => number | string | undefined; // back-compat
   /** Whether this column is sortable (defaults to true if sort is provided). */
   readonly sortable?: boolean;
   readonly align?: "left" | "right" | "center";
@@ -42,7 +46,7 @@ export interface DataTableProps<T> extends VariantProps<typeof tableVariants> {
   readonly onFilterChange?: (next: string) => void;
   readonly emptyState?: React.ReactNode;
   readonly className?: string;
-  readonly initialSort?: { columnId: string; direction: SortDirection };
+  readonly initialSort?: { columnId?: string; key?: string; direction: SortDirection };
 }
 
 function defaultRowMatch(row: unknown, needle: string): boolean {
@@ -72,7 +76,8 @@ const alignClass = (align: DataTableColumn<unknown>["align"]): string => {
 export function DataTable<T>({
   columns,
   rows,
-  getRowId,
+  getRowId: getRowIdProp,
+  rowKey,
   onRowClick,
   selection,
   onSelectionChange,
@@ -82,8 +87,12 @@ export function DataTable<T>({
   density,
   initialSort,
 }: Readonly<DataTableProps<T>>) {
+  // Resolve row-id callback: prefer getRowId, fall back to rowKey (alias),
+  // then to a positional stringified index.
+  const getRowId: (row: T) => string =
+    getRowIdProp ?? rowKey ?? ((row) => String((row as { id?: unknown }).id ?? ""));
   const [sortState, setSortState] = useState<{ columnId: string; direction: SortDirection } | null>(
-    initialSort ?? null,
+    initialSort ? { columnId: initialSort.columnId ?? initialSort.key ?? "", direction: initialSort.direction } : null,
   );
 
   const selectionEnabled = selection !== undefined;
@@ -109,11 +118,11 @@ export function DataTable<T>({
     const sortable = col.sortable ?? Boolean(col.sort);
     if (!sortable || !col.sort) return;
     setSortState((prev) => {
-      if (!prev || prev.columnId !== col.id) {
-        return { columnId: col.id, direction: "asc" };
+      if (!prev || prev.columnId !== (col.id ?? col.key ?? "")) {
+        return { columnId: (col.id ?? col.key ?? ""), direction: "asc" };
       }
       if (prev.direction === "asc") {
-        return { columnId: col.id, direction: "desc" };
+        return { columnId: (col.id ?? col.key ?? ""), direction: "desc" };
       }
       return null;
     });
@@ -173,10 +182,10 @@ export function DataTable<T>({
             )}
             {columns.map((col) => {
               const sortable = (col.sortable ?? Boolean(col.sort)) && Boolean(col.sort);
-              const active = sortState?.columnId === col.id;
+              const active = sortState?.columnId === (col.id ?? col.key ?? "");
               return (
                 <th
-                  key={col.id}
+                  key={(col.id ?? col.key ?? "")}
                   scope="col"
                   className={cn(
                     "px-3 font-semibold",
@@ -238,10 +247,10 @@ export function DataTable<T>({
                   )}
                   {columns.map((col) => (
                     <td
-                      key={col.id}
+                      key={(col.id ?? col.key ?? "")}
                       className={cn("px-3 align-middle text-fg", alignClass(col.align), col.className)}
                     >
-                      {col.accessor(row)}
+                      {(col.accessor ?? col.cell ?? (() => null))(row)}
                     </td>
                   ))}
                 </tr>

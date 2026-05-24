@@ -19,6 +19,7 @@ import type { Source } from './slices/types';
 // the store module (earlier U3/U7 store stubs).
 export type { Source } from './slices/types';
 export type SourceData = Source;
+export type SourceEntry = Source;
 export type SourceRequestData = { id: string; device?: string; test_mode?: boolean };
 export interface SourceConsumerRef {
   kind: 'composer' | 'stream';

@@ -1,6 +1,8 @@
 import type { components } from '../../lib/api.generated';
 
-type StreamData = components['schemas']['StreamData'];
+// Accepts the canonical StreamData or the looser StoredStream shape used
+// by the store (StreamData with optional legacy fields).
+type StreamData = Partial<components['schemas']['StreamData']> & { stream_id: string };
 
 export interface UpstreamRef {
   readonly raw: string;

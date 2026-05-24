@@ -20,6 +20,7 @@ export type { Composer, ComposerInput } from './slices/types';
 export type ComposerLayoutSlot = LayoutSlot;
 export type ComposerEffect = Effect;
 export type ComposerData = Composer;
+export interface AvailableSource { id: string; label?: string }
 
 export interface ComposerStore
   extends ComposerDataSlice,

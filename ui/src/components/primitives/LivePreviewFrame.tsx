@@ -16,6 +16,18 @@ export interface LivePreviewFrameProps {
   readonly className?: string;
   readonly mediaClassName?: string;
   readonly children?: React.ReactNode;
+  // Back-compat props accepted by U12 consumers — primitive doesn't render
+  // a stream itself; the caller is expected to render the WebRTC video as
+  // children. These props are no-ops in the primitive but stop TS errors.
+  readonly streamId?: string;
+  readonly enabled?: boolean;
+  readonly refreshKey?: number;
+  readonly showStats?: boolean;
+  // Image-style props for snapshot-based previews (U6's SourceLivePreview).
+  readonly loading?: boolean;
+  readonly error?: string | null;
+  readonly src?: string;
+  readonly alt?: string;
 }
 
 const statsPositionClasses: Record<NonNullable<LivePreviewFrameProps["statsPosition"]>, string> = {

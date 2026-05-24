@@ -2,10 +2,11 @@ import React from "react";
 import { cn } from "../../utils";
 
 export interface KVItem {
-  readonly label: React.ReactNode;
+  readonly label?: React.ReactNode;
   readonly value: React.ReactNode;
   readonly hint?: React.ReactNode;
-  readonly key?: string;
+  readonly key?: string; // doubles as label when label is omitted (back-compat)
+  readonly mono?: boolean; // render value in monospace font (back-compat)
 }
 
 // KVEntry is an alias for KVItem retained for back-compat with earlier
@@ -17,6 +18,7 @@ export interface KVInspectorProps {
   readonly entries?: readonly KVItem[]; // alias for items (back-compat)
   readonly dense?: boolean;
   readonly className?: string;
+  readonly emptyText?: React.ReactNode;
 }
 
 export function KVInspector({

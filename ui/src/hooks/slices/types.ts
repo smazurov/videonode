@@ -8,12 +8,22 @@
 import type { components } from '../../lib/api.generated';
 
 // Source — daemon-managed frame producer, often shared across composers/streams.
+// Status/consumer fields are runtime augmentations populated by SSE; not
+// part of the canonical Go Source type.
 export interface Source {
   id: string;
   device?: string;
   test_mode?: boolean;
   created_at?: string;
   updated_at?: string;
+  // Runtime fields (populated by SourceStatusEvent / consumer tracking)
+  source_id?: string;
+  status?: any;
+  latest_status?: any;
+  consumers?: { kind: 'composer' | 'stream'; id: string }[];
+  consumer_count?: number;
+  last_status_at?: string;
+  running_since?: string;
 }
 
 export interface SourceRequest {

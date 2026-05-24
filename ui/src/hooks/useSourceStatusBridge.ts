@@ -43,6 +43,7 @@ export function useSourceStatusBridge(): void {
         const sourceId = parsed.id;
         seen.add(sourceId);
         upsertSource({
+          id: sourceId,
           source_id: sourceId,
           test_mode: !!(stream as unknown as { test_mode?: boolean }).test_mode,
         });

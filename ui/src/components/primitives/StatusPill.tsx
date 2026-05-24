@@ -44,6 +44,8 @@ const dotVariants = cva({
 });
 
 export type StatusPillStatus = NonNullable<VariantProps<typeof pillVariants>["status"]>;
+// Back-compat alias used by U12's StreamList.
+export type StatusPillTone = StatusPillStatus;
 
 export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
   readonly status?: StatusPillStatus;
