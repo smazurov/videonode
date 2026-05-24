@@ -96,6 +96,17 @@ func (s *Server) registerStreamRoutes() {
 	) (*models.StreamResponse, error) {
 		body := input.Body
 
+		// Snapshot before the patch so we can hand both shapes to the
+		// SSE dep engine. A retarget (upstream A→B) must touch BOTH
+		// upstreams; without prev the old one stays stale.
+		var prevAPI *models.StreamData
+		if s.streamEntity != nil {
+			if prev, gerr := s.streamService.Get(ctx, input.StreamID); gerr == nil && prev != nil {
+				snap := s.streamToAPI(*prev)
+				prevAPI = &snap
+			}
+		}
+
 		updated, err := s.streamService.Update(ctx, input.StreamID, func(st *pipeline.Stream) error {
 			applyStreamPatch(st, body)
 			s.ensureLocalPublishTargets(st)
@@ -114,7 +125,11 @@ func (s *Server) registerStreamRoutes() {
 			})
 		}
 		if s.streamEntity != nil {
-			s.streamEntity.PublishUpdated(apiStream)
+			if prevAPI != nil {
+				s.streamEntity.PublishUpdatedWith(*prevAPI, apiStream)
+			} else {
+				s.streamEntity.PublishUpdated(apiStream)
+			}
 		}
 		return &models.StreamResponse{Body: apiStream}, nil
 	})
@@ -132,6 +147,18 @@ func (s *Server) registerStreamRoutes() {
 		StreamID string `path:"stream_id" example:"stream-001" doc:"Stream identifier"`
 	},
 	) (*struct{}, error) {
+		// Snapshot before delete so the SSE dependency engine can fan
+		// out to entities that referenced this stream (e.g. the upstream
+		// source whose Consumers list named it). Missing snapshot is
+		// non-fatal — fall through to the nil-payload PublishDeleted.
+		var prevAPI *models.StreamData
+		if s.streamEntity != nil {
+			if prev, gerr := s.streamService.Get(ctx, input.StreamID); gerr == nil && prev != nil {
+				snap := s.streamToAPI(*prev)
+				prevAPI = &snap
+			}
+		}
+
 		if err := s.streamService.Delete(ctx, input.StreamID); err != nil {
 			return nil, s.mapStreamError(err)
 		}
@@ -144,7 +171,11 @@ func (s *Server) registerStreamRoutes() {
 			})
 		}
 		if s.streamEntity != nil {
-			s.streamEntity.PublishDeleted(input.StreamID)
+			if prevAPI != nil {
+				s.streamEntity.PublishDeletedWith(*prevAPI)
+			} else {
+				s.streamEntity.PublishDeleted(input.StreamID)
+			}
 		}
 
 		return &struct{}{}, nil
