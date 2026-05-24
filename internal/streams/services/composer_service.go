@@ -100,22 +100,41 @@ func (s *composerService) CreateComposer(_ context.Context, data models.Composer
 }
 
 // UpdateComposer applies a partial patch to an existing composer.
+// Layout-only and effect-only diffs hot-apply over the gRPC control
+// plane; canvas-dim or input-list diffs require a process restart and
+// re-apply via ApplyComposer.
 func (s *composerService) UpdateComposer(_ context.Context, id string, patch models.ComposerUpdateRequestData) (*models.ComposerData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	c, ok := s.store.GetComposerEntity(id)
+	prev, ok := s.store.GetComposerEntity(id)
 	if !ok {
 		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
 	}
+	c := prev
+	canvasChanged := false
+	inputsChanged := false
+	layoutChanged := false
 	if patch.Canvas != nil {
-		c.Canvas = pipeline.CanvasDims{W: patch.Canvas.W, H: patch.Canvas.H}
+		next := pipeline.CanvasDims{W: patch.Canvas.W, H: patch.Canvas.H}
+		if next != c.Canvas {
+			canvasChanged = true
+		}
+		c.Canvas = next
 	}
 	if patch.Inputs != nil {
-		c.Inputs = apiInputsToEntity(patch.Inputs)
+		next := apiInputsToEntity(patch.Inputs)
+		if !inputsEqual(c.Inputs, next) {
+			inputsChanged = true
+		}
+		c.Inputs = next
 	}
 	if patch.Layout != nil {
-		c.Layout = apiLayoutToEntity(patch.Layout)
+		next := apiLayoutToEntity(patch.Layout)
+		if !layoutEqual(c.Layout, next) {
+			layoutChanged = true
+		}
+		c.Layout = next
 	}
 	if err := validateComposerLayout(c); err != nil {
 		return nil, err
@@ -125,8 +144,18 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
 	}
 	if s.pipe != nil {
-		if err := s.pipe.ApplyComposer(c); err != nil {
-			s.logger.Warn("UpdateComposer: ApplyComposer failed", "composer_id", id, "error", err)
+		switch {
+		case canvasChanged || inputsChanged:
+			// Topology change — only a process restart re-binds the new
+			// canvas dims / source set. Drops vn-sink consumers as a
+			// consequence (they reconnect via the encoder restart).
+			if err := s.pipe.ApplyComposer(c); err != nil {
+				s.logger.Warn("UpdateComposer: ApplyComposer failed", "composer_id", id, "error", err)
+			}
+		case layoutChanged:
+			if err := s.pipe.UpdateComposerLayout(id, c.Layout); err != nil {
+				s.logger.Warn("UpdateComposer: UpdateComposerLayout failed", "composer_id", id, "error", err)
+			}
 		}
 	}
 	out := composerToAPI(c)
@@ -169,7 +198,9 @@ func (s *composerService) DeleteComposer(_ context.Context, id string) error {
 	return nil
 }
 
-// ReplaceLayout swaps the composer's full layout array.
+// ReplaceLayout swaps the composer's full layout array. Hot-applies via
+// the gRPC control plane — no process restart, so downstream vn-sink
+// consumers stay connected.
 func (s *composerService) ReplaceLayout(_ context.Context, id string, layout []models.LayoutSlotData) (*models.ComposerData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -187,8 +218,8 @@ func (s *composerService) ReplaceLayout(_ context.Context, id string, layout []m
 		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
 	}
 	if s.pipe != nil {
-		if err := s.pipe.ApplyComposer(c); err != nil {
-			s.logger.Warn("ReplaceLayout: ApplyComposer failed", "composer_id", id, "error", err)
+		if err := s.pipe.UpdateComposerLayout(id, c.Layout); err != nil {
+			s.logger.Warn("ReplaceLayout: UpdateComposerLayout failed", "composer_id", id, "error", err)
 		}
 	}
 	out := composerToAPI(c)
@@ -196,6 +227,7 @@ func (s *composerService) ReplaceLayout(_ context.Context, id string, layout []m
 }
 
 // SetInputEffect sets or clears the per-input effect for one input ref.
+// Hot-applies via the gRPC control plane — no process restart.
 func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effect *models.EffectData) (*models.ComposerData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -204,6 +236,7 @@ func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effe
 	if !ok {
 		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
 	}
+	var applied *pipeline.Effect
 	found := false
 	for i := range c.Inputs {
 		if c.Inputs[i].Ref == ref {
@@ -212,6 +245,7 @@ func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effe
 			} else {
 				c.Inputs[i].Effect = &pipeline.Effect{Type: effect.Type, Corners: effect.Corners}
 			}
+			applied = c.Inputs[i].Effect
 			found = true
 			break
 		}
@@ -227,12 +261,47 @@ func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effe
 		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
 	}
 	if s.pipe != nil {
-		if err := s.pipe.ApplyComposer(c); err != nil {
-			s.logger.Warn("SetInputEffect: ApplyComposer failed", "composer_id", id, "error", err)
+		if err := s.pipe.UpdateComposerEffect(id, ref, applied); err != nil {
+			s.logger.Warn("SetInputEffect: UpdateComposerEffect failed", "composer_id", id, "error", err)
 		}
 	}
 	out := composerToAPI(c)
 	return &out, nil
+}
+
+// inputsEqual returns true when two ComposerInput slices have the same
+// elements in the same order (ref + effect both compared field-wise).
+func inputsEqual(a, b []pipeline.ComposerInput) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Ref != b[i].Ref {
+			return false
+		}
+		ae, be := a[i].Effect, b[i].Effect
+		if (ae == nil) != (be == nil) {
+			return false
+		}
+		if ae != nil && (ae.Type != be.Type || ae.Corners != be.Corners) {
+			return false
+		}
+	}
+	return true
+}
+
+// layoutEqual returns true when two LayoutSlot slices match field-wise
+// in declared order.
+func layoutEqual(a, b []pipeline.LayoutSlot) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func validateComposerCreate(data models.ComposerCreateRequestData) error {

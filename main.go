@@ -251,6 +251,7 @@ func main() {
 			DRMDevice:      "/dev/dri/renderD128",
 			DeviceResolver: streams.MakeDeviceResolver(logger),
 			EventBus:       eventBus,
+			ControlServer:  ctlServer,
 		}, logger)
 
 		// Lazy encoder lifecycle: idle the encoder once the last consumer
