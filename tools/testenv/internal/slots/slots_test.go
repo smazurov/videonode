@@ -5,6 +5,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/smazurov/videonode/tools/testenv/internal/config"
 	"github.com/smazurov/videonode/tools/testenv/internal/store"
 )
 
@@ -14,59 +15,64 @@ func tempStore(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = s.Close() })
+	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+func testConfig() *config.V1 {
+	return &config.V1{
+		Version:  1,
+		MaxSlots: 9,
+		Ports: map[string]config.Port{
+			"http": {Base: 8090, Step: 10},
+			"rtsp": {Base: 8554, Step: 10},
+		},
+	}
 }
 
 func TestPickReturnsValidSlot(t *testing.T) {
 	s := tempStore(t)
-	held, err := Pick(s)
+	cfg := testConfig()
+	held, err := Pick(s, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer held.Release()
-	if held.Triple.Slot < 1 || held.Triple.Slot > MaxSlot {
-		t.Errorf("slot %d out of range [1..%d]", held.Triple.Slot, MaxSlot)
+	if held.Slot < 1 || held.Slot > cfg.MaxSlots {
+		t.Errorf("slot %d out of range [1..%d]", held.Slot, cfg.MaxSlots)
 	}
-	if len(held.Listeners) != 3 {
-		t.Errorf("expected 3 held listeners, got %d", len(held.Listeners))
+	if len(held.Listeners) != 2 {
+		t.Errorf("expected 2 listeners (http+rtsp), got %d", len(held.Listeners))
 	}
-}
-
-func TestPortsForSlot(t *testing.T) {
-	http, rtsp, srt := PortsForSlot(1)
-	if http != 8100 || rtsp != 8564 || srt != 6011 {
-		t.Errorf("unexpected ports for slot 1: %d %d %d", http, rtsp, srt)
-	}
-	http, rtsp, srt = PortsForSlot(9)
-	if http != 8180 || rtsp != 8644 || srt != 6091 {
-		t.Errorf("unexpected ports for slot 9: %d %d %d", http, rtsp, srt)
+	if held.Ports["http"] != cfg.PortForSlot("http", held.Slot) {
+		t.Errorf("http port mismatch: got %d want %d", held.Ports["http"], cfg.PortForSlot("http", held.Slot))
 	}
 }
 
 func TestPickSkipsBlockedPort(t *testing.T) {
 	s := tempStore(t)
+	cfg := testConfig()
 
-	// Block slot 1's HTTP port externally.
-	http1, _, _ := PortsForSlot(1)
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", http1))
+	port1 := cfg.PortForSlot("http", 1)
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port1))
 	if err != nil {
-		t.Skipf("cannot bind :%d for test setup: %v", http1, err)
+		t.Skipf("cannot bind :%d for test setup: %v", port1, err)
 	}
 	defer ln.Close()
 
-	held, err := Pick(s)
+	held, err := Pick(s, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer held.Release()
-	if held.Triple.Slot != 2 {
-		t.Errorf("expected slot 2 (slot 1 blocked), got %d", held.Triple.Slot)
+	if held.Slot == 1 {
+		t.Error("expected slot 1 to be skipped (port blocked)")
 	}
 }
 
 func TestPickSkipsTakenSlot(t *testing.T) {
 	s := tempStore(t)
+	cfg := testConfig()
 	e := store.Env{
 		ID: "e1", OwnerSession: "s", OwnerPID: 1, OwnerWorktree: "/tmp",
 		Target: "host", SourceMode: "fake", Slot: 1,
@@ -75,13 +81,12 @@ func TestPickSkipsTakenSlot(t *testing.T) {
 	if err := s.CreateEnv(e); err != nil {
 		t.Fatal(err)
 	}
-	held, err := Pick(s)
+	held, err := Pick(s, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer held.Release()
-	if held.Triple.Slot != 2 {
-		t.Errorf("expected slot 2 (slot 1 taken in DB), got %d", held.Triple.Slot)
+	if held.Slot == 1 {
+		t.Error("expected slot 1 to be skipped (taken in DB)")
 	}
 }
-

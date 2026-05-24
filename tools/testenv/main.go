@@ -29,6 +29,7 @@ type cli struct {
 	ReleaseSession cmd.ReleaseSessionCmd `cmd:"release-session" help:"Release everything a session owns."`
 	Reap           cmd.ReapCmd           `cmd:"" help:"Sweep stale env records."`
 	MCP            cmd.MCPCmd            `cmd:"" help:"Run as a stdio MCP server."`
+	Validate       cmd.ValidateCmd       `cmd:"" help:"Validate the .testenv.toml config."`
 	Install        cmd.InstallCmd        `cmd:"" help:"Write skills, hooks, and .mcp.json into a project."`
 	Hook           cmd.HookCmd           `cmd:"" help:"Hook handlers invoked by Claude Code settings.json."`
 	Version        cmd.VersionCmd        `cmd:"" help:"Print version + git commit captured at build."`
@@ -38,7 +39,7 @@ func main() {
 	var root cli
 	k := kong.Parse(&root,
 		kong.Name("testenv"),
-		kong.Description("Coordinator for parallel videonode test environments."),
+		kong.Description("Coordinator for parallel test environments."),
 		kong.UsageOnError(),
 	)
 	err := k.Run(&cmd.Context{

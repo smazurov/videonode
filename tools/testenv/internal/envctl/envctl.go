@@ -1,7 +1,7 @@
 // Package envctl is the single source of truth for testenv business
 // logic. Both the CLI (cmd/) and the MCP server (internal/mcpsrv/)
-// call into this package — neither may import store, slots, spawn, or
-// reaper directly. A compile-time import-graph test enforces this.
+// call into this package — neither may import store, slots, spawn,
+// reaper, or config directly. An import-graph test enforces this.
 package envctl
 
 import (
@@ -13,10 +13,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/smazurov/videonode/tools/testenv/internal/config"
 	"github.com/smazurov/videonode/tools/testenv/internal/reaper"
 	"github.com/smazurov/videonode/tools/testenv/internal/slots"
 	"github.com/smazurov/videonode/tools/testenv/internal/spawn"
@@ -28,24 +30,20 @@ import (
 type UpParams struct {
 	StatePath string
 	Session   string
-	Target    string // "host" | "sbc"
-	Source    string // "fake" | "real"
-	Device    string // e.g. "/dev/video0"
+	Locks     []string // exclusive resource leases
 }
 
 type UpResult struct {
 	EnvID   string
 	Slot    int
-	HTTPURL string
-	RTSPURL string
-	SRTURL  string
+	Ports   map[string]int // port name → number
 	DataDir string
 	PID     int
 }
 
 type DownParams struct {
 	StatePath string
-	EnvID     string // if empty, resolved from Session
+	EnvID     string
 	Session   string
 }
 
@@ -85,25 +83,13 @@ type ReapResult struct {
 // --- operations ---
 
 func Up(ctx context.Context, p UpParams) (UpResult, error) {
-	if p.Target == "" {
-		p.Target = "host"
-	}
-	if p.Source == "" {
-		p.Source = "fake"
-	}
-	if p.Target == "sbc" {
-		return UpResult{}, errors.New("--target sbc not implemented yet")
-	}
 	if p.Session == "" {
 		p.Session = "unattached-" + randHex(4)
 	}
 
-	worktree, err := os.Getwd()
+	cfg, err := config.Load(".")
 	if err != nil {
-		return UpResult{}, fmt.Errorf("getwd: %w", err)
-	}
-	if !isVideonodeRoot(worktree) {
-		return UpResult{}, fmt.Errorf("cwd %s is not a videonode worktree", worktree)
+		return UpResult{}, err
 	}
 
 	s, err := openStore(p.StatePath)
@@ -116,42 +102,42 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	if existing, err := s.GetEnvBySession(p.Session); err == nil {
 		return UpResult{
 			EnvID: existing.ID, Slot: existing.Slot,
-			HTTPURL: existing.HTTPURL, RTSPURL: existing.RTSPURL, SRTURL: existing.SRTURL,
 			DataDir: existing.DataDir, PID: existing.OwnerPID,
 		}, nil
 	}
 
 	envID := "env-" + randHex(4)
 	dataDir := filepath.Join(filepath.Dir(s.Path()), "envs", envID)
+	worktree, _ := os.Getwd()
 
 	var held *slots.Held
 	err = s.WithLock(func() error {
-		held, err = slots.Pick(s)
+		held, err = slots.Pick(s, cfg)
 		if err != nil {
 			return err
 		}
-		if p.Source == "real" {
-			resID := deviceResource(p.Device)
-			if holder, hErr := s.LeaseHolder(resID); hErr == nil && holder != "" {
+		for _, lock := range p.Locks {
+			if holder, hErr := s.LeaseHolder(lock); hErr == nil && holder != "" {
 				held.Release()
-				return formatLeaseConflict(s, resID, holder)
+				return formatLeaseConflict(s, lock, holder)
 			}
 		}
+		// First port in sorted order is used as the primary HTTP URL.
+		firstPort := held.Ports[cfg.PortNames()[0]]
 		env := store.Env{
 			ID: envID, OwnerSession: p.Session, OwnerPID: os.Getpid(),
-			OwnerWorktree: worktree, Target: p.Target, SourceMode: p.Source,
-			Slot: held.Triple.Slot, HTTPURL: held.Triple.HTTP,
-			RTSPURL: held.Triple.RTSP, SRTURL: held.Triple.SRT,
+			OwnerWorktree: worktree, Target: "host", SourceMode: derivedSourceMode(p.Locks),
+			Slot: held.Slot, HTTPURL: fmt.Sprintf("http://localhost:%d", firstPort),
+			RTSPURL: "", SRTURL: "",
 			DataDir: dataDir, StreamsTOML: filepath.Join(dataDir, "streams.toml"),
 		}
 		if err := s.CreateEnv(env); err != nil {
 			held.Release()
 			return err
 		}
-		if p.Source == "real" {
-			resID := deviceResource(p.Device)
-			if err := s.LeaseAcquire(resID, envID); err != nil {
-				_ = s.DeleteEnv(envID)
+		for _, lock := range p.Locks {
+			if err := s.LeaseAcquire(lock, envID); err != nil {
+				s.DeleteEnv(envID)
 				held.Release()
 				return err
 			}
@@ -163,20 +149,21 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	}
 
 	res, err := spawn.Spawn(ctx, spawn.Request{
-		EnvID: envID, Worktree: worktree, Target: p.Target,
-		SourceMode: p.Source, Device: p.Device,
-		DataDir: dataDir, Triple: held.Triple, HeldPorts: held,
+		Config:  cfg,
+		EnvID:   envID,
+		DataDir: dataDir,
+		Locks:   p.Locks,
+		Held:    held,
 	})
 	if err != nil {
-		_ = s.DeleteEnv(envID)
+		s.DeleteEnv(envID)
 		return UpResult{}, fmt.Errorf("spawn: %w", err)
 	}
-	_ = s.UpdateEnvAfterSpawn(envID, res.PID, res.NativeBinDir)
+	s.UpdateEnvAfterSpawn(envID, res.PID, "")
 
 	return UpResult{
-		EnvID: envID, Slot: held.Triple.Slot,
-		HTTPURL: held.Triple.HTTP, RTSPURL: held.Triple.RTSP, SRTURL: held.Triple.SRT,
-		DataDir: dataDir, PID: res.PID,
+		EnvID: envID, Slot: held.Slot,
+		Ports: held.Ports, DataDir: dataDir, PID: res.PID,
 	}, nil
 }
 
@@ -290,7 +277,6 @@ func ReleaseSession(ctx context.Context, statePath, session string) ([]string, e
 		return nil, err
 	}
 	defer s.Close()
-
 	envs, _ := s.ListEnvs()
 	for _, e := range envs {
 		if e.OwnerSession == session {
@@ -317,7 +303,7 @@ func ReleaseWorktree(ctx context.Context, statePath, worktreeDir string) ([]stri
 	for _, e := range envs {
 		if e.OwnerWorktree == worktreeDir {
 			signalDaemon(e.OwnerPID)
-			if delErr := s.DeleteEnv(e.ID); delErr == nil {
+			if s.DeleteEnv(e.ID) == nil {
 				released = append(released, e.ID)
 			}
 		}
@@ -335,6 +321,14 @@ func Reap(ctx context.Context, statePath string) (ReapResult, error) {
 	return ReapResult{Released: released}, err
 }
 
+func Validate(dir string) error {
+	cfg, err := config.Load(dir)
+	if err != nil {
+		return err
+	}
+	return cfg.Validate()
+}
+
 // --- helpers ---
 
 func openStore(statePath string) (*store.Store, error) {
@@ -344,11 +338,13 @@ func openStore(statePath string) (*store.Store, error) {
 	return store.Open(statePath)
 }
 
-func deviceResource(device string) string {
-	if device == "" {
-		device = "/dev/video0"
+func derivedSourceMode(locks []string) string {
+	for _, l := range locks {
+		if strings.HasPrefix(l, "device:") {
+			return "real"
+		}
 	}
-	return "device:" + device
+	return "fake"
 }
 
 func formatLeaseConflict(s *store.Store, resID, holderEnvID string) error {
@@ -366,44 +362,6 @@ func signalDaemon(pid int) {
 	}
 	_ = unix.Kill(-pid, unix.SIGTERM)
 	_ = unix.Kill(pid, unix.SIGTERM)
-}
-
-func isVideonodeRoot(dir string) bool {
-	for _, name := range []string{"go.mod", "main.go"} {
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			return false
-		}
-	}
-	fi, err := os.Stat(filepath.Join(dir, "composer"))
-	if err != nil || !fi.IsDir() {
-		return false
-	}
-	b, err := os.ReadFile(filepath.Join(dir, "go.mod"))
-	if err != nil {
-		return false
-	}
-	for _, line := range splitLines(string(b)) {
-		if line == "module github.com/smazurov/videonode" {
-			return true
-		}
-	}
-	return false
-}
-
-func splitLines(s string) []string {
-	var out []string
-	for s != "" {
-		i := 0
-		for i < len(s) && s[i] != '\n' {
-			i++
-		}
-		out = append(out, s[:i])
-		if i < len(s) {
-			i++
-		}
-		s = s[i:]
-	}
-	return out
 }
 
 func randHex(nBytes int) string {

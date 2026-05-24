@@ -18,6 +18,7 @@ func TestNoDirectInternalImports(t *testing.T) {
 		"github.com/smazurov/videonode/tools/testenv/internal/slots":   true,
 		"github.com/smazurov/videonode/tools/testenv/internal/spawn":   true,
 		"github.com/smazurov/videonode/tools/testenv/internal/reaper":  true,
+		"github.com/smazurov/videonode/tools/testenv/internal/config":  true,
 	}
 
 	// Packages that must NOT import the forbidden set directly.

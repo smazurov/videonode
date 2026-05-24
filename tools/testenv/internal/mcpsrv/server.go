@@ -1,12 +1,11 @@
 // Package mcpsrv registers the testenv MCP tools on a mcp.Server.
 // Each tool is a thin dispatcher to internal/envctl — mcpsrv must not
-// import store, slots, spawn, or reaper directly (enforced by
+// import store, slots, spawn, reaper, or config directly (enforced by
 // import_test.go).
 package mcpsrv
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,7 +17,7 @@ import (
 func Register(server *mcp.Server, statePath string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "testenv_up",
-		Description: "Spin up a videonode test environment. Returns URLs on the allocated slot.",
+		Description: "Spin up a test environment per .testenv.toml. Returns allocated slot + ports.",
 	}, upHandler(statePath))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -33,31 +32,25 @@ func Register(server *mcp.Server, statePath string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "testenv_lease",
-		Description: "Acquire a named resource lease for the current session's env.",
+		Description: "Acquire an exclusive resource lock for the current session's env.",
 	}, leaseHandler(statePath))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "testenv_release",
-		Description: "Release a named resource lease.",
+		Description: "Release an exclusive resource lock.",
 	}, releaseHandler(statePath))
 }
 
-// --- input / output structs (JSON schema derived by the SDK) ---
-
 type upIn struct {
-	Target  string `json:"target,omitempty"`
-	Source  string `json:"source,omitempty"`
-	Device  string `json:"device,omitempty"`
-	Session string `json:"session,omitempty"`
+	Locks   []string `json:"locks,omitempty"`
+	Session string   `json:"session,omitempty"`
 }
 
 type upOut struct {
-	EnvID   string `json:"env_id"`
-	Slot    int    `json:"slot"`
-	HTTPURL string `json:"http_url"`
-	RTSPURL string `json:"rtsp_url"`
-	SRTURL  string `json:"srt_url"`
-	PID     int    `json:"pid"`
+	EnvID string         `json:"env_id"`
+	Slot  int            `json:"slot"`
+	Ports map[string]int `json:"ports"`
+	PID   int            `json:"pid"`
 }
 
 type downIn struct {
@@ -78,8 +71,6 @@ type listIn struct {
 type envEntry struct {
 	EnvID     string   `json:"env_id"`
 	Slot      int      `json:"slot"`
-	Target    string   `json:"target"`
-	Source    string   `json:"source_mode"`
 	HTTPURL   string   `json:"http_url"`
 	Worktree  string   `json:"worktree"`
 	PID       int      `json:"pid"`
@@ -100,8 +91,6 @@ type leaseOut struct {
 	ResourceID string `json:"resource_id"`
 }
 
-// --- handlers (each is a one-liner to envctl) ---
-
 func sessionOrEnv(s string) string {
 	if s != "" {
 		return s
@@ -113,15 +102,14 @@ func upHandler(sp string) mcp.ToolHandlerFor[upIn, upOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in upIn) (*mcp.CallToolResult, upOut, error) {
 		r, err := envctl.Up(ctx, envctl.UpParams{
 			StatePath: sp, Session: sessionOrEnv(in.Session),
-			Target: in.Target, Source: in.Source, Device: in.Device,
+			Locks: in.Locks,
 		})
 		if err != nil {
 			return nil, upOut{}, err
 		}
 		return nil, upOut{
 			EnvID: r.EnvID, Slot: r.Slot,
-			HTTPURL: r.HTTPURL, RTSPURL: r.RTSPURL, SRTURL: r.SRTURL,
-			PID: r.PID,
+			Ports: r.Ports, PID: r.PID,
 		}, nil
 	}
 }
@@ -149,8 +137,7 @@ func listHandler(sp string) mcp.ToolHandlerFor[listIn, listOut] {
 		var entries []envEntry
 		for _, e := range envs {
 			entries = append(entries, envEntry{
-				EnvID: e.ID, Slot: e.Slot, Target: e.Target,
-				Source: e.Source, HTTPURL: e.HTTPURL,
+				EnvID: e.ID, Slot: e.Slot, HTTPURL: e.HTTPURL,
 				Worktree: e.Worktree, PID: e.PID,
 				Leases: e.Leases, CreatedAt: e.CreatedAt.Format("15:04:05"),
 			})
@@ -181,6 +168,3 @@ func releaseHandler(sp string) mcp.ToolHandlerFor[leaseIn, leaseOut] {
 		return nil, leaseOut{ResourceID: in.ResourceID}, nil
 	}
 }
-
-// Unused but keeps the import for format consistency.
-var _ = fmt.Sprintf

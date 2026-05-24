@@ -1,18 +1,12 @@
 // Package slots is the predictable port-slot allocator.
 //
-// Slot i in [1..9] maps to the port triple:
+// Port names and formulas come from the project's .testenv.toml config.
+// Slot 0 is reserved and never handed out.
 //
-//	http = 8090 + 10*i
-//	rtsp = 8554 + 10*i
-//	srt  = 6001 + 10*i
-//
-// Slot 0 is reserved for the canonical air-driven daemon on default
-// ports and is never handed out.
-//
-// Pick returns the smallest unused slot whose three ports actually
-// bind right now. The held *Listeners must be released (closed)
-// immediately before exec'ing the daemon — the bind-and-hold pattern
-// minimizes the TOCTOU window between "looks free" and "daemon binds".
+// Pick returns the smallest unused slot whose ports all bind right
+// now. The held *Listeners must be released (closed) immediately
+// before exec'ing the daemon — the bind-and-hold pattern minimizes
+// the TOCTOU window.
 package slots
 
 import (
@@ -20,27 +14,14 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/smazurov/videonode/tools/testenv/internal/config"
 	"github.com/smazurov/videonode/tools/testenv/internal/store"
 )
 
-// MaxSlot is the highest slot number the allocator hands out.
-const MaxSlot = 9
-
-// Triple holds the URLs the daemon will advertise for a slot.
-type Triple struct {
-	Slot int
-	HTTP string // e.g. "http://localhost:8100"
-	RTSP string // e.g. "rtsp://localhost:8564"
-	SRT  string // e.g. "srt://localhost:6011"
-}
-
-// Held is a successful slot pick with all three port listeners held
-// open. Caller must call Release before spawning the daemon and must
-// not let Held escape without releasing it (Linux releases the FDs at
-// process exit, so the worst case is the slot's ports stay free until
-// the next allocator run).
+// Held is a successful slot pick with listeners held open.
 type Held struct {
-	Triple    Triple
+	Slot      int
+	Ports     map[string]int // port name → port number
 	Listeners []net.Listener
 }
 
@@ -48,21 +29,15 @@ type Held struct {
 func (h *Held) Release() {
 	for _, ln := range h.Listeners {
 		if ln != nil {
-			_ = ln.Close()
+			ln.Close()
 		}
 	}
 	h.Listeners = nil
 }
 
-// PortsForSlot returns the port triple for slot i.
-func PortsForSlot(i int) (http, rtsp, srt int) {
-	return 8090 + 10*i, 8554 + 10*i, 6001 + 10*i
-}
-
-// Pick walks slots 1..MaxSlot in order, skipping any taken by
-// registered envs, and returns the first whose three ports all bind.
-// Returns nil with an error if no slot is available.
-func Pick(s *store.Store) (*Held, error) {
+// Pick walks slots 1..MaxSlots in order, skipping any taken by
+// registered envs, and returns the first whose ports all bind.
+func Pick(s *store.Store, cfg *config.V1) (*Held, error) {
 	taken, err := s.TakenSlots()
 	if err != nil {
 		return nil, fmt.Errorf("read taken slots: %w", err)
@@ -71,12 +46,13 @@ func Pick(s *store.Store) (*Held, error) {
 	for _, t := range taken {
 		takenSet[t] = true
 	}
+	portNames := cfg.PortNames()
 	var lastBindErr error
-	for i := 1; i <= MaxSlot; i++ {
+	for i := 1; i <= cfg.MaxSlots; i++ {
 		if takenSet[i] {
 			continue
 		}
-		held, err := bindTriple(i)
+		held, err := bindSlot(cfg, portNames, i)
 		if err != nil {
 			lastBindErr = err
 			continue
@@ -84,31 +60,25 @@ func Pick(s *store.Store) (*Held, error) {
 		return held, nil
 	}
 	if lastBindErr != nil {
-		return nil, fmt.Errorf("no slot has all three ports free; last bind error: %w", lastBindErr)
+		return nil, fmt.Errorf("no slot has all ports free; last bind error: %w", lastBindErr)
 	}
-	return nil, errors.New("no free slot (1..9 all taken)")
+	return nil, errors.New("no free slot (all taken)")
 }
 
-func bindTriple(slot int) (*Held, error) {
-	http, rtsp, srt := PortsForSlot(slot)
-	var held []net.Listener
-	for _, p := range []int{http, rtsp, srt} {
+func bindSlot(cfg *config.V1, portNames []string, slot int) (*Held, error) {
+	ports := map[string]int{}
+	var listeners []net.Listener
+	for _, name := range portNames {
+		p := cfg.PortForSlot(name, slot)
+		ports[name] = p
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
 		if err != nil {
-			for _, h := range held {
-				_ = h.Close()
+			for _, l := range listeners {
+				l.Close()
 			}
 			return nil, fmt.Errorf("bind :%d: %w", p, err)
 		}
-		held = append(held, ln)
+		listeners = append(listeners, ln)
 	}
-	return &Held{
-		Triple: Triple{
-			Slot: slot,
-			HTTP: fmt.Sprintf("http://localhost:%d", http),
-			RTSP: fmt.Sprintf("rtsp://localhost:%d", rtsp),
-			SRT:  fmt.Sprintf("srt://localhost:%d", srt),
-		},
-		Listeners: held,
-	}, nil
+	return &Held{Slot: slot, Ports: ports, Listeners: listeners}, nil
 }
