@@ -130,13 +130,13 @@ Available integration tests:
 
 ### Pipeline model (post pipeline-rip)
 
-Each stream is `Producer → Composer (optional) → Encoder`. There is no separate canvas concept — a "canvas" is a stream with `len(inputs) > 1`. The Composer stage engages automatically when `len(inputs) > 1` OR any input has an effect (e.g. perspective); otherwise the encoder dials the producer's SCM socket directly.
+Sources, composers, and streams are three independent top-level entities. Each has its own identity, CRUD surface, and lifecycle policy. Streams reference upstream by explicit string ref (`source:<id>` or `composer:<id>`) — there is no monolithic `[[streams]]` table carrying inputs/layout/effects, and there is no implicit "canvas" entity.
 
-- **Producer** (one per unique device, refcounted across streams) — `videonode-source`. Captures V4L2 frames, broadcasts NV12 dma-bufs via SCM_RIGHTS to N consumers.
-- **Composer** (optional, one per stream) — `videonode-composer`. Reads N producer SCM sockets, GLES-composites onto a BGRA canvas, broadcasts the canvas dma-buf via SCM_RIGHTS (`--scm-out PATH`). When unset, falls back to legacy stdout BGRA pipe.
-- **Encoder** (always, one per stream) — `vn-sink | ffmpeg`. vn-sink dials either the producer's SCM (NV12 → YUV4MPEG2) or the composer's SCM (BGRA → raw rawvideo) and pipes to ffmpeg.
+- **Source** (`videonode-source`, one per source-id) — captures V4L2 frames (or runs an RPC-driven test pattern when `test_mode = true`), broadcasts NV12 dma-bufs via SCM_RIGHTS to N consumers. **Lifecycle: always warm.** Sources start when configured and stay up until deleted; composers and streams attach/detach without restarting them.
+- **Composer** (`videonode-composer`, one per composer-id) — reads N source SCM sockets, GLES-composites onto a BGRA canvas, broadcasts the canvas dma-buf via SCM_RIGHTS. **Lifecycle: warm-when-referenced.** A composer is up whenever at least one stream's `upstream` points at it, and is torn down when the last referent goes away. Layout and per-input effects are live-editable via unary RPCs without restarting the process.
+- **Stream** (encoder = `vn-sink | ffmpeg`, one per stream-id) — vn-sink dials the upstream SCM (NV12 from a source or BGRA from a composer) and pipes to ffmpeg. Stream-id is encoder identity end-to-end (RTSP/SRT path, WebRTC peer key, metrics label). **Lifecycle: lazy-encoder-on-reader.** The stream's pipeline plan is resident, but the encoder process only spawns when a reader (WebRTC/SRT/RTSP) connects, and stops after the last reader disconnects (debounced). Upstream stays warm across encoder cycles.
 
-User-facing config: a single `[[streams]]` entry per stream — no canvas-as-distinct-entity. See `examples/streams-new-shape.toml`.
+User-facing config: three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with explicit `upstream = "source:<id>"` or `upstream = "composer:<id>"` references. See `examples/sources-composers-streams.toml`.
 
 ### Application Structure
 - **CLI Framework**: Uses Huma v2 with humacli for command-line interface and API server
@@ -158,8 +158,9 @@ Use `go doc` or the `mcp__godoc__get_doc` tool to read package documentation:
 
 ```bash
 # Internal packages
-go doc ./internal/api                            # API server and endpoints
-go doc ./internal/streams                        # Stream lifecycle management
+go doc ./internal/api                            # API server: streams.go + sources.go + composers.go handlers
+go doc ./internal/streams                        # SourceService / ComposerService / StreamService split
+go doc ./internal/streams/store                  # TOML persistence + v1→v2 auto-migration (migrate.go)
 go doc ./internal/streams/pipelinectl            # gRPC client manager for native binaries
 go doc ./internal/streams/pipelinectl/pb         # Generated control-plane proto stubs
 go doc ./internal/encoders                       # Hardware encoder detection
@@ -177,6 +178,13 @@ go doc github.com/danielgtaylor/huma/v2.Register # Specific symbol
 go doc github.com/pelletier/go-toml/v2           # TOML parsing
 ```
 
+Service-layer split (all live under `internal/streams`):
+- `SourceService` — CRUD + lifecycle for `videonode-source` instances (always-warm policy).
+- `ComposerService` — CRUD + live layout/effect edits for `videonode-composer` instances (warm-when-referenced policy).
+- `StreamService` — CRUD for encoder/audio/publish config; owns the lazy-encoder-on-reader lifecycle.
+
+The HTTP surface is implemented in `internal/api/sources.go` and `internal/api/composers.go` (new alongside `streams.go`), with their request/response models in `internal/api/models/`. TOML persistence and the v1→v2 auto-migration live in `internal/streams/store` (see `migrate.go`).
+
 Use `go doc -all <path>` for complete documentation including unexported symbols.
 
 ### API Design
@@ -186,9 +194,27 @@ Use `go doc -all <path>` for complete documentation including unexported symbols
 - **Error Handling**: Structured error responses with Huma v2 error format
 - **SSE Support**: Real-time updates via Server-Sent Events at `/api/events/*`
 
+#### Entity endpoints
+
+Three parallel CRUD surfaces, one per top-level entity:
+
+- `/api/sources` — list + create
+  - `/api/sources/{source_id}` — get / patch / delete
+  - `/api/sources/{source_id}/snapshot` — raw NV12 snapshot from the producer
+- `/api/composers` — list + create
+  - `/api/composers/{composer_id}` — get / patch / delete
+  - `/api/composers/{composer_id}/layout` — PATCH the layout (live edit, no restart)
+  - `/api/composers/{composer_id}/inputs/{ref}/effect` — PATCH per-input effect (e.g. perspective)
+- `/api/streams` — list + create
+  - `/api/streams/{stream_id}` — get / patch / delete
+  - `/api/streams/{stream_id}/snapshot` — encoded snapshot from RTSP
+
+The legacy `/api/streams/canvas/layout` endpoint is gone; canvas layout has moved to `PATCH /api/composers/{composer_id}/layout`. Sources cannot be deleted while a composer or stream references them; composers cannot be deleted while a stream references them — the API returns a structured error listing the blockers.
+
 ### Configuration
-- **Main Config**: `config.toml` with sections for server, streams, obs, capture, auth, features, and logging
-- **Stream Definitions**: `streams.toml` for individual stream configurations
+- **Main Config**: `config.toml` with sections for server, obs, capture, auth, features, and logging
+- **Entity Definitions**: `streams.toml` carries the three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with `version = 2` at the top. The canonical worked example is `examples/sources-composers-streams.toml` (multiple sources, one shared composer, multi-encode of the same scene).
+- **Auto-migration**: v1-shape files (monolithic `[[streams]]` with inline `inputs`/`layout`/`effects`/`force_composer`/stream-level `test_mode`) are auto-migrated on load by `internal/streams/store/migrate.go` and rewritten in place.
 - **Environment Variables**: All config values can be overridden via env vars (e.g., `VIDEONODE_SERVER_PORT`)
 
 ### go2rtc Integration
