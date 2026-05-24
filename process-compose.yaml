@@ -9,7 +9,7 @@ processes:
 
   # Frontend dev server
   frontend:
-    command: "pnpm dev"
+    command: "node_modules/.bin/vite"
     working_dir: "./ui"
     depends_on:
       backend:
@@ -19,7 +19,7 @@ processes:
 
   # Design system preview (Ladle) — http://localhost:61000/
   ladle:
-    command: "pnpm ladle"
+    command: "node_modules/.bin/ladle serve"
     working_dir: "./ui"
     availability:
       restart: "on_failure"
