@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/events"
@@ -49,6 +50,9 @@ func (noopStreamProvider) ListStreams() []string { return nil }
 
 // GetStreamReaderCount implements streaming.StreamProvider.
 func (noopStreamProvider) GetStreamReaderCount(string) int { return 0 }
+
+// EnsureStreamReady implements streaming.StreamProvider.
+func (noopStreamProvider) EnsureStreamReady(string, time.Duration) *streaming.Stream { return nil }
 
 type noopProcessesProvider struct{}
 
