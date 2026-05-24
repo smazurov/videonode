@@ -248,6 +248,16 @@ func main() {
 			EventBus:       eventBus,
 		}, logger)
 
+		// Lazy encoder lifecycle: idle the encoder once the last consumer
+		// disconnects, restart it on the next consumer attach. Producers
+		// and composers stay warm across the cycle.
+		streamingServer.SetOnLastReaderGone(func(streamID string) {
+			_ = nativePipeline.StopEncoder(streamID)
+		})
+		streamingServer.SetOnEnsureStream(func(streamID string) error {
+			return nativePipeline.EnsureEncoder(streamID)
+		})
+
 		serviceOpts := &streams.ServiceOptions{
 			Store:            streamStore,
 			EventBus:         eventBus,

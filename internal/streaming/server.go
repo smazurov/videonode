@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/bluenviron/gortsplib/v5"
 	"github.com/bluenviron/gortsplib/v5/pkg/base"
@@ -14,6 +15,14 @@ import (
 	"github.com/pion/rtp"
 	"github.com/smazurov/videonode/internal/logging"
 )
+
+// lastReaderDebounce is the window during which a fresh reader attach cancels
+// a pending onLastReaderGone fire — absorbs fast WebRTC/SRT reconnects.
+const lastReaderDebounce = 2 * time.Second
+
+// ensureStreamPollInterval is how often EnsureStreamReady checks for an
+// OnAnnounce-registered stream after kicking the lazy-start hook.
+const ensureStreamPollInterval = 50 * time.Millisecond
 
 // Server handles RTSP connections from FFmpeg (producers) and clients (consumers).
 type Server struct {
@@ -27,6 +36,12 @@ type Server struct {
 
 	onProducerReplaced  func(streamID string)
 	onProducerConnected func(streamID string)
+	onLastReaderGone    func(streamID string)
+	onEnsureStream      func(streamID string) error
+
+	// debouncers holds pending onLastReaderGone timers per stream so a fresh
+	// reader attach can cancel them before they fire.
+	debouncers map[string]*time.Timer
 }
 
 // NewServer creates a new streaming server.
@@ -35,6 +50,7 @@ func NewServer(logger logging.Logger) *Server {
 		streams:       make(map[string]*Stream),
 		serverStreams: make(map[string]*gortsplib.ServerStream),
 		publishers:    make(map[string]*gortsplib.ServerSession),
+		debouncers:    make(map[string]*time.Timer),
 		logger:        logger,
 	}
 }
@@ -52,6 +68,97 @@ func (s *Server) SetOnProducerConnected(callback func(streamID string)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onProducerConnected = callback
+}
+
+// SetOnLastReaderGone registers a callback fired (after a debounce) once a
+// stream's last reader disconnects. Lets the daemon idle the encoder while
+// keeping upstream producers/composers warm.
+func (s *Server) SetOnLastReaderGone(callback func(streamID string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onLastReaderGone = callback
+}
+
+// SetOnEnsureStream registers a callback invoked by EnsureStreamReady when a
+// consumer asks for a stream that's not yet announced. The hook is expected
+// to start the encoder (idempotent); EnsureStreamReady then polls until the
+// producer's OnAnnounce registers the stream.
+func (s *Server) SetOnEnsureStream(callback func(streamID string) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onEnsureStream = callback
+}
+
+// EnsureStreamReady returns an existing stream if registered, otherwise
+// invokes the lazy-start hook and polls until OnAnnounce registers the
+// stream or the timeout elapses.
+func (s *Server) EnsureStreamReady(streamID string, timeout time.Duration) *Stream {
+	s.mu.RLock()
+	stream := s.streams[streamID]
+	ensure := s.onEnsureStream
+	s.mu.RUnlock()
+
+	if stream != nil {
+		s.cancelLastReaderGone(streamID)
+		return stream
+	}
+
+	if ensure != nil {
+		if err := ensure(streamID); err != nil {
+			s.logger.Warn("EnsureStream hook failed", "stream_id", streamID, "error", err)
+			return nil
+		}
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		s.mu.RLock()
+		stream = s.streams[streamID]
+		s.mu.RUnlock()
+		if stream != nil {
+			s.cancelLastReaderGone(streamID)
+			return stream
+		}
+		time.Sleep(ensureStreamPollInterval)
+	}
+	return nil
+}
+
+// handleLastReaderGone schedules the onLastReaderGone callback after the
+// debounce window, replacing any pending timer for the same stream.
+func (s *Server) handleLastReaderGone(streamID string) {
+	s.mu.Lock()
+	cb := s.onLastReaderGone
+	if cb == nil {
+		s.mu.Unlock()
+		return
+	}
+	if t, ok := s.debouncers[streamID]; ok {
+		t.Stop()
+	}
+	s.debouncers[streamID] = time.AfterFunc(lastReaderDebounce, func() {
+		s.mu.Lock()
+		delete(s.debouncers, streamID)
+		// Skip if a reader reattached during the window.
+		stream := s.streams[streamID]
+		s.mu.Unlock()
+		if stream != nil && stream.ReaderCount() > 0 {
+			return
+		}
+		cb(streamID)
+	})
+	s.mu.Unlock()
+}
+
+// cancelLastReaderGone aborts any pending debounce timer for a stream when a
+// fresh reader attaches.
+func (s *Server) cancelLastReaderGone(streamID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.debouncers[streamID]; ok {
+		t.Stop()
+		delete(s.debouncers, streamID)
+	}
 }
 
 // Start begins listening for RTSP connections on the specified address.
@@ -90,6 +197,10 @@ func (s *Server) Stop() error {
 	}
 	for _, ss := range s.serverStreams {
 		ss.Close()
+	}
+	for id, t := range s.debouncers {
+		t.Stop()
+		delete(s.debouncers, id)
 	}
 	s.streams = make(map[string]*Stream)
 	s.serverStreams = make(map[string]*gortsplib.ServerStream)
@@ -165,9 +276,14 @@ func (s *Server) OnSessionClose(ctx *gortsplib.ServerHandlerOnSessionCloseCtx) {
 }
 
 // OnDescribe handles DESCRIBE requests (clients requesting stream info).
-// Returns the stored ServerStream created during OnAnnounce.
+// Returns the stored ServerStream created during OnAnnounce; if the encoder
+// is idle, lazily starts it and waits up to 3s for the producer to register.
 func (s *Server) OnDescribe(ctx *gortsplib.ServerHandlerOnDescribeCtx) (*base.Response, *gortsplib.ServerStream, error) {
 	streamID := extractStreamID(ctx.Path)
+
+	if s.EnsureStreamReady(streamID, 3*time.Second) == nil {
+		return &base.Response{StatusCode: base.StatusNotFound}, nil, nil
+	}
 
 	s.mu.RLock()
 	ss := s.serverStreams[streamID]
@@ -201,8 +317,10 @@ func (s *Server) OnAnnounce(ctx *gortsplib.ServerHandlerOnAnnounceCtx) (*base.Re
 		oldSS.Close()
 	}
 
-	// Create new stream
+	// Create new stream and wire the last-reader callback up to the server
+	// hook so the encoder can be idled when no consumers remain.
 	stream := NewStream(streamID, ctx.Description, s.logger)
+	stream.SetOnNoReaders(s.handleLastReaderGone)
 	s.streams[streamID] = stream
 
 	// Create and store ServerStream for RTSP playback consumers
@@ -424,6 +542,10 @@ func (s *Server) removeStream(streamID string) {
 	if ss := s.serverStreams[streamID]; ss != nil {
 		ss.Close()
 		delete(s.serverStreams, streamID)
+	}
+	if t, ok := s.debouncers[streamID]; ok {
+		t.Stop()
+		delete(s.debouncers, streamID)
 	}
 	delete(s.publishers, streamID)
 	s.mu.Unlock()

@@ -331,6 +331,16 @@ func (p *Pipeline) Delete(streamID string) error {
 	return nil
 }
 
+// StopEncoder idles the encoder stage for streamID while leaving upstream
+// producers and composers warm. B4 fills this in with pool.Stop on the
+// encoder stage; here it's a no-op stub so B3's lazy-lifecycle wiring builds.
+func (p *Pipeline) StopEncoder(_ string) error { return nil }
+
+// EnsureEncoder (re)starts the encoder stage for streamID if it's idle.
+// B4 fills this in with pool.Start on the cached encoder stage; here it's a
+// no-op stub so B3's lazy-lifecycle wiring builds.
+func (p *Pipeline) EnsureEncoder(_ string) error { return nil }
+
 // Pool exposes the underlying process.Pool for callers that need
 // status lookups (process-manager UI follow-up). Not used by Apply /
 // Delete; only diagnostics should reach for it.

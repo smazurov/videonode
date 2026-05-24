@@ -76,8 +76,8 @@ func (s *SRTServer) handleConnect(req srt.ConnRequest) srt.ConnType {
 		"remote", req.RemoteAddr(),
 		"version", req.Version())
 
-	// Check if the stream exists
-	if !s.streams.HasStream(streamID) {
+	// Ensure the stream exists, or kick the lazy-start hook and wait.
+	if s.streams.EnsureStreamReady(streamID, 3*time.Second) == nil {
 		s.logger.Warn("SRT connection rejected: stream not found",
 			"stream_id", streamID,
 			"remote", req.RemoteAddr())
@@ -98,8 +98,8 @@ func (s *SRTServer) handleSubscribe(conn srt.Conn) {
 		"consumer_id", consumerID,
 		"remote", conn.RemoteAddr())
 
-	// Get the stream
-	stream := s.streams.GetStream(streamID)
+	// Get the stream (already started by handleConnect's EnsureStreamReady).
+	stream := s.streams.EnsureStreamReady(streamID, 3*time.Second)
 	if stream == nil {
 		s.logger.Warn("SRT subscriber rejected: stream disappeared",
 			"stream_id", streamID,
