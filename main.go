@@ -306,6 +306,17 @@ func main() {
 			logger.Warn("Failed to load existing streams from config", "error", err)
 		}
 
+		// Replay v2 entities (sources, composers, streams) into the pipeline.
+		// LoadStreamsFromConfig only iterates legacy StreamSpec; without this
+		// pass the pipeline.stages map is empty after restart for any v2-only
+		// install, so the first consumer attach errors with
+		// "no cached encoder stage" until the user re-PUTs each entity.
+		if entityStore != nil {
+			if err := streams.ReplayV2Entities(entityStore, nativePipeline); err != nil {
+				logger.Warn("Failed to replay v2 entities", "error", err)
+			}
+		}
+
 		// Initialize update service if enabled
 		var updateService updater.Service
 		if opts.UpdateEnabled {

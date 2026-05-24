@@ -108,11 +108,17 @@ func (s *service) CreateStream(ctx context.Context, params StreamCreateParams) (
 
 // createSingleStream creates a single-camera stream.
 func (s *service) createSingleStream(_ context.Context, params StreamCreateParams) (*Stream, error) {
-	// Validate device ID using processor's device resolver
-	devicePath := s.deviceResolver(params.DeviceID)
-	if devicePath == "" {
-		return nil, NewStreamError(ErrCodeDeviceNotFound,
-			fmt.Sprintf("device %s not found or not available", params.DeviceID), nil)
+	// Skip device validation when the caller passed a composer upstream —
+	// the upstream is resolved against the v2 EntityStore at apply time,
+	// not against /dev/video*.
+	skipDeviceCheck := params.Upstream != "" && params.DeviceID == ""
+	if !skipDeviceCheck {
+		// Validate device ID using processor's device resolver
+		devicePath := s.deviceResolver(params.DeviceID)
+		if devicePath == "" {
+			return nil, NewStreamError(ErrCodeDeviceNotFound,
+				fmt.Sprintf("device %s not found or not available", params.DeviceID), nil)
+		}
 	}
 
 	// Use provided stream ID
@@ -138,9 +144,10 @@ func (s *service) createSingleStream(_ context.Context, params StreamCreateParam
 	ffmpegOptions := buildFFmpegOptions(params.Options)
 
 	streamConfigTOML := StreamSpec{
-		ID:     streamID,
-		Name:   streamID,
-		Device: params.DeviceID,
+		ID:       streamID,
+		Name:     streamID,
+		Device:   params.DeviceID,
+		Upstream: params.Upstream,
 		FFmpeg: FFmpegConfig{
 			Codec:         params.Codec,
 			InputFormat:   params.InputFormat,

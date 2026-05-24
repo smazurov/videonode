@@ -40,6 +40,13 @@ type StreamSpec struct {
 	Device   string `toml:"device" json:"device"` // "usb-BUS-PORT", resolved to /dev/videoX at runtime
 	TestMode bool   `toml:"test_mode" json:"test_mode"`
 
+	// Upstream is the explicit v2-style upstream reference ("source:<id>" or
+	// "composer:<id>"). When non-empty it overrides the legacy Device-based
+	// derivation, letting a stream point at a composer entity instead of a
+	// same-id producer. Persisted so the daemon can replay composer-backed
+	// streams across restarts.
+	Upstream string `toml:"upstream,omitempty" json:"upstream,omitempty"`
+
 	FFmpeg FFmpegConfig `toml:"ffmpeg" json:"ffmpeg"`
 
 	// Canvas, when set, makes this a composite stream and overrides the single-camera fields above.
