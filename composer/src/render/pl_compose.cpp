@@ -123,7 +123,7 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
             vn::log::error("pl_compose: both Vulkan and OpenGL backends failed");
             delete impl_;
             delete impl_;
-        impl_ = nullptr;
+            impl_ = nullptr;
             return false;
         }
         impl_->gpu = impl_->gl->gpu;
@@ -172,7 +172,8 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
     tp.import_handle = PL_HANDLE_DMA_BUF;
     tp.shared_mem.handle.fd = dup(canvas_fd_);
     tp.shared_mem.size = static_cast<size_t>(canvas_stride_) * canvas_h;
-    tp.shared_mem.drm_format_mod = normalize_mod(gbm_bo_get_modifier(canvas_bo_), impl_->using_vulkan);
+    tp.shared_mem.drm_format_mod =
+        normalize_mod(gbm_bo_get_modifier(canvas_bo_), impl_->using_vulkan);
     tp.shared_mem.stride_w = static_cast<int>(canvas_stride_);
     impl_->canvas_tex = pl_tex_create(impl_->gpu, &tp);
     if (!impl_->canvas_tex) {

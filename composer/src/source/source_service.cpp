@@ -204,7 +204,9 @@ void SourceService::PublishStatus(const ::videonode::control::Status& s) {
     status_cv_.notify_all();
 }
 
-void SourceService::UpdateLastFrame(vn::snapshot::FrameRef ref) { frame_holder_.Update(ref); }
+void SourceService::UpdateLastFrame(vn::snapshot::FrameRef ref) {
+    frame_holder_.Update(ref);
+}
 
 void SourceService::StopStreams() {
     {

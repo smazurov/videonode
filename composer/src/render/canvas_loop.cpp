@@ -33,7 +33,6 @@ namespace render {
 
 namespace {
 
-
 bool write_full_(int fd, std::span<const uint8_t> buf) {
     while (!buf.empty()) {
         ssize_t w = ::write(fd, buf.data(), buf.size());
@@ -158,8 +157,8 @@ bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_
 } // namespace
 
 int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
-                  std::atomic<bool>& running, const std::string& scm_out_path,
-                  RenderStats* stats, nativerpc::ComposerService* composer_svc) {
+                  std::atomic<bool>& running, const std::string& scm_out_path, RenderStats* stats,
+                  nativerpc::ComposerService* composer_svc) {
     (void)ctx; // pl_compose manages its own EGL context
     auto start = std::chrono::steady_clock::now();
     int frames_rendered = 0;
@@ -239,8 +238,8 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
         if (!compose) {
             compose = std::make_unique<pl_compose::PlCompose>();
             // Use the same DRM device the egl_ctx was opened on.
-            const char* drm_candidates[] = {
-                "/dev/dri/renderD128", "/dev/dri/renderD129", "/dev/dri/renderD130"};
+            const char* drm_candidates[] = {"/dev/dri/renderD128", "/dev/dri/renderD129",
+                                            "/dev/dri/renderD130"};
             bool inited = false;
             for (const char* d : drm_candidates) {
                 if (compose->init(d, int(snap.canvas_w), int(snap.canvas_h))) {
@@ -362,10 +361,10 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
                                .row_bytes = size_t(compose_w) * 4,
                                .rows = size_t(compose_h)};
                 r.frame_idx = broadcast_frame_idx;
-                r.captured_at_ns = static_cast<uint64_t>(
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        std::chrono::steady_clock::now().time_since_epoch())
-                        .count());
+                r.captured_at_ns =
+                    static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                              std::chrono::steady_clock::now().time_since_epoch())
+                                              .count());
                 composer_svc->UpdateLatestCanvas(r);
             }
         } else {
@@ -438,8 +437,7 @@ int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_se
                 int delta = frames_rendered - frames_at_last_sample;
                 frames_at_last_sample = frames_rendered;
                 next_fps_sample = now + std::chrono::seconds(1);
-                stats->fps_observed_centi.store(uint32_t(delta * 100),
-                                                std::memory_order_relaxed);
+                stats->fps_observed_centi.store(uint32_t(delta * 100), std::memory_order_relaxed);
             }
         }
 

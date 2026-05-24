@@ -190,6 +190,8 @@ grpc::Status ComposerService::Shutdown(grpc::ServerContext* /*ctx*/,
     return grpc::Status::OK;
 }
 
-void ComposerService::UpdateLatestCanvas(vn::snapshot::FrameRef ref) { frame_holder_.Update(ref); }
+void ComposerService::UpdateLatestCanvas(vn::snapshot::FrameRef ref) {
+    frame_holder_.Update(ref);
+}
 
 } // namespace nativerpc
