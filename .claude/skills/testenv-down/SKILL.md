@@ -17,6 +17,6 @@ Stop a videonode test env, release its slot, and release any device leases it ho
 
 ## Tear down
 
-!`testenv down ${1:-} 2>&1`
+!`testenv down ${env_id:-} 2>&1`
 
 If no `$env_id` is passed, this targets the env owned by the current Claude session. If the session owns no env, the command is a no-op and prints a friendly note — surface that to the user; don't invent a fix.
