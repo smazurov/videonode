@@ -6,14 +6,6 @@ import { Button } from '../components/Button';
 import { InfoBar } from '../components/InfoBar';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useStreamStore } from '../hooks/useStreamStore';
-import type { components } from '../lib/api.generated';
-
-// Transitional cast bridge — `StoredStream` (canonical slim Stream
-// intersected with legacy fields) is what the store holds. The legacy
-// `StreamForm` still expects the pre-rewrite `StreamData` shape with
-// required `codec`/`device_id`. Bridging happens here until U13 lands the
-// new sectioned form that consumes the canonical Stream directly.
-type LegacyStreamData = components['schemas']['StreamData'];
 
 export default function EditStream() {
   const navigate = useNavigate();
@@ -72,7 +64,7 @@ export default function EditStream() {
 
           <StreamForm
             key={streamData.stream_id}
-            initialData={streamData as unknown as LegacyStreamData}
+            initialData={streamData}
             onSuccess={handleSuccess}
             onCancel={handleCancel}
           />

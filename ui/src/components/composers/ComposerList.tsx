@@ -65,10 +65,10 @@ export function ComposerList({ composers }: Readonly<ComposerListProps>) {
   ];
 
   return (
-    <DataTable
+    <DataTable<ComposerData>
       columns={columns}
       rows={composers}
-      getRowId={(row) => row.composer_id}
+      rowKey={(row) => row.composer_id}
       onRowClick={(row) => navigate(`/composers/${encodeURIComponent(row.composer_id)}`)}
       emptyState="No composers defined yet."
     />

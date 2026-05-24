@@ -1,6 +1,6 @@
 export { DataTable, type DataTableColumn, type DataTableProps, type SortDirection } from "./DataTable";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
-export { KVInspector, type KVInspectorProps, type KVItem } from "./KVInspector";
+export { KVInspector, type KVInspectorProps, type KVEntry } from "./KVInspector";
 export {
   LivePreviewFrame,
   type LivePreviewFrameProps,

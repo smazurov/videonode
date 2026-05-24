@@ -35,12 +35,9 @@ export default function Streams() {
       if (event.type === 'stream-created') {
         addStream(event.stream);
       } else if (event.type === 'stream-updated') {
-        const currentStream = useStreamStore.getState().streamsById[event.stream.stream_id];
         addStream(event.stream);
         if (event.action === 'restarted') {
           toast.success(`Stream '${event.stream.stream_id}' has restarted`);
-        } else if (currentStream && currentStream.test_mode !== event.stream.test_mode) {
-          toast.success(`Test mode ${event.stream.test_mode ? 'enabled' : 'disabled'}`);
         }
       } else if (event.type === 'stream-deleted') {
         removeStream(event.stream_id);

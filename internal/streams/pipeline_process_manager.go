@@ -271,22 +271,6 @@ func (m *pipelineProcessManager) CaptureRawSnapshot(sourceStreamID string) ([]by
 	return ffmpeg.EncodeNV12ToJPEG(resp.GetNv12(), int(resp.GetWidth()), int(resp.GetHeight()))
 }
 
-// OwnedBy is a no-op stub — the new model has no implicit ownership.
-func (m *pipelineProcessManager) OwnedBy(string) string { return "" }
-
-// CanvasOwner is a no-op stub kept on the interface so the perspective
-// PATCH path compiles; the new model surfaces references via the
-// EntityStore.
-func (m *pipelineProcessManager) CanvasOwner(string) string { return "" }
-
-// PushComposerPerspective is a stub — composer effect routing moves to
-// B6's /api/composers/{id}/inputs/{ref}/effect endpoint.
-func (m *pipelineProcessManager) PushComposerPerspective(
-	string, string, *ffmpeg.PerspectiveConfig,
-) (bool, error) {
-	return false, nil
-}
-
 // ApplySource forwards a canonical pipeline.Source to the supervised
 // pipeline. Idempotent; safe to call on updates.
 func (m *pipelineProcessManager) ApplySource(src pipeline.Source) error {

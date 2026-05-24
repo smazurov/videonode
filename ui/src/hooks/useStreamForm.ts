@@ -32,40 +32,17 @@ function emptyValue(): StreamFormValue {
   };
 }
 
-// Coerce existing v1 StreamData shape into the new value when editing. Once
-// the backend lands, this function reads `Stream.encoder`/`Stream.audio`/etc.
-// directly. Until then, we hydrate from legacy fields where possible.
 function fromStreamData(s: StreamData | undefined): StreamFormValue {
   if (!s) return emptyValue();
-  const legacy = s as StreamData & {
-    upstream?: string;
-    encoder?: EncoderConfig;
-    audio?: AudioConfig;
-    publish?: PublishTarget[];
-    custom_encoder_args?: string;
-  };
-
-  const codec: EncoderConfig['codec'] =
-    legacy.encoder?.codec ??
-    (s.codec === 'h265' || s.codec === 'av1' ? (s.codec as EncoderConfig['codec']) : 'h264');
-
-  const encoder: EncoderConfig = legacy.encoder ?? {
-    codec,
-    bitrate: s.bitrate ?? '2M',
-  };
-
-  const audio: AudioConfig = legacy.audio ?? {
-    codec: 'aac',
-    devices: s.audio_device ? [s.audio_device] : [],
-  };
-
+  const encoder: EncoderConfig = (s.encoder as EncoderConfig | undefined) ?? defaultEncoder();
+  const audio: AudioConfig = (s.audio as AudioConfig | undefined) ?? defaultAudio();
   return {
     stream_id: s.stream_id,
-    upstream: legacy.upstream ?? '',
+    upstream: s.upstream ?? '',
     encoder,
     audio,
-    publish: legacy.publish ?? [],
-    custom_encoder_args: legacy.custom_encoder_args ?? '',
+    publish: (s.publish as PublishTarget[] | undefined) ?? [],
+    custom_encoder_args: s.custom_encoder_args ?? '',
   };
 }
 

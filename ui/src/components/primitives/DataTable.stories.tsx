@@ -24,27 +24,27 @@ const ROWS: readonly SourceRow[] = [
 const COLUMNS: ReadonlyArray<DataTableColumn<SourceRow>> = [
   {
     id: "id",
-    label: "ID",
-    accessor: (r) => <code className="font-mono text-xs">{r.id}</code>,
-    sort: (a, b) => a.id.localeCompare(b.id),
+    header: "ID",
+    cell: (r) => <code className="font-mono text-xs">{r.id}</code>,
+    sortValue: (r) => r.id,
   },
   {
     id: "device",
-    label: "Device",
-    accessor: (r) => r.device,
-    sort: (a, b) => a.device.localeCompare(b.device),
+    header: "Device",
+    cell: (r) => r.device,
+    sortValue: (r) => r.device,
   },
   {
     id: "status",
-    label: "Status",
-    accessor: (r) => <StatusPill status={r.status} />,
-    sort: (a, b) => a.status.localeCompare(b.status),
+    header: "Status",
+    cell: (r) => <StatusPill status={r.status} />,
+    sortValue: (r) => r.status,
   },
   {
     id: "consumers",
-    label: "Consumers",
-    accessor: (r) => r.consumers,
-    sort: (a, b) => a.consumers - b.consumers,
+    header: "Consumers",
+    cell: (r) => r.consumers,
+    sortValue: (r) => r.consumers,
     align: "right",
   },
 ];
@@ -53,7 +53,7 @@ export const Basic: Story = () => (
   <DataTable<SourceRow>
     columns={COLUMNS}
     rows={ROWS}
-    getRowId={(r) => r.id}
+    rowKey={(r) => r.id}
   />
 );
 
@@ -65,7 +65,7 @@ export const WithSelection: Story = () => {
       <DataTable<SourceRow>
         columns={COLUMNS}
         rows={ROWS}
-        getRowId={(r) => r.id}
+        rowKey={(r) => r.id}
         selection={selection}
         onSelectionChange={setSelection}
       />
@@ -87,7 +87,7 @@ export const WithFilter: Story = () => {
       <DataTable<SourceRow>
         columns={COLUMNS}
         rows={ROWS}
-        getRowId={(r) => r.id}
+        rowKey={(r) => r.id}
         filter={filter}
       />
     </div>
@@ -98,7 +98,7 @@ export const Empty: Story = () => (
   <DataTable<SourceRow>
     columns={COLUMNS}
     rows={[]}
-    getRowId={(r) => r.id}
+    rowKey={(r) => r.id}
     emptyState="No sources configured yet."
   />
 );
@@ -107,7 +107,7 @@ export const Compact: Story = () => (
   <DataTable<SourceRow>
     columns={COLUMNS}
     rows={ROWS}
-    getRowId={(r) => r.id}
+    rowKey={(r) => r.id}
     density="compact"
     initialSort={{ columnId: "consumers", direction: "desc" }}
   />

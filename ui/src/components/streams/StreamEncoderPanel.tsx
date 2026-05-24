@@ -9,15 +9,6 @@ interface StreamEncoderPanelProps {
   readonly className?: string;
 }
 
-interface EncoderShape {
-  codec?: string;
-  bitrate?: string | number;
-  gop?: number | string;
-  rate_control?: string;
-  preset?: string;
-  custom_args?: string;
-}
-
 export function StreamEncoderPanel({ streamId, className }: StreamEncoderPanelProps) {
   const stream = useStreamStore((state) => state.streamsById[streamId]);
 
@@ -29,15 +20,13 @@ export function StreamEncoderPanel({ streamId, className }: StreamEncoderPanelPr
     );
   }
 
-  // Prefer the (future) typed `encoder` block; fall back to today's
-  // flat shape (codec/bitrate at top level + custom_ffmpeg_command).
-  const encoder = (stream as { encoder?: EncoderShape }).encoder ?? {};
-  const codec = encoder.codec ?? stream.codec ?? '—';
-  const bitrate = encoder.bitrate ?? stream.bitrate ?? '—';
+  const encoder = stream.encoder ?? {};
+  const codec = encoder.codec ?? '—';
+  const bitrate = encoder.bitrate ?? '—';
   const gop = encoder.gop ?? '—';
   const rateControl = encoder.rate_control ?? '—';
   const preset = encoder.preset ?? '—';
-  const customArgs = encoder.custom_args ?? stream.custom_ffmpeg_command ?? '';
+  const customArgs = stream.custom_encoder_args ?? '';
 
   const entries: KVEntry[] = [
     { label: 'Codec', value: String(codec).toLowerCase(), mono: true },

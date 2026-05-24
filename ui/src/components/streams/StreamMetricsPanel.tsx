@@ -105,8 +105,8 @@ function Sparkline({ values, label, formatValue, tone = 'accent' }: SparklinePro
 
 export function StreamMetricsPanel({ streamId, className }: StreamMetricsPanelProps) {
   const metrics = useStreamStore((state) => state.metricsById[streamId]);
-  const startTime = useStreamStore((state) => state.streamsById[streamId]?.start_time);
-  const bitrate = useStreamStore((state) => state.streamsById[streamId]?.bitrate);
+  const startTime = useStreamStore((state) => state.streamsById[streamId]?.created_at);
+  const bitrate = useStreamStore((state) => state.streamsById[streamId]?.encoder?.bitrate);
 
   const [uptime, setUptime] = useState(() => calculateUptime(startTime));
   const [history, setHistory] = useState<Sample[]>([]);

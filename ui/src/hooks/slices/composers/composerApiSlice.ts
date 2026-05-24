@@ -4,11 +4,15 @@ import { API_BASE_URL } from '../../../lib/api';
 import { getAuthCredentials } from '../../../lib/auth';
 import type {
   Composer,
-  ComposerList,
   ComposerRequest,
   LayoutSlot,
   Effect,
 } from '../types';
+
+interface ComposerList {
+  composers?: Composer[] | null;
+  count?: number;
+}
 import { ComposerStore } from '../../useComposerStore';
 
 // Endpoints below land with backend unit B6. Until then the calls fail at

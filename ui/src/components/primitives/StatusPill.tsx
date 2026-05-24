@@ -44,12 +44,9 @@ const dotVariants = cva({
 });
 
 export type StatusPillStatus = NonNullable<VariantProps<typeof pillVariants>["status"]>;
-// Back-compat alias used by U12's StreamList.
-export type StatusPillTone = StatusPillStatus;
 
 export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
   readonly status?: StatusPillStatus;
-  readonly tone?: StatusPillStatus; // alias for status (back-compat)
   readonly size?: VariantProps<typeof pillVariants>["size"];
   readonly label?: React.ReactNode;
   readonly showDot?: boolean;
@@ -67,7 +64,6 @@ const DEFAULT_LABELS: Record<StatusPillStatus, string> = {
 
 export function StatusPill({
   status,
-  tone,
   size,
   label,
   children,
@@ -75,7 +71,7 @@ export function StatusPill({
   className,
   ...props
 }: Readonly<StatusPillProps>) {
-  const effective: StatusPillStatus = status ?? tone ?? "idle";
+  const effective: StatusPillStatus = status ?? "idle";
   const text = children ?? label ?? DEFAULT_LABELS[effective];
   return (
     <span className={cn(pillVariants({ status: effective, size }), className)} {...props}>

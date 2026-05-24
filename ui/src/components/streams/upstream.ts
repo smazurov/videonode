@@ -1,7 +1,5 @@
 import type { components } from '../../lib/api.generated';
 
-// Accepts the canonical StreamData or the looser StoredStream shape used
-// by the store (StreamData with optional legacy fields).
 type StreamData = Partial<components['schemas']['StreamData']> & { stream_id: string };
 
 export interface UpstreamRef {
@@ -11,29 +9,9 @@ export interface UpstreamRef {
   readonly href: string | null;
 }
 
-// Resolve a stream's upstream reference. Prefers the (future) typed
-// `upstream` field exposed by B7; falls back to deriving from today's
-// `canvas`/`device_id` shape so the UI works against either schema.
 export function resolveUpstream(stream: StreamData): UpstreamRef {
-  const upstream = (stream as { upstream?: string }).upstream;
-  if (typeof upstream === 'string' && upstream.length > 0) {
-    return parseUpstream(upstream);
-  }
-  if (stream.canvas) {
-    return {
-      raw: `composer:${stream.stream_id}`,
-      kind: 'composer',
-      id: stream.stream_id,
-      href: `/composers/${stream.stream_id}`,
-    };
-  }
-  if (stream.device_id) {
-    return {
-      raw: `source:${stream.device_id}`,
-      kind: 'source',
-      id: stream.device_id,
-      href: `/sources/${stream.device_id}`,
-    };
+  if (typeof stream.upstream === 'string' && stream.upstream.length > 0) {
+    return parseUpstream(stream.upstream);
   }
   return { raw: 'unknown', kind: 'unknown', id: '', href: null };
 }

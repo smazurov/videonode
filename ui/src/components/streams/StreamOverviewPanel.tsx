@@ -26,8 +26,6 @@ export function StreamOverviewPanel({ streamId, className }: StreamOverviewPanel
 
   const upstream = resolveUpstream(stream);
   const enabled = !!stream.enabled;
-  const sourceStreams = stream.canvas?.source_streams ?? [];
-  const readerCount = sourceStreams.length;
 
   return (
     <section className={cn('space-y-4 rounded-lg border border-border bg-surface-raised p-4', className)}>
@@ -35,7 +33,7 @@ export function StreamOverviewPanel({ streamId, className }: StreamOverviewPanel
         title="Live preview"
         description="WebRTC playback of this stream"
         actions={
-          <StatusPill tone={enabled ? 'running' : 'idle'}>
+          <StatusPill status={enabled ? 'running' : 'idle'}>
             {enabled ? 'running' : 'idle'}
           </StatusPill>
         }
@@ -48,7 +46,7 @@ export function StreamOverviewPanel({ streamId, className }: StreamOverviewPanel
         showStats={false}
       />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-md border border-border bg-surface-muted/30 p-3">
           <div className="text-xs uppercase tracking-wide text-fg-muted">Upstream</div>
           <div className="mt-1">
@@ -64,13 +62,9 @@ export function StreamOverviewPanel({ streamId, className }: StreamOverviewPanel
           </div>
         </div>
         <div className="rounded-md border border-border bg-surface-muted/30 p-3">
-          <div className="text-xs uppercase tracking-wide text-fg-muted">Readers</div>
-          <div className="mt-1 font-mono text-lg text-fg">{readerCount}</div>
-        </div>
-        <div className="rounded-md border border-border bg-surface-muted/30 p-3">
           <div className="text-xs uppercase tracking-wide text-fg-muted">Encoder</div>
           <div className="mt-1">
-            <StatusPill tone={enabled ? 'running' : 'idle'}>
+            <StatusPill status={enabled ? 'running' : 'idle'}>
               {enabled ? 'running' : 'idle'}
             </StatusPill>
           </div>

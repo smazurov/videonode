@@ -4,8 +4,7 @@ import { cn } from "../../utils";
 export interface SectionHeaderProps {
   readonly title: React.ReactNode;
   readonly description?: React.ReactNode;
-  readonly action?: React.ReactNode;
-  readonly actions?: React.ReactNode; // alias for action (back-compat)
+  readonly actions?: React.ReactNode;
   readonly level?: 2 | 3 | 4;
   readonly className?: string;
 }
@@ -13,12 +12,10 @@ export interface SectionHeaderProps {
 export function SectionHeader({
   title,
   description,
-  action,
   actions,
   level = 2,
   className,
 }: Readonly<SectionHeaderProps>) {
-  const effectiveAction = action ?? actions;
   const headingClass = (() => {
     if (level === 2) return "text-lg font-semibold text-fg";
     if (level === 3) return "text-base font-semibold text-fg";
@@ -41,7 +38,7 @@ export function SectionHeader({
   return (
     <div className={cn("flex items-start justify-between gap-4", className)}>
       {content}
-      {effectiveAction && <div className="shrink-0">{effectiveAction}</div>}
+      {actions && <div className="shrink-0">{actions}</div>}
     </div>
   );
 }

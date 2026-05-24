@@ -5,17 +5,11 @@ import { cva, cn, type VariantProps } from "../../utils";
 export type SortDirection = "asc" | "desc";
 
 export interface DataTableColumn<T> {
-  readonly id?: string;
-  readonly key?: string; // alias for id (back-compat)
-  readonly label?: React.ReactNode;
-  readonly header?: React.ReactNode; // alias for label (back-compat with U12 panels)
-  readonly accessor?: (row: T) => React.ReactNode;
-  readonly cell?: (row: T) => React.ReactNode; // alias for accessor
-  /** Optional custom comparator. Required to mark a column sortable when accessor isn't a primitive. */
-  readonly sort?: (a: T, b: T) => number;
-  readonly sortValue?: (row: T) => number | string | undefined; // back-compat
-  /** Whether this column is sortable (defaults to true if sort is provided). */
-  readonly sortable?: boolean;
+  readonly id: string;
+  readonly header: React.ReactNode;
+  readonly cell: (row: T) => React.ReactNode;
+  /** Sort comparator key; presence makes the column sortable. */
+  readonly sortValue?: (row: T) => number | string | undefined;
   readonly align?: "left" | "right" | "center";
   readonly className?: string;
   readonly headerClassName?: string;
@@ -36,8 +30,7 @@ const tableVariants = cva({
 export interface DataTableProps<T> extends VariantProps<typeof tableVariants> {
   readonly columns: ReadonlyArray<DataTableColumn<T>>;
   readonly rows: readonly T[];
-  readonly getRowId?: (row: T) => string;
-  readonly rowKey?: (row: T) => string; // alias for getRowId (back-compat)
+  readonly rowKey: (row: T) => string;
   readonly onRowClick?: (row: T) => void;
   /** Controlled multi-select state. Pass `undefined` to disable selection. */
   readonly selection?: ReadonlyArray<string>;
@@ -46,7 +39,7 @@ export interface DataTableProps<T> extends VariantProps<typeof tableVariants> {
   readonly onFilterChange?: (next: string) => void;
   readonly emptyState?: React.ReactNode;
   readonly className?: string;
-  readonly initialSort?: { columnId?: string; key?: string; direction: SortDirection };
+  readonly initialSort?: { columnId: string; direction: SortDirection };
 }
 
 function defaultRowMatch(row: unknown, needle: string): boolean {
@@ -73,10 +66,17 @@ const alignClass = (align: DataTableColumn<unknown>["align"]): string => {
   }
 };
 
+function compareSortValues(a: unknown, b: unknown): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b));
+}
+
 export function DataTable<T>({
   columns,
   rows,
-  getRowId: getRowIdProp,
   rowKey,
   onRowClick,
   selection,
@@ -87,12 +87,8 @@ export function DataTable<T>({
   density,
   initialSort,
 }: Readonly<DataTableProps<T>>) {
-  // Resolve row-id callback: prefer getRowId, fall back to rowKey (alias),
-  // then to a positional stringified index.
-  const getRowId: (row: T) => string =
-    getRowIdProp ?? rowKey ?? ((row) => String((row as { id?: unknown }).id ?? ""));
   const [sortState, setSortState] = useState<{ columnId: string; direction: SortDirection } | null>(
-    initialSort ? { columnId: initialSort.columnId ?? initialSort.key ?? "", direction: initialSort.direction } : null,
+    initialSort ?? null,
   );
 
   const selectionEnabled = selection !== undefined;
@@ -108,27 +104,26 @@ export function DataTable<T>({
   const sortedRows = useMemo(() => {
     if (!sortState) return filteredRows;
     const col = columns.find((c) => c.id === sortState.columnId);
-    if (!col?.sort) return filteredRows;
+    if (!col?.sortValue) return filteredRows;
     const dir = sortState.direction === "asc" ? 1 : -1;
-    const cmp = col.sort;
-    return [...filteredRows].sort((a, b) => cmp(a, b) * dir);
+    const sortValue = col.sortValue;
+    return [...filteredRows].sort((a, b) => compareSortValues(sortValue(a), sortValue(b)) * dir);
   }, [filteredRows, sortState, columns]);
 
   const toggleSort = (col: DataTableColumn<T>) => {
-    const sortable = col.sortable ?? Boolean(col.sort);
-    if (!sortable || !col.sort) return;
+    if (!col.sortValue) return;
     setSortState((prev) => {
-      if (!prev || prev.columnId !== (col.id ?? col.key ?? "")) {
-        return { columnId: (col.id ?? col.key ?? ""), direction: "asc" };
+      if (!prev || prev.columnId !== col.id) {
+        return { columnId: col.id, direction: "asc" };
       }
       if (prev.direction === "asc") {
-        return { columnId: (col.id ?? col.key ?? ""), direction: "desc" };
+        return { columnId: col.id, direction: "desc" };
       }
       return null;
     });
   };
 
-  const allVisibleIds = useMemo(() => sortedRows.map((r) => getRowId(r)), [sortedRows, getRowId]);
+  const allVisibleIds = useMemo(() => sortedRows.map((r) => rowKey(r)), [sortedRows, rowKey]);
   const allSelected = selectionEnabled && allVisibleIds.length > 0
     && allVisibleIds.every((id) => selectedSet.has(id));
   const someSelected = selectionEnabled
@@ -181,11 +176,11 @@ export function DataTable<T>({
               </th>
             )}
             {columns.map((col) => {
-              const sortable = (col.sortable ?? Boolean(col.sort)) && Boolean(col.sort);
-              const active = sortState?.columnId === (col.id ?? col.key ?? "");
+              const sortable = Boolean(col.sortValue);
+              const active = sortState?.columnId === col.id;
               return (
                 <th
-                  key={(col.id ?? col.key ?? "")}
+                  key={col.id}
                   scope="col"
                   className={cn(
                     "px-3 font-semibold",
@@ -197,7 +192,7 @@ export function DataTable<T>({
                   onClick={() => toggleSort(col)}
                 >
                   <span className="inline-flex items-center gap-1">
-                    {col.label}
+                    {col.header}
                     {sortable && active && (
                       sortState?.direction === "asc"
                         ? <ChevronUpIcon className="h-3 w-3" />
@@ -221,7 +216,7 @@ export function DataTable<T>({
             </tr>
           ) : (
             sortedRows.map((row) => {
-              const id = getRowId(row);
+              const id = rowKey(row);
               const isSelected = selectedSet.has(id);
               const clickable = Boolean(onRowClick);
               return (
@@ -247,10 +242,10 @@ export function DataTable<T>({
                   )}
                   {columns.map((col) => (
                     <td
-                      key={(col.id ?? col.key ?? "")}
+                      key={col.id}
                       className={cn("px-3 align-middle text-fg", alignClass(col.align), col.className)}
                     >
-                      {(col.accessor ?? col.cell ?? (() => null))(row)}
+                      {col.cell(row)}
                     </td>
                   ))}
                 </tr>

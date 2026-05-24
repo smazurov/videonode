@@ -173,7 +173,7 @@ export default function ComposerInputs() {
 
   const editingInput: ComposerInput | undefined = useMemo(() => {
     if (!editingRef || !composer) return undefined;
-    return composer.inputs.find((i) => i.ref === editingRef);
+    return composer.inputs?.find((i) => i.ref === editingRef);
   }, [editingRef, composer]);
 
   if (!composerId) {
@@ -188,7 +188,7 @@ export default function ComposerInputs() {
 
   const canvasW = composer?.canvas.w ?? 1920;
   const canvasH = composer?.canvas.h ?? 1080;
-  const existingRefs = composer?.inputs.map((i) => i.ref) ?? [];
+  const existingRefs = composer?.inputs?.map((i) => i.ref) ?? [];
 
   return (
     <DashboardLayout onLogout={handleLogout}>
@@ -236,7 +236,7 @@ export default function ComposerInputs() {
               <Card className="p-4 space-y-3">
                 <h2 className="text-base font-medium text-fg">Inputs</h2>
                 <InputsList
-                  inputs={composer.inputs}
+                  inputs={composer.inputs ?? []}
                   editingRef={editingRef}
                   disabled={loading || saving}
                   onEdit={(ref) => setEditingRef((cur) => (cur === ref ? null : ref))}

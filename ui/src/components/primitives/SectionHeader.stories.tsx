@@ -13,7 +13,7 @@ export const Basic: Story = () => (
     <SectionHeader
       title="Streams"
       description="Encoders with their publish targets."
-      action={<Button text="New stream" theme="primary" size="SM" />}
+      actions={<Button text="New stream" theme="primary" size="SM" />}
     />
     <SectionHeader title="Settings" level={3} description="Tier 3 heading." />
     <SectionHeader title="Advanced" level={4} />
