@@ -210,7 +210,21 @@ func convertLegacyTableToIntermediate(table map[string]streamsRawV1Entry) []v1Ra
 			if ch == 0 {
 				ch = 1080
 			}
-			layout = append(layout, v1RawSlot{Slot: 0, X: 0, Y: 0, W: cw, H: ch})
+			// Legacy [streams.<id>].canvas had no per-source slot config;
+			// default to a side-by-side row so every input gets a slot.
+			// Without one slot per input the composer renders only the
+			// first source.
+			n := len(e.Canvas.SourceStreams)
+			slotW := cw / n
+			for i := range n {
+				layout = append(layout, v1RawSlot{
+					Slot: i,
+					X:    i * slotW,
+					Y:    0,
+					W:    slotW,
+					H:    ch,
+				})
+			}
 		} else {
 			inputs = append(inputs, v1RawInput{ID: "inp1", Device: e.Device})
 		}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 )
@@ -172,11 +173,29 @@ func migrateV1Streams(v1 []v1RawStream) (migrationResult, error) {
 			}
 		}
 
+		// v1 stream-level test_mode wins over a real device on its inputs:
+		// the operator explicitly asked for the test pattern. Warn so the
+		// override is visible in logs, since the v2 source will lose the
+		// device string.
+		if s.TestMode && streamHasRealDevice {
+			devs := make([]string, 0, len(s.Inputs))
+			for _, in := range s.Inputs {
+				if in.Device != "" {
+					devs = append(devs, in.Device)
+				}
+			}
+			slog.Warn("v1→v2 migration: stream-level test_mode overrides input devices; sources will use test pattern",
+				"stream_id", s.ID,
+				"dropped_devices", devs,
+			)
+		}
+
 		for _, in := range s.Inputs {
-			// test_mode on the stream propagates down to a source only when that source has no real device.
+			// Stream-level test_mode forces all synthesized sources to
+			// test-pattern, discarding any device override.
 			testMode := false
 			device := in.Device
-			if s.TestMode && !streamHasRealDevice {
+			if s.TestMode {
 				testMode = true
 				device = ""
 			}
@@ -316,8 +335,25 @@ func synthesizeComposer(s v1RawStream, inputIDToSrcID map[string]string, _ []str
 	}
 
 	// Inputs: preserve v1 input order, attach effect when present.
+	// The v2 composer keys slot bindings by source_id, so duplicate refs
+	// (same device reused via multiple v1 inputs) collapse to one entry;
+	// keep the first occurrence and warn so the operator notices the v1
+	// "same source twice" trick isn't preserved in v2.
+	seenRefs := make(map[string]string, len(s.Inputs))
 	for _, in := range s.Inputs {
-		ci := V2ComposerInput{Ref: "source:" + inputIDToSrcID[in.ID]}
+		ref := "source:" + inputIDToSrcID[in.ID]
+		if firstInput, dup := seenRefs[ref]; dup {
+			slog.Warn("v1→v2 migration: dropping duplicate composer input (same source referenced twice)",
+				"stream_id", s.ID,
+				"composer_id", comp.ID,
+				"ref", ref,
+				"first_input", firstInput,
+				"duplicate_input", in.ID,
+			)
+			continue
+		}
+		seenRefs[ref] = in.ID
+		ci := V2ComposerInput{Ref: ref}
 		if fxList, ok := s.Effects[in.ID]; ok && len(fxList) > 0 {
 			fx := fxList[0]
 			ci.Effect = &V2Effect{Type: fx.Type, Corners: fx.Corners}
@@ -325,14 +361,22 @@ func synthesizeComposer(s v1RawStream, inputIDToSrcID map[string]string, _ []str
 		comp.Inputs = append(comp.Inputs, ci)
 	}
 
-	// Layout: v1 slot index → v2 input ref (by name, not position).
+	// Layout: v1 slot index → v2 input ref (by name, not position). Skip
+	// slots whose referenced input was deduped out above.
+	knownInputRefs := make(map[string]struct{}, len(comp.Inputs))
+	for _, ci := range comp.Inputs {
+		knownInputRefs[ci.Ref] = struct{}{}
+	}
 	for _, slot := range s.Layout {
 		if slot.Slot < 0 || slot.Slot >= len(s.Inputs) {
 			continue
 		}
-		srcID := inputIDToSrcID[s.Inputs[slot.Slot].ID]
+		ref := "source:" + inputIDToSrcID[s.Inputs[slot.Slot].ID]
+		if _, ok := knownInputRefs[ref]; !ok {
+			continue
+		}
 		comp.Layout = append(comp.Layout, V2LayoutSlot{
-			Input: "source:" + srcID,
+			Input: ref,
 			X:     slot.X,
 			Y:     slot.Y,
 			W:     slot.W,

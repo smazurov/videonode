@@ -90,7 +90,13 @@ func (s *sourceService) Create(_ context.Context, src api.Source) (*api.Source, 
 	}
 	if s.pipe != nil {
 		if err := s.pipe.ApplySource(entity); err != nil {
-			s.logger.Warn("Create: ApplySource failed", "source_id", src.ID, "error", err)
+			// Roll back the store insert so the operator doesn't see a
+			// persisted source that the pipeline never accepted.
+			if rmErr := s.store.RemoveSourceEntity(src.ID); rmErr != nil {
+				s.logger.Error("Create: rollback after ApplySource failure also failed",
+					"source_id", src.ID, "apply_error", err, "rollback_error", rmErr)
+			}
+			return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
 		}
 	}
 	out := sourceToAPI(entity)
@@ -102,10 +108,11 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	src, ok := s.store.GetSourceEntity(id)
+	prev, ok := s.store.GetSourceEntity(id)
 	if !ok {
 		return nil, &api.SourceNotFoundError{SourceID: id}
 	}
+	src := prev
 	if patch.Device != nil {
 		src.Device = *patch.Device
 	}
@@ -121,7 +128,13 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 	}
 	if s.pipe != nil {
 		if err := s.pipe.ApplySource(src); err != nil {
-			s.logger.Warn("Update: ApplySource failed", "source_id", id, "error", err)
+			// Roll back to the previous spec so the persisted state stays
+			// consistent with what the pipeline accepts.
+			if restoreErr := s.store.UpdateSourceEntity(id, prev); restoreErr != nil {
+				s.logger.Error("Update: rollback after ApplySource failure also failed",
+					"source_id", id, "apply_error", err, "rollback_error", restoreErr)
+			}
+			return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
 		}
 	}
 	out := sourceToAPI(src)

@@ -92,7 +92,13 @@ func (s *composerService) CreateComposer(_ context.Context, data models.Composer
 	}
 	if s.pipe != nil {
 		if err := s.pipe.ApplyComposer(entity); err != nil {
-			s.logger.Warn("CreateComposer: ApplyComposer failed", "composer_id", entity.ID, "error", err)
+			// Roll back the insert so the persisted state matches what
+			// the pipeline accepts.
+			if rmErr := s.store.RemoveComposerEntity(entity.ID); rmErr != nil {
+				s.logger.Error("CreateComposer: rollback after ApplyComposer failure also failed",
+					"composer_id", entity.ID, "apply_error", err, "rollback_error", rmErr)
+			}
+			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
 		}
 	}
 	out := composerToAPI(entity)
@@ -104,10 +110,11 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	c, ok := s.store.GetComposerEntity(id)
+	prev, ok := s.store.GetComposerEntity(id)
 	if !ok {
 		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
 	}
+	c := prev
 	if patch.Canvas != nil {
 		c.Canvas = pipeline.CanvasDims{W: patch.Canvas.W, H: patch.Canvas.H}
 	}
@@ -126,7 +133,11 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 	}
 	if s.pipe != nil {
 		if err := s.pipe.ApplyComposer(c); err != nil {
-			s.logger.Warn("UpdateComposer: ApplyComposer failed", "composer_id", id, "error", err)
+			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
+				s.logger.Error("UpdateComposer: rollback after ApplyComposer failure also failed",
+					"composer_id", id, "apply_error", err, "rollback_error", restoreErr)
+			}
+			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
 		}
 	}
 	out := composerToAPI(c)
@@ -174,10 +185,11 @@ func (s *composerService) ReplaceLayout(_ context.Context, id string, layout []m
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	c, ok := s.store.GetComposerEntity(id)
+	prev, ok := s.store.GetComposerEntity(id)
 	if !ok {
 		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
 	}
+	c := prev
 	c.Layout = apiLayoutToEntity(layout)
 	if err := validateComposerLayout(c); err != nil {
 		return nil, err
@@ -188,7 +200,11 @@ func (s *composerService) ReplaceLayout(_ context.Context, id string, layout []m
 	}
 	if s.pipe != nil {
 		if err := s.pipe.ApplyComposer(c); err != nil {
-			s.logger.Warn("ReplaceLayout: ApplyComposer failed", "composer_id", id, "error", err)
+			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
+				s.logger.Error("ReplaceLayout: rollback after ApplyComposer failure also failed",
+					"composer_id", id, "apply_error", err, "rollback_error", restoreErr)
+			}
+			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
 		}
 	}
 	out := composerToAPI(c)
@@ -200,10 +216,15 @@ func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	c, ok := s.store.GetComposerEntity(id)
+	prev, ok := s.store.GetComposerEntity(id)
 	if !ok {
 		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
 	}
+	// Deep-copy Inputs so the in-flight mutation doesn't poison prev (used
+	// for rollback on Apply failure).
+	c := prev
+	c.Inputs = make([]pipeline.ComposerInput, len(prev.Inputs))
+	copy(c.Inputs, prev.Inputs)
 	found := false
 	for i := range c.Inputs {
 		if c.Inputs[i].Ref == ref {
@@ -228,7 +249,11 @@ func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effe
 	}
 	if s.pipe != nil {
 		if err := s.pipe.ApplyComposer(c); err != nil {
-			s.logger.Warn("SetInputEffect: ApplyComposer failed", "composer_id", id, "error", err)
+			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
+				s.logger.Error("SetInputEffect: rollback after ApplyComposer failure also failed",
+					"composer_id", id, "apply_error", err, "rollback_error", restoreErr)
+			}
+			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
 		}
 	}
 	out := composerToAPI(c)
