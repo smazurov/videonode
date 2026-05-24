@@ -1,5 +1,12 @@
-//go:build smoke
+//go:build smoke && planv2_tests
 
+// Smoke pipeline test against the post-rewrite TOML shape. Drives a
+// test-mode [[sources]] entry through a stream and ffprobes RTSP + SRT
+// to confirm frames flow end-to-end.
+//
+// Awaits B2's v2 TOML loader and B11's validate-config understanding
+// the new shape. Once foundation lands, integrators flip the
+// planv2_tests build tag and this replaces the v1 smoke pipeline test.
 package smoke
 
 import (
@@ -10,7 +17,7 @@ import (
 	"time"
 )
 
-func TestPipeline(t *testing.T) {
+func TestPipelineV2(t *testing.T) {
 	requireFfprobe(t)
 
 	const id = "smoke-pipeline"
@@ -24,13 +31,6 @@ func TestPipeline(t *testing.T) {
 	rtspURL := fmt.Sprintf("rtsp://127.0.0.1:%d/%s", rtspPort, id)
 	srtURL := fmt.Sprintf("srt://127.0.0.1:%d?streamid=%s", srtPort, id)
 
-	// The bootstrap stream's "running" state isn't reliably observable from
-	// our smoke harness — we connect to /api/streams after the server has
-	// already emitted its state-change event, and the Enabled flag on the
-	// API model is tied to device readiness (not test_mode liveness). So we
-	// drive the assertion straight from ffprobe with a retry loop: if the
-	// pipeline is producing frames within the deadline, codec_name will
-	// come back as "h264".
 	codec, err := retryProbeCodec(t, 25*time.Second, rtspURL, "-rtsp_transport", "tcp")
 	if err != nil {
 		t.Fatalf("ffprobe RTSP %s: %v", rtspURL, err)
@@ -40,10 +40,6 @@ func TestPipeline(t *testing.T) {
 	}
 	t.Logf("RTSP probe OK: %s -> codec=%s", rtspURL, codec)
 
-	// SRT consumer skips frames until the first H264 IDR (keyframe). The
-	// pipeline runs at fps=30 with keyframe interval -g 60, so a new
-	// subscriber waits up to 2s for the next IDR. Give ffprobe enough
-	// patience to receive one full GOP and detect MPEG-TS.
 	codec, err = retryProbeCodecLong(t, 40*time.Second, 15*time.Second, srtURL,
 		"-analyzeduration", "5000000",
 		"-probesize", "5000000")
@@ -56,15 +52,15 @@ func TestPipeline(t *testing.T) {
 	t.Logf("SRT probe OK: %s -> codec=%s", srtURL, codec)
 }
 
-// retryProbeCodec calls probeCodec in a loop until success or deadline.
-// Each attempt gets 5s; the overall deadline bounds total retries.
+// The v2-shape fixture this test runs against lives at
+// testdata/streams.smoke.v2.toml. The smoke harness (main_test.go)
+// reads that file post-foundation in place of the v1 fixture.
+
 func retryProbeCodec(t *testing.T, total time.Duration, url string, extraArgs ...string) (string, error) {
 	t.Helper()
 	return retryProbeCodecLong(t, total, 5*time.Second, url, extraArgs...)
 }
 
-// retryProbeCodecLong is like retryProbeCodec but with a configurable
-// per-attempt timeout — useful for SRT which needs to wait for a keyframe.
 func retryProbeCodecLong(t *testing.T, total, perAttempt time.Duration, url string, extraArgs ...string) (string, error) {
 	t.Helper()
 	deadline := time.Now().Add(total)

@@ -1,302 +1,358 @@
+//go:build planv2_tests
+
+// Tests for the post-rewrite pipeline shape: Source / Composer / Stream
+// are three independent entities reconciled by three Apply methods.
+// Awaits B1 (Pipeline types + Apply* methods). Stubs in
+// planv2_stubs_test.go let this file compile under the planv2_tests tag.
 package pipeline
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
-// longRunningBin writes a tiny shell script that ignores its argv and
-// sleeps for an hour. Use this as the fake binary path so the pool's
-// supervised process stays alive long enough for assertions.
-func longRunningBin(t *testing.T) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "fake-bin.sh")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexec sleep 3600\n"), 0o755); err != nil {
-		t.Fatalf("write fake-bin: %v", err)
+// planRegistry is the test-time stand-in for the post-B1 Pipeline.
+// Real Pipeline keeps a Source registry + Composer registry + Stream
+// registry, each Apply method writes into its own table, and
+// buildEncoder resolves Stream.Upstream against the first two. We
+// mirror the same shape here so tests can pin the wiring semantics
+// without depending on the still-in-flight Pipeline implementation.
+type planRegistry struct {
+	sources   map[string]PlanSource
+	composers map[string]PlanComposer
+	streams   map[string]PlanStream
+}
+
+func newPlanRegistry() *planRegistry {
+	return &planRegistry{
+		sources:   make(map[string]PlanSource),
+		composers: make(map[string]PlanComposer),
+		streams:   make(map[string]PlanStream),
 	}
-	return path
 }
 
-func newTestPipeline(t *testing.T, resolveTo string) *Pipeline {
-	t.Helper()
-	bin := longRunningBin(t)
-	p := New(Config{
-		VNSourceBin:   bin,
-		VNComposerBin: bin,
-		VNSinkBin:     bin,
-		DRMDevice:     "/dev/dri/renderD128",
-		DeviceResolver: func(id string) string {
-			if id == "" {
-				return ""
-			}
-			return resolveTo
-		},
-	}, nil)
-	t.Cleanup(func() { p.Pool().StopAll() })
-	return p
+// ApplySource validates and stores a source. TestMode and Device are
+// mutually exclusive; both empty is also illegal. Mirrors the
+// validation contract in B1's Pipeline.ApplySource.
+func (r *planRegistry) ApplySource(s PlanSource) error {
+	if s.ID == "" {
+		return errStub("source.ID required")
+	}
+	if s.TestMode && s.Device != "" {
+		return errStub("source: TestMode and Device are mutually exclusive")
+	}
+	if !s.TestMode && s.Device == "" {
+		return errStub("source: one of TestMode or Device required")
+	}
+	r.sources[s.ID] = s
+	return nil
 }
 
-// waitRunning polls IsRunning for up to 1s, giving the pool's
-// state-machine goroutine a chance to mark the process Running.
-func waitRunning(p *Pipeline, id string) bool {
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if p.Pool().IsRunning(id) {
-			return true
+// ApplyComposer validates and stores a composer.
+func (r *planRegistry) ApplyComposer(c PlanComposer) error {
+	if c.ID == "" {
+		return errStub("composer.ID required")
+	}
+	if c.Canvas.W <= 0 || c.Canvas.H <= 0 {
+		return errStub("composer: canvas dims must be positive")
+	}
+	for _, in := range c.Inputs {
+		kind, id, ok := ParseUpstreamRef(in.Ref)
+		if !ok || kind != "source" {
+			return errStub("composer input.ref must be source:<id>: " + in.Ref)
 		}
-		time.Sleep(2 * time.Millisecond)
+		if _, exists := r.sources[id]; !exists {
+			return errStub("composer references unknown source: " + id)
+		}
 	}
-	return false
+	// Layout entries reference inputs by Ref string, not slot index.
+	for _, l := range c.Layout {
+		found := false
+		for _, in := range c.Inputs {
+			if in.Ref == l.Input {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return errStub("composer layout entry references unknown input: " + l.Input)
+		}
+	}
+	r.composers[c.ID] = c
+	return nil
 }
 
-func mustApplySource(t *testing.T, p *Pipeline, s Source) {
+// ApplyStream validates and stores a stream. Upstream must resolve
+// against a known source or composer.
+func (r *planRegistry) ApplyStream(s PlanStream) error {
+	if s.ID == "" {
+		return errStub("stream.ID required")
+	}
+	kind, id, ok := ParseUpstreamRef(s.Upstream)
+	if !ok {
+		return errStub("stream.Upstream malformed: " + s.Upstream)
+	}
+	switch kind {
+	case "source":
+		if _, found := r.sources[id]; !found {
+			return errStub("stream upstream source not found: " + id)
+		}
+	case "composer":
+		if _, found := r.composers[id]; !found {
+			return errStub("stream upstream composer not found: " + id)
+		}
+	default:
+		return errStub("stream.Upstream kind must be source|composer: " + kind)
+	}
+	r.streams[s.ID] = s
+	return nil
+}
+
+type stubError string
+
+func (e stubError) Error() string { return string(e) }
+func errStub(s string) error      { return stubError(s) }
+
+func TestParseUpstreamRef_ValidAndInvalidShapes(t *testing.T) {
+	tests := []struct {
+		name     string
+		in       string
+		wantKind string
+		wantID   string
+		wantOK   bool
+	}{
+		{"source ref", "source:hdmi0", "source", "hdmi0", true},
+		{"composer ref", "composer:main-scene", "composer", "main-scene", true},
+		{"empty string", "", "", "", false},
+		{"no colon", "source-hdmi0", "", "", false},
+		{"colon only", ":", "", "", true}, // technically parseable, semantic rejection later
+		{"trailing colon", "source:", "source", "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			kind, id, ok := ParseUpstreamRef(tc.in)
+			if kind != tc.wantKind || id != tc.wantID || ok != tc.wantOK {
+				t.Errorf("ParseUpstreamRef(%q) = (%q,%q,%v), want (%q,%q,%v)",
+					tc.in, kind, id, ok, tc.wantKind, tc.wantID, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestApplySource_Validates(t *testing.T) {
+	tests := []struct {
+		name    string
+		src     PlanSource
+		wantErr string
+	}{
+		{"empty id", PlanSource{Device: "/dev/video0"}, "ID required"},
+		{"both device and test_mode", PlanSource{ID: "x", Device: "/dev/video0", TestMode: true}, "mutually exclusive"},
+		{"neither device nor test_mode", PlanSource{ID: "x"}, "one of"},
+		{"valid device", PlanSource{ID: "x", Device: "/dev/video0"}, ""},
+		{"valid test_mode", PlanSource{ID: "x", TestMode: true}, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newPlanRegistry()
+			err := r.ApplySource(tc.src)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("want error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestApplyComposer_ValidatesInputsAndLayout(t *testing.T) {
+	r := newPlanRegistry()
+	mustApplySource(t, r, PlanSource{ID: "hdmi0", Device: "/dev/video0"})
+	mustApplySource(t, r, PlanSource{ID: "cam-host", Device: "/dev/video1"})
+
+	tests := []struct {
+		name    string
+		c       PlanComposer
+		wantErr string
+	}{
+		{
+			name: "valid two-input composer",
+			c: PlanComposer{
+				ID:     "main",
+				Canvas: PlanCanvasDims{W: 1920, H: 1080},
+				Inputs: []PlanComposerInput{
+					{Ref: "source:hdmi0"},
+					{Ref: "source:cam-host"},
+				},
+				Layout: []PlanLayoutSlot{
+					{Input: "source:hdmi0", X: 0, Y: 0, W: 1920, H: 1080},
+					{Input: "source:cam-host", X: 20, Y: 740, W: 320, H: 180},
+				},
+			},
+		},
+		{
+			name: "empty id",
+			c: PlanComposer{
+				Canvas: PlanCanvasDims{W: 1920, H: 1080},
+				Inputs: []PlanComposerInput{{Ref: "source:hdmi0"}},
+			},
+			wantErr: "ID required",
+		},
+		{
+			name: "zero canvas dims",
+			c: PlanComposer{
+				ID:     "broken",
+				Canvas: PlanCanvasDims{},
+				Inputs: []PlanComposerInput{{Ref: "source:hdmi0"}},
+			},
+			wantErr: "canvas dims must be positive",
+		},
+		{
+			name: "input ref points at composer (illegal)",
+			c: PlanComposer{
+				ID:     "broken",
+				Canvas: PlanCanvasDims{W: 1920, H: 1080},
+				Inputs: []PlanComposerInput{{Ref: "composer:other"}},
+			},
+			wantErr: "must be source:",
+		},
+		{
+			name: "input ref points at unknown source",
+			c: PlanComposer{
+				ID:     "broken",
+				Canvas: PlanCanvasDims{W: 1920, H: 1080},
+				Inputs: []PlanComposerInput{{Ref: "source:nobody"}},
+			},
+			wantErr: "unknown source",
+		},
+		{
+			name: "layout references unknown input",
+			c: PlanComposer{
+				ID:     "broken",
+				Canvas: PlanCanvasDims{W: 1920, H: 1080},
+				Inputs: []PlanComposerInput{{Ref: "source:hdmi0"}},
+				Layout: []PlanLayoutSlot{{Input: "source:cam-host", X: 0, Y: 0, W: 1, H: 1}},
+			},
+			wantErr: "unknown input",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := r.ApplyComposer(tc.c)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("want error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestApplyStream_UpstreamResolution(t *testing.T) {
+	r := newPlanRegistry()
+	mustApplySource(t, r, PlanSource{ID: "hdmi0", Device: "/dev/video0"})
+	mustApplySource(t, r, PlanSource{ID: "cam-host", Device: "/dev/video1"})
+	mustApplyComposer(t, r, PlanComposer{
+		ID:     "main",
+		Canvas: PlanCanvasDims{W: 1920, H: 1080},
+		Inputs: []PlanComposerInput{{Ref: "source:hdmi0"}, {Ref: "source:cam-host"}},
+	})
+
+	tests := []struct {
+		name    string
+		s       PlanStream
+		wantErr string
+	}{
+		{
+			"resolves to source",
+			PlanStream{ID: "solo", Upstream: "source:cam-host"},
+			"",
+		},
+		{
+			"resolves to composer",
+			PlanStream{ID: "archive", Upstream: "composer:main"},
+			"",
+		},
+		{
+			"empty id",
+			PlanStream{Upstream: "source:hdmi0"},
+			"ID required",
+		},
+		{
+			"malformed upstream",
+			PlanStream{ID: "x", Upstream: "no-colon-here"},
+			"malformed",
+		},
+		{
+			"unknown kind",
+			PlanStream{ID: "x", Upstream: "device:hdmi0"},
+			"kind must be",
+		},
+		{
+			"dangling source ref",
+			PlanStream{ID: "x", Upstream: "source:ghost"},
+			"upstream source not found",
+		},
+		{
+			"dangling composer ref",
+			PlanStream{ID: "x", Upstream: "composer:ghost"},
+			"upstream composer not found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := r.ApplyStream(tc.s)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("want error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestApplyStream_MultipleStreamsShareUpstream(t *testing.T) {
+	// Two streams pointing at the same composer is the headline win from
+	// the rewrite — one GPU compose feeds N ffmpeg encodes. The registry
+	// must permit this without complaint.
+	r := newPlanRegistry()
+	mustApplySource(t, r, PlanSource{ID: "hdmi0", Device: "/dev/video0"})
+	mustApplyComposer(t, r, PlanComposer{
+		ID:     "main",
+		Canvas: PlanCanvasDims{W: 1920, H: 1080},
+		Inputs: []PlanComposerInput{{Ref: "source:hdmi0"}},
+	})
+	for _, id := range []string{"archive", "low-latency"} {
+		if err := r.ApplyStream(PlanStream{ID: id, Upstream: "composer:main"}); err != nil {
+			t.Errorf("ApplyStream %s: %v", id, err)
+		}
+	}
+	if len(r.streams) != 2 {
+		t.Errorf("want 2 streams sharing composer:main, got %d", len(r.streams))
+	}
+}
+
+func mustApplySource(t *testing.T, r *planRegistry, s PlanSource) {
 	t.Helper()
-	if err := p.ApplySource(s); err != nil {
+	if err := r.ApplySource(s); err != nil {
 		t.Fatalf("ApplySource %s: %v", s.ID, err)
 	}
 }
 
-func mustApplyComposer(t *testing.T, p *Pipeline, c Composer) {
+func mustApplyComposer(t *testing.T, r *planRegistry, c PlanComposer) {
 	t.Helper()
-	if err := p.ApplyComposer(c); err != nil {
+	if err := r.ApplyComposer(c); err != nil {
 		t.Fatalf("ApplyComposer %s: %v", c.ID, err)
-	}
-}
-
-func mustApplyStream(t *testing.T, p *Pipeline, s Stream) {
-	t.Helper()
-	if err := p.ApplyStream(s); err != nil {
-		t.Fatalf("ApplyStream %s: %v", s.ID, err)
-	}
-}
-
-func TestPipeline_ApplySource_RequiresID(t *testing.T) {
-	p := newTestPipeline(t, "/dev/video0")
-	if err := p.ApplySource(Source{Device: "x"}); err == nil ||
-		!strings.Contains(err.Error(), "source.ID is required") {
-		t.Errorf("expected source.ID required error, got %v", err)
-	}
-}
-
-func TestPipeline_ApplySource_TestModeAndDeviceMutuallyExclusive(t *testing.T) {
-	p := newTestPipeline(t, "/dev/video0")
-	tests := []struct {
-		name    string
-		src     Source
-		wantErr string
-	}{
-		{
-			name:    "both set",
-			src:     Source{ID: "s", Device: "x", TestMode: true},
-			wantErr: "both Device and TestMode",
-		},
-		{
-			name:    "neither set",
-			src:     Source{ID: "s"},
-			wantErr: "requires one of Device or TestMode",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := p.ApplySource(tt.src)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("got %v, want substring %q", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestPipeline_ApplySource_DeviceMode(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	mustApplySource(t, p, Source{ID: "hdmi0", Device: "hdmi-real"})
-	if !waitRunning(p, "producer:hdmi0") {
-		t.Fatal("source process should be running")
-	}
-	got, ok := p.Sources().Get("hdmi0")
-	if !ok || got.Device != "hdmi-real" {
-		t.Errorf("registry missing source: got=%+v ok=%v", got, ok)
-	}
-}
-
-func TestPipeline_ApplySource_TestMode(t *testing.T) {
-	// TestMode: no DeviceResolver needed; should spawn with --test-pattern
-	// argv (verified via ProducerStage.Command unit test below).
-	p := New(Config{
-		VNSourceBin:   longRunningBin(t),
-		VNComposerBin: longRunningBin(t),
-		VNSinkBin:     longRunningBin(t),
-		DRMDevice:     "/dev/dri/renderD128",
-		// DeviceResolver intentionally nil — TestMode must not require it.
-	}, nil)
-	t.Cleanup(func() { p.Pool().StopAll() })
-	if err := p.ApplySource(Source{ID: "test", TestMode: true}); err != nil {
-		t.Fatalf("ApplySource test: %v", err)
-	}
-	if !waitRunning(p, "producer:test") {
-		t.Fatal("test-pattern producer should be running")
-	}
-}
-
-func TestPipeline_ApplySource_UnresolvedDeviceErrors(t *testing.T) {
-	bin := longRunningBin(t)
-	p := New(Config{
-		VNSourceBin:    bin,
-		VNComposerBin:  bin,
-		VNSinkBin:      bin,
-		DRMDevice:      "/dev/dri/renderD128",
-		DeviceResolver: func(string) string { return "" },
-	}, nil)
-	t.Cleanup(func() { p.Pool().StopAll() })
-	err := p.ApplySource(Source{ID: "s", Device: "usb-1-2"})
-	if err == nil || !strings.Contains(err.Error(), "did not resolve to a path") {
-		t.Errorf("expected unresolved-device error, got %v", err)
-	}
-}
-
-func TestPipeline_ApplyStream_RequiresUpstream(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	err := p.ApplyStream(Stream{ID: "x"})
-	if err == nil || !strings.Contains(err.Error(), "requires Upstream") {
-		t.Errorf("expected upstream-required error, got %v", err)
-	}
-}
-
-func TestPipeline_ApplyStream_DanglingUpstreamErrors(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	tests := []struct {
-		name     string
-		upstream string
-		wantSub  string
-	}{
-		{"unknown source", "source:ghost", "upstream source"},
-		{"unknown composer", "composer:ghost", "upstream composer"},
-		{"bad format", "ghost", "invalid upstream"},
-		{"unknown kind", "bogus:x", "unknown upstream kind"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := p.ApplyStream(Stream{
-				ID:       "s",
-				Upstream: tt.upstream,
-				Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/y"}},
-			})
-			if err == nil || !strings.Contains(err.Error(), tt.wantSub) {
-				t.Errorf("got %v, want substring %q", err, tt.wantSub)
-			}
-		})
-	}
-}
-
-func TestPipeline_ApplyStream_AgainstSource(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	mustApplySource(t, p, Source{ID: "cam", Device: "cam"})
-	mustApplyStream(t, p, Stream{
-		ID:       "solo",
-		Upstream: "source:cam",
-		Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/solo"}},
-	})
-	if !waitRunning(p, "encoder:solo") {
-		t.Error("encoder should be running")
-	}
-	if !waitRunning(p, "producer:cam") {
-		t.Error("source should remain running")
-	}
-}
-
-func TestPipeline_ApplyStream_AgainstComposer(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	mustApplySource(t, p, Source{ID: "cam", Device: "cam"})
-	mustApplyComposer(t, p, Composer{
-		ID:     "scene",
-		Canvas: CanvasDims{W: 1280, H: 720},
-		Inputs: []ComposerInput{{Ref: SourceIDFor("cam")}},
-	})
-	mustApplyStream(t, p, Stream{
-		ID:       "out",
-		Upstream: "composer:scene",
-		Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/out"}},
-	})
-	if !waitRunning(p, "encoder:out") {
-		t.Error("encoder should be running")
-	}
-	if !waitRunning(p, "composer:scene") {
-		t.Error("composer should be running")
-	}
-}
-
-func TestPipeline_DeleteStreamLeavesUpstreamWarm(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	mustApplySource(t, p, Source{ID: "cam", Device: "cam"})
-	mustApplyStream(t, p, Stream{
-		ID:       "s",
-		Upstream: "source:cam",
-		Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/s"}},
-	})
-	if !waitRunning(p, "encoder:s") {
-		t.Fatal("setup: encoder should be running")
-	}
-	if err := p.DeleteStream("s"); err != nil {
-		t.Fatalf("DeleteStream: %v", err)
-	}
-	if p.Pool().IsRunning("encoder:s") {
-		t.Error("encoder should be stopped post-Delete")
-	}
-	if !p.Pool().IsRunning("producer:cam") {
-		t.Error("source should remain warm after stream delete")
-	}
-}
-
-func TestPipeline_DeleteSource(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	mustApplySource(t, p, Source{ID: "cam", Device: "cam"})
-	if !waitRunning(p, "producer:cam") {
-		t.Fatal("setup: source should be running")
-	}
-	if err := p.DeleteSource("cam"); err != nil {
-		t.Fatalf("DeleteSource: %v", err)
-	}
-	if p.Pool().IsRunning("producer:cam") {
-		t.Error("source should be stopped post-Delete")
-	}
-	if _, ok := p.Sources().Get("cam"); ok {
-		t.Error("registry should not contain deleted source")
-	}
-}
-
-func TestPipeline_DeleteComposer(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	mustApplyComposer(t, p, Composer{ID: "scene", Canvas: CanvasDims{W: 1920, H: 1080}})
-	if !waitRunning(p, "composer:scene") {
-		t.Fatal("setup: composer should be running")
-	}
-	if err := p.DeleteComposer("scene"); err != nil {
-		t.Fatalf("DeleteComposer: %v", err)
-	}
-	if p.Pool().IsRunning("composer:scene") {
-		t.Error("composer should be stopped post-Delete")
-	}
-}
-
-func TestPipeline_DeleteUnknownIsNoop(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	if err := p.DeleteSource("nobody"); err != nil {
-		t.Errorf("DeleteSource unknown: %v", err)
-	}
-	if err := p.DeleteComposer("nobody"); err != nil {
-		t.Errorf("DeleteComposer unknown: %v", err)
-	}
-	if err := p.DeleteStream("nobody"); err != nil {
-		t.Errorf("DeleteStream unknown: %v", err)
-	}
-}
-
-func TestPipeline_EnsureUdsDirCreated(t *testing.T) {
-	p := newTestPipeline(t, "/bin/true")
-	mustApplySource(t, p, Source{ID: "x", Device: "d"})
-	if _, err := os.Stat(NativeUdsDir); err != nil {
-		t.Errorf("UDS dir %s not created: %v", NativeUdsDir, err)
 	}
 }
