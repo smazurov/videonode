@@ -5,6 +5,7 @@
 #include <turbojpeg.h>
 
 #include <cstring>
+#include <span>
 
 namespace jpeg_dec {
 
@@ -109,15 +110,21 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
     // alignment) keep each NV12 chroma row aligned to the BO layout.
     const int nv12_cw = width_ / 2;
     const int nv12_ch = height_ / 2;
-    uint8_t* uv = s.uv_mapped;
-    const uint8_t* up = u_scratch_.data();
-    const uint8_t* vp = v_scratch_.data();
+    const std::size_t chroma_pw_sz = static_cast<std::size_t>(chroma_pw);
+    const std::size_t chroma_row_bytes = static_cast<std::size_t>(nv12_cw) * 2;
+    // uv_mapped points into a slot-sized BO; we only ever touch the first
+    // nv12_ch * uv_pitch bytes via row subspans.
+    const std::span<uint8_t> uv_plane{s.uv_mapped, static_cast<std::size_t>(nv12_ch) *
+                                                       static_cast<std::size_t>(s.uv_pitch)};
+    const std::span<const uint8_t> up{u_scratch_};
+    const std::span<const uint8_t> vp{v_scratch_};
 
     if (jsubsamp == TJSAMP_420) {
         for (int y = 0; y < nv12_ch; ++y) {
-            uint8_t* row = uv + std::size_t(y) * s.uv_pitch;
-            const uint8_t* urow = up + std::size_t(y) * chroma_pw;
-            const uint8_t* vrow = vp + std::size_t(y) * chroma_pw;
+            const auto row =
+                uv_plane.subspan(static_cast<std::size_t>(y) * s.uv_pitch, chroma_row_bytes);
+            const auto urow = up.subspan(static_cast<std::size_t>(y) * chroma_pw_sz, chroma_pw_sz);
+            const auto vrow = vp.subspan(static_cast<std::size_t>(y) * chroma_pw_sz, chroma_pw_sz);
             for (int x = 0; x < nv12_cw; ++x) {
                 row[2 * x] = urow[x];
                 row[2 * x + 1] = vrow[x];
@@ -125,11 +132,16 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
         }
     } else { // TJSAMP_422: vertically downsample 2:1
         for (int y = 0; y < nv12_ch; ++y) {
-            const uint8_t* u0 = up + (2 * y) * chroma_pw;
-            const uint8_t* u1 = up + (2 * y + 1) * chroma_pw;
-            const uint8_t* v0 = vp + (2 * y) * chroma_pw;
-            const uint8_t* v1 = vp + (2 * y + 1) * chroma_pw;
-            uint8_t* row = uv + std::size_t(y) * s.uv_pitch;
+            const auto u0 =
+                up.subspan(static_cast<std::size_t>(2 * y) * chroma_pw_sz, chroma_pw_sz);
+            const auto u1 =
+                up.subspan(static_cast<std::size_t>(2 * y + 1) * chroma_pw_sz, chroma_pw_sz);
+            const auto v0 =
+                vp.subspan(static_cast<std::size_t>(2 * y) * chroma_pw_sz, chroma_pw_sz);
+            const auto v1 =
+                vp.subspan(static_cast<std::size_t>(2 * y + 1) * chroma_pw_sz, chroma_pw_sz);
+            const auto row =
+                uv_plane.subspan(static_cast<std::size_t>(y) * s.uv_pitch, chroma_row_bytes);
             for (int x = 0; x < nv12_cw; ++x) {
                 row[2 * x] = static_cast<uint8_t>((u0[x] + u1[x] + 1) >> 1);
                 row[2 * x + 1] = static_cast<uint8_t>((v0[x] + v1[x] + 1) >> 1);

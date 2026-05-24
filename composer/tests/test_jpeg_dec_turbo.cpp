@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <vector>
 
 namespace {
@@ -44,10 +45,13 @@ NV12Frame make_nv12_pattern(int w, int h) {
 // planar-YUV input path. Splits the NV12 UV plane into separate U/V
 // planes since tjCompressFromYUV expects I420.
 std::vector<uint8_t> compress_nv12_to_jpeg(const NV12Frame& f, int w, int h) {
-    std::vector<uint8_t> i420(static_cast<size_t>(w) * h * 3 / 2);
+    const size_t y_size = static_cast<size_t>(w) * h;
+    const size_t chroma_samples = y_size / 4;
+    std::vector<uint8_t> i420(y_size * 3 / 2);
     std::memcpy(i420.data(), f.y.data(), f.y.size());
-    uint8_t* up = i420.data() + static_cast<size_t>(w) * h;
-    uint8_t* vp = up + static_cast<size_t>(w) * h / 4;
+    const std::span<uint8_t> i420_span{i420};
+    const std::span<uint8_t> up = i420_span.subspan(y_size, chroma_samples);
+    const std::span<uint8_t> vp = i420_span.subspan(y_size + chroma_samples, chroma_samples);
     for (size_t i = 0; i < f.uv.size() / 2; ++i) {
         up[i] = f.uv[2 * i];
         vp[i] = f.uv[2 * i + 1];
@@ -59,7 +63,8 @@ std::vector<uint8_t> compress_nv12_to_jpeg(const NV12Frame& f, int w, int h) {
     int rc =
         tjCompressFromYUV(h_enc, i420.data(), w, 1, h, TJSAMP_420, &jpeg_buf, &jpeg_size, 90, 0);
     EXPECT_EQ(rc, 0) << tjGetErrorStr2(h_enc);
-    std::vector<uint8_t> out(jpeg_buf, jpeg_buf + jpeg_size);
+    const std::span<const uint8_t> jpeg_span{jpeg_buf, jpeg_size};
+    std::vector<uint8_t> out(jpeg_span.begin(), jpeg_span.end());
     tjFree(jpeg_buf);
     tjDestroy(h_enc);
     return out;
@@ -140,7 +145,7 @@ TEST(TurboJpegDec, TightStrideStillWorks) {
     slot.y_fd = 42;
     slot.uv_fd = 42; // contiguous: same fd
     slot.y_mapped = bo.data();
-    slot.uv_mapped = bo.data() + static_cast<size_t>(kW) * kH;
+    slot.uv_mapped = std::span<uint8_t>{bo}.subspan(static_cast<size_t>(kW) * kH).data();
     slot.y_pitch = kW;
     slot.uv_pitch = kW;
 
