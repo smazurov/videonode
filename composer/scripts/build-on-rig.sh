@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 # Build the composer on the rig via ssh using cmake + ninja.
+#
+# DEPRECATED for production deploy. Use
+# `composer/scripts/build-deb-install-rig.sh` (Docker-built .deb installed
+# via dpkg). Building on the rig while the hdmirx capture pipeline is
+# running has been observed to destabilise the device.
+#
+# This script is retained only because `composer-smoke` reads its rig
+# binaries from `$RIG_BUILD/src/bin/videonode-*` and the canonical .deb
+# install lands at `/usr/bin/` (different layout). For smoke iteration on
+# rig-only code paths, this is still the fastest way to refresh the
+# scratch build dir.
+#
 # First time: configures cmake. Subsequent runs: incremental ninja build.
 # If the build dir contains a stale meson configuration (the project used
 # to be meson), we wipe it before reconfiguring.
