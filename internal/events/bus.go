@@ -35,8 +35,6 @@ func (b *Bus) Publish(ev Event) {
 		event.Publish(b.dispatcher, e)
 	case StreamCrashedEvent:
 		event.Publish(b.dispatcher, e)
-	case CanvasRestartedEvent:
-		event.Publish(b.dispatcher, e)
 	case HeartbeatEvent:
 		event.Publish(b.dispatcher, e)
 	case SourceStatusEvent:
@@ -44,6 +42,20 @@ func (b *Bus) Publish(ev Event) {
 	case StageStateChangedEvent:
 		event.Publish(b.dispatcher, e)
 	case PipelineStateChangedEvent:
+		event.Publish(b.dispatcher, e)
+	case SourceCreatedEvent:
+		event.Publish(b.dispatcher, e)
+	case SourceUpdatedEvent:
+		event.Publish(b.dispatcher, e)
+	case SourceDeletedEvent:
+		event.Publish(b.dispatcher, e)
+	case ComposerCreatedEvent:
+		event.Publish(b.dispatcher, e)
+	case ComposerUpdatedEvent:
+		event.Publish(b.dispatcher, e)
+	case ComposerDeletedEvent:
+		event.Publish(b.dispatcher, e)
+	case ComposerLayoutChangedEvent:
 		event.Publish(b.dispatcher, e)
 	}
 }
@@ -72,6 +84,20 @@ func (b *Bus) Subscribe(handler any) func() {
 	case func(StageStateChangedEvent):
 		return event.Subscribe(b.dispatcher, h)
 	case func(PipelineStateChangedEvent):
+		return event.Subscribe(b.dispatcher, h)
+	case func(SourceCreatedEvent):
+		return event.Subscribe(b.dispatcher, h)
+	case func(SourceUpdatedEvent):
+		return event.Subscribe(b.dispatcher, h)
+	case func(SourceDeletedEvent):
+		return event.Subscribe(b.dispatcher, h)
+	case func(ComposerCreatedEvent):
+		return event.Subscribe(b.dispatcher, h)
+	case func(ComposerUpdatedEvent):
+		return event.Subscribe(b.dispatcher, h)
+	case func(ComposerDeletedEvent):
+		return event.Subscribe(b.dispatcher, h)
+	case func(ComposerLayoutChangedEvent):
 		return event.Subscribe(b.dispatcher, h)
 	default:
 		// Return a no-op function if handler type is not recognized

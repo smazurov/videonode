@@ -193,20 +193,6 @@ func (s *Server) registerStreamRoutes() {
 				Timestamp: time.Now().Format(time.RFC3339),
 			})
 
-			// Canvas members trigger an owning-canvas restart event so its card refreshes.
-			if pm := s.streamService.GetProcessManager(); pm != nil {
-				if ownerID := pm.OwnedBy(input.StreamID); ownerID != "" {
-					if canvasStream, cerr := s.streamService.GetStream(ctx, ownerID); cerr == nil {
-						s.eventBus.Publish(events.CanvasRestartedEvent{
-							CanvasID:  ownerID,
-							TriggerID: input.StreamID,
-							Canvas:    s.domainToAPIStream(*canvasStream),
-							Timestamp: time.Now().Format(time.RFC3339),
-						})
-					}
-				}
-			}
-
 			// Republish union of pre/post sources to flip owned_by on both released and claimed.
 			if apiStream.Canvas != nil || len(prevSources) > 0 {
 				affected := append([]string{}, prevSources...)
