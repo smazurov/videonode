@@ -90,7 +90,8 @@ func (p *ProducerStage) LogAttrs() []slog.Attr {
 	}
 }
 
-// Reconfigure: format changes require V4L2 device reopen → restart.
+// Reconfigure always returns ErrRequiresRestart: format changes require
+// a V4L2 device reopen, which means a full restart.
 func (p *ProducerStage) Reconfigure(_ any) error { return ErrRequiresRestart }
 
 // SCMSocketPathFor returns the data-plane socket a producer binds for

@@ -12,6 +12,9 @@ import (
 // callers can now switch on a typed Kind instead of string-matching.
 type Kind int
 
+// Kind values: Unknown is the zero value reserved for unset; the other
+// three identify each supervised process kind for log-module selection
+// and process-pool discrimination.
 const (
 	KindUnknown  Kind = iota
 	KindProducer      // videonode-source — per unique device, refcounted

@@ -28,8 +28,8 @@ type Stream struct {
 	// Upstream is `source:<id>` or `composer:<id>` — the encoder dials
 	// whichever SCM socket the referenced entity binds.
 	Upstream          string          `toml:"upstream" json:"upstream"`
-	Audio             AudioConfig     `toml:"audio,omitempty" json:"audio,omitempty"`
-	Encoder           EncoderConfig   `toml:"encoder,omitempty" json:"encoder,omitempty"`
+	Audio             AudioConfig     `toml:"audio,omitzero" json:"audio,omitzero"`
+	Encoder           EncoderConfig   `toml:"encoder,omitzero" json:"encoder,omitzero"`
 	Publish           []PublishTarget `toml:"publish,omitempty" json:"publish,omitempty"`
 	CustomEncoderArgs string          `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
 	CreatedAt         time.Time       `toml:"created_at" json:"created_at"`
@@ -70,4 +70,3 @@ type PublishTarget struct {
 	Type string `toml:"type" json:"type"`
 	URL  string `toml:"url" json:"url"`
 }
-
