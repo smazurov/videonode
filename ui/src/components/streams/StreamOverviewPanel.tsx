@@ -4,6 +4,7 @@ import { LivePreviewFrame } from '../primitives/LivePreviewFrame';
 import { StatusPill } from '../primitives/StatusPill';
 import { SectionHeader } from '../primitives/SectionHeader';
 import { Badge } from '../Badge';
+import { WebRTCPlayer } from '../webrtc';
 import { resolveUpstream } from './upstream';
 import { cn } from '../../utils';
 
@@ -40,11 +41,19 @@ export function StreamOverviewPanel({ streamId, className }: StreamOverviewPanel
       />
 
       <LivePreviewFrame
-        streamId={streamId}
-        enabled={enabled}
-        refreshKey={refreshKey}
-        showStats={false}
-      />
+        state={enabled ? 'ready' : 'idle'}
+        idleMessage="Stream disabled"
+        mediaClassName="bg-black"
+      >
+        {enabled && (
+          <WebRTCPlayer
+            key={`${streamId}:${refreshKey}`}
+            streamId={streamId}
+            className="w-full h-full"
+            muted
+          />
+        )}
+      </LivePreviewFrame>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-md border border-border bg-surface-muted/30 p-3">
