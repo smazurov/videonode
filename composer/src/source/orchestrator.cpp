@@ -170,8 +170,9 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     // allocator has the right device.
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
     if (!csc_placebo::init()) {
-        vn::log::fatal("videonode-source: csc_placebo::init failed; cannot bring up Mesa CSC backend "
-                       "(needed for the GBM allocator's gbm_device)");
+        vn::log::fatal(
+            "videonode-source: csc_placebo::init failed; cannot bring up Mesa CSC backend "
+            "(needed for the GBM allocator's gbm_device)");
         return 1;
     }
     gbm_device* alloc_gbm = csc_placebo::gbm_device_for_io();

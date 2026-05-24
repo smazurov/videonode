@@ -19,7 +19,7 @@
 namespace render {
 class World;
 struct RenderStats;
-}
+} // namespace render
 
 namespace nativerpc {
 

@@ -234,27 +234,49 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
     if (!fmt_r8 || !fmt_rg8)
         return false;
 
-    pl_tex tex_src_y = import_plane({.gpu = s.gpu, .fmt = fmt_r8, .fd = src.fd, .w = W, .h = H,
-                                     .pitch = src_y_pitch, .offset = 0, .renderable = false});
+    pl_tex tex_src_y = import_plane({.gpu = s.gpu,
+                                     .fmt = fmt_r8,
+                                     .fd = src.fd,
+                                     .w = W,
+                                     .h = H,
+                                     .pitch = src_y_pitch,
+                                     .offset = 0,
+                                     .renderable = false});
     if (!tex_src_y)
         return false;
-    pl_tex tex_src_uv = import_plane({.gpu = s.gpu, .fmt = fmt_rg8, .fd = src_uv_actual_fd,
-                                      .w = src_uv_w, .h = src_uv_h, .pitch = src_uv_actual_pitch,
-                                      .offset = src_uv_actual_offset, .renderable = false});
+    pl_tex tex_src_uv = import_plane({.gpu = s.gpu,
+                                      .fmt = fmt_rg8,
+                                      .fd = src_uv_actual_fd,
+                                      .w = src_uv_w,
+                                      .h = src_uv_h,
+                                      .pitch = src_uv_actual_pitch,
+                                      .offset = src_uv_actual_offset,
+                                      .renderable = false});
     if (!tex_src_uv) {
         pl_tex_destroy(s.gpu, &tex_src_y);
         return false;
     }
-    pl_tex tex_dst_y = import_plane({.gpu = s.gpu, .fmt = fmt_r8, .fd = dst.fd, .w = W, .h = H,
-                                     .pitch = dst_y_pitch, .offset = 0, .renderable = true});
+    pl_tex tex_dst_y = import_plane({.gpu = s.gpu,
+                                     .fmt = fmt_r8,
+                                     .fd = dst.fd,
+                                     .w = W,
+                                     .h = H,
+                                     .pitch = dst_y_pitch,
+                                     .offset = 0,
+                                     .renderable = true});
     if (!tex_dst_y) {
         pl_tex_destroy(s.gpu, &tex_src_y);
         pl_tex_destroy(s.gpu, &tex_src_uv);
         return false;
     }
-    pl_tex tex_dst_uv = import_plane({.gpu = s.gpu, .fmt = fmt_rg8, .fd = dst_uv_actual_fd,
-                                      .w = W / 2, .h = H / 2, .pitch = dst_uv_pitch,
-                                      .offset = dst_uv_actual_offset, .renderable = true});
+    pl_tex tex_dst_uv = import_plane({.gpu = s.gpu,
+                                      .fmt = fmt_rg8,
+                                      .fd = dst_uv_actual_fd,
+                                      .w = W / 2,
+                                      .h = H / 2,
+                                      .pitch = dst_uv_pitch,
+                                      .offset = dst_uv_actual_offset,
+                                      .renderable = true});
     if (!tex_dst_uv) {
         pl_tex_destroy(s.gpu, &tex_src_y);
         pl_tex_destroy(s.gpu, &tex_src_uv);
@@ -263,8 +285,11 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
     }
 
     bool ok = render_csc(s.renderer, s.gpu,
-                         {.src_y = tex_src_y, .src_uv = tex_src_uv, .dst_y = tex_dst_y,
-                          .dst_uv = tex_dst_uv, .src_is_nv12 = src_is_nv12});
+                         {.src_y = tex_src_y,
+                          .src_uv = tex_src_uv,
+                          .dst_y = tex_dst_y,
+                          .dst_uv = tex_dst_uv,
+                          .src_is_nv12 = src_is_nv12});
 
     pl_tex_destroy(s.gpu, &tex_src_y);
     pl_tex_destroy(s.gpu, &tex_src_uv);

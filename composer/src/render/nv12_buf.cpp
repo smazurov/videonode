@@ -161,7 +161,8 @@ bool ensure_dmabuf_mmap_(int fd, void*& mapping, size_t& mapping_size, const cha
         return true;
     const off_t sz = ::lseek(fd, 0, SEEK_END);
     if (sz <= 0) {
-        vn::log::error("nv12_buf::map_rw: lseek(%s fd=%d) failed: %s", tag, fd, std::strerror(errno));
+        vn::log::error("nv12_buf::map_rw: lseek(%s fd=%d) failed: %s", tag, fd,
+                       std::strerror(errno));
         return false;
     }
     void* p = ::mmap(nullptr, static_cast<size_t>(sz), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);

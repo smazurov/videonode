@@ -63,7 +63,9 @@ std::vector<uint8_t> packed_expected_(size_t rows, size_t row_bytes, uint8_t see
     return v;
 }
 
-void* failing_mmap(int /*fd*/, size_t /*length*/, off_t /*offset*/) { return MAP_FAILED; }
+void* failing_mmap(int /*fd*/, size_t /*length*/, off_t /*offset*/) {
+    return MAP_FAILED;
+}
 
 } // namespace
 
@@ -180,8 +182,8 @@ TEST(LatestFrameHolder, RoundTripNv12SinglePlanedFd) {
     ref.height = H;
     ref.pitch_y = W;
     ref.pitch_uv = W;
-    ref.planes[0] = {.fd = fd, .offset = 0, .pitch = W, .row_bytes = W, .rows = H};            // Y
-    ref.planes[1] = {.fd = fd, .offset = y_bytes, .pitch = W, .row_bytes = W, .rows = H / 2};  // UV
+    ref.planes[0] = {.fd = fd, .offset = 0, .pitch = W, .row_bytes = W, .rows = H};           // Y
+    ref.planes[1] = {.fd = fd, .offset = y_bytes, .pitch = W, .row_bytes = W, .rows = H / 2}; // UV
     ref.frame_idx = 42;
     ref.captured_at_ns = 1'000'000;
 
@@ -226,7 +228,8 @@ TEST(LatestFrameHolder, RoundTripNv12PaddedPitch) {
     ref.pitch_y = static_cast<uint32_t>(y_pitch);
     ref.pitch_uv = static_cast<uint32_t>(uv_pitch);
     ref.planes[0] = {.fd = fd, .offset = 0, .pitch = y_pitch, .row_bytes = W, .rows = H};
-    ref.planes[1] = {.fd = fd, .offset = y_src.size(), .pitch = uv_pitch, .row_bytes = W, .rows = H / 2};
+    ref.planes[1] = {
+        .fd = fd, .offset = y_src.size(), .pitch = uv_pitch, .row_bytes = W, .rows = H / 2};
 
     vn::snapshot::LatestFrameHolder h;
     h.Update(ref);
@@ -238,8 +241,8 @@ TEST(LatestFrameHolder, RoundTripNv12PaddedPitch) {
     auto expected_y = packed_expected_(H, W, 0x10);
     auto expected_uv = packed_expected_(H / 2, W, 0x80);
     EXPECT_EQ(0, std::memcmp(out.bytes.data(), expected_y.data(), expected_y.size()));
-    EXPECT_EQ(0, std::memcmp(&out.bytes[expected_y.size()], expected_uv.data(),
-                             expected_uv.size()));
+    EXPECT_EQ(0,
+              std::memcmp(&out.bytes[expected_y.size()], expected_uv.data(), expected_uv.size()));
     ::close(fd);
 }
 
