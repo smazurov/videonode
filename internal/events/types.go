@@ -121,13 +121,15 @@ func (e StreamStateChangedEvent) IsEnabled() bool {
 	return e.Enabled
 }
 
-// StreamMetricsEvent represents FFmpeg stream metrics.
+// StreamMetricsEvent represents stream metrics.
 type StreamMetricsEvent struct {
 	EventType       string `json:"type"`
 	StreamID        string `json:"stream_id"`
 	FPS             string `json:"fps"`
 	DroppedFrames   string `json:"dropped_frames"`
 	DuplicateFrames string `json:"duplicate_frames"`
+	BytesOut        string `json:"bytes_out"`
+	PacketsOut      string `json:"packets_out"`
 }
 
 // Type returns the event type identifier for StreamMetricsEvent.
