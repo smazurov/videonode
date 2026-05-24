@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
 // Config holds the daemon-wide knobs the Pipeline needs at construction
@@ -30,6 +32,13 @@ type Config struct {
 	// EventBus, when non-nil, receives StageStateChangedEvent on every
 	// pool state transition.
 	EventBus *events.Bus
+
+	// ControlServer, when non-nil, is used by ApplyComposer to register
+	// the spawned videonode-composer over gRPC and push its initial
+	// SetCanvas / SetSource / SetLayout / SetEffects RPCs. Without this
+	// the composer starts but its canvas stays uninitialized and
+	// downstream encoders see only black frames.
+	ControlServer *pipelinectl.Manager
 }
 
 // Pipeline is the stage assembler. One Pipeline owns the runtime state
@@ -175,7 +184,223 @@ func (p *Pipeline) ApplyComposer(c Composer) error {
 		GrpcUds:    GrpcSocketPathFor("composer", c.ID),
 	}
 	p.replaceStage(stage)
-	return p.restartStage(stage)
+	// Drop any prior control-plane registration so the next config push
+	// re-dials the freshly-spawned UDS instead of holding a dead handle.
+	if p.cfg.ControlServer != nil {
+		p.cfg.ControlServer.Unregister(c.ID)
+	}
+	if err := p.restartStage(stage); err != nil {
+		return err
+	}
+	// Initial gRPC config push (SetCanvas/SetSource/SetLayout/SetEffects).
+	// Without this the composer process runs but its canvas stays
+	// uninitialized and every downstream encoder sees black frames.
+	if p.cfg.ControlServer != nil {
+		go p.pushComposerConfig(c, stage.GrpcUds)
+	}
+	return nil
+}
+
+// pushComposerConfig waits for the composer's gRPC UDS to come up,
+// registers it with the control plane, then issues the initial
+// SetCanvas / SetSource(per input) / SetLayout / SetEffects(per input
+// with effect) RPCs. Runs in its own goroutine; bounded by a 30 s
+// register deadline and a 5 s per-call timeout.
+func (p *Pipeline) pushComposerConfig(c Composer, udsPath string) {
+	composerID := c.ID
+	tag := []any{"composer_id", composerID, "uds", udsPath}
+
+	const dialDeadline = 30 * time.Second
+	const callTimeout = 5 * time.Second
+	mgr := p.cfg.ControlServer
+
+	deadline := time.Now().Add(dialDeadline)
+	var lastErr error
+	for {
+		if time.Now().After(deadline) {
+			p.logger.Warn("pushComposerConfig: register never succeeded",
+				append(tag, "error", lastErr)...)
+			return
+		}
+		regCtx, regCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		err := mgr.RegisterComposer(regCtx, composerID, udsPath)
+		regCancel()
+		if err == nil {
+			break
+		}
+		lastErr = err
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	push := func(name string, fn func(context.Context) error) bool {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		if err := fn(ctx); err != nil {
+			p.logger.Warn("pushComposerConfig: rpc failed",
+				append(append([]any{}, tag...), "method", name, "error", err)...)
+			return false
+		}
+		return true
+	}
+
+	canvasW, canvasH := c.Canvas.W, c.Canvas.H
+	if canvasW <= 0 || canvasH <= 0 {
+		canvasW, canvasH = 1920, 1080
+	}
+	fps := uint32(30)
+	if !push("set_canvas", func(ctx context.Context) error {
+		return mgr.SendSetCanvas(ctx, composerID, pipelinectl.SetCanvasParams{
+			W: uint32(canvasW), H: uint32(canvasH), FPS: fps,
+		})
+	}) {
+		return
+	}
+
+	// Bind each input to a slot. Slot label is positional ("a", "b", …)
+	// to stay wire-compatible with the existing composer protocol.
+	for i, in := range c.Inputs {
+		slot := slotNameFor(i)
+		sourceID := strings.TrimPrefix(in.Ref, "source:")
+		if !push("set_source", func(ctx context.Context) error {
+			return mgr.SendSetSource(ctx, composerID, pipelinectl.SetSourceParams{
+				Slot:     slot,
+				SourceID: sourceID,
+				ScmPath:  SCMSocketPathFor(sourceID),
+				Width:    uint32(canvasW),
+				Height:   uint32(canvasH),
+				FPS:      fps,
+			})
+		}) {
+			return
+		}
+	}
+
+	// SetLayout — map each LayoutSlot's Input ref to the matching input
+	// index (slot label). When no layout is provided, fall back to a
+	// single full-canvas slot referencing input 0.
+	slots := make([]pipelinectl.LayoutSlotEntry, 0, len(c.Layout))
+	if len(c.Layout) > 0 {
+		inputIdx := make(map[string]int, len(c.Inputs))
+		for i, in := range c.Inputs {
+			inputIdx[in.Ref] = i
+		}
+		for _, l := range c.Layout {
+			idx, ok := inputIdx[l.Input]
+			if !ok {
+				p.logger.Warn("pushComposerConfig: layout references unknown input",
+					append(tag, "input", l.Input)...)
+				continue
+			}
+			slots = append(slots, pipelinectl.LayoutSlotEntry{
+				Slot: slotNameFor(idx),
+				X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
+			})
+		}
+	} else if len(c.Inputs) > 0 {
+		slots = append(slots, pipelinectl.LayoutSlotEntry{
+			Slot: slotNameFor(0), X: 0, Y: 0, W: int32(canvasW), H: int32(canvasH),
+		})
+	}
+	if !push("set_layout", func(ctx context.Context) error {
+		return mgr.SendSetLayout(ctx, composerID, pipelinectl.SetLayoutParams{Slots: slots})
+	}) {
+		return
+	}
+
+	// SetEffects per input that carries one.
+	for _, in := range c.Inputs {
+		if in.Effect == nil {
+			continue
+		}
+		sourceID := strings.TrimPrefix(in.Ref, "source:")
+		effect := *in.Effect
+		if !push("set_effects", func(ctx context.Context) error {
+			return mgr.SendSetEffects(ctx, composerID, pipelinectl.SetEffectsParams{
+				SourceID: sourceID,
+				Effects: []pipelinectl.EffectParams{{
+					Type:    effect.Type,
+					Corners: effect.Corners,
+				}},
+			})
+		}) {
+			return
+		}
+	}
+
+	p.logger.Info("composer initial config pushed",
+		append(tag, "canvas", fmt.Sprintf("%dx%d@%dfps", canvasW, canvasH, fps),
+			"sources", len(c.Inputs))...)
+}
+
+// slotNameFor returns the alphabetic slot label used by the composer
+// control plane ("a"..."z"; "slotN" past 26 for safety).
+func slotNameFor(i int) string {
+	if i < 0 || i > 25 {
+		return fmt.Sprintf("slot%d", i)
+	}
+	return string(rune('a' + i))
+}
+
+// UpdateComposerLayout hot-applies a new layout to a running composer
+// via the gRPC control plane. Does NOT restart the composer process —
+// callers use this for layout-only edits to avoid killing downstream
+// vn-sink consumers. Returns an error if the composer isn't registered
+// (e.g. spawn hasn't finished) or if any RPC fails.
+func (p *Pipeline) UpdateComposerLayout(id string, layout []LayoutSlot) error {
+	if id == "" {
+		return errors.New("pipeline: composer.ID is required")
+	}
+	if p.cfg.ControlServer == nil {
+		return errors.New("pipeline: ControlServer is nil; cannot hot-apply layout")
+	}
+	c, found := p.composers.Get(id)
+	if !found {
+		return fmt.Errorf("pipeline: composer %q not registered", id)
+	}
+	inputIdx := make(map[string]int, len(c.Inputs))
+	for i, in := range c.Inputs {
+		inputIdx[in.Ref] = i
+	}
+	slots := make([]pipelinectl.LayoutSlotEntry, 0, len(layout))
+	for _, l := range layout {
+		idx, ok := inputIdx[l.Input]
+		if !ok {
+			return fmt.Errorf("pipeline: layout references unknown input %q", l.Input)
+		}
+		slots = append(slots, pipelinectl.LayoutSlotEntry{
+			Slot: slotNameFor(idx),
+			X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return p.cfg.ControlServer.SendSetLayout(ctx, id, pipelinectl.SetLayoutParams{Slots: slots})
+}
+
+// UpdateComposerEffect hot-applies an effect change for one input. A
+// nil effect clears the input's effect list. Does NOT restart the
+// composer process.
+func (p *Pipeline) UpdateComposerEffect(id, inputRef string, effect *Effect) error {
+	if id == "" {
+		return errors.New("pipeline: composer.ID is required")
+	}
+	if p.cfg.ControlServer == nil {
+		return errors.New("pipeline: ControlServer is nil; cannot hot-apply effect")
+	}
+	if _, found := p.composers.Get(id); !found {
+		return fmt.Errorf("pipeline: composer %q not registered", id)
+	}
+	sourceID := strings.TrimPrefix(inputRef, "source:")
+	params := pipelinectl.SetEffectsParams{SourceID: sourceID}
+	if effect != nil {
+		params.Effects = []pipelinectl.EffectParams{{
+			Type:    effect.Type,
+			Corners: effect.Corners,
+		}}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return p.cfg.ControlServer.SendSetEffects(ctx, id, params)
 }
 
 // DeleteComposer stops the composer process and drops the registry
@@ -189,6 +414,9 @@ func (p *Pipeline) DeleteComposer(id string) error {
 	defer mu.Unlock()
 
 	p.composers.Delete(id)
+	if p.cfg.ControlServer != nil {
+		p.cfg.ControlServer.Unregister(id)
+	}
 	poolID := ComposerPoolKey(id)
 	if err := p.pool.Stop(poolID); err != nil {
 		p.logger.Warn("DeleteComposer: pool.Stop failed", "id", poolID, "error", err)
