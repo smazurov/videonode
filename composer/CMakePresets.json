@@ -25,6 +25,16 @@
       }
     },
     {
+      "name": "relwithdebinfo",
+      "inherits": "base",
+      "displayName": "Release with debug info",
+      "description": "Optimized build with -g for daily installs to ~/.local/bin; binaries are realistic-perf and still produce readable stack traces. Skip BUILD_TESTS so install completes faster.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "BUILD_TESTS": "OFF"
+      }
+    },
+    {
       "name": "dev-asan",
       "inherits": "base",
       "displayName": "Dev + AddressSanitizer + UBSan",
@@ -71,6 +81,10 @@
     {
       "name": "dev",
       "configurePreset": "dev"
+    },
+    {
+      "name": "relwithdebinfo",
+      "configurePreset": "relwithdebinfo"
     },
     {
       "name": "dev-asan",

@@ -32,15 +32,19 @@ The Go daemon spawns `videonode-source`, `videonode-sink`, and
 them there. **Any time you build C++ in `composer/`, also install:**
 
 ```bash
-cmake --preset dev                                # if not configured
-cmake --build --preset dev
-cmake --install composer/build/dev                # writes to ~/.local/bin
+# Daily install — RelWithDebInfo. Realistic CPU + readable stack traces.
+cmake --preset relwithdebinfo                            # if not configured
+cmake --build --preset relwithdebinfo
+cmake --install composer/build/relwithdebinfo            # writes to ~/.local/bin
 ```
 
-Verify with `ls -l ~/.local/bin/videonode-{source,sink,composer}` —
-mtimes should match the build. Sanitizer presets (`dev-asan`, `dev-tsan`)
-build into separate dirs; install from those only when deliberately
-running the daemon against an instrumented binary.
+Use the `dev` preset (Debug) only when you're actively stepping with
+lldb; running daemons against it has ~2× the per-frame CPU because
+libstdc++ bounds checks and `-O0` defeat inlining. Sanitizer presets
+(`dev-asan`, `dev-tsan`) build into separate dirs; install from those
+only when deliberately running the daemon against an instrumented
+binary. Verify with `ls -l ~/.local/bin/videonode-{source,sink,composer}`
+— mtimes should match the build.
 
 
 ## Code Style Guidelines
