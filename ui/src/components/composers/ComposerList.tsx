@@ -70,7 +70,7 @@ export function ComposerList({ composers }: Readonly<ComposerListProps>) {
       rows={composers}
       getRowId={(row) => row.composer_id}
       onRowClick={(row) => navigate(`/composers/${encodeURIComponent(row.composer_id)}`)}
-      empty="No composers defined yet."
+      emptyState="No composers defined yet."
     />
   );
 }

@@ -29,7 +29,6 @@ export default function Streams() {
   const addStream = useStreamStore((state) => state.addStream);
   const removeStream = useStreamStore((state) => state.removeStream);
   const updateStreamMetrics = useStreamStore((state) => state.updateStreamMetrics);
-  const bumpStreamRefreshKey = useStreamStore((state) => state.bumpStreamRefreshKey);
 
   const handleStreamLifecycle = useCallback(
     (event: StreamLifecycleEvent) => {

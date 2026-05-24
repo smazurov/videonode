@@ -29,11 +29,11 @@ export interface ComposerStore
   // Compatibility no-ops for older U10/U11 code.
   upsertComposer: (composer: Composer) => void;
   setComposer: (composer: Composer) => void;
-  setAvailableSources: (sources: string[]) => void;
+  setAvailableSources: (sources: AvailableSource[]) => void;
   upsertInput: (composerId: string, input: ComposerInput) => void;
   removeInput: (composerId: string, ref: string) => void;
   setInputEffect: (composerId: string, ref: string, effect: Effect | null) => void;
-  availableSources: string[];
+  availableSources: AvailableSource[];
 }
 
 export const useComposerStore = create<ComposerStore>()(

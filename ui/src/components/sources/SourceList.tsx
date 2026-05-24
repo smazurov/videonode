@@ -77,10 +77,10 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
     <DataTable
       columns={columns}
       rows={sources}
-      rowKey={(row) => row.source_id}
+      rowKey={(row) => row.source_id ?? ''}
       onRowClick={(row) => navigate(`/sources/${row.source_id}`)}
       initialSort={{ key: 'source_id', direction: 'asc' }}
-      empty={
+      emptyState={
         <EmptyState
           title="No sources yet"
           description="Sources appear here when devices are configured. Create a source from a connected V4L2 device, or enable a test-pattern source for dev/CI rigs."
