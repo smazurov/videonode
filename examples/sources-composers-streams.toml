@@ -64,7 +64,7 @@ test_mode = true                  # no device — RPC-driven SMPTE-bars producer
 
 [[composers]]
 id = "main-scene"
-canvas = { w = 1920, h = 1080 }
+canvas = { w = 1920, h = 1080, fps = 60 }   # fps is optional; daemon default is 60
 
   [[composers.main-scene.inputs]]
   ref = "source:hdmi-slides"

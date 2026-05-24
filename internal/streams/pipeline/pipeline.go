@@ -180,7 +180,7 @@ func (p *Pipeline) ApplyComposer(c Composer) error {
 		ComposerID: c.ID,
 		BinaryPath: p.cfg.VNComposerBin,
 		DRMDevice:  p.cfg.DRMDevice,
-		CanvasFPS:  30,
+		CanvasFPS:  canvasFPSOrDefault(c.Canvas.FPS),
 		GrpcUds:    GrpcSocketPathFor("composer", c.ID),
 	}
 	p.replaceStage(stage)
@@ -247,7 +247,7 @@ func (p *Pipeline) pushComposerConfig(c Composer, udsPath string) {
 	if canvasW <= 0 || canvasH <= 0 {
 		canvasW, canvasH = 1920, 1080
 	}
-	fps := uint32(30)
+	fps := uint32(canvasFPSOrDefault(c.Canvas.FPS))
 	if !push("set_canvas", func(ctx context.Context) error {
 		return mgr.SendSetCanvas(ctx, composerID, pipelinectl.SetCanvasParams{
 			W: uint32(canvasW), H: uint32(canvasH), FPS: fps,
@@ -519,7 +519,7 @@ func (p *Pipeline) resolveUpstream(upstream string) (FrameSource, error) {
 			w, h = 1920, 1080
 		}
 		sock := SCMSocketPathFor("composer-" + id)
-		return ComposerFrameSource{Socket: sock, Width: w, Height: h, Fps: 30}, nil
+		return ComposerFrameSource{Socket: sock, Width: w, Height: h, Fps: canvasFPSOrDefault(c.Canvas.FPS)}, nil
 	default:
 		return nil, fmt.Errorf("pipeline: unknown upstream kind %q", kind)
 	}
@@ -690,4 +690,14 @@ func (p *Pipeline) restartStage(stage Stage) error {
 
 func (p *Pipeline) ensureUdsDir() error {
 	return os.MkdirAll(NativeUdsDir, 0o755)
+}
+
+// canvasFPSOrDefault returns fps when positive, otherwise the daemon
+// default canvas frame rate. Centralized so every composer-spawn /
+// SetCanvas / downstream-encoder path agrees on the fallback.
+func canvasFPSOrDefault(fps int) int {
+	if fps > 0 {
+		return fps
+	}
+	return DefaultCanvasFPS
 }

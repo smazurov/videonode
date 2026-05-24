@@ -30,10 +30,13 @@ type V2Composer struct {
 	UpdatedAt time.Time         `toml:"updated_at" json:"updated_at"`
 }
 
-// V2CanvasDims is the composer's output dimensions.
+// V2CanvasDims is the composer's output dimensions and render rate. FPS
+// is omitted on disk when unset; the daemon fills in the default at
+// spawn time.
 type V2CanvasDims struct {
-	W int `toml:"w" json:"w"`
-	H int `toml:"h" json:"h"`
+	W   int `toml:"w" json:"w"`
+	H   int `toml:"h" json:"h"`
+	FPS int `toml:"fps,omitempty" json:"fps,omitempty"`
 }
 
 // V2ComposerInput binds an upstream source ref to a composer slot, with
