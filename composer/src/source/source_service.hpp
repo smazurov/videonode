@@ -54,6 +54,20 @@ struct LatestFrame {
     uint64_t captured_at_ns = 0; // CLOCK_MONOTONIC nanoseconds
 };
 
+// ActiveFormat is the orchestrator's view of the format the V4L2 capture
+// is currently streaming at (post-negotiation). Owned by the orchestrator
+// (frame-local std::optional under set_format_mu); SourceService reads it
+// to short-circuit SetFormat requests that match what's already running.
+struct ActiveFormat {
+    std::string fourcc;
+    uint32_t w = 0;
+    uint32_t h = 0;
+    // 0 = "driver decides" — we never pinned a rate. Treated as a wildcard
+    // in SetFormat's match check; a non-zero requested fps against an
+    // unpinned active fps does not force a rebuild.
+    uint32_t fps = 0;
+};
+
 struct SourceContext {
     std::string device_id;
     std::string version;
@@ -66,6 +80,9 @@ struct SourceContext {
     source::Args* args = nullptr;
     bool* need_reinit_for_format_change = nullptr;
     source_probe::SourceProbe* probe = nullptr;
+    // Engaged once try_open_capture succeeds; cleared on teardown. Read
+    // under set_format_mu so SetFormat can no-op when the request matches.
+    std::optional<ActiveFormat>* active_format = nullptr;
 };
 
 class SourceService final : public videonode::control::Source::Service {
