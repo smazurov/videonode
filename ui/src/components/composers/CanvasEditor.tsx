@@ -46,12 +46,47 @@ const ALIGN_THRESHOLD = 6; // canvas-px snap distance for alignment guides.
 const NUDGE_STEP = 1;
 const NUDGE_STEP_LARGE = 10;
 
+const CORNER_HANDLES: ReadonlySet<HandlePos> = new Set(['nw', 'ne', 'sw', 'se']);
+
+// Snap a corner drag back onto the start aspect ratio. Pick the
+// dominant axis (the one the user has moved further as a fraction of
+// the slot's original size) and derive the other dimension; then
+// re-anchor x/y so the opposite corner stays fixed.
+function lockCornerAspect(
+  start: LayoutSlot,
+  handle: HandlePos,
+  dx: number,
+  dy: number,
+  freeW: number,
+  freeH: number,
+): { x: number; y: number; w: number; h: number } {
+  const { x: sx, y: sy, w: sw, h: sh } = start;
+  const aspect = sw / Math.max(1, sh);
+  const fracX = Math.abs(dx) / Math.max(1, sw);
+  const fracY = Math.abs(dy) / Math.max(1, sh);
+  const w = fracX >= fracY ? freeW : freeH * aspect;
+  const h = fracX >= fracY ? freeW / aspect : freeH;
+  switch (handle) {
+    case 'nw':
+      return { x: sx + sw - w, y: sy + sh - h, w, h };
+    case 'ne':
+      return { x: sx, y: sy + sh - h, w, h };
+    case 'sw':
+      return { x: sx + sw - w, y: sy, w, h };
+    case 'se':
+      return { x: sx, y: sy, w, h };
+    default:
+      return { x: sx, y: sy, w, h };
+  }
+}
+
 function applyHandleDelta(
   start: LayoutSlot,
   handle: HandlePos,
   dx: number,
   dy: number,
   canvas: CanvasDims,
+  aspectLock: boolean,
 ): LayoutSlot {
   const { x: sx, y: sy, w: sw, h: sh } = start;
   let x = sx;
@@ -97,6 +132,9 @@ function applyHandleDelta(
       w = sw + dx;
       h = sh + dy;
       break;
+  }
+  if (aspectLock && CORNER_HANDLES.has(handle)) {
+    ({ x, y, w, h } = lockCornerAspect(start, handle, dx, dy, w, h));
   }
   if (w < 16) w = 16;
   if (h < 16) h = 16;
@@ -286,8 +324,18 @@ export function CanvasEditor({
       const dyScreen = e.clientY - drag.origin.y;
       const dx = dxScreen / Math.max(scale, 0.0001);
       const dy = dyScreen / Math.max(scale, 0.0001);
-      let next = applyHandleDelta(drag.startSlot, drag.handle, dx, dy, canvas);
-      if (snapToGrid && gridSize > 0) next = snapSlot(next, gridSize);
+      // Aspect-ratio lock is the default on corner drags. Holding Ctrl
+      // (or ⌘ on macOS) bypasses the lock and lets the user free-resize.
+      // When locked, snap-to-grid and alignment guides are suppressed
+      // because both can break the ratio.
+      const aspectLock = CORNER_HANDLES.has(drag.handle) && !(e.ctrlKey || e.metaKey);
+      let next = applyHandleDelta(drag.startSlot, drag.handle, dx, dy, canvas, aspectLock);
+      if (!aspectLock && snapToGrid && gridSize > 0) next = snapSlot(next, gridSize);
+      if (aspectLock) {
+        setGuides([]);
+        updateSlot(drag.slotInput, () => next);
+        return;
+      }
       const others = layoutRef.current.filter((s) => s.input !== drag.slotInput);
       const candidates = buildAlignmentCandidates(canvas, next, others);
       const aligned = applyAlignment(next, candidates);
@@ -397,7 +445,7 @@ export function CanvasEditor({
               return (
                 <div
                   key={slot.input}
-                  className={`absolute ${isSelected ? 'ring-2 ring-accent' : ''}`}
+                  className={`absolute ${isSelected ? 'ring-2 ring-inset ring-accent' : ''}`}
                   style={{ left, top, width, height }}
                   onPointerDown={(e) => handlePointerDown(e, 'move', slot)}
                 >

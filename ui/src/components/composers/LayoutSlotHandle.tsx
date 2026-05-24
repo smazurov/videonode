@@ -31,15 +31,22 @@ const CURSORS: Record<HandlePos, string> = {
 
 // Absolute positioning relative to the slot's bounding box (in editor px).
 // `move` is the slot-body grab handle; other 8 are corner / edge resize.
-const HANDLE_OFFSETS: Record<Exclude<HandlePos, 'move'>, { top: string; left: string }> = {
-  nw: { top: '0%', left: '0%' },
-  n: { top: '0%', left: '50%' },
-  ne: { top: '0%', left: '100%' },
-  e: { top: '50%', left: '100%' },
-  se: { top: '100%', left: '100%' },
-  s: { top: '100%', left: '50%' },
-  sw: { top: '100%', left: '0%' },
-  w: { top: '50%', left: '0%' },
+// Each handle is anchored flush with its corner/edge but the body sits
+// entirely INSIDE the slot — previously they were centered on the corner
+// (translate(-50%, -50%)) which made half the handle bleed past the slot
+// outline, visually overscanning the selected source.
+const HANDLE_OFFSETS: Record<
+  Exclude<HandlePos, 'move'>,
+  { top: string; left: string; transform: string }
+> = {
+  nw: { top: '0%', left: '0%', transform: 'translate(0%, 0%)' },
+  n: { top: '0%', left: '50%', transform: 'translate(-50%, 0%)' },
+  ne: { top: '0%', left: '100%', transform: 'translate(-100%, 0%)' },
+  e: { top: '50%', left: '100%', transform: 'translate(-100%, -50%)' },
+  se: { top: '100%', left: '100%', transform: 'translate(-100%, -100%)' },
+  s: { top: '100%', left: '50%', transform: 'translate(-50%, -100%)' },
+  sw: { top: '100%', left: '0%', transform: 'translate(0%, -100%)' },
+  w: { top: '50%', left: '0%', transform: 'translate(0%, -50%)' },
 };
 
 const HANDLE_SIZE = 10;
@@ -76,7 +83,7 @@ export function LayoutSlotHandle({ position, onPointerDown }: Readonly<LayoutSlo
         height: HANDLE_SIZE,
         top: offset.top,
         left: offset.left,
-        transform: 'translate(-50%, -50%)',
+        transform: offset.transform,
         cursor: CURSORS[position],
         touchAction: 'none',
       }}
