@@ -1,9 +1,10 @@
 import { StateCreator } from 'zustand';
-import { StreamStore } from '../useStreamStore';
+
+import { ComposerStore } from '../../useComposerStore';
 
 export type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
 
-export interface UIStateSlice {
+export interface ComposerUIStateSlice {
   loading: boolean;
   error: string | null;
   lastUpdated: Date | null;
@@ -22,11 +23,11 @@ const initialUIState = {
   connectionStatus: 'offline' as ConnectionStatus,
 };
 
-export const createUIStateSlice: StateCreator<
-  StreamStore,
+export const createComposerUIStateSlice: StateCreator<
+  ComposerStore,
   [],
   [],
-  UIStateSlice
+  ComposerUIStateSlice
 > = (set) => ({
   ...initialUIState,
 
@@ -36,10 +37,10 @@ export const createUIStateSlice: StateCreator<
 
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
 
-  reset: () => set(() => ({
-    ...initialUIState,
-    streamIds: [],
-    streamsById: {},
-    recentOperations: new Map(),
-  })),
+  reset: () =>
+    set(() => ({
+      ...initialUIState,
+      composerIds: [],
+      composersById: {},
+    })),
 });
