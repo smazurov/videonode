@@ -3,13 +3,13 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
+
+	"github.com/spf13/cobra"
 
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
-	"github.com/spf13/cobra"
 )
 
 // CreateOpenAPICmd creates the openapi command that dumps the OpenAPI spec to stdout.
@@ -17,7 +17,7 @@ func CreateOpenAPICmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "openapi",
 		Short: "Dump OpenAPI spec to stdout",
-		Run: func(_ *cobra.Command, _ []string) {
+		RunE: func(c *cobra.Command, _ []string) error {
 			server := api.NewServer(&api.Options{
 				EventBus:          events.New(),
 				StreamProvider:    noopStreamProvider{},
@@ -26,12 +26,12 @@ func CreateOpenAPICmd() *cobra.Command {
 				ProcessesProvider: noopProcessesProvider{},
 			})
 
-			enc := json.NewEncoder(os.Stdout)
+			enc := json.NewEncoder(c.OutOrStdout())
 			enc.SetIndent("", "  ")
 			if err := enc.Encode(server.GetAPI().OpenAPI()); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to encode OpenAPI spec: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("encode OpenAPI spec: %w", err)
 			}
+			return nil
 		},
 	}
 }
