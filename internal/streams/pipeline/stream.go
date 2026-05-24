@@ -1,100 +1,45 @@
-// Package pipeline owns the stream pipeline model.
+// Package pipeline owns the source/composer/stream pipeline model.
 //
-// One Stream → at most three supervised processes: Producer (per unique
-// device, refcounted across streams) → Composer (optional, present when
-// len(Inputs)>1 or any Effects) → Encoder (always). The Composer picker
-// runs once at Pipeline.Apply time; see picker.go.
+// The pipeline carries three independent entity kinds:
+//   - Source: per-device frame producer (`videonode-source`), referenced
+//     by id (`source:<id>`).
+//   - Composer: per-canvas GLES compositor (`videonode-composer`),
+//     referenced by id (`composer:<id>`).
+//   - Stream: an encoder (`vn-sink | ffmpeg`) keyed by stream-id; its
+//     Upstream string names exactly one Source or Composer.
 //
-// This file holds only the data-model types. Stage interface lives in
-// stage.go; the actual stage implementations live in producer.go,
-// composer.go, encoder.go; the assembler lives in pipeline.go.
+// One Stream → exactly one supervised Encoder process. Sources and
+// Composers are warm regardless of stream lifecycle. Stream-id == encoder
+// identity end-to-end (`encoder:<stream-id>`, peer tracking, metrics).
+//
+// Data-model types live in this file; Stage interface in stage.go;
+// stage implementations in producer.go / composer.go / encoder.go; the
+// assembler in pipeline.go.
 package pipeline
 
 import "time"
 
-// Stream is the unified canvas+source spec. Replaces StreamSpec.Canvas
-// dichotomy with a single shape — N inputs, optional layout/effects,
-// audio+encoder+publish always present.
+// Stream is a slim encode-and-publish spec. The upstream graph
+// (sources + optional composer) lives in separate top-level entities;
+// the stream references whichever upstream it wants by id.
 type Stream struct {
 	ID   string `toml:"id" json:"id"`
 	Name string `toml:"name" json:"name"`
-
-	// Inputs is the ordered list of device refs this stream consumes.
-	// len==1 with no effects: Encoder dials the producer's SCM socket
-	// directly. len>1 or effects present: Composer engages.
-	Inputs []InputRef `toml:"inputs" json:"inputs"`
-
-	// Layout is one entry per input; positional (slot 0 = inputs[0]).
-	// Optional at N==1 (identity at canvas size); required for N>1.
-	Layout []SlotPlacement `toml:"layout,omitempty" json:"layout,omitempty"`
-
-	// Effects keyed by input ID. Presence of any effect engages Composer
-	// even when len(Inputs)==1.
-	Effects map[string][]Effect `toml:"effects,omitempty" json:"effects,omitempty"`
-
-	Audio   AudioConfig     `toml:"audio,omitempty" json:"audio,omitempty"`
-	Encoder EncoderConfig   `toml:"encoder,omitempty" json:"encoder,omitempty"`
-	Publish []PublishTarget `toml:"publish,omitempty" json:"publish,omitempty"`
-
-	// TestMode is preserved as a config + API surface. Currently a no-op
-	// in Pipeline.Apply — follow-up work adds RPC-driven test-pattern
-	// producer that engages when TestMode=true.
-	TestMode bool `toml:"test_mode,omitempty" json:"test_mode,omitempty"`
-
-	// CustomEncoderArgs, when non-empty, replaces the daemon-generated
-	// encoder argv from `-c:v` onward. The daemon always prepends the
-	// input fragment (`vn-sink --socket X | ffmpeg ...`) so user-supplied
-	// args cannot break the data-plane plumbing.
-	CustomEncoderArgs string `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
-
-	// ForceComposer asks NeedsComposer to engage the Composer stage
-	// regardless of input count or effects. Used by the legacy
-	// canvas-API translation layer to preserve the "canvas always has
-	// a composer" expectation (existing smoke + UI flows depend on a
-	// composer being live the moment a canvas is created). Native-only
-	// streams created through the new shape leave this false and let
-	// NeedsComposer pick from input count + effects.
-	ForceComposer bool `toml:"force_composer,omitempty" json:"force_composer,omitempty"`
-
-	CreatedAt time.Time `toml:"created_at" json:"created_at"`
-	UpdatedAt time.Time `toml:"updated_at" json:"updated_at"`
-}
-
-// InputRef binds a stream-local slot id to a device. Device is a
-// daemon-resolvable opaque reference (USB bus-port, /dev/videoN, etc.);
-// the Producer stage resolves it to a path at Start time.
-type InputRef struct {
-	ID     string `toml:"id" json:"id"`
-	Device string `toml:"device" json:"device"`
-}
-
-// SlotPlacement positions one input on the composer canvas. Slot is the
-// positional index into Stream.Inputs. X/Y/W/H are canvas pixels.
-type SlotPlacement struct {
-	Slot int `toml:"slot" json:"slot"`
-	X    int `toml:"x" json:"x"`
-	Y    int `toml:"y" json:"y"`
-	W    int `toml:"w" json:"w"`
-	H    int `toml:"h" json:"h"`
-}
-
-// Effect is one transformation applied per-input by the Composer. Today
-// only "perspective" is implemented; new types are tagged-union by Type
-// and extend the struct with their own params.
-type Effect struct {
-	Type string `toml:"type" json:"type"`
-	// Perspective: source-image corners in clockwise order from TL.
-	Corners [4][2]int `toml:"corners,omitempty" json:"corners,omitempty"`
+	// Upstream is `source:<id>` or `composer:<id>` — the encoder dials
+	// whichever SCM socket the referenced entity binds.
+	Upstream          string          `toml:"upstream" json:"upstream"`
+	Audio             AudioConfig     `toml:"audio,omitempty" json:"audio,omitempty"`
+	Encoder           EncoderConfig   `toml:"encoder,omitempty" json:"encoder,omitempty"`
+	Publish           []PublishTarget `toml:"publish,omitempty" json:"publish,omitempty"`
+	CustomEncoderArgs string          `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
+	CreatedAt         time.Time       `toml:"created_at" json:"created_at"`
+	UpdatedAt         time.Time       `toml:"updated_at" json:"updated_at"`
 }
 
 // AudioConfig is the per-stream audio routing. Devices are ALSA device
 // names; each entry produces one output audio track in the published
 // stream. RTSP/SRT/MPEG-TS all carry multi-track audio; SDP advertises
-// one m=audio line per track. Filters is an optional shared filter
-// chain; rarely used (the encoder stage already emits a per-track
-// aresample chain for A/V drift mitigation). Codec/Bitrate select the
-// encode params (today: shared libopus 128k 48kHz covering every track;
-// per-track codec override is future work).
+// one m=audio line per track.
 type AudioConfig struct {
 	Devices []string `toml:"devices,omitempty" json:"devices,omitempty"`
 	Codec   string   `toml:"codec,omitempty" json:"codec,omitempty"`
@@ -102,14 +47,11 @@ type AudioConfig struct {
 	Filters string   `toml:"filters,omitempty" json:"filters,omitempty"`
 }
 
-// EncoderConfig is the backend-agnostic encoder hint. Codec is the
-// logical codec ("h264"/"h265"/"av1"); EncoderName, GlobalArgs, and
-// VideoFilters are populated by the caller (typically
-// pipelineProcessManager via encoders.MapAPICodec) so HW encoders that
-// need extra plumbing (vaapi's -vaapi_device + format=nv12,hwupload;
-// rkmpp's hwaccel flags) carry that wiring through to ffmpeg.Params.
-// When EncoderName is empty the EncoderStage falls back to a software
-// default for the codec.
+// EncoderConfig is the backend-agnostic encoder hint. EncoderName,
+// GlobalArgs and VideoFilters are populated upstream (typically by
+// the service layer via encoders.MapAPICodec) so HW encoders that need
+// extra plumbing carry that wiring through to ffmpeg.Params. Empty
+// EncoderName falls back to libx264 inside the EncoderStage.
 type EncoderConfig struct {
 	Codec        string   `toml:"codec,omitempty" json:"codec,omitempty"`
 	EncoderName  string   `toml:"encoder_name,omitempty" json:"encoder_name,omitempty"`
@@ -123,10 +65,13 @@ type EncoderConfig struct {
 }
 
 // PublishTarget is a single output destination. Type discriminates the
-// URL scheme (rtsp/srt/hls/...); URL is the destination the encoder
-// writes to. Multiple PublishTargets imply `-f tee` for the ffmpeg
-// backend (follow-up work).
+// URL scheme (rtsp/srt/hls/...); URL is what the encoder writes to.
 type PublishTarget struct {
 	Type string `toml:"type" json:"type"`
 	URL  string `toml:"url" json:"url"`
 }
+
+// EncoderIDFor returns the canonical pool key for the encoder stage of
+// a given stream. Stable across restarts; matches the legacy convention
+// so peer tracking + metrics labels stay stable.
+func EncoderIDFor(streamID string) string { return "encoder:" + streamID }

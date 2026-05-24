@@ -9,75 +9,70 @@ import (
 	"github.com/smazurov/videonode/internal/process"
 )
 
-// ProducerStage is the per-device videonode-source process. One
-// instance per unique device, refcounted by ProducerRegistry across
-// the streams that consume it. Captures V4L2 frames, broadcasts NV12
-// dma-bufs via SCM_RIGHTS to N consumers.
+// ProducerStage is the per-Source `videonode-source` process. Keyed by
+// SourceID (1:1 with Source.ID). Captures V4L2 frames (or a built-in
+// test-pattern when TestMode is set) and broadcasts NV12 dma-bufs via
+// SCM_RIGHTS to N consumers.
 //
-// The stage exposes two sockets: the SCM data plane (where consumers
-// dial for frames) and the per-instance gRPC control plane (where the
-// daemon dials for SetFormat / Snapshot / status stream subscription).
-// Both paths are derived from the device id; see SocketPathFor /
-// GrpcSocketPathFor.
+// Sharing happens at the SCM data-plane level: any number of composers
+// or encoders dial SCMSocketPathFor(sourceID) to fan out. The Pipeline's
+// source registry tracks one ProducerStage per source-id; consumers
+// don't refcount the producer themselves.
+//
+// Exactly one of DevicePath / TestMode must be non-zero. The Pipeline
+// validates this at ApplySource time.
 type ProducerStage struct {
-	DeviceID   string // logical device identity (USB bus-port or similar)
-	DevicePath string // resolved /dev/videoN path, set by Pipeline before Start
+	SourceID   string // logical source identity from Source.ID
+	DevicePath string // resolved /dev/videoN path; empty when TestMode is true
+	TestMode   bool   // swaps argv to --test-pattern when true
 	BinaryPath string // path to videonode-source binary
-	// GrpcUds is the per-instance gRPC UDS the daemon dials. Empty =
-	// disabled (the smoke / R-test path; daemon-driven control plane is
-	// the only sane production mode).
+	// GrpcUds is the per-instance gRPC UDS the daemon dials for control
+	// plane RPCs (SetFormat / Snapshot / status subscription).
 	GrpcUds string
 }
 
-// ProducerPoolKey returns the pool.Pool key for the producer of a
-// given device. Stable; ProducerRegistry uses the same key to look up
-// liveness.
-func ProducerPoolKey(deviceID string) string {
-	return "producer:" + deviceID
-}
+// ProducerPoolKey returns the pool.Pool key for the producer of a given
+// source id. Stable across restarts.
+func ProducerPoolKey(sourceID string) string { return SourcePoolKey(sourceID) }
 
 // ID returns the stage's process.Pool key.
-func (p *ProducerStage) ID() string { return ProducerPoolKey(p.DeviceID) }
+func (p *ProducerStage) ID() string { return SourcePoolKey(p.SourceID) }
 
 // Kind reports this as a Producer stage.
 func (p *ProducerStage) Kind() Kind { return KindProducer }
 
-// StreamID returns "" — producers are device-scoped, not stream-scoped.
-// Producer logs are attributed to the device, and the consumer streams
-// are visible via ProducerRegistry.ConsumersOf.
+// StreamID returns "" — producers are source-scoped, not stream-scoped.
 func (p *ProducerStage) StreamID() string { return "" }
 
-// SCMSocketPath returns the data-plane socket the producer binds.
-// Consumers (composer slots, single-stream vn-sink) dial this path.
-// Caller of NewProducerStage is responsible for ensuring uniqueness;
-// today we derive it from the device id.
-func (p *ProducerStage) SCMSocketPath() string {
-	return SCMSocketPathFor(p.DeviceID)
-}
+// SCMSocketPath returns the data-plane socket consumers dial.
+func (p *ProducerStage) SCMSocketPath() string { return SCMSocketPathFor(p.SourceID) }
 
-// Command returns the videonode-source argv. Required fields:
-// --device <path> --out-socket <scm-uds>. Control plane flags
-// (--grpc-listen --device-id) are added when GrpcUds is set.
+// Command returns the videonode-source argv.
 func (p *ProducerStage) Command() ([]string, []string, error) {
 	if p.BinaryPath == "" {
 		return nil, nil, errors.New("producer: BinaryPath is required")
 	}
-	if p.DevicePath == "" {
-		return nil, nil, errors.New("producer: DevicePath is required")
+	if p.SourceID == "" {
+		return nil, nil, errors.New("producer: SourceID is required")
 	}
-	if p.DeviceID == "" {
-		return nil, nil, errors.New("producer: DeviceID is required")
+	if p.TestMode && p.DevicePath != "" {
+		return nil, nil, errors.New("producer: TestMode and DevicePath are mutually exclusive")
+	}
+	if !p.TestMode && p.DevicePath == "" {
+		return nil, nil, errors.New("producer: one of DevicePath or TestMode is required")
 	}
 
-	argv := []string{
-		p.BinaryPath,
-		"--device", p.DevicePath,
-		"--out-socket", p.SCMSocketPath(),
+	argv := []string{p.BinaryPath}
+	if p.TestMode {
+		argv = append(argv, "--test-pattern")
+	} else {
+		argv = append(argv, "--device", p.DevicePath)
 	}
+	argv = append(argv, "--out-socket", p.SCMSocketPath())
 	if p.GrpcUds != "" {
 		argv = append(argv,
 			"--grpc-listen", p.GrpcUds,
-			"--device-id", p.DeviceID,
+			"--device-id", p.SourceID,
 		)
 	}
 	return argv, nil, nil
@@ -85,47 +80,36 @@ func (p *ProducerStage) Command() ([]string, []string, error) {
 
 // LogParser uses the ffmpeg parser — videonode-source emits the same
 // `[level] msg` format via vn::log helpers.
-func (p *ProducerStage) LogParser() process.LogParser {
-	return ffmpeg.ParseLogLevel
-}
+func (p *ProducerStage) LogParser() process.LogParser { return ffmpeg.ParseLogLevel }
 
-// LogAttrs tags producer logs with the device id (the stream-scoped
-// stream_id field is intentionally omitted; multiple streams may
-// consume the same producer).
+// LogAttrs tags producer logs with the source id + pool-key instance.
 func (p *ProducerStage) LogAttrs() []slog.Attr {
 	return []slog.Attr{
-		slog.String("device", p.DeviceID),
+		slog.String("source_id", p.SourceID),
 		slog.String("stage_instance", p.ID()),
 	}
 }
 
-// Reconfigure: the producer has a SetFormat RPC but resolution/FPS
-// changes still require the underlying V4L2 device to be reopened
-// (kernel constraint), which means restart. Returns ErrRequiresRestart;
-// the Pipeline orchestrates the restart, and consumers self-heal via
-// scm_rights_source's 30s retry-dial.
+// Reconfigure: format changes require V4L2 device reopen → restart.
 func (p *ProducerStage) Reconfigure(_ any) error { return ErrRequiresRestart }
 
 // SCMSocketPathFor returns the data-plane socket a producer binds for
-// the given device id. Stable; consumers dial this when constructing
-// a ProducerFrameSource.
-func SCMSocketPathFor(deviceID string) string {
-	return filepath.Join("/tmp", "vn-bus-"+sanitizeForFilename(deviceID)+".sock")
+// the given source id.
+func SCMSocketPathFor(sourceID string) string {
+	return filepath.Join("/tmp", "vn-bus-"+sanitizeForFilename(sourceID)+".sock")
 }
 
 // NativeUdsDir holds per-instance gRPC sockets for spawned native
-// binaries. The daemon mkdir's it before spawn (Pipeline.Apply).
+// binaries.
 const NativeUdsDir = "/tmp/videonode-native"
 
-// GrpcSocketPathFor builds the per-instance gRPC UDS path the daemon
-// allocates before spawning a native binary. Kind is "source" or
-// "composer"; id is the device-id or composer-id.
+// GrpcSocketPathFor builds the per-instance gRPC UDS path. Kind is
+// "source" or "composer"; id is the source-id or composer-id.
 func GrpcSocketPathFor(kind, id string) string {
 	return filepath.Join(NativeUdsDir, kind+"-"+sanitizeForFilename(id)+".sock")
 }
 
 // sanitizeForFilename strips characters that aren't safe in /tmp paths.
-// Conservative: keep alnum + dash + underscore; everything else → '_'.
 func sanitizeForFilename(s string) string {
 	out := make([]byte, 0, len(s))
 	for i := 0; i < len(s); i++ {
