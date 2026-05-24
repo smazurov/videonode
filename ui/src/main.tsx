@@ -18,9 +18,6 @@ const EditSource = lazy(() => import("./routes/edit-source"));
 const Composers = lazy(() => import("./routes/composers"));
 const CreateComposer = lazy(() => import("./routes/create-composer"));
 const ComposerDetail = lazy(() => import("./routes/composer-detail"));
-const EditComposer = lazy(() => import("./routes/edit-composer"));
-const ComposerLayout = lazy(() => import("./routes/composer-layout"));
-const ComposerInputs = lazy(() => import("./routes/composer-inputs"));
 
 const Streams = lazy(() => import("./routes/streams"));
 const CreateStream = lazy(() => import("./routes/create-stream"));
@@ -60,9 +57,6 @@ const router = createBrowserRouter([
       { path: "composers", element: <Guarded><Composers /></Guarded> },
       { path: "composers/new", element: <Guarded><CreateComposer /></Guarded> },
       { path: "composers/:composerId", element: <Guarded><ComposerDetail /></Guarded> },
-      { path: "composers/:composerId/edit", element: <Guarded><EditComposer /></Guarded> },
-      { path: "composers/:composerId/layout", element: <Guarded><ComposerLayout /></Guarded> },
-      { path: "composers/:composerId/inputs", element: <Guarded><ComposerInputs /></Guarded> },
 
       // Streams
       { path: "streams", element: <Guarded><Streams /></Guarded> },

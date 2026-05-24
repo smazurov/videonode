@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { API_BASE_URL } from '../lib/api';
 import { getAuthCredentials } from '../lib/auth';
+import { validateCanvas } from '../lib/composer-types';
 
 // Local stubs of backend types until /api/composers schema regen lands.
 // Integrators: swap these for `components['schemas']['ComposerData']` &c.
@@ -175,10 +176,9 @@ export function useComposerForm(options: UseComposerFormOptions = {}): UseCompos
       e.composerId = 'A composer with this ID already exists';
     }
     if (preset === 'custom') {
-      if (customW < 16 || customW > 7680) e.customW = 'Width must be 16-7680';
-      if (customH < 16 || customH > 4320) e.customH = 'Height must be 16-4320';
-      if (customW % 2 !== 0) e.customW = 'Width must be even';
-      if (customH % 2 !== 0) e.customH = 'Height must be even';
+      const canvasErrors = validateCanvas({ w: customW, h: customH, fps });
+      if (canvasErrors.w) e.customW = canvasErrors.w;
+      if (canvasErrors.h) e.customH = canvasErrors.h;
     }
     if (!Number.isFinite(fps) || fps < 1 || fps > 240) {
       e.fps = 'Frame rate must be 1-240';
