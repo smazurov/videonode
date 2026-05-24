@@ -75,57 +75,30 @@ export const createStreamAPISlice: StateCreator<
   },
 
   createStream: async (request) => {
-    const { setError } = get();
-
-    try {
-      const data = unwrap(
-        await api.POST(STREAMS_PATH, { body: request }),
-        'Failed to create stream',
-      );
-      setError(null);
-      return data as Stream;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create stream';
-      setError(message);
-      throw error;
-    }
+    const data = unwrap(
+      await api.POST(STREAMS_PATH, { body: request }),
+      'Failed to create stream',
+    );
+    return data as Stream;
   },
 
   updateStream: async (streamId, data) => {
-    const { setError } = get();
-
-    try {
-      const stream = unwrap(
-        await api.PATCH(STREAM_ID_PATH, {
-          params: { path: { stream_id: streamId } },
-          body: data,
-        }),
-        'Failed to update stream',
-      );
-      setError(null);
-      return stream as Stream;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update stream';
-      setError(message);
-      throw error;
-    }
+    const stream = unwrap(
+      await api.PATCH(STREAM_ID_PATH, {
+        params: { path: { stream_id: streamId } },
+        body: data,
+      }),
+      'Failed to update stream',
+    );
+    return stream as Stream;
   },
 
   deleteStream: async (streamId) => {
-    const { setError } = get();
-
-    try {
-      unwrap(
-        await api.DELETE(STREAM_ID_PATH, {
-          params: { path: { stream_id: streamId } },
-        }),
-        'Failed to delete stream',
-      );
-      setError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete stream';
-      setError(message);
-      throw error;
-    }
+    unwrap(
+      await api.DELETE(STREAM_ID_PATH, {
+        params: { path: { stream_id: streamId } },
+      }),
+      'Failed to delete stream',
+    );
   },
 });

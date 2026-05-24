@@ -9,7 +9,7 @@ import { Card } from '../Card';
 import { StatusPill, type StatusPillStatus } from '../primitives/StatusPill';
 import { EffectEditor } from './EffectEditor';
 import { InputRefPicker } from './InputRefPicker';
-import type { ComposerData, ComposerInput } from '../../lib/composer-types';
+import type { ComposerData, ComposerInput, LayoutSlot } from '../../lib/composer-types';
 import { useComposerStore, type AvailableSource, type ComposerEffect } from '../../hooks/useComposerStore';
 import { useSourceStore } from '../../hooks/useSourceStore';
 import type { Source } from '../../hooks/slices/types';
@@ -95,8 +95,15 @@ export function ComposerInputsPanel({ composer }: Readonly<ComposerInputsPanelPr
     async (ref: string) => {
       setBusy(true);
       try {
-        const next = composer.inputs.filter((i) => i.ref !== ref);
-        await updateComposer(composer.composer_id, { inputs: toWireInputs(next) });
+        const nextInputs = composer.inputs.filter((i) => i.ref !== ref);
+        const nextLayout = composer.layout.filter((slot) => slot.input !== ref);
+        const patch: { inputs: ComposerInputWire[]; layout?: LayoutSlot[] } = {
+          inputs: toWireInputs(nextInputs),
+        };
+        if (nextLayout.length !== composer.layout.length) {
+          patch.layout = nextLayout;
+        }
+        await updateComposer(composer.composer_id, patch);
         if (editingRef === ref) setEditingRef(null);
         toast.success(`Removed ${ref}`);
       } catch (error) {
@@ -105,7 +112,7 @@ export function ComposerInputsPanel({ composer }: Readonly<ComposerInputsPanelPr
         setBusy(false);
       }
     },
-    [composer.composer_id, composer.inputs, editingRef, updateComposer],
+    [composer.composer_id, composer.inputs, composer.layout, editingRef, updateComposer],
   );
 
   const handleSaveEffect = useCallback(

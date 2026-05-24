@@ -114,98 +114,61 @@ export const createComposerAPISlice: StateCreator<
   },
 
   createComposer: async (request) => {
-    const { setError, addComposer } = get();
-    try {
-      const data = await requestJSON<Composer>(
-        'POST',
-        COMPOSERS_PATH,
-        request,
-        'Failed to create composer',
-      );
-      addComposer(data);
-      setError(null);
-      return data;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create composer';
-      setError(message);
-      throw error;
-    }
+    const { addComposer } = get();
+    const data = await requestJSON<Composer>(
+      'POST',
+      COMPOSERS_PATH,
+      request,
+      'Failed to create composer',
+    );
+    addComposer(data);
+    return data;
   },
 
   updateComposer: async (composerId, data) => {
-    const { setError, addComposer } = get();
-    try {
-      const composer = await requestJSON<Composer>(
-        'PATCH',
-        `${COMPOSERS_PATH}/${encodeURIComponent(composerId)}`,
-        data,
-        'Failed to update composer',
-      );
-      addComposer(composer);
-      setError(null);
-      return composer;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update composer';
-      setError(message);
-      throw error;
-    }
+    const { addComposer } = get();
+    const composer = await requestJSON<Composer>(
+      'PATCH',
+      `${COMPOSERS_PATH}/${encodeURIComponent(composerId)}`,
+      data,
+      'Failed to update composer',
+    );
+    addComposer(composer);
+    return composer;
   },
 
   deleteComposer: async (composerId) => {
-    const { setError, removeComposer } = get();
-    try {
-      await requestJSON<void>(
-        'DELETE',
-        `${COMPOSERS_PATH}/${encodeURIComponent(composerId)}`,
-        undefined,
-        'Failed to delete composer',
-      );
-      removeComposer(composerId);
-      setError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete composer';
-      setError(message);
-      throw error;
-    }
+    const { removeComposer } = get();
+    await requestJSON<void>(
+      'DELETE',
+      `${COMPOSERS_PATH}/${encodeURIComponent(composerId)}`,
+      undefined,
+      'Failed to delete composer',
+    );
+    removeComposer(composerId);
   },
 
   updateComposerLayout: async (composerId, layout) => {
-    const { setError, addComposer } = get();
-    try {
-      const composer = await requestJSON<Composer>(
-        'PATCH',
-        `${COMPOSERS_PATH}/${encodeURIComponent(composerId)}/layout`,
-        { layout },
-        'Failed to update composer layout',
-      );
-      addComposer(composer);
-      setError(null);
-      return composer;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to update composer layout';
-      setError(message);
-      throw error;
-    }
+    const { addComposer } = get();
+    const composer = await requestJSON<Composer>(
+      'PATCH',
+      `${COMPOSERS_PATH}/${encodeURIComponent(composerId)}/layout`,
+      { layout },
+      'Failed to update composer layout',
+    );
+    addComposer(composer);
+    return composer;
   },
 
   updateComposerInputEffect: async (composerId, inputRef, effect) => {
-    const { setError, addComposer } = get();
-    try {
-      const composer = await requestJSON<Composer>(
-        'PATCH',
-        `${COMPOSERS_PATH}/${encodeURIComponent(composerId)}/inputs/${encodeURIComponent(inputRef)}/effect`,
-        { effect },
-        'Failed to update input effect',
-      );
-      addComposer(composer);
-      setError(null);
-      return composer;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to update input effect';
-      setError(message);
-      throw error;
-    }
+    const { addComposer } = get();
+    const composer = await requestJSON<Composer>(
+      'PATCH',
+      `${COMPOSERS_PATH}/${encodeURIComponent(composerId)}/inputs/${encodeURIComponent(inputRef)}/effect`,
+      { effect },
+      'Failed to update input effect',
+    );
+    addComposer(composer);
+    return composer;
   },
 });
