@@ -44,7 +44,21 @@ export const semanticTokens = {
   "log-error": { light: "#dc2626", dark: "#f87171", cssVar: "var(--color-log-error)" },
   "log-warn": { light: "#eab308", dark: "#facc15", cssVar: "var(--color-log-warn)" },
   "log-info": { light: "#2563eb", dark: "#60a5fa", cssVar: "var(--color-log-info)" },
-  "log-debug": { light: "#6b7280", dark: "#6b7280", cssVar: "var(--color-log-debug)" }
+  "log-debug": { light: "#6b7280", dark: "#6b7280", cssVar: "var(--color-log-debug)" },
+  "status-warm-soft": { light: "#ffedd5", dark: "#7c2d12", cssVar: "var(--color-status-warm-soft)" },
+  "status-warm-soft-fg": { light: "#9a3412", dark: "#fdba74", cssVar: "var(--color-status-warm-soft-fg)" },
+  "status-cold-soft": { light: "#e5e7eb", dark: "#374151", cssVar: "var(--color-status-cold-soft)" },
+  "status-cold-soft-fg": { light: "#374151", dark: "#d1d5db", cssVar: "var(--color-status-cold-soft-fg)" },
+  "status-error-soft": { light: "#fef2f2", dark: "rgb(127 29 29 / 0.30)", cssVar: "var(--color-status-error-soft)" },
+  "status-error-soft-fg": { light: "#b91c1c", dark: "#f87171", cssVar: "var(--color-status-error-soft-fg)" },
+  "status-encoding-soft": { light: "#dbeafe", dark: "#1e3a8a", cssVar: "var(--color-status-encoding-soft)" },
+  "status-encoding-soft-fg": { light: "#1e40af", dark: "#bfdbfe", cssVar: "var(--color-status-encoding-soft-fg)" },
+  "status-idle-soft": { light: "#f3f4f6", dark: "#1f2937", cssVar: "var(--color-status-idle-soft)" },
+  "status-idle-soft-fg": { light: "#4b5563", dark: "#9ca3af", cssVar: "var(--color-status-idle-soft-fg)" },
+  "status-running-soft": { light: "rgb(34 197 94 / 0.15)", dark: "rgb(34 197 94 / 0.25)", cssVar: "var(--color-status-running-soft)" },
+  "status-running-soft-fg": { light: "#16a34a", dark: "#4ade80", cssVar: "var(--color-status-running-soft-fg)" },
+  "status-stopped-soft": { light: "#e5e7eb", dark: "#1f2937", cssVar: "var(--color-status-stopped-soft)" },
+  "status-stopped-soft-fg": { light: "#374151", dark: "#9ca3af", cssVar: "var(--color-status-stopped-soft-fg)" }
 } as const satisfies Record<string, TokenEntry>;
 
 export type SemanticTokenName = keyof typeof semanticTokens;
