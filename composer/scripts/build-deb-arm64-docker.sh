@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# build-deb-arm64-docker.sh — reproduce the deb-arm64 CI lane locally inside
-# arm64v8/debian:trixie. No rig required (qemu emulates aarch64 on x86_64).
-# Produces composer/build/deb-arm64/*.deb on the host.
+# build-deb-arm64-docker.sh — spawn arm64v8/debian:trixie locally and run
+# build-deb-arm64.sh inside it. No rig required (qemu emulates aarch64
+# on x86_64). CI doesn't use this wrapper — it gets the container from
+# GitHub Actions' `container:` directive and calls build-deb-arm64.sh
+# directly. Same inner script in both cases.
 #
 # Env:
+#   MODE=…                    Passed through to build-deb-arm64.sh.
+#                              Default: release-deb (produces composer/$BUILD_DIR/*.deb).
+#   BUILD_DIR=build/deb-arm64  Passed through to build-deb-arm64.sh.
 #   ENGINE=docker|podman      Container engine (autodetected).
 #   IMAGE=arm64v8/debian:trixie
-#   BUILD_DIR=build/deb-arm64  (relative to composer/)
 set -euo pipefail
 
+MODE="${MODE:-release-deb}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 IMAGE="${IMAGE:-arm64v8/debian:trixie}"
 BUILD_DIR="${BUILD_DIR:-build/deb-arm64}"
@@ -27,36 +32,28 @@ if [[ "$(uname -m)" != "aarch64" && "$(uname -m)" != "arm64" ]]; then
     fi
 fi
 
-echo ">>> $ENGINE run $IMAGE → $BUILD_DIR/"
+echo ">>> $ENGINE run $IMAGE (MODE=$MODE)"
 
 # apt inside the container requires root, but we don't want root-owned
-# artifacts on the host. Run the build as root inside the container, then
-# chown the build dir back to the invoking user at the end (even on failure).
+# artifacts on the host. Run as root inside, chown back to the invoker
+# at the end (even on failure).
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 
 "$ENGINE" run --rm --platform linux/arm64 \
     -v "$ROOT:/work" \
     -w /work \
+    -e MODE="$MODE" \
     -e BUILD_DIR="$BUILD_DIR" \
     -e HOST_UID="$HOST_UID" \
     -e HOST_GID="$HOST_GID" \
     "$IMAGE" bash -eu -c '
-        trap "chown -R \"$HOST_UID:$HOST_GID\" composer/$BUILD_DIR 2>/dev/null || true" EXIT
-        apt-get update -qq
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            cmake ninja-build pkg-config g++ ca-certificates curl git \
-            libegl-dev libgles-dev libgbm-dev libdrm-dev \
-            libturbojpeg0-dev dpkg-dev \
-            libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc
-        composer/scripts/install-rockchip-libs.sh
-        cd composer
-        cmake -B "$BUILD_DIR" -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
-        cmake --build "$BUILD_DIR"
-        ctest --test-dir "$BUILD_DIR" --output-on-failure
-        (cd "$BUILD_DIR" && cpack -G DEB)
+        trap "chown -R \"$HOST_UID:$HOST_GID\" composer/build 2>/dev/null || true" EXIT
+        composer/scripts/build-deb-arm64.sh
     '
 
-echo
-echo "=== artifacts ==="
-ls -1 "$ROOT/composer/$BUILD_DIR"/*.deb
+if [[ "$MODE" == "release-deb" ]]; then
+    echo
+    echo "=== artifacts ==="
+    ls -1 "$ROOT/composer/$BUILD_DIR"/*.deb
+fi

@@ -27,7 +27,7 @@ func (s *Server) registerLogRoutes() {
 		return map[string]any{
 			"message": events.LogEntryEvent{},
 		}
-	}(), func(ctx context.Context, _ *struct{}, send sse.Sender) {
+	}(), func(ctx context.Context, _ *sseInput, send sse.Sender) {
 		// First, send all historical logs from the ring buffer
 		buffer := logging.GetBuffer()
 		if buffer != nil {
