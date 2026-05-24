@@ -25,6 +25,13 @@ const COMPOSER_INPUT_EFFECT = (id: string, ref: string) =>
   `/api/composers/${encodeURIComponent(id)}/inputs/${encodeURIComponent(ref)}/effect`;
 const SOURCES_LIST = '/api/sources';
 
+const SOURCE_REF_PREFIX = 'source:';
+
+function sourceIdFromRef(ref: string): string | null {
+  if (!ref.startsWith(SOURCE_REF_PREFIX)) return null;
+  return ref.slice(SOURCE_REF_PREFIX.length);
+}
+
 async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const credentials = getAuthCredentials();
   const headers = new Headers(init.headers);
@@ -249,11 +256,7 @@ export default function ComposerInputs() {
                   composerId={composerId}
                   inputRef={editingInput.ref}
                   effect={editingInput.effect ?? null}
-                  // No source-snapshot endpoint yet — backdrop is empty until
-                  // B10 ships /api/sources/{id}/snapshot, then this becomes
-                  // editingInput.ref → snapshot. Today the canvas still works
-                  // for corner picking by clicking on the empty area.
-                  snapshotStreamId={null}
+                  snapshotSourceId={sourceIdFromRef(editingInput.ref)}
                   inputWidth={canvasW}
                   inputHeight={canvasH}
                   saving={saving}

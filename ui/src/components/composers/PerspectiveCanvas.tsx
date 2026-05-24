@@ -9,9 +9,7 @@ const CORNER_LABELS = ['TL', 'TR', 'BR', 'BL'] as const;
 const DOT_RADIUS = 10;
 const DOT_HIT_RADIUS = 18;
 
-// Per-stream snapshot endpoint reused for live preview backdrop. When the
-// dedicated per-source snapshot endpoint lands, swap this for that.
-const STREAM_SNAPSHOT_ENDPOINT = '/api/streams/{stream_id}/snapshot' as const;
+const SOURCE_SNAPSHOT_ENDPOINT = '/api/sources/{source_id}/snapshot' as const;
 
 function sortCornersClockwise(points: Corner[]): Corner[] {
   if (points.length !== 4) return points;
@@ -35,8 +33,8 @@ function sortCornersClockwise(points: Corner[]): Corner[] {
 }
 
 interface PerspectiveCanvasProps {
-  /** Snapshot source: a stream id whose snapshot endpoint provides the live preview backdrop. */
-  snapshotStreamId: string | null;
+  /** Snapshot source: a source id whose raw NV12 snapshot endpoint provides the live preview backdrop. */
+  snapshotSourceId: string | null;
   corners: Corner[];
   onCornersChange: (corners: Corner[], sorted: boolean) => void;
   sorted: boolean;
@@ -45,7 +43,7 @@ interface PerspectiveCanvasProps {
 }
 
 export function PerspectiveCanvas({
-  snapshotStreamId,
+  snapshotSourceId,
   corners,
   onCornersChange,
   sorted,
@@ -60,7 +58,7 @@ export function PerspectiveCanvas({
   const imgRef = useRef<HTMLImageElement>(null);
 
   const takeSnapshot = useCallback(async () => {
-    if (!snapshotStreamId) {
+    if (!snapshotSourceId) {
       setError('No preview source available');
       return;
     }
@@ -68,8 +66,8 @@ export function PerspectiveCanvas({
     setError(null);
     setImageLoaded(false);
     try {
-      const { data, error: snapErr } = await api.POST(STREAM_SNAPSHOT_ENDPOINT, {
-        params: { path: { stream_id: snapshotStreamId } },
+      const { data, error: snapErr } = await api.POST(SOURCE_SNAPSHOT_ENDPOINT, {
+        params: { path: { source_id: snapshotSourceId } },
       });
       if (snapErr) throw new Error(snapErr.detail ?? 'Snapshot failed');
       if (data?.url) setSnapshotUrl(`${API_BASE_URL}${data.url}`);
@@ -79,11 +77,11 @@ export function PerspectiveCanvas({
     } finally {
       setLoading(false);
     }
-  }, [snapshotStreamId]);
+  }, [snapshotSourceId]);
 
   useEffect(() => {
-    if (snapshotStreamId) takeSnapshot();
-  }, [snapshotStreamId, takeSnapshot]);
+    if (snapshotSourceId) takeSnapshot();
+  }, [snapshotSourceId, takeSnapshot]);
 
   const getImageCoords = useCallback(
     (clientX: number, clientY: number): Corner | null => {
@@ -210,7 +208,7 @@ export function PerspectiveCanvas({
               draggable={false}
             />
             {renderOverlay()}
-            {snapshotStreamId && (
+            {snapshotSourceId && (
               <button
                 onClick={takeSnapshot}
                 aria-label="Retake snapshot"

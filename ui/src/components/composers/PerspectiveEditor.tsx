@@ -10,9 +10,9 @@ interface PerspectiveEditorProps {
   composerId: string;
   inputRef: string;
   initialCorners: Corner[] | undefined;
-  // Snapshot source: a stream id whose snapshot serves as the live preview.
-  // The dedicated per-source snapshot endpoint will swap in once it ships.
-  snapshotStreamId: string | null;
+  // Source id whose raw NV12 snapshot drives the live preview backdrop. Null
+  // when the input ref does not resolve to a source (e.g. composer-as-input).
+  snapshotSourceId: string | null;
   inputWidth: number;
   inputHeight: number;
   saving: boolean;
@@ -23,7 +23,7 @@ interface PerspectiveEditorProps {
 export function PerspectiveEditor({
   inputRef,
   initialCorners,
-  snapshotStreamId,
+  snapshotSourceId,
   inputWidth,
   inputHeight,
   saving,
@@ -86,7 +86,7 @@ export function PerspectiveEditor({
           : 'Drag corners to adjust. Click Apply to save.'}
       </p>
       <PerspectiveCanvas
-        snapshotStreamId={snapshotStreamId}
+        snapshotSourceId={snapshotSourceId}
         corners={corners}
         sorted={sorted}
         onCornersChange={handleCornersChange}
