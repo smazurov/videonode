@@ -4,8 +4,8 @@
 
 import type { components } from '../../lib/api.generated';
 
-export type SourceData = components['schemas']['SourcePayload'];
-export type SourceRequestData = components['schemas']['SourcePayload'];
+export type SourceData = components['schemas']['SourceData'];
+export type SourceRequestData = components['schemas']['SourceData'];
 export type SourceStatusSnapshot = components['schemas']['StatusParams'];
 
 import type { StatusPillStatus } from '../../components/primitives/StatusPill';
