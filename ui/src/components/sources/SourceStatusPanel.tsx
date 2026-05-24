@@ -3,6 +3,7 @@ import { SectionHeader } from '../primitives/SectionHeader';
 import { KVInspector, type KVEntry } from '../primitives/KVInspector';
 import { StatusPill } from '../primitives/StatusPill';
 import type { SourceEntry } from '../../hooks/useSourceStore';
+import { formatUptime } from '../../lib/formatUptime';
 
 interface SourceStatusPanelProps {
   source: SourceEntry;
@@ -22,12 +23,23 @@ export function SourceStatusPanel({ source }: Readonly<SourceStatusPanelProps>) 
 
   const broadcastEntries: KVEntry[] = status
     ? [
-        { label: 'target_fps', value: String(status.broadcast.target_fps) },
+        {
+          label: 'effective_fps',
+          value: source.effective_fps !== undefined ? source.effective_fps.toFixed(1) : '—',
+        },
         { label: 'last_seq', value: String(status.broadcast.last_seq) },
         { label: 'real_frames', value: String(status.broadcast.real_frames) },
         { label: 'placeholder_frames', value: String(status.broadcast.placeholder_frames) },
       ]
     : [];
+  if (status && source.status !== 'running') {
+    broadcastEntries.push({
+      label: 'placeholder_cadence',
+      value: `${status.broadcast.target_fps} fps`,
+    });
+  }
+
+  const uptimeLabel = formatUptime(source.started_at_us);
 
   return (
     <Card padding="lg">
@@ -46,11 +58,16 @@ export function SourceStatusPanel({ source }: Readonly<SourceStatusPanelProps>) 
           <KVInspector entries={broadcastEntries} emptyText="No broadcast data yet" />
         </div>
       </div>
-      {source.last_status_at && (
-        <p className="mt-4 text-xs text-fg-subtle">
-          Last update {new Date(source.last_status_at).toLocaleString()}
-        </p>
-      )}
+      <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-subtle">
+        {uptimeLabel && (
+          <span>
+            Uptime <span className="text-fg">{uptimeLabel}</span>
+          </span>
+        )}
+        {source.last_status_at && (
+          <span>Last update {new Date(source.last_status_at).toLocaleString()}</span>
+        )}
+      </div>
     </Card>
   );
 }

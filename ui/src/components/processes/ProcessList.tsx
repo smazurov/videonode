@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Badge } from '../Badge';
 import { useProcesses, type ProcessEntry } from '../../hooks/useProcesses';
+import { formatUptime as formatUptimeShared } from '../../lib/formatUptime';
 
 const STATE_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
   running: 'success',
@@ -17,19 +18,7 @@ const KIND_TONE: Record<string, 'canvas' | 'webrtc' | 'rtsp' | 'neutral'> = {
 };
 
 function formatUptime(startedAtUS?: number): string {
-  if (!startedAtUS || startedAtUS === 0) return '—';
-  const now = Date.now();
-  const startedMs = Math.floor(startedAtUS / 1000);
-  const ageMs = now - startedMs;
-  if (ageMs < 0) return '—';
-  const seconds = Math.floor(ageMs / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m${seconds % 60}s`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h${minutes % 60}m`;
-  const days = Math.floor(hours / 24);
-  return `${days}d${hours % 24}h`;
+  return formatUptimeShared(startedAtUS) ?? '—';
 }
 
 interface ProcessRowProps {

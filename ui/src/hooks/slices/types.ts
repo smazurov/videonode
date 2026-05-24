@@ -17,7 +17,12 @@ export interface Source extends SourceData {
   consumers?: { kind: 'composer' | 'stream'; id: string }[];
   consumer_count?: number;
   last_status_at?: string;
-  running_since?: string;
+  // Process start time in unix microseconds, stamped server-side from the
+  // supervisor pool. Source of truth for "uptime" / "running since".
+  started_at_us?: number;
+  // Measured publish rate, computed in the UI from consecutive real_frames
+  // counter deltas. Rounded to one decimal. undefined until two samples.
+  effective_fps?: number;
 }
 
 export type Composer = components['schemas']['ComposerPayload'];

@@ -7,6 +7,7 @@ import { InfoBar } from '../components/InfoBar';
 import { Card } from '../components/Card';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useSourceStore } from '../hooks/useSourceStore';
+import { formatUptime } from '../lib/formatUptime';
 
 export default function EditSource() {
   const navigate = useNavigate();
@@ -75,6 +76,8 @@ export default function EditSource() {
     }
   };
 
+  const uptime = formatUptime(sourceData.started_at_us);
+
   return (
     <DashboardLayout onLogout={logout} bottomBar={<InfoBar />}>
       <DashboardLayout.MainContent>
@@ -86,6 +89,11 @@ export default function EditSource() {
               </h1>
               <p className="text-gray-600 dark:text-gray-300 mt-1">
                 Update the configuration for this source.
+                {uptime && (
+                  <span className="ml-2 text-xs text-fg-subtle">
+                    Uptime <span className="text-fg">{uptime}</span>
+                  </span>
+                )}
               </p>
             </div>
             <Button theme="light" onClick={handleCancel} size="SM" text="Back to Sources" />
