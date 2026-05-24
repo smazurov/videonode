@@ -1,7 +1,10 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '../Badge';
 import { Card } from '../Card';
+import { StatusPill, type StatusPillStatus } from '../primitives/StatusPill';
 import type { ComposerData, ComposerInput } from '../../lib/composer-types';
+import { useSourceStore } from '../../hooks/useSourceStore';
 
 interface ComposerInputsPanelProps {
   composer: ComposerData;
@@ -14,17 +17,28 @@ function sourceIdFromRef(ref: string): string | null {
   return ref.slice(SOURCE_REF_PREFIX.length);
 }
 
+function resolveStatus(sourceId: string | null, source: ReturnType<typeof useSourceStore.getState>['sourcesById'][string] | undefined): StatusPillStatus | 'missing' {
+  if (!sourceId || !source) return 'missing';
+  return source.status ?? 'idle';
+}
+
 function InputRow({ input }: Readonly<{ input: ComposerInput }>) {
   const sourceId = sourceIdFromRef(input.ref);
+  const source = useSourceStore((s) => (sourceId ? s.sourcesById[sourceId] : undefined));
+  // sourcesById is keyed by id; the resolved status (runtime field on
+  // Source) drives the pill. When the source row is absent the composer
+  // ref is dangling — render an explicit "missing" hint, not a vague
+  // "unknown".
+  const status = resolveStatus(sourceId, source);
   return (
     <tr className="border-t border-border">
       <td className="px-4 py-3 align-middle">
         {sourceId ? (
-          <Link to={`/sources/${encodeURIComponent(sourceId)}`} className="font-mono text-sm text-accent hover:underline">
+          <Link to={`/sources/${encodeURIComponent(sourceId)}`} className="font-mono text-sm text-accent hover:underline break-all">
             {input.ref}
           </Link>
         ) : (
-          <span className="font-mono text-sm">{input.ref}</span>
+          <span className="font-mono text-sm break-all">{input.ref}</span>
         )}
       </td>
       <td className="px-4 py-3 align-middle">
@@ -35,16 +49,24 @@ function InputRow({ input }: Readonly<{ input: ComposerInput }>) {
         )}
       </td>
       <td className="px-4 py-3 align-middle">
-        {/* Source-status pill is best-effort — U6 wires the sources store
-            that owns the real status. For now we render an "unknown" pill
-            so the column is present and styled. */}
-        <Badge tone="neutral" size="xs">unknown</Badge>
+        {status === 'missing' ? (
+          <Badge tone="danger" size="xs">missing</Badge>
+        ) : (
+          <StatusPill status={status} size="xs" />
+        )}
       </td>
     </tr>
   );
 }
 
 export function ComposerInputsPanel({ composer }: Readonly<ComposerInputsPanelProps>) {
+  // Pull sources into the store on first mount so the per-row status
+  // resolves to something real instead of "missing".
+  const fetchSources = useSourceStore((s) => s.fetchSources);
+  const sourcesLastUpdated = useSourceStore((s) => s.lastUpdated);
+  useEffect(() => {
+    if (sourcesLastUpdated === null) void fetchSources();
+  }, [sourcesLastUpdated, fetchSources]);
   return (
     <Card padding="none">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
