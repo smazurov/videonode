@@ -25,6 +25,7 @@ import (
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
+	"github.com/smazurov/videonode/internal/streams/services"
 	"github.com/smazurov/videonode/internal/streams/store"
 	"github.com/smazurov/videonode/internal/updater"
 )
@@ -278,6 +279,26 @@ func main() {
 
 		streamService := streams.NewStreamService(serviceOpts)
 
+		// B9: instantiate the new SourceService + ComposerService backed by
+		// the v2 EntityStore + pipeline.Pipeline. The legacy StreamService
+		// still serves /api/streams; sources and composers route through
+		// these dedicated services.
+		entityStore, _ := streamStore.(streams.EntityStore)
+		var (
+			sourceSvc   api.SourceService
+			composerSvc api.ComposerService
+		)
+		if entityStore != nil {
+			sourceSvc = services.NewSourceService(services.SourceServiceOptions{
+				Store:    entityStore,
+				Pipeline: nativePipeline,
+			})
+			composerSvc = services.NewComposerService(services.ComposerServiceOptions{
+				Store:    entityStore,
+				Pipeline: nativePipeline,
+			})
+		}
+
 		// Load existing streams from TOML config into memory at startup
 		// This must happen after stream service is created so OBS callbacks are registered
 		// Runtime stream management should use CRUD APIs (not reload)
@@ -312,6 +333,8 @@ func main() {
 		apiOpts := &api.Options{
 			Authenticator:          authenticator,
 			StreamService:          streamService,
+			SourceService:          sourceSvc,
+			ComposerService:        composerSvc,
 			EventBus:               eventBus,
 			WebRTCManager:          webrtcManager,
 			StreamProvider:         streamingServer,

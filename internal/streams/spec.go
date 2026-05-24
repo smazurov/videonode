@@ -4,8 +4,34 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/types"
 )
+
+// Source re-exports the canonical producer descriptor from the pipeline
+// package. The service-layer split (B9) treats sources as first-class
+// entities; this alias lets api/service consumers use one set of types.
+type Source = pipeline.Source
+
+// Composer re-exports the canonical composer descriptor.
+type Composer = pipeline.Composer
+
+// ComposerInput re-exports the canonical composer input descriptor.
+type ComposerInput = pipeline.ComposerInput
+
+// ComposerLayoutSlot re-exports the canonical composer layout slot.
+type ComposerLayoutSlot = pipeline.LayoutSlot
+
+// ComposerEffect re-exports the canonical composer effect descriptor.
+type ComposerEffect = pipeline.Effect
+
+// ComposerCanvasDims re-exports the canonical composer canvas dimensions.
+type ComposerCanvasDims = pipeline.CanvasDims
+
+// PipelineStream re-exports the canonical slim stream descriptor. (The
+// short name "Stream" in this package already designates a runtime
+// state struct; PipelineStream is the persisted shape used by Apply.)
+type PipelineStream = pipeline.Stream
 
 // StreamSpec is the persistent configuration for one stream.
 type StreamSpec struct {
