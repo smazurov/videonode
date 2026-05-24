@@ -100,58 +100,37 @@ export const createSourceAPISlice: StateCreator<
   },
 
   createSource: async (request) => {
-    const { setError, addSource } = get();
-    try {
-      const data = await requestJSON<Source>(
-        'POST',
-        SOURCES_PATH,
-        request,
-        'Failed to create source',
-      );
-      addSource(data);
-      setError(null);
-      return data;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create source';
-      setError(message);
-      throw error;
-    }
+    const { addSource } = get();
+    const data = await requestJSON<Source>(
+      'POST',
+      SOURCES_PATH,
+      request,
+      'Failed to create source',
+    );
+    addSource(data);
+    return data;
   },
 
   updateSource: async (sourceId, data) => {
-    const { setError, addSource } = get();
-    try {
-      const source = await requestJSON<Source>(
-        'PATCH',
-        `${SOURCES_PATH}/${encodeURIComponent(sourceId)}`,
-        data,
-        'Failed to update source',
-      );
-      addSource(source);
-      setError(null);
-      return source;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update source';
-      setError(message);
-      throw error;
-    }
+    const { addSource } = get();
+    const source = await requestJSON<Source>(
+      'PATCH',
+      `${SOURCES_PATH}/${encodeURIComponent(sourceId)}`,
+      data,
+      'Failed to update source',
+    );
+    addSource(source);
+    return source;
   },
 
   deleteSource: async (sourceId) => {
-    const { setError, removeSource } = get();
-    try {
-      await requestJSON<void>(
-        'DELETE',
-        `${SOURCES_PATH}/${encodeURIComponent(sourceId)}`,
-        undefined,
-        'Failed to delete source',
-      );
-      removeSource(sourceId);
-      setError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete source';
-      setError(message);
-      throw error;
-    }
+    const { removeSource } = get();
+    await requestJSON<void>(
+      'DELETE',
+      `${SOURCES_PATH}/${encodeURIComponent(sourceId)}`,
+      undefined,
+      'Failed to delete source',
+    );
+    removeSource(sourceId);
   },
 });
