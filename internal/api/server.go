@@ -33,6 +33,10 @@ type Server struct {
 	options            *Options
 	deviceDetector     devices.DeviceDetector
 	eventBus           *events.Bus
+	eventRegistry      *events.Registry
+	sourceEntity       *events.Entity[models.SourceData]
+	composerEntity     *events.Entity[models.ComposerData]
+	streamEntity       *events.Entity[models.StreamData]
 	controlServer      *pipelinectl.Manager
 	logger             logging.Logger
 }
@@ -143,6 +147,7 @@ type Options struct {
 	ComposerService    ComposerService          // Optional: enables /api/composers when set
 	ValidationProvider types.ValidationProvider // Encoder-validation data accessor (backed by the streams store)
 	EventBus           *events.Bus              // Event bus for in-process events
+	EventRegistry      *events.Registry         // Entity registry; constructed in main.go alongside EventBus
 	PrometheusHandler  http.Handler             // Optional Prometheus metrics handler
 	UpdateService      updater.Service          // Optional self-update service
 	LEDController      interface {              // Optional LED controller
@@ -201,8 +206,73 @@ func NewServer(opts *Options) *Server {
 		validationProvider: opts.ValidationProvider,
 		options:            opts,
 		eventBus:           opts.EventBus,
+		eventRegistry:      opts.EventRegistry,
 		controlServer:      opts.ControlServer,
 		logger:             logging.GetLogger("api"),
+	}
+
+	// Register entity handles so handlers can publish through the
+	// uniform EntityEvent envelope. Lifecycle publishes are still
+	// invoked explicitly from each handler during this additive step;
+	// the auto-publish middleware (Step 2) will replace those calls.
+	if opts.EventRegistry != nil {
+		if opts.SourceService != nil {
+			server.sourceEntity = events.Register(opts.EventRegistry, events.Registration[models.SourceData]{
+				Type:        "source",
+				RoutePrefix: "/api/sources",
+				IDOf:        func(s models.SourceData) string { return s.SourceID },
+				Loader: func(ctx context.Context, id string) (models.SourceData, error) {
+					src, err := server.sourceService.Get(ctx, id)
+					if err != nil {
+						return models.SourceData{}, err
+					}
+					return sourceToAPI(*src), nil
+				},
+			})
+		}
+		if opts.ComposerService != nil {
+			server.composerEntity = events.Register(opts.EventRegistry, events.Registration[models.ComposerData]{
+				Type:        "composer",
+				RoutePrefix: "/api/composers",
+				IDOf:        func(c models.ComposerData) string { return c.ID },
+				Loader: func(ctx context.Context, id string) (models.ComposerData, error) {
+					c, err := server.composerService.GetComposer(ctx, id)
+					if err != nil {
+						return models.ComposerData{}, err
+					}
+					return *c, nil
+				},
+			})
+		}
+		if opts.StreamService != nil {
+			server.streamEntity = events.Register(opts.EventRegistry, events.Registration[models.StreamData]{
+				Type:        "stream",
+				RoutePrefix: "/api/streams",
+				IDOf:        func(s models.StreamData) string { return s.StreamID },
+				Loader: func(ctx context.Context, id string) (models.StreamData, error) {
+					st, err := server.streamService.Get(ctx, id)
+					if err != nil {
+						return models.StreamData{}, err
+					}
+					return server.streamToAPI(*st), nil
+				},
+			})
+		}
+
+		// Cross-entity dependencies: when a stream's lifecycle changes
+		// the upstream source or composer's denormalized Consumers
+		// field is stale. Touch the upstream so its Loader re-reads
+		// and republishes — UI gets the updated Consumers list with
+		// no client-side join. Touch is dedup'd within a single
+		// dispatch scope so two streams pointing at the same source
+		// only republish it once.
+		if server.streamEntity != nil {
+			events.OnLifecycle(server.streamEntity,
+				[]string{events.ActionCreated, events.ActionUpdated, events.ActionDeleted},
+				func(st models.StreamData) []events.AnyRef {
+					return upstreamRef(server, st.Upstream)
+				})
+		}
 	}
 
 	// Apply CORS middleware first (before auth)
@@ -244,6 +314,87 @@ func NewServer(opts *Options) *Server {
 // GetMux returns the underlying HTTP ServeMux for additional setup.
 func (s *Server) GetMux() *http.ServeMux {
 	return s.mux
+}
+
+// upstreamRef parses a stream's upstream string ("source:<id>" or
+// "composer:<id>") and returns the typed cross-entity reference, or
+// nil when the upstream isn't a tracked entity (or the relevant entity
+// isn't registered yet — e.g., when the daemon is constructed without
+// a ComposerService).
+func upstreamRef(s *Server, upstream string) []events.AnyRef {
+	if upstream == "" {
+		return nil
+	}
+	idx := strings.IndexByte(upstream, ':')
+	if idx <= 0 || idx == len(upstream)-1 {
+		return nil
+	}
+	kind := upstream[:idx]
+	id := upstream[idx+1:]
+	switch kind {
+	case "source":
+		if s.sourceEntity != nil {
+			return []events.AnyRef{s.sourceEntity.Ref(id)}
+		}
+	case "composer":
+		if s.composerEntity != nil {
+			return []events.AnyRef{s.composerEntity.Ref(id)}
+		}
+	}
+	return nil
+}
+
+// HasRoute reports whether the given HTTP method + path template is
+// registered on the Huma API. Implements events.RouteProbe for the
+// registry self-check.
+func (s *Server) HasRoute(method, path string) bool {
+	spec := s.api.OpenAPI()
+	if spec == nil || spec.Paths == nil {
+		return false
+	}
+	item, ok := spec.Paths[path]
+	if !ok || item == nil {
+		return false
+	}
+	switch strings.ToUpper(method) {
+	case http.MethodGet:
+		return item.Get != nil
+	case http.MethodPost:
+		return item.Post != nil
+	case http.MethodPatch:
+		return item.Patch != nil
+	case http.MethodDelete:
+		return item.Delete != nil
+	case http.MethodPut:
+		return item.Put != nil
+	}
+	return false
+}
+
+// ListRoutes returns every registered (method, path) pair on the Huma
+// API. Implements events.RouteProbe for the registry self-check.
+func (s *Server) ListRoutes() []events.RouteInfo {
+	spec := s.api.OpenAPI()
+	if spec == nil || spec.Paths == nil {
+		return nil
+	}
+	var out []events.RouteInfo
+	for path, item := range spec.Paths {
+		if item == nil {
+			continue
+		}
+		add := func(method string, present bool) {
+			if present {
+				out = append(out, events.RouteInfo{Method: method, Path: path})
+			}
+		}
+		add(http.MethodGet, item.Get != nil)
+		add(http.MethodPost, item.Post != nil)
+		add(http.MethodPatch, item.Patch != nil)
+		add(http.MethodDelete, item.Delete != nil)
+		add(http.MethodPut, item.Put != nil)
+	}
+	return out
 }
 
 // GetAPI returns the Huma API instance.

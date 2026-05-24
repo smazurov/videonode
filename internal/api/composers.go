@@ -100,6 +100,9 @@ func (s *Server) registerComposerRoutes() {
 		if err != nil {
 			return nil, mapComposerError(err)
 		}
+		if s.composerEntity != nil {
+			s.composerEntity.PublishCreated(*c)
+		}
 		return &models.ComposerResponse{Body: *c}, nil
 	})
 
@@ -141,6 +144,9 @@ func (s *Server) registerComposerRoutes() {
 		if err != nil {
 			return nil, mapComposerError(err)
 		}
+		if s.composerEntity != nil {
+			s.composerEntity.PublishUpdated(*c)
+		}
 		return &models.ComposerResponse{Body: *c}, nil
 	})
 
@@ -159,6 +165,9 @@ func (s *Server) registerComposerRoutes() {
 	) (*struct{}, error) {
 		if err := svc.DeleteComposer(ctx, input.ID); err != nil {
 			return nil, mapComposerError(err)
+		}
+		if s.composerEntity != nil {
+			s.composerEntity.PublishDeleted(input.ID)
 		}
 		return &struct{}{}, nil
 	})
@@ -180,6 +189,9 @@ func (s *Server) registerComposerRoutes() {
 		c, err := svc.ReplaceLayout(ctx, input.ID, input.Body.Layout)
 		if err != nil {
 			return nil, mapComposerError(err)
+		}
+		if s.composerEntity != nil {
+			s.composerEntity.PublishUpdated(*c)
 		}
 		return &models.ComposerResponse{Body: *c}, nil
 	})
@@ -210,6 +222,9 @@ func (s *Server) registerComposerRoutes() {
 		c, err := svc.SetInputEffect(ctx, input.ID, input.Ref, effect)
 		if err != nil {
 			return nil, mapComposerError(err)
+		}
+		if s.composerEntity != nil {
+			s.composerEntity.PublishUpdated(*c)
 		}
 		return &models.ComposerResponse{Body: *c}, nil
 	})

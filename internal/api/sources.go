@@ -18,6 +18,11 @@ import (
 // sources/composers/streams split; the service-layer unit (B9) bridges
 // this to the pipeline registry. Defined locally so this unit compiles
 // independently of B1/B9 — the integrator deduplicates at merge.
+//
+// Consumers is the denormalized cross-entity rollup (which composers
+// and streams currently reference this source). Populated by the
+// service layer in Get/List; emitted to the UI on every
+// `entity{type:source}` event so the UI never has to join client-side.
 type Source struct {
 	ID        string
 	Device    string
@@ -25,6 +30,7 @@ type Source struct {
 	Format    *SourceFormat
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	Consumers []models.SourceReference
 }
 
 // SourceFormat is the operator-selected V4L2 capture format mirrored
@@ -151,7 +157,11 @@ func (s *Server) registerSourceRoutes() {
 		if err != nil {
 			return nil, mapSourceError(err)
 		}
-		return &models.SourceResponse{Body: sourceToAPI(*created)}, nil
+		apiSource := sourceToAPI(*created)
+		if s.sourceEntity != nil {
+			s.sourceEntity.PublishCreated(apiSource)
+		}
+		return &models.SourceResponse{Body: apiSource}, nil
 	})
 
 	huma.Register(s.api, huma.Operation{
@@ -197,7 +207,11 @@ func (s *Server) registerSourceRoutes() {
 		if err != nil {
 			return nil, mapSourceError(err)
 		}
-		return &models.SourceResponse{Body: sourceToAPI(*updated)}, nil
+		apiSource := sourceToAPI(*updated)
+		if s.sourceEntity != nil {
+			s.sourceEntity.PublishUpdated(apiSource)
+		}
+		return &models.SourceResponse{Body: apiSource}, nil
 	})
 
 	huma.Register(s.api, huma.Operation{
@@ -216,6 +230,9 @@ func (s *Server) registerSourceRoutes() {
 		if err := s.sourceService.Delete(ctx, input.SourceID); err != nil {
 			return nil, mapSourceError(err)
 		}
+		if s.sourceEntity != nil {
+			s.sourceEntity.PublishDeleted(input.SourceID)
+		}
 		return &struct{}{}, nil
 	})
 }
@@ -228,6 +245,7 @@ func sourceToAPI(src Source) models.SourceData {
 		TestMode:  src.TestMode,
 		CreatedAt: src.CreatedAt,
 		UpdatedAt: src.UpdatedAt,
+		Consumers: src.Consumers,
 	}
 	if src.Format != nil {
 		name, ok := models.PixelFormatToVideoFormatByFourCC(src.Format.FourCC)
