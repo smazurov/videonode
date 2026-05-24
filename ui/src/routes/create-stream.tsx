@@ -1,5 +1,7 @@
+// Pending U13: new sectioned StreamForm
+// (Identity / Encoder / Audio / Publish). The old monolithic form was
+// deleted by U14; this stub keeps the build green until U13 lands.
 import { useNavigate } from 'react-router-dom';
-import { StreamForm } from '../components/StreamForm';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { Button } from '../components/Button';
 import { InfoBar } from '../components/InfoBar';
@@ -8,10 +10,6 @@ import { useAuthStore } from '../hooks/useAuthStore';
 export default function CreateStream() {
   const navigate = useNavigate();
   const { logout } = useAuthStore();
-
-  const handleSuccess = async () => {
-    navigate('/streams');
-  };
 
   const handleCancel = () => {
     navigate('/streams');
@@ -27,13 +25,15 @@ export default function CreateStream() {
                 Create New Stream
               </h1>
               <p className="text-gray-600 dark:text-gray-300 mt-1">
-                Configure a stream from one capture device, or compose 2&ndash;4 existing streams.
+                The stream creation form is being rebuilt (U13).
               </p>
             </div>
             <Button theme="light" onClick={handleCancel} size="SM" text="Back to Streams" />
           </div>
 
-          <StreamForm onSuccess={handleSuccess} onCancel={handleCancel} />
+          <div className="p-8 text-sm text-fg-muted border border-border rounded-md bg-surface-muted">
+            Stream creation UI is pending the U13 refactor.
+          </div>
         </div>
       </DashboardLayout.MainContent>
     </DashboardLayout>
