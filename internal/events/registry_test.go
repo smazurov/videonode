@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -202,6 +203,226 @@ func TestRegistry_DependencyFanOutTouchesReferencedEntity(t *testing.T) {
 	if !sawSourceUpdated {
 		t.Errorf("did not observe source.updated event; events=%+v", events)
 	}
+}
+
+// TestRegistry_DeleteFansOutToReferencedEntity covers the bug where
+// PublishDeleted shipped a nil payload, so the dependency resolver
+// received a zero-value T (e.g. a fakeStream with Upstream="") and
+// returned no refs — the source carrying the deleted stream in its
+// Consumers list never refreshed over SSE.
+//
+// The test publishes a stream-created so the source learns about it,
+// then publishes a stream-deleted, and expects the source to refresh
+// (one final source.updated event after the delete).
+func TestRegistry_DeleteFansOutToReferencedEntity(t *testing.T) {
+	bus := New()
+	reg := NewRegistry(bus)
+
+	srcStore := map[string]fakeSource{"hdmi0": {ID: "hdmi0"}}
+	streamStore := map[string]fakeStream{
+		"s1": {ID: "s1", Upstream: "source:hdmi0"},
+	}
+
+	srcEntity := Register(reg, Registration[fakeSource]{
+		Type:        "source",
+		RoutePrefix: "/api/sources",
+		IDOf:        func(s fakeSource) string { return s.ID },
+		Loader: func(_ context.Context, id string) (fakeSource, error) {
+			s, ok := srcStore[id]
+			if !ok {
+				return fakeSource{}, fmt.Errorf("not found")
+			}
+			return s, nil
+		},
+	})
+	streamEntity := Register(reg, Registration[fakeStream]{
+		Type:        "stream",
+		RoutePrefix: "/api/streams",
+		IDOf:        func(s fakeStream) string { return s.ID },
+		Loader: func(_ context.Context, id string) (fakeStream, error) {
+			s, ok := streamStore[id]
+			if !ok {
+				return fakeStream{}, fmt.Errorf("not found")
+			}
+			return s, nil
+		},
+	})
+
+	OnLifecycle(streamEntity, []string{ActionCreated, ActionUpdated, ActionDeleted}, func(s fakeStream) []AnyRef {
+		if s.Upstream == "source:hdmi0" {
+			return []AnyRef{srcEntity.Ref("hdmi0")}
+		}
+		return nil
+	})
+
+	var events []EntityEvent
+	var evMu sync.Mutex
+	unsub := bus.Subscribe(func(e EntityEvent) {
+		evMu.Lock()
+		events = append(events, e)
+		evMu.Unlock()
+	})
+	defer unsub()
+
+	streamEntity.PublishCreated(streamStore["s1"])
+	// Simulate the service's delete: snapshot, remove from store,
+	// then publish the deletion WITH the snapshot so the dep engine
+	// can still resolve the upstream source.
+	prev := streamStore["s1"]
+	delete(streamStore, "s1")
+	streamEntity.PublishDeletedWith(prev)
+
+	// Wait for both publishes + both fan-outs to drain.
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		evMu.Lock()
+		count := countSourceUpdatesFor(events, "hdmi0")
+		evMu.Unlock()
+		if count >= 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	evMu.Lock()
+	defer evMu.Unlock()
+
+	sawCreated := false
+	sawDeleted := false
+	sourceUpdates := 0
+	for _, e := range events {
+		switch {
+		case e.EntityType == "stream" && e.Action == ActionCreated:
+			sawCreated = true
+		case e.EntityType == "stream" && e.Action == ActionDeleted:
+			sawDeleted = true
+		case e.EntityType == "source" && e.Action == ActionUpdated && e.ID == "hdmi0":
+			sourceUpdates++
+		}
+	}
+	if !sawCreated || !sawDeleted {
+		t.Fatalf("missing stream lifecycle events; sawCreated=%v sawDeleted=%v events=%+v",
+			sawCreated, sawDeleted, events)
+	}
+	if sourceUpdates < 2 {
+		t.Errorf("source 'hdmi0' should refresh after BOTH stream-created and stream-deleted, "+
+			"but only saw %d source.updated events. PublishDeleted is dropping the payload, "+
+			"so the dependency resolver gets a zero-value T and returns no refs. "+
+			"Fix: add PublishDeletedWith(prev T) (or change PublishDeleted to take T) "+
+			"and have services snapshot-then-delete so the resolver sees the upstream. events=%+v",
+			sourceUpdates, events)
+	}
+}
+
+// TestRegistry_UpdateFansOutToPreviousAndCurrentReferences covers the
+// retarget bug: when a stream's upstream changes from "source:A" to
+// "source:B", only B was being touched — A's denormalized Consumers
+// list still named the stream that no longer pointed at it.
+//
+// The fix is a separate publish API that hands both the previous and
+// the new snapshot to the dep engine so OnLifecycle hooks can resolve
+// refs on both sides.
+func TestRegistry_UpdateFansOutToPreviousAndCurrentReferences(t *testing.T) {
+	bus := New()
+	reg := NewRegistry(bus)
+
+	srcStore := map[string]fakeSource{
+		"sourceA": {ID: "sourceA"},
+		"sourceB": {ID: "sourceB"},
+	}
+	streamStore := map[string]fakeStream{
+		"s1": {ID: "s1", Upstream: "source:sourceA"},
+	}
+
+	srcEntity := Register(reg, Registration[fakeSource]{
+		Type:        "source",
+		RoutePrefix: "/api/sources",
+		IDOf:        func(s fakeSource) string { return s.ID },
+		Loader: func(_ context.Context, id string) (fakeSource, error) {
+			s, ok := srcStore[id]
+			if !ok {
+				return fakeSource{}, fmt.Errorf("not found")
+			}
+			return s, nil
+		},
+	})
+	streamEntity := Register(reg, Registration[fakeStream]{
+		Type:        "stream",
+		RoutePrefix: "/api/streams",
+		IDOf:        func(s fakeStream) string { return s.ID },
+		Loader: func(_ context.Context, id string) (fakeStream, error) {
+			s, ok := streamStore[id]
+			if !ok {
+				return fakeStream{}, fmt.Errorf("not found")
+			}
+			return s, nil
+		},
+	})
+
+	OnLifecycle(streamEntity, []string{ActionCreated, ActionUpdated, ActionDeleted}, func(s fakeStream) []AnyRef {
+		const prefix = "source:"
+		if !strings.HasPrefix(s.Upstream, prefix) {
+			return nil
+		}
+		return []AnyRef{srcEntity.Ref(s.Upstream[len(prefix):])}
+	})
+
+	var events []EntityEvent
+	var evMu sync.Mutex
+	unsub := bus.Subscribe(func(e EntityEvent) {
+		evMu.Lock()
+		events = append(events, e)
+		evMu.Unlock()
+	})
+	defer unsub()
+
+	// Initial create — populates source A's Consumers.
+	streamEntity.PublishCreated(streamStore["s1"])
+
+	// Retarget: snapshot the previous shape, mutate to new upstream,
+	// publish update WITH both snapshots so dep engine touches BOTH
+	// the old (A) and new (B) source.
+	prev := streamStore["s1"]
+	next := prev
+	next.Upstream = "source:sourceB"
+	streamStore["s1"] = next
+	streamEntity.PublishUpdatedWith(prev, next)
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		evMu.Lock()
+		a := countSourceUpdatesFor(events, "sourceA")
+		b := countSourceUpdatesFor(events, "sourceB")
+		evMu.Unlock()
+		if a >= 2 && b >= 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	evMu.Lock()
+	defer evMu.Unlock()
+	a := countSourceUpdatesFor(events, "sourceA")
+	b := countSourceUpdatesFor(events, "sourceB")
+	if a < 2 {
+		t.Errorf("source A should refresh on create AND on retarget-away, but saw %d source.updated for sourceA. "+
+			"PublishUpdatedWith is dropping prev so the dep engine can't touch the old upstream. events=%+v",
+			a, events)
+	}
+	if b < 1 {
+		t.Errorf("source B should refresh on retarget-to, but saw %d source.updated for sourceB. events=%+v",
+			b, events)
+	}
+}
+
+func countSourceUpdatesFor(events []EntityEvent, id string) int {
+	n := 0
+	for _, e := range events {
+		if e.EntityType == "source" && e.Action == ActionUpdated && e.ID == id {
+			n++
+		}
+	}
+	return n
 }
 
 func TestRegistry_DuplicateRegistrationPanics(t *testing.T) {

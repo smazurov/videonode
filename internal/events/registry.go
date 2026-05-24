@@ -79,14 +79,79 @@ func (e *Entity[T]) PublishCreated(payload T) {
 
 // PublishUpdated publishes an "<entity>.updated" envelope with the new
 // snapshot. Use after any mutation that changed an in-band field.
+//
+// Prefer PublishUpdatedWith when the mutation may have changed a
+// cross-entity reference (e.g. a stream's upstream, a composer's
+// inputs[].ref) — otherwise the dependency engine only sees the new
+// shape and entities referenced by the OLD shape stay stale.
 func (e *Entity[T]) PublishUpdated(payload T) {
 	e.publish(ActionUpdated, e.idOf(payload), payload)
 }
 
+// PublishUpdatedWith publishes an "<entity>.updated" envelope and fans
+// out dependency hooks against BOTH the previous and the new snapshot
+// so entities that were referenced before — but no longer are — get
+// touched too. Without this, retargeting a stream from sourceA to
+// sourceB leaves sourceA's Consumers list stale.
+//
+// Use this from update handlers that may have changed a cross-entity
+// reference. Call PublishUpdated when no references could have moved.
+func (e *Entity[T]) PublishUpdatedWith(prev, next T) {
+	id := e.idOf(next)
+	if e.bus != nil {
+		e.bus.Publish(EntityEvent{
+			EntityType: e.typ,
+			ID:         id,
+			Action:     ActionUpdated,
+			Payload:    next,
+			Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	if e.reg != nil {
+		ctx := context.Background()
+		set := newTouchSet()
+		// Don't republish ourselves if a hook resolves back to us.
+		set.add(AnyRef{Type: e.typ, ID: id})
+		e.reg.dispatchDeps(ctx, e.typ, ActionUpdated, prev, set)
+		e.reg.dispatchDeps(ctx, e.typ, ActionUpdated, next, set)
+	}
+}
+
 // PublishDeleted publishes an "<entity>.deleted" envelope. Payload is
 // nil; subscribers should remove from their by-id maps.
+//
+// Prefer PublishDeletedWith when the caller still has the entity's
+// pre-delete snapshot — dependency hooks need that snapshot to fan out
+// to entities that referenced this one (e.g. a Source whose Consumers
+// list named this Stream). PublishDeleted's nil payload silently skips
+// those fan-outs.
 func (e *Entity[T]) PublishDeleted(id string) {
 	e.publish(ActionDeleted, id, nil)
+}
+
+// PublishDeletedWith publishes an "<entity>.deleted" envelope and
+// hands the entity's pre-delete snapshot to the dependency engine so
+// hooks can resolve cross-entity references that have just disappeared.
+// The on-the-wire SSE Payload stays nil (a deleted entity has no body),
+// but registered OnLifecycle hooks see `prev` and can Touch entities
+// that referenced this one.
+//
+// Use this from delete handlers after capturing the entity via
+// `Get(...)` before calling `Delete(...)`.
+func (e *Entity[T]) PublishDeletedWith(prev T) {
+	id := e.idOf(prev)
+	if e.bus != nil {
+		e.bus.Publish(EntityEvent{
+			EntityType: e.typ,
+			ID:         id,
+			Action:     ActionDeleted,
+			Payload:    nil,
+			Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	if e.reg != nil {
+		e.reg.DispatchDependencies(context.Background(), e.typ, ActionDeleted, prev)
+	}
 }
 
 // PublishStatus publishes an "<entity>.status" envelope carrying a
