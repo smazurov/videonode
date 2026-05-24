@@ -352,6 +352,12 @@ func (s *Server) registerRoutes() {
 	// Stream endpoints
 	s.registerStreamRoutes()
 
+	// v2 source/composer endpoints (stub handlers — schemas only). Real
+	// service-backed implementations land in B5/B6.
+	s.registerSourceRoutes()
+	s.registerComposerRoutes()
+	s.registerStreamSlimRoutes()
+
 	// Pipeline master switch endpoints
 	s.registerPipelineRoutes()
 
