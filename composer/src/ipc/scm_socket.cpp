@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
+#include <poll.h>
 #include <span>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -21,6 +22,7 @@ namespace {
 
 constexpr size_t kHeaderFixedPrefix = 36; // see ipc/dmabuf_header.hpp
 constexpr int kMaxFds = 16;
+constexpr uint8_t kReadyByte = 0x01;
 
 bool set_addr(sockaddr_un& addr, const std::string& path) {
     if (path.size() + 1 > sizeof(addr.sun_path)) {
@@ -242,6 +244,39 @@ bool SendMessage(int sock_fd, const dmabuf_header::Header& header, const std::ve
         return false;
     if (static_cast<size_t>(n) != body.size()) {
         errno = EIO;
+        return false;
+    }
+    return true;
+}
+
+bool SendReady(int sock_fd) {
+    uint8_t b = kReadyByte;
+    ssize_t n;
+    do {
+        n = ::write(sock_fd, &b, 1);
+    } while (n < 0 && errno == EINTR);
+    return n == 1;
+}
+
+bool WaitForReady(int sock_fd, int timeout_ms) {
+    pollfd pfd{.fd = sock_fd, .events = POLLIN, .revents = 0};
+    int r;
+    do {
+        r = ::poll(&pfd, 1, timeout_ms);
+    } while (r < 0 && errno == EINTR);
+    if (r <= 0) {
+        if (r == 0)
+            errno = ETIMEDOUT;
+        return false;
+    }
+    uint8_t b = 0;
+    ssize_t n;
+    do {
+        n = ::read(sock_fd, &b, 1);
+    } while (n < 0 && errno == EINTR);
+    if (n != 1 || b != kReadyByte) {
+        if (n >= 0)
+            errno = EPROTO;
         return false;
     }
     return true;

@@ -106,6 +106,12 @@ void ScmRightsProducer::accept_loop_() {
             continue;
         }
 
+        if (!scm_socket::WaitForReady(cfd.get(), 5000)) {
+            vn::log::warn("scm_rights_producer: consumer handshake timeout; dropping (fd=%d)",
+                          cfd.get());
+            continue;
+        }
+
         std::lock_guard<std::mutex> g(consumers_mu_);
         if (static_cast<int>(consumers_.size()) >= params_.max_consumers) {
             vn::log::warn("scm_rights_producer: max_consumers (%d) reached; closing dial",

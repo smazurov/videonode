@@ -100,6 +100,12 @@ bool ScmRightsSource::start() {
     client_fd_ = std::move(client);
     running_.store(true);
     thread_ = std::thread([this] { this->thread_main_(); });
+
+    if (params_.dial && !scm_socket::SendReady(client_fd_.get())) {
+        vn::log::error("scm_rights_source: SendReady failed: %s", strerror(errno));
+        stop();
+        return false;
+    }
     return true;
 }
 
