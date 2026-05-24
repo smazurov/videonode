@@ -762,6 +762,52 @@ func (s *service) GetProcessManager() StreamProcessManager {
 	return s.processManager
 }
 
+// PipelineEnabled reports the persisted master switch state.
+func (s *service) PipelineEnabled() bool {
+	return s.store.GetPipeline().Enabled
+}
+
+// StartPipeline flips the persisted master switch on and starts every
+// configured stream. Returns (true, nil) when state actually changed,
+// (false, nil) when the pipeline was already running.
+func (s *service) StartPipeline(_ context.Context) (bool, error) {
+	wasEnabled := s.store.GetPipeline().Enabled
+	if err := s.store.SetPipeline(PipelineConfig{Enabled: true}); err != nil {
+		return false, fmt.Errorf("persist pipeline state: %w", err)
+	}
+	if s.processManager != nil {
+		if err := s.processManager.StartAll(); err != nil {
+			s.logger.Warn("StartPipeline: some streams failed to start", "error", err)
+		}
+	}
+	if !wasEnabled && s.eventBus != nil {
+		s.eventBus.Publish(events.PipelineStateChangedEvent{
+			Enabled:   true,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+	}
+	return !wasEnabled, nil
+}
+
+// StopPipeline flips the persisted master switch off and stops every
+// supervised process. Returns (true, nil) when state actually changed.
+func (s *service) StopPipeline(_ context.Context) (bool, error) {
+	wasEnabled := s.store.GetPipeline().Enabled
+	if err := s.store.SetPipeline(PipelineConfig{Enabled: false}); err != nil {
+		return false, fmt.Errorf("persist pipeline state: %w", err)
+	}
+	if s.processManager != nil {
+		s.processManager.StopAll()
+	}
+	if wasEnabled && s.eventBus != nil {
+		s.eventBus.Publish(events.PipelineStateChangedEvent{
+			Enabled:   false,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+	}
+	return wasEnabled, nil
+}
+
 // ValidationProvider returns the shared validation accessor backed by the service's store.
 func (s *service) ValidationProvider() types.ValidationProvider {
 	return s.validationProvider
@@ -783,7 +829,7 @@ func (s *service) GetFFmpegCommand(_ context.Context, streamID string, _ string)
 	if streamConfig.CustomFFmpegCommand != "" {
 		return streamConfig.CustomFFmpegCommand, true, nil
 	}
-	cmd, err := buildEncoderPreviewCommand(streamConfig, s.rtspHost, s.deviceResolver)
+	cmd, err := buildEncoderPreviewCommand(streamConfig, s.rtspHost, s.deviceResolver, s.validationProvider)
 	if err != nil {
 		return "", false, err
 	}

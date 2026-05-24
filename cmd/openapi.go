@@ -8,6 +8,7 @@ import (
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/streaming"
+	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/spf13/cobra"
 )
 
@@ -18,10 +19,11 @@ func CreateOpenAPICmd() *cobra.Command {
 		Short: "Dump OpenAPI spec to stdout",
 		Run: func(_ *cobra.Command, _ []string) {
 			server := api.NewServer(&api.Options{
-				EventBus:       events.New(),
-				StreamProvider: noopStreamProvider{},
-				RecordingDir:   "/tmp",
-				WebRTCManager:  &streaming.WebRTCManager{},
+				EventBus:          events.New(),
+				StreamProvider:    noopStreamProvider{},
+				RecordingDir:      "/tmp",
+				WebRTCManager:     &streaming.WebRTCManager{},
+				ProcessesProvider: noopProcessesProvider{},
 			})
 
 			enc := json.NewEncoder(os.Stdout)
@@ -47,3 +49,8 @@ func (noopStreamProvider) ListStreams() []string { return nil }
 
 // GetStreamReaderCount implements streaming.StreamProvider.
 func (noopStreamProvider) GetStreamReaderCount(string) int { return 0 }
+
+type noopProcessesProvider struct{}
+
+// Snapshot implements api.ProcessesProvider.
+func (noopProcessesProvider) Snapshot() []pipeline.ProcessView { return nil }

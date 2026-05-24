@@ -8,10 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smazurov/videonode/internal/encoders"
+	"github.com/smazurov/videonode/internal/encoders/validation"
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/recording"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
+	"github.com/smazurov/videonode/internal/types"
 )
 
 // buildEncoderPreviewCommand returns the same shell command the
@@ -25,8 +29,13 @@ func buildEncoderPreviewCommand(
 	spec StreamSpec,
 	rtspHost string,
 	deviceResolver func(string) string,
+	provider types.ValidationProvider,
 ) (string, error) {
 	ps := specToPipelineStream(spec, rtspHost)
+	r := resolveEncoder(ps.Encoder.Codec, provider)
+	ps.Encoder.EncoderName = r.Name
+	ps.Encoder.GlobalArgs = r.GlobalArgs
+	ps.Encoder.VideoFilters = r.VideoFilters
 	if spec.Canvas != nil {
 		for i := range ps.Inputs {
 			if src, ok := lookupStoreDeviceFromResolver(spec.Canvas.SourceStreams, i, deviceResolver); ok {
@@ -107,7 +116,11 @@ type pipelineProcessManager struct {
 	store         Store
 	controlServer *pipelinectl.Manager
 	rtspHost      string // resolved host:port for the RTSP publish URL
-	logger        logging.Logger
+	// validation provides probe results so the encoder name resolves to
+	// what the host actually supports (libx264 on a dev box, h264_rkmpp
+	// on RK3588). Built from store via NewValidationService.
+	validation types.ValidationProvider
+	logger     logging.Logger
 }
 
 // NewPipelineProcessManager constructs a StreamProcessManager backed by
@@ -129,8 +142,48 @@ func NewPipelineProcessManager(
 		store:         store,
 		controlServer: controlServer,
 		rtspHost:      resolveRTSPHost(rtspPort),
+		validation:    NewValidationService(store),
 		logger:        logging.GetLogger("pipeline_pm"),
 	}
+}
+
+// resolvedEncoder bundles the encoder name with the extra plumbing
+// some HW backends need (vaapi: -vaapi_device + format=nv12,hwupload;
+// rkmpp: hwaccel flags). The pipeline forwards all three to
+// ffmpeg.Params so the encoder isn't picked without the args it needs.
+type resolvedEncoder struct {
+	Name         string
+	GlobalArgs   []string
+	VideoFilters string
+}
+
+// resolveEncoder returns the ffmpeg encoder + supporting args for a
+// logical codec ("h264"/"h265") using a layered fallback:
+//  1. Preloaded validation data — yields the encoder name plus the
+//     backend-specific GlobalArgs / VideoFilters needed to make it run
+//     (the validator knows what -vaapi_device etc. each backend wants).
+//  2. Probe ffmpeg's compiled encoders (`ffmpeg -encoders`). Reflects
+//     what's actually installed without prior validation. Returns only
+//     the encoder name — no supporting args, since the probe doesn't
+//     know what setup each backend needs. Picks libx264/libx265 in
+//     preference to vaapi (which needs setup we don't emit) so the
+//     stream actually starts on bare-default hosts.
+//  3. Hard-coded software fallback.
+func resolveEncoder(codec string, provider types.ValidationProvider) resolvedEncoder {
+	if codec == "" {
+		codec = "h264"
+	}
+	if provider != nil {
+		if cfg, err := encoders.MapAPICodec(codec, provider); err == nil && cfg != nil {
+			r := resolvedEncoder{Name: cfg.EncoderName}
+			if cfg.Settings != nil {
+				r.GlobalArgs = append([]string(nil), cfg.Settings.GlobalArgs...)
+				r.VideoFilters = cfg.Settings.VideoFilters
+			}
+			return r
+		}
+	}
+	return resolvedEncoder{Name: validation.AutodetectEncoder(codec)}
 }
 
 // specToPipelineStream converts a StreamSpec (canvas-or-source dichotomy)
@@ -265,6 +318,10 @@ func (m *pipelineProcessManager) resolveCanvasSource(srcID string) string {
 // after the composer's gRPC UDS becomes ready.
 func (m *pipelineProcessManager) applySpec(spec StreamSpec) error {
 	ps := specToPipelineStream(spec, m.rtspHost)
+	r := resolveEncoder(ps.Encoder.Codec, m.validation)
+	ps.Encoder.EncoderName = r.Name
+	ps.Encoder.GlobalArgs = r.GlobalArgs
+	ps.Encoder.VideoFilters = r.VideoFilters
 	if spec.Canvas != nil {
 		for i := range ps.Inputs {
 			ps.Inputs[i].Device = m.resolveCanvasSource(ps.Inputs[i].ID)
@@ -505,18 +562,20 @@ func (m *pipelineProcessManager) IsCrashed(streamID string) bool {
 	return info.State == "error"
 }
 
-// CaptureRawSnapshot pulls a snapshot via the producer's gRPC Snapshot
-// RPC (the only path in the new model — vision pipe machinery is gone).
-func (m *pipelineProcessManager) CaptureRawSnapshot(sourceStreamID string) ([]byte, error) {
+// CaptureSourceSnapshot pulls a raw NV12-derived JPEG snapshot from a
+// source producer via the pipelinectl Snapshot RPC. Today the source-id
+// maps 1:1 to a stream entry whose Device drives the producer; once
+// sources become first-class (B2/B5) this lookup swaps to a source store.
+func (m *pipelineProcessManager) CaptureSourceSnapshot(sourceID string) ([]byte, error) {
 	if m.controlServer == nil {
 		return nil, fmt.Errorf("no control server for snapshot")
 	}
-	spec, ok := m.store.GetStream(sourceStreamID)
+	spec, ok := m.store.GetStream(sourceID)
 	if !ok {
-		return nil, fmt.Errorf("stream %s not found", sourceStreamID)
+		return nil, recording.ErrSourceNotFound
 	}
 	if spec.Device == "" {
-		return nil, fmt.Errorf("stream %s has no device", sourceStreamID)
+		return nil, fmt.Errorf("source %s has no device", sourceID)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

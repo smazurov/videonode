@@ -43,6 +43,8 @@ func (b *Bus) Publish(ev Event) {
 		event.Publish(b.dispatcher, e)
 	case StageStateChangedEvent:
 		event.Publish(b.dispatcher, e)
+	case PipelineStateChangedEvent:
+		event.Publish(b.dispatcher, e)
 	}
 }
 
@@ -68,6 +70,8 @@ func (b *Bus) Subscribe(handler any) func() {
 	case func(StreamCrashedEvent):
 		return event.Subscribe(b.dispatcher, h)
 	case func(StageStateChangedEvent):
+		return event.Subscribe(b.dispatcher, h)
+	case func(PipelineStateChangedEvent):
 		return event.Subscribe(b.dispatcher, h)
 	default:
 		// Return a no-op function if handler type is not recognized

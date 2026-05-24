@@ -3,6 +3,9 @@ package recording
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,6 +117,64 @@ func TestPrependH265Params(t *testing.T) {
 			t.Fatalf("expected 4 NALUs (unchanged), got %d", len(result))
 		}
 	})
+}
+
+func TestWriteSnapshotFile(t *testing.T) {
+	setupTestLogging(t)
+
+	tests := []struct {
+		name      string
+		kind      SnapshotKind
+		id        string
+		wantPath  string // path prefix after baseDir (everything before the timestamp filename)
+		wantPanic bool
+	}{
+		{
+			name:     "source kind",
+			kind:     SnapshotKindSource,
+			id:       "hdmi-slides",
+			wantPath: "sources/hdmi-slides",
+		},
+		{
+			name:     "stream kind",
+			kind:     SnapshotKindStream,
+			id:       "main-archive",
+			wantPath: "streams/main-archive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			payload := []byte("fake-jpeg-bytes")
+
+			rel, err := writeSnapshotFile(payload, tt.kind, tt.id, baseDir)
+			if err != nil {
+				t.Fatalf("writeSnapshotFile: %v", err)
+			}
+
+			// Returned path must be relative and live under <kind>/<id>/.
+			if filepath.IsAbs(rel) {
+				t.Errorf("returned path %q is absolute, want relative", rel)
+			}
+			if !strings.HasPrefix(rel, tt.wantPath+string(filepath.Separator)) {
+				t.Errorf("returned path %q does not start with %q", rel, tt.wantPath)
+			}
+			if !strings.HasSuffix(rel, ".jpg") {
+				t.Errorf("returned path %q does not end with .jpg", rel)
+			}
+
+			// File on disk must exist and carry the exact payload.
+			abs := filepath.Join(baseDir, rel)
+			got, err := os.ReadFile(abs)
+			if err != nil {
+				t.Fatalf("read snapshot file: %v", err)
+			}
+			if !bytes.Equal(got, payload) {
+				t.Errorf("file contents = %q, want %q", got, payload)
+			}
+		})
+	}
 }
 
 func TestCaptureKeyframe_NoVideoTrack(t *testing.T) {

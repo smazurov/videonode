@@ -15,6 +15,7 @@ import (
 type config struct {
 	Version    int                           `toml:"version" json:"version"`
 	Validation *types.ValidationResults      `toml:"validation,omitempty" json:"validation,omitempty"`
+	Pipeline   *streams.PipelineConfig       `toml:"pipeline,omitempty" json:"pipeline,omitempty"`
 	Streams    map[string]streams.StreamSpec `toml:"streams" json:"streams"`
 }
 
@@ -130,5 +131,22 @@ func (s *tomlStore) GetValidation() *types.ValidationResults {
 // UpdateValidation updates the validation data in the configuration.
 func (s *tomlStore) UpdateValidation(validation *types.ValidationResults) error {
 	s.config.Validation = validation
+	return s.Save()
+}
+
+// GetPipeline returns the persisted pipeline master switch. When absent
+// from the config, defaults to Enabled=true so installs predating this
+// flag continue to auto-start on boot.
+func (s *tomlStore) GetPipeline() streams.PipelineConfig {
+	if s.config.Pipeline == nil {
+		return streams.PipelineConfig{Enabled: true}
+	}
+	return *s.config.Pipeline
+}
+
+// SetPipeline writes the pipeline master switch and persists.
+func (s *tomlStore) SetPipeline(cfg streams.PipelineConfig) error {
+	c := cfg
+	s.config.Pipeline = &c
 	return s.Save()
 }

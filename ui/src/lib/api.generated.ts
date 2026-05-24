@@ -244,6 +244,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Pipeline State
+         * @description Return the daemon-wide pipeline master switch state. When false, no stream processes are running.
+         */
+        get: operations["get-pipeline-state"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pipeline/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Pipeline
+         * @description Flip the daemon-wide pipeline master switch on and start every configured stream.
+         */
+        post: operations["start-pipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pipeline/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Pipeline
+         * @description Flip the daemon-wide pipeline master switch off and stop every supervised process.
+         */
+        post: operations["stop-pipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List supervised pipeline processes
+         * @description Returns one row per supervised stage (Producer / Composer / Encoder), including pool state, OS pid, restart count, producer refcount, and (for producers) the set of streams currently holding each device. Sorted by stage id.
+         */
+        get: operations["list-processes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/streams": {
         parameters: {
             query?: never;
@@ -991,7 +1071,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "h264" | "yu12" | "yv12" | "nv24" | "nv16" | "mjpeg" | "bgr24" | "rgb24" | "yuyv422" | "nv12";
+            format_name: "h264" | "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24" | "nv16" | "yuyv422" | "nv12";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1108,6 +1188,77 @@ export interface components {
              * @description Width of the still frame the corners were marked on; used by the GPU compose path to normalize.
              */
             snapshot_width?: number;
+        };
+        PipelineStateBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/PipelineStateBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Whether the pipeline master switch is on
+             * @example true
+             */
+            enabled: boolean;
+        };
+        PipelineStateChangedEvent: {
+            /**
+             * @description Whether the pipeline master switch is on
+             * @example true
+             */
+            enabled: boolean;
+            /**
+             * @description Event timestamp
+             * @example 2025-01-27T10:30:00Z
+             */
+            timestamp: string;
+        };
+        ProcessView: {
+            /** @description Stream ids holding this producer (producers only; sorted) */
+            consumers?: string[] | null;
+            /** @description Device id (producers only) */
+            device?: string;
+            /** @description Pool key (e.g. 'producer:hdmi0' / 'composer:cam-front') */
+            id: string;
+            /** @description 'producer' | 'composer' | 'encoder' */
+            kind: string;
+            /** @description Most recent error from the supervisor */
+            last_error?: string;
+            /**
+             * Format: int64
+             * @description OS pid when running; 0 otherwise
+             */
+            pid?: number;
+            /**
+             * Format: int64
+             * @description Number of streams holding this producer (producers only)
+             */
+            refcount?: number;
+            /**
+             * Format: int64
+             * @description Times the supervisor restarted this stage
+             */
+            restart_count?: number;
+            /**
+             * Format: int64
+             * @description Unix microseconds at Start; 0 when never started
+             */
+            started_at_us?: number;
+            /** @description Pool state: idle/starting/running/stopping/error */
+            state: string;
+            /** @description User-facing stream id (empty for shared producers) */
+            stream_id: string;
+        };
+        ProcessesListResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ProcessesListResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description All supervised pipeline stages */
+            processes: components["schemas"]["ProcessView"][] | null;
         };
         Resolution: {
             /**
@@ -1843,7 +1994,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yv12" | "nv24" | "nv16" | "mjpeg" | "bgr24" | "rgb24" | "yuyv422" | "nv12" | "h264" | "yu12";
+                format_name?: "rgb24" | "nv16" | "yuyv422" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -1909,7 +2060,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "h264" | "yu12" | "yv12" | "nv24" | "nv16" | "mjpeg" | "bgr24" | "rgb24";
+                format_name?: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24" | "nv16";
             };
             header?: never;
             path: {
@@ -2058,6 +2209,17 @@ export interface operations {
                          * @constant
                          */
                         event: "heartbeat";
+                        /** @description The event ID. */
+                        id?: number;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["PipelineStateChangedEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "pipeline-state-changed";
                         /** @description The event ID. */
                         id?: number;
                         /** @description The retry time in milliseconds. */
@@ -2294,6 +2456,158 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OptionsData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-pipeline-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineStateBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "start-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineStateBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "stop-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineStateBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessesListResponseBody"];
                 };
             };
             /** @description Unauthorized */

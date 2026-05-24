@@ -136,6 +136,18 @@ func (m *mockStreamService) ValidationProvider() types.ValidationProvider {
 	return m.validationProvider
 }
 
+func (m *mockStreamService) StartPipeline(_ context.Context) (bool, error) {
+	return false, nil
+}
+
+func (m *mockStreamService) StopPipeline(_ context.Context) (bool, error) {
+	return false, nil
+}
+
+func (m *mockStreamService) PipelineEnabled() bool {
+	return true
+}
+
 func TestDomainToAPIStream_ReadsCodecFromConfig(t *testing.T) {
 	// Setup mock service
 	mockSvc := &mockStreamService{

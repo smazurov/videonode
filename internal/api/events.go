@@ -26,15 +26,16 @@ func (s *Server) registerSSERoutes() {
 		Errors:      []int{401},
 	}, func() map[string]any {
 		eventTypes := map[string]any{
-			"device-discovery":     events.DeviceDiscoveryEvent{},
-			"stream-created":       events.StreamCreatedEvent{},
-			"stream-updated":       events.StreamUpdatedEvent{},
-			"stream-deleted":       events.StreamDeletedEvent{},
-			"stream-state-changed": events.StreamStateChangedEvent{},
-			"stage-state-changed":  events.StageStateChangedEvent{},
-			"canvas-restarted":     events.CanvasRestartedEvent{},
-			"source-status":        events.SourceStatusEvent{},
-			"heartbeat":            events.HeartbeatEvent{},
+			"device-discovery":       events.DeviceDiscoveryEvent{},
+			"stream-created":         events.StreamCreatedEvent{},
+			"stream-updated":         events.StreamUpdatedEvent{},
+			"stream-deleted":         events.StreamDeletedEvent{},
+			"stream-state-changed":   events.StreamStateChangedEvent{},
+			"stage-state-changed":    events.StageStateChangedEvent{},
+			"pipeline-state-changed": events.PipelineStateChangedEvent{},
+			"canvas-restarted":       events.CanvasRestartedEvent{},
+			"source-status":          events.SourceStatusEvent{},
+			"heartbeat":              events.HeartbeatEvent{},
 		}
 
 		// Add OBS events for this endpoint
@@ -54,6 +55,7 @@ func (s *Server) registerSSERoutes() {
 			events.SubscribeToChannel[events.CanvasRestartedEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.SourceStatusEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.StageStateChangedEvent](s.eventBus, eventCh),
+			events.SubscribeToChannel[events.PipelineStateChangedEvent](s.eventBus, eventCh),
 		}
 		defer func() {
 			for _, unsub := range unsubscribers {

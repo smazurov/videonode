@@ -19,10 +19,28 @@ This file provides guidance for agentic coding agents working with this Go-based
 ### Frontend (React/TypeScript)
 
 - **Install deps**: `cd ui && pnpm install`
-- **Dev server**: **!ASSUME ITS RUNNING!**
+- **Dev server**: **!ASSUME ITS RUNNING!** (unless you're in a worktree — worktrees don't share the host's dev server; run `pnpm dev` yourself if you need it)
 - **Build**: `cd ui && pnpm build`
 - **Lint & fix**: `cd ui && pnpm lint:fix`
 - **Type check**: `cd ui && pnpm typecheck`
+
+### Native binaries (C++, host)
+
+The Go daemon spawns `videonode-source`, `videonode-sink`, and
+`videonode-composer` from `~/.local/bin/` (see defaults in `main.go`).
+`process-compose` / `air` won't see your C++ changes until you install
+them there. **Any time you build C++ in `composer/`, also install:**
+
+```bash
+cmake --preset dev                                # if not configured
+cmake --build --preset dev
+cmake --install composer/build/dev                # writes to ~/.local/bin
+```
+
+Verify with `ls -l ~/.local/bin/videonode-{source,sink,composer}` —
+mtimes should match the build. Sanitizer presets (`dev-asan`, `dev-tsan`)
+build into separate dirs; install from those only when deliberately
+running the daemon against an instrumented binary.
 
 
 ## Code Style Guidelines
@@ -221,7 +239,7 @@ The API includes endpoints for:
 
 ## Development Notes
 
-- **Server is always running via air** on port 8090 with Basic Auth credentials: `videonode:videonode`
+- **Server is always running via air** on port 8090 with Basic Auth credentials: `videonode:videonode` (unless you're in a worktree — air watches the host checkout, not the worktree; build and run the binary directly there)
 - **Health check**: `curl http://localhost:8090/api/health`
 - **When writing API models, make sure every field is in snake_case**
 - **Run all python commands through uv**

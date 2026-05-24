@@ -102,16 +102,24 @@ type AudioConfig struct {
 	Filters string   `toml:"filters,omitempty" json:"filters,omitempty"`
 }
 
-// EncoderConfig is the backend-agnostic encoder hint. The concrete
-// EncoderStage maps Codec ("h264"/"h265"/"av1") to a backend-specific
-// encoder name (h264_rkmpp, libx264, etc.) based on probe results.
+// EncoderConfig is the backend-agnostic encoder hint. Codec is the
+// logical codec ("h264"/"h265"/"av1"); EncoderName, GlobalArgs, and
+// VideoFilters are populated by the caller (typically
+// pipelineProcessManager via encoders.MapAPICodec) so HW encoders that
+// need extra plumbing (vaapi's -vaapi_device + format=nv12,hwupload;
+// rkmpp's hwaccel flags) carry that wiring through to ffmpeg.Params.
+// When EncoderName is empty the EncoderStage falls back to a software
+// default for the codec.
 type EncoderConfig struct {
-	Codec       string `toml:"codec,omitempty" json:"codec,omitempty"`
-	Bitrate     string `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
-	GOP         int    `toml:"gop,omitempty" json:"gop,omitempty"`
-	BFrames     int    `toml:"b_frames,omitempty" json:"b_frames,omitempty"`
-	RateControl string `toml:"rate_control,omitempty" json:"rate_control,omitempty"`
-	Preset      string `toml:"preset,omitempty" json:"preset,omitempty"`
+	Codec        string   `toml:"codec,omitempty" json:"codec,omitempty"`
+	EncoderName  string   `toml:"encoder_name,omitempty" json:"encoder_name,omitempty"`
+	GlobalArgs   []string `toml:"global_args,omitempty" json:"global_args,omitempty"`
+	VideoFilters string   `toml:"video_filters,omitempty" json:"video_filters,omitempty"`
+	Bitrate      string   `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
+	GOP          int      `toml:"gop,omitempty" json:"gop,omitempty"`
+	BFrames      int      `toml:"b_frames,omitempty" json:"b_frames,omitempty"`
+	RateControl  string   `toml:"rate_control,omitempty" json:"rate_control,omitempty"`
+	Preset       string   `toml:"preset,omitempty" json:"preset,omitempty"`
 }
 
 // PublishTarget is a single output destination. Type discriminates the
