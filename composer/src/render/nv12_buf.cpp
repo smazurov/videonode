@@ -32,9 +32,20 @@ dmaheap::SyncDir to_dmaheap(SyncDir d) {
 }
 
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
-// gbm backend: impl is a pointer to a heap-allocated gbm_alloc::Nv12Buf.
+// gbm backend: impl owns the gbm_alloc::Nv12Buf plus raw mmap pointers
+// onto each plane's dma-buf fd. We bypass gbm_bo_map intentionally —
+// radeonsi's gbm_bo_map allocates a CPU staging buffer and only copies
+// dirty pages back to the BO on gbm_bo_unmap, so a separate consumer
+// process (videonode-sink) mmapping the same dma-buf fd reads the
+// original zero-filled BO until the writer drops the mapping. Raw
+// mmap() on the exported dma-buf fd gives every mapper a coherent
+// view of the same backing pages.
 struct GbmImpl {
     gbm_alloc::Nv12Buf nv;
+    void* y_map = nullptr;
+    size_t y_map_size = 0;
+    void* uv_map = nullptr;
+    size_t uv_map_size = 0;
 };
 #else
 // dma_heap backend: impl is a heap-allocated single dmaheap::Buffer + map.
@@ -86,6 +97,10 @@ Buffer::~Buffer() {
     // Re-take ownership through unique_ptr so deletion goes through the
     // typed deleter (cppcoreguidelines-owning-memory clean).
     std::unique_ptr<GbmImpl> g{static_cast<GbmImpl*>(impl)};
+    if (g->y_map)
+        ::munmap(g->y_map, g->y_map_size);
+    if (g->uv_map)
+        ::munmap(g->uv_map, g->uv_map_size);
     gbm_alloc::free(g->nv);
 #else
     std::unique_ptr<DmaImpl> d{static_cast<DmaImpl*>(impl)};
@@ -140,14 +155,38 @@ Buffer Allocator::alloc(int width, int height) {
     return out;
 }
 
+namespace {
+bool ensure_dmabuf_mmap_(int fd, void*& mapping, size_t& mapping_size, const char* tag) {
+    if (mapping)
+        return true;
+    const off_t sz = ::lseek(fd, 0, SEEK_END);
+    if (sz <= 0) {
+        vn::log::error("nv12_buf::map_rw: lseek(%s fd=%d) failed: %s", tag, fd, std::strerror(errno));
+        return false;
+    }
+    void* p = ::mmap(nullptr, static_cast<size_t>(sz), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p == MAP_FAILED) {
+        vn::log::error("nv12_buf::map_rw: mmap(%s fd=%d size=%lld) failed: %s", tag, fd,
+                       static_cast<long long>(sz), std::strerror(errno));
+        return false;
+    }
+    mapping = p;
+    mapping_size = static_cast<size_t>(sz);
+    return true;
+}
+} // namespace
+
 Mapping map_rw(Buffer& b) {
     Mapping out;
     if (!b.valid() || !b.impl)
         return out;
     auto* impl = static_cast<GbmImpl*>(b.impl);
-    auto m = gbm_alloc::map_rw(impl->nv);
-    out.y = m.y;
-    out.uv = m.uv;
+    if (!ensure_dmabuf_mmap_(impl->nv.y_fd, impl->y_map, impl->y_map_size, "y"))
+        return out;
+    if (!ensure_dmabuf_mmap_(impl->nv.uv_fd, impl->uv_map, impl->uv_map_size, "uv"))
+        return out;
+    out.y = impl->y_map;
+    out.uv = impl->uv_map;
     out.height = b.height;
     out.y_pitch = b.y_pitch;
     out.uv_pitch = b.uv_pitch;
@@ -158,7 +197,16 @@ void unmap(Buffer& b) {
     if (!b.valid() || !b.impl)
         return;
     auto* impl = static_cast<GbmImpl*>(b.impl);
-    gbm_alloc::unmap(impl->nv);
+    if (impl->y_map) {
+        ::munmap(impl->y_map, impl->y_map_size);
+        impl->y_map = nullptr;
+        impl->y_map_size = 0;
+    }
+    if (impl->uv_map) {
+        ::munmap(impl->uv_map, impl->uv_map_size);
+        impl->uv_map = nullptr;
+        impl->uv_map_size = 0;
+    }
 }
 
 #else // dma_heap backend (rig + RGA)
