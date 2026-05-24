@@ -12,7 +12,6 @@ import type { StatusPillStatus } from '../../components/primitives/StatusPill';
 
 export interface Source extends SourceData {
   // Runtime fields populated by SourceStatusEvent / consumer tracking.
-  source_id?: string;
   status?: StatusPillStatus;
   latest_status?: SourceStatusSnapshot;
   consumers?: { kind: 'composer' | 'stream'; id: string }[];
