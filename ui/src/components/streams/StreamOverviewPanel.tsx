@@ -11,9 +11,11 @@ import { cn } from '../../utils';
 interface StreamOverviewPanelProps {
   readonly streamId: string;
   readonly className?: string;
+  /** When true, the large WebRTC preview is not rendered. */
+  readonly videoHidden?: boolean;
 }
 
-export function StreamOverviewPanel({ streamId, className }: StreamOverviewPanelProps) {
+export function StreamOverviewPanel({ streamId, className, videoHidden = false }: StreamOverviewPanelProps) {
   const stream = useStreamStore((state) => state.streamsById[streamId]);
   const refreshKey = useStreamStore((state) => state.streamRefreshKeys[streamId] ?? 0);
 
@@ -40,20 +42,23 @@ export function StreamOverviewPanel({ streamId, className }: StreamOverviewPanel
         }
       />
 
-      <LivePreviewFrame
-        state={enabled ? 'ready' : 'idle'}
-        idleMessage="Stream disabled"
-        mediaClassName="bg-black"
-      >
-        {enabled && (
-          <WebRTCPlayer
-            key={`${streamId}:${refreshKey}`}
-            streamId={streamId}
-            className="w-full h-full"
-            muted
-          />
-        )}
-      </LivePreviewFrame>
+      {!videoHidden && (
+        <LivePreviewFrame
+          state={enabled ? 'ready' : 'idle'}
+          idleMessage="Stream disabled"
+          mediaClassName="bg-black"
+        >
+          {enabled && (
+            <WebRTCPlayer
+              key={`${streamId}:${refreshKey}`}
+              streamId={streamId}
+              className="w-full h-full"
+              muted
+              showStats
+            />
+          )}
+        </LivePreviewFrame>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-md border border-border bg-surface-muted/30 p-3">
