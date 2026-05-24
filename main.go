@@ -33,9 +33,13 @@ import (
 // subcommand here when registering it below; the lightweight-boot check
 // uses this list to short-circuit the heavy server init.
 var subcommandNames = []string{
+	"composer",
+	"migrate-config",
 	"openapi",
-	"validate-encoders",
+	"source",
 	"stream",
+	"validate-config",
+	"validate-encoders",
 	"version",
 }
 
@@ -435,20 +439,20 @@ func main() {
 	// the server uses (flag → env → default). We can't reuse opts.StreamsConfigFile
 	// here because the lightweight subcommand short-circuits the humacli init that
 	// populates it.
-	validateCmd := cmd.CreateValidateEncodersCmd(cmd.ResolveStreamsConfigPath)
-	cli.Root().AddCommand(validateCmd)
+	cli.Root().AddCommand(cmd.CreateValidateEncodersCmd(cmd.ResolveStreamsConfigPath))
+	cli.Root().AddCommand(cmd.CreateValidateConfigCmd(cmd.ResolveStreamsConfigPath))
+	cli.Root().AddCommand(cmd.CreateMigrateConfigCmd())
 
-	// Add stream command
-	streamCmd := cmd.CreateStreamCmd()
-	cli.Root().AddCommand(streamCmd)
+	// Add entity-CRUD subcommands. Each is a thin REST client; the daemon owns the schema.
+	cli.Root().AddCommand(cmd.CreateSourceCmd())
+	cli.Root().AddCommand(cmd.CreateComposerCmd())
+	cli.Root().AddCommand(cmd.CreateStreamCmd())
 
 	// Add openapi command
-	openapiCmd := cmd.CreateOpenAPICmd()
-	cli.Root().AddCommand(openapiCmd)
+	cli.Root().AddCommand(cmd.CreateOpenAPICmd())
 
 	// Add version command
-	versionCmd := cmd.CreateVersionCmd()
-	cli.Root().AddCommand(versionCmd)
+	cli.Root().AddCommand(cmd.CreateVersionCmd())
 
 	// Run the CLI
 	cli.Run()
