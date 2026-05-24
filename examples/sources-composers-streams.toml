@@ -1,0 +1,218 @@
+# sources-composers-streams.toml — v2 config shape
+#
+# VideoNode v2 splits the old monolithic [[streams]] block into three
+# independent top-level entities:
+#
+#   [[sources]]   — a producer of frames (one V4L2 device or a test pattern).
+#                   Daemon-managed, refcount-free: streams/composers reference
+#                   a source by id, not by device path.
+#
+#   [[composers]] — an optional GLES compositor that reads N source frames
+#                   and writes a single BGRA canvas. Multiple streams can
+#                   share one composer — the GPU work runs once, each stream
+#                   pays only its own encoder cost.
+#
+#   [[streams]]   — an encoder + audio + publish targets. Identified by its
+#                   stream-id (which is also the RTSP/SRT/WebRTC path).
+#                   Points upstream at a source or composer via the
+#                   `upstream` field: "source:<id>" or "composer:<id>".
+#
+# Pipeline shape per stream:
+#   source -> [composer] -> encoder -> publish targets
+#
+# The `version = 2` marker on the top line tells the daemon to skip the
+# v1-to-v2 auto-migration on load. See examples/MIGRATION.md if you are
+# upgrading from a v1 file.
+
+version = 2
+
+
+# ---------------------------------------------------------------------------
+# Sources — four producers, mix of real devices and a test pattern.
+# ---------------------------------------------------------------------------
+
+[[sources]]
+id = "hdmi-slides"
+device = "rk3588-hdmi-rx"        # opaque device ref (USB bus-port or /dev/videoN style)
+
+[[sources]]
+id = "cam-host"
+device = "usb-1-2"
+
+[[sources]]
+id = "cam-guest"
+device = "usb-1-3"
+
+[[sources]]
+id = "test-bars"
+test_mode = true                  # no device — RPC-driven SMPTE-bars producer.
+                                  # Mutually exclusive with `device`.
+
+
+# ---------------------------------------------------------------------------
+# Composers — two scenes.
+#
+# `main-scene` is a multi-input composition: slides full-frame with the host
+# camera picture-in-picture, and the guest camera keystone-corrected via a
+# perspective effect.
+#
+# `host-keystone` is a single-input composer used purely to apply a
+# perspective correction to one source. Single-input composers exist when
+# you need an effect but no compositing — the daemon would also synthesize
+# one of these automatically when you set `force_composer = true` in v1.
+# ---------------------------------------------------------------------------
+
+[[composers]]
+id = "main-scene"
+canvas = { w = 1920, h = 1080 }
+
+  [[composers.main-scene.inputs]]
+  ref = "source:hdmi-slides"
+
+  [[composers.main-scene.inputs]]
+  ref = "source:cam-host"
+
+  [[composers.main-scene.inputs]]
+  ref = "source:cam-guest"
+  effect = { type = "perspective", corners = [[40, 20], [1880, 30], [1900, 1060], [20, 1050]] }
+
+  # Layout slots are keyed by input ref (not positional), so reordering the
+  # inputs list above does not silently swap your z-order.
+  [[composers.main-scene.layout]]
+  input = "source:hdmi-slides"
+  x = 0
+  y = 0
+  w = 1920
+  h = 1080
+
+  [[composers.main-scene.layout]]
+  input = "source:cam-host"
+  x = 20
+  y = 740
+  w = 320
+  h = 180
+
+  [[composers.main-scene.layout]]
+  input = "source:cam-guest"
+  x = 1580
+  y = 740
+  w = 320
+  h = 180
+
+
+[[composers]]
+id = "host-keystone"
+canvas = { w = 1920, h = 1080 }
+
+  [[composers.host-keystone.inputs]]
+  ref = "source:cam-host"
+  effect = { type = "perspective", corners = [[120, 80], [1820, 60], [1900, 1020], [60, 1000]] }
+
+  [[composers.host-keystone.layout]]
+  input = "source:cam-host"
+  x = 0
+  y = 0
+  w = 1920
+  h = 1080
+
+
+# ---------------------------------------------------------------------------
+# Streams — four encoders.
+#
+#   main-archive  — high-bitrate H.265 archive of main-scene (NAS via RTSP).
+#   main-live     — lower-bitrate H.264 of the SAME composer for live web
+#                   viewing. Sharing `composer:main-scene` means the GPU
+#                   composes once and both encoders read the same canvas.
+#   host-solo     — keystone-corrected host cam alone (single-input composer
+#                   used purely for the effect).
+#   bars-test     — direct from the test-pattern source, no composer. Used
+#                   for smoke checks; no real device required.
+# ---------------------------------------------------------------------------
+
+[[streams]]
+id = "main-archive"
+name = "Main scene archive"
+upstream = "composer:main-scene"
+
+  [streams.main-archive.encoder]
+  codec = "h265"
+  bitrate = "12M"
+  gop = 120
+  b_frames = 2
+  rate_control = "vbr"
+  preset = "medium"
+
+  [streams.main-archive.audio]
+  devices = ["hw:CARD=USB,DEV=0"]
+  codec = "aac"
+  bitrate = "192k"
+
+  [[streams.main-archive.publish]]
+  type = "rtsp"
+  url = "rtsp://nas.lan:8554/archive/main"
+
+
+[[streams]]
+id = "main-live"
+name = "Main scene live (low bitrate)"
+upstream = "composer:main-scene"     # shares the composer with main-archive
+
+  [streams.main-live.encoder]
+  codec = "h264"
+  bitrate = "3M"
+  gop = 60
+  b_frames = 0
+  rate_control = "cbr"
+  preset = "fast"
+
+  [streams.main-live.audio]
+  devices = ["hw:CARD=USB,DEV=0"]
+  codec = "aac"
+  bitrate = "128k"
+
+  [[streams.main-live.publish]]
+  type = "rtsp"
+  url = "rtsp://localhost:8554/main-live"
+
+  [[streams.main-live.publish]]
+  type = "srt"
+  url = "srt://localhost:6001?streamid=main-live&latency=20000"
+
+
+[[streams]]
+id = "host-solo"
+name = "Host camera (keystone corrected)"
+upstream = "composer:host-keystone"
+
+  [streams.host-solo.encoder]
+  codec = "h264"
+  bitrate = "4M"
+  gop = 60
+  rate_control = "cbr"
+  preset = "fast"
+
+  [streams.host-solo.audio]
+  devices = ["hw:CARD=USB,DEV=0"]
+  codec = "opus"
+  bitrate = "96k"
+
+  [[streams.host-solo.publish]]
+  type = "rtsp"
+  url = "rtsp://localhost:8554/host-solo"
+
+
+[[streams]]
+id = "bars-test"
+name = "Test pattern (no device)"
+upstream = "source:test-bars"        # direct source ref — no composer engaged
+
+  [streams.bars-test.encoder]
+  codec = "h264"
+  bitrate = "2M"
+  gop = 60
+  rate_control = "cbr"
+  preset = "fast"
+
+  [[streams.bars-test.publish]]
+  type = "rtsp"
+  url = "rtsp://localhost:8554/bars-test"
