@@ -108,7 +108,7 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 
 	envID := "env-" + randHex(4)
 	dataDir := filepath.Join(filepath.Dir(s.Path()), "envs", envID)
-	worktree, _ := os.Getwd()
+	worktree := filepath.Dir(cfg.Path)
 
 	var held *slots.Held
 	err = s.WithLock(func() error {
@@ -228,7 +228,7 @@ func List(ctx context.Context, p ListParams) ([]EnvInfo, error) {
 		}
 		out = append(out, EnvInfo{
 			ID: e.ID, Slot: e.Slot, Target: e.Target, Source: e.SourceMode,
-			HTTPURL: e.HTTPURL, Worktree: filepath.Base(e.OwnerWorktree),
+			HTTPURL: e.HTTPURL, Worktree: DisplayWorktree(e.OwnerWorktree),
 			PID: e.OwnerPID, Leases: ids, CreatedAt: e.CreatedAt,
 		})
 	}
@@ -332,6 +332,23 @@ func Validate(dir string) error {
 // ConfigFileName is the config file name, re-exported so cmd/ doesn't
 // need to import config directly.
 const ConfigFileName = config.FileName
+
+// DisplayWorktree formats a stored absolute worktree path for display.
+// For .claude/worktrees/<name> paths: "<name>/<project>".
+// For main checkouts: "<project>".
+func DisplayWorktree(absPath string) string {
+	marker := "/.claude/worktrees/"
+	i := strings.Index(absPath, marker)
+	if i < 0 {
+		return filepath.Base(absPath)
+	}
+	project := filepath.Base(absPath[:i])
+	rest := absPath[i+len(marker):]
+	if j := strings.Index(rest, "/"); j >= 0 {
+		rest = rest[:j]
+	}
+	return rest + "/" + project
+}
 
 // --- helpers ---
 

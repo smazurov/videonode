@@ -30,14 +30,13 @@ func (c *ListCmd) Run(ctx *Context) error {
 		return nil
 	}
 	w := tabwriter.NewWriter(stdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "SLOT\tID\tTARGET\tSOURCE\tURL\tWORKTREE\tPID\tAGE")
+	fmt.Fprintln(w, "SLOT\tID\tURL\tWORKTREE\tPID\tAGE")
 	for _, e := range envs {
 		age := time.Since(e.CreatedAt).Round(time.Second)
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n",
-			e.Slot, e.ID, e.Target, e.Source, e.HTTPURL,
-			e.Worktree, e.PID, age)
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%d\t%s\n",
+			e.Slot, e.ID, e.HTTPURL, e.Worktree, e.PID, age)
 		for _, l := range e.Leases {
-			fmt.Fprintf(w, "  \t  holds\t%s\t\t\t\t\t\n", l)
+			fmt.Fprintf(w, "\t└ %s\t\t\t\t\n", l)
 		}
 	}
 	return w.Flush()
