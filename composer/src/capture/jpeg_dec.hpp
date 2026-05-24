@@ -4,8 +4,9 @@
 //   - mpp_jpeg_dec::MppJpegDec — Rockchip MPP HW decode (rig). Output fd is
 //     an MPP-pool dma-buf with padded hor_stride / ver_stride.
 //   - jpeg_dec::TurboJpegDec  — libjpeg-turbo software decode (host). Output
-//     fd is one of the caller's pre-allocated NV12 dma-heap slots; pitches
-//     equal width (tight NV12).
+//     fd is one of the caller's pre-allocated NV12 slots; pitches are
+//     forwarded from the slot (== width on rig dma_heap, >= width on
+//     GBM-allocated R8/GR88 BOs that pad for alignment).
 //
 // videonode-source probes MPP first, falls through to TurboJPEG on init
 // failure. Both produce the same DecodedNv12 shape so the main loop and

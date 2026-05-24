@@ -33,8 +33,14 @@ class TurboJpegDec : public JpegDec {
     struct Slot {
         int y_fd = -1;
         int uv_fd = -1;               // == y_fd for contiguous; separate dma-buf on GBM split
-        uint8_t* y_mapped = nullptr;  // PROT_READ|PROT_WRITE, W*H bytes
-        uint8_t* uv_mapped = nullptr; // PROT_READ|PROT_WRITE, W*H/2 bytes
+        uint8_t* y_mapped = nullptr;  // PROT_READ|PROT_WRITE, y_pitch * H bytes
+        uint8_t* uv_mapped = nullptr; // PROT_READ|PROT_WRITE, uv_pitch * H/2 bytes
+        // BO row strides in bytes. Must be >= width (Y) and >= width (UV
+        // chroma: width/2 samples × 2 bytes). Forwarded to the consumer
+        // in DecodedNv12 so the cross-process EGL importer sees the real
+        // BO layout, not a packed-width assumption.
+        uint32_t y_pitch = 0;
+        uint32_t uv_pitch = 0;
     };
 
     TurboJpegDec() = default;

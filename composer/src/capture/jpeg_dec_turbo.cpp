@@ -24,11 +24,18 @@ bool TurboJpegDec::init(int width, int height, std::vector<Slot> ring) {
         vn::log::error("jpeg_dec_turbo: empty ring");
         return false;
     }
+    const uint32_t min_pitch = static_cast<uint32_t>(width);
     for (const auto& s : ring) {
         if (s.y_fd < 0 || s.uv_fd < 0 || !s.y_mapped || !s.uv_mapped) {
             vn::log::error(
                 "jpeg_dec_turbo: ring slot invalid (y_fd=%d uv_fd=%d y_mapped=%p uv_mapped=%p)",
                 s.y_fd, s.uv_fd, static_cast<void*>(s.y_mapped), static_cast<void*>(s.uv_mapped));
+            return false;
+        }
+        // UV row = width/2 samples × 2 bytes = width bytes minimum.
+        if (s.y_pitch < min_pitch || s.uv_pitch < min_pitch) {
+            vn::log::error("jpeg_dec_turbo: slot pitch too small (y_pitch=%u uv_pitch=%u w=%d)",
+                           s.y_pitch, s.uv_pitch, width);
             return false;
         }
     }
@@ -41,6 +48,8 @@ bool TurboJpegDec::init(int width, int height, std::vector<Slot> ring) {
     height_ = height;
     ring_ = std::move(ring);
     next_ = 0;
+    vn::log::info("jpeg_dec_turbo: %dx%d, %zu slots, slot[0] y_pitch=%u uv_pitch=%u", width_,
+                  height_, ring_.size(), ring_[0].y_pitch, ring_[0].uv_pitch);
     // Chroma scratch is sized lazily on the first decode() — its size
     // depends on the JPEG's subsampling, which we don't know yet.
     u_scratch_.clear();
@@ -86,7 +95,7 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
     next_ = (next_ + 1) % ring_.size();
 
     unsigned char* planes[3] = {s.y_mapped, u_scratch_.data(), v_scratch_.data()};
-    int strides[3] = {width_, chroma_pw, chroma_pw};
+    int strides[3] = {static_cast<int>(s.y_pitch), chroma_pw, chroma_pw};
     if (tjDecompressToYUVPlanes(h, jpeg.data(), static_cast<unsigned long>(jpeg.size()), planes,
                                 width_, strides, height_, 0) != 0) {
         vn::log::error("jpeg_dec_turbo: tjDecompressToYUVPlanes: %s", tjGetErrorStr2(h));
@@ -96,9 +105,8 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
     // Convert native chroma → NV12's 4:2:0 interleaved UV. NV12 chroma
     // plane geometry is (W/2)x(H/2). For 4:2:0 input it's a straight
     // interleave; for 4:2:2 we average pairs of chroma rows vertically.
-    // Writes into s.uv_mapped, which is the caller's UV-plane mmap — same
-    // pointer as `s.y_mapped + W*H` on contiguous slots (rig), or a
-    // separate mmap on split slots (Fedora GBM).
+    // Walks s.uv_pitch bytes per row so padded BO strides (e.g. GBM GR88
+    // alignment) keep each NV12 chroma row aligned to the BO layout.
     const int nv12_cw = width_ / 2;
     const int nv12_ch = height_ / 2;
     uint8_t* uv = s.uv_mapped;
@@ -106,10 +114,14 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
     const uint8_t* vp = v_scratch_.data();
 
     if (jsubsamp == TJSAMP_420) {
-        const std::size_t n = static_cast<std::size_t>(nv12_cw) * nv12_ch;
-        for (std::size_t i = 0; i < n; ++i) {
-            uv[2 * i] = up[i];
-            uv[2 * i + 1] = vp[i];
+        for (int y = 0; y < nv12_ch; ++y) {
+            uint8_t* row = uv + std::size_t(y) * s.uv_pitch;
+            const uint8_t* urow = up + std::size_t(y) * chroma_pw;
+            const uint8_t* vrow = vp + std::size_t(y) * chroma_pw;
+            for (int x = 0; x < nv12_cw; ++x) {
+                row[2 * x] = urow[x];
+                row[2 * x + 1] = vrow[x];
+            }
         }
     } else { // TJSAMP_422: vertically downsample 2:1
         for (int y = 0; y < nv12_ch; ++y) {
@@ -117,7 +129,7 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
             const uint8_t* u1 = up + (2 * y + 1) * chroma_pw;
             const uint8_t* v0 = vp + (2 * y) * chroma_pw;
             const uint8_t* v1 = vp + (2 * y + 1) * chroma_pw;
-            uint8_t* row = uv + std::size_t(y) * 2 * nv12_cw;
+            uint8_t* row = uv + std::size_t(y) * s.uv_pitch;
             for (int x = 0; x < nv12_cw; ++x) {
                 row[2 * x] = static_cast<uint8_t>((u0[x] + u1[x] + 1) >> 1);
                 row[2 * x + 1] = static_cast<uint8_t>((v0[x] + v1[x] + 1) >> 1);
@@ -131,13 +143,12 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
     out.plane1_fd = (s.uv_fd == s.y_fd) ? -1 : s.uv_fd;
     out.width = width_;
     out.height = height_;
-    out.y_pitch = static_cast<uint32_t>(width_);
-    out.uv_pitch = static_cast<uint32_t>(width_);
+    out.y_pitch = s.y_pitch;
+    out.uv_pitch = s.uv_pitch;
     out.y_offset = 0;
-    // Contiguous slot: UV lives at W*H in the same bo. Split slot: UV is
-    // its own bo, offset 0.
-    out.uv_offset =
-        (s.uv_fd == s.y_fd) ? static_cast<uint32_t>(width_) * static_cast<uint32_t>(height_) : 0;
+    // Contiguous slot: UV trails Y inside the same bo, at y_pitch*H. Split
+    // slot: UV is its own bo, offset 0.
+    out.uv_offset = (s.uv_fd == s.y_fd) ? s.y_pitch * static_cast<uint32_t>(height_) : 0;
     return true;
 }
 
