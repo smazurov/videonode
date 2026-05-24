@@ -331,6 +331,56 @@ func (p *Pipeline) Delete(streamID string) error {
 	return nil
 }
 
+// StopEncoder stops the encoder stage for a stream if it is running.
+// No-op when the encoder isn't running. Sources and composers stay
+// warm — only the encoder cycles. Serialized per-stream with Apply.
+func (p *Pipeline) StopEncoder(streamID string) error {
+	if streamID == "" {
+		return errors.New("pipeline: streamID is required")
+	}
+	mu := p.streamLock(streamID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	id := EncoderIDFor(streamID)
+	if !p.pool.IsRunning(id) {
+		return nil
+	}
+	if err := p.pool.Stop(id); err != nil {
+		return fmt.Errorf("pipeline: stop encoder %s: %w", id, err)
+	}
+	return nil
+}
+
+// EnsureEncoder starts the encoder stage for a stream if it isn't
+// already running. No-op when the encoder is up. Requires Apply to
+// have been called previously for the stream so the cached encoder
+// stage exists; returns an error otherwise. Serialized per-stream
+// with Apply.
+func (p *Pipeline) EnsureEncoder(streamID string) error {
+	if streamID == "" {
+		return errors.New("pipeline: streamID is required")
+	}
+	mu := p.streamLock(streamID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	id := EncoderIDFor(streamID)
+	if p.pool.IsRunning(id) {
+		return nil
+	}
+	p.mu.Lock()
+	_, ok := p.stages[id]
+	p.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("pipeline: no cached encoder stage for stream %s (Apply not called)", streamID)
+	}
+	if err := p.pool.Start(id); err != nil {
+		return fmt.Errorf("pipeline: start encoder %s: %w", id, err)
+	}
+	return nil
+}
+
 // Pool exposes the underlying process.Pool for callers that need
 // status lookups (process-manager UI follow-up). Not used by Apply /
 // Delete; only diagnostics should reach for it.
