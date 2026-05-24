@@ -35,10 +35,17 @@ function calculateUptime(startTime: string | undefined): string {
   }
 }
 
-function parseNumber(value: string | undefined): number | null {
-  if (!value) return null;
-  const n = Number.parseFloat(value);
+function parseNumber(value: string | number | undefined): number | null {
+  if (value == null) return null;
+  const n = typeof value === 'number' ? value : Number.parseFloat(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 interface SparklineProps {
@@ -135,9 +142,12 @@ export function StreamMetricsPanel({ streamId, className }: StreamMetricsPanelPr
 
   const fpsValues = history.map((h) => h.fps);
 
+  const bytesOut = parseNumber(metrics?.bytes_out);
+
   const entries: KVEntry[] = [
     { label: 'Uptime', value: uptime, mono: true },
     { label: 'Bitrate', value: bitrate ?? '—', mono: true },
+    { label: 'Bytes out', value: bytesOut != null ? formatBytes(bytesOut) : '—', mono: true },
     {
       label: 'Dropped / Duplicate',
       value: `${metrics?.dropped_frames ?? '0'} / ${metrics?.duplicate_frames ?? '0'}`,

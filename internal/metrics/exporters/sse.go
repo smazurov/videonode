@@ -84,20 +84,51 @@ func (s *SSEExporter) publishMetrics() {
 	if err != nil {
 		return
 	}
-	for streamID, m := range allMetrics {
+
+	egress, _ := metrics.GetStreamEgressMetrics()
+
+	// Collect all stream IDs from both sources.
+	streamIDs := make(map[string]struct{})
+	for id := range allMetrics {
+		streamIDs[id] = struct{}{}
+	}
+	for id := range egress {
+		streamIDs[id] = struct{}{}
+	}
+
+	for streamID := range streamIDs {
+		ffm := allMetrics[streamID]
+		var fps, dropped, dup float64
+		if ffm != nil {
+			fps = ffm.FPS
+			dropped = ffm.DroppedFrames
+			dup = ffm.DuplicateFrames
+		}
+
+		eg := egress[streamID]
+		var bytesOut, packetsOut float64
+		if eg != nil {
+			bytesOut = eg.BytesOut
+			packetsOut = eg.PacketsOut
+		}
+
 		metricsEvent := events.StreamMetricsEvent{
 			EventType:       "stream_metrics",
 			StreamID:        streamID,
-			FPS:             strconv.FormatFloat(m.FPS, 'f', 2, 64),
-			DroppedFrames:   strconv.FormatFloat(m.DroppedFrames, 'f', 0, 64),
-			DuplicateFrames: strconv.FormatFloat(m.DuplicateFrames, 'f', 0, 64),
+			FPS:             strconv.FormatFloat(fps, 'f', 2, 64),
+			DroppedFrames:   strconv.FormatFloat(dropped, 'f', 0, 64),
+			DuplicateFrames: strconv.FormatFloat(dup, 'f', 0, 64),
+			BytesOut:        strconv.FormatFloat(bytesOut, 'f', 0, 64),
+			PacketsOut:      strconv.FormatFloat(packetsOut, 'f', 0, 64),
 		}
 		s.eventBus.Publish(metricsEvent)
 		if s.registry != nil {
 			s.registry.Publish("stream", events.ActionMetrics, streamID, map[string]any{
-				"fps":              m.FPS,
-				"dropped_frames":   m.DroppedFrames,
-				"duplicate_frames": m.DuplicateFrames,
+				"fps":              fps,
+				"dropped_frames":   dropped,
+				"duplicate_frames": dup,
+				"bytes_out":        bytesOut,
+				"packets_out":      packetsOut,
 			})
 		}
 	}

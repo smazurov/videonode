@@ -11,9 +11,8 @@ export interface StreamMetrics {
   fps?: string | undefined;
   dropped_frames?: string | undefined;
   duplicate_frames?: string | undefined;
-  // Forward-compatible fields the new entity-metrics payload may carry
-  // (bitrate, queue_depth, reader_count, ...). Indexed access lets the
-  // existing typed selectors keep working while new fields layer on.
+  bytes_out?: number | undefined;
+  packets_out?: number | undefined;
   [extra: string]: unknown;
 }
 
@@ -114,13 +113,14 @@ export const createStreamDataSlice: StateCreator<
   updateStreamMetrics: (metrics) => {
     set((state) => {
       const existing = state.metricsById[metrics.stream_id];
-      // No-op when the three reported fields are identical — avoids
-      // re-rendering every consumer on each metrics tick.
+      const raw = metrics as Record<string, unknown>;
       if (
         existing &&
         existing.fps === metrics.fps &&
         existing.dropped_frames === metrics.dropped_frames &&
-        existing.duplicate_frames === metrics.duplicate_frames
+        existing.duplicate_frames === metrics.duplicate_frames &&
+        existing.bytes_out === raw['bytes_out'] &&
+        existing.packets_out === raw['packets_out']
       ) {
         return state;
       }
@@ -132,6 +132,8 @@ export const createStreamDataSlice: StateCreator<
             fps: metrics.fps,
             dropped_frames: metrics.dropped_frames,
             duplicate_frames: metrics.duplicate_frames,
+            bytes_out: raw['bytes_out'] as number | undefined,
+            packets_out: raw['packets_out'] as number | undefined,
           },
         },
       };
