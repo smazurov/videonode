@@ -59,6 +59,15 @@ bool r8_alloc(gbm_device* gbm, R8Bo& out, int w, int h) {
     return true;
 }
 
+uint64_t bo_modifier(gbm_bo* bo) {
+    uint64_t mod = gbm_bo_get_modifier(bo);
+    // GBM may report INVALID even when we requested LINEAR. The Vulkan
+    // dma-buf import path requires an explicit modifier, so normalize.
+    if (mod == DRM_FORMAT_MOD_INVALID)
+        mod = DRM_FORMAT_MOD_LINEAR;
+    return mod;
+}
+
 void r8_free(R8Bo& b) {
     if (b.mapped)
         gbm_bo_unmap(b.bo, b.map_handle);
@@ -208,7 +217,7 @@ int main(int argc, char** argv) {
     tp_src_y.import_handle = PL_HANDLE_DMA_BUF;
     tp_src_y.shared_mem.handle.fd = dup(src_y.fd);
     tp_src_y.shared_mem.size = static_cast<size_t>(src_y.stride) * src_y.h;
-    tp_src_y.shared_mem.drm_format_mod = gbm_bo_get_modifier(src_y.bo);
+    tp_src_y.shared_mem.drm_format_mod = bo_modifier(src_y.bo);
     tp_src_y.shared_mem.stride_w = static_cast<int>(src_y.stride);
     pl_tex tex_src_y = pl_tex_create(gpu, &tp_src_y);
     if (!tex_src_y)
@@ -222,7 +231,7 @@ int main(int argc, char** argv) {
     tp_src_uv.import_handle = PL_HANDLE_DMA_BUF;
     tp_src_uv.shared_mem.handle.fd = dup(src_uv.fd);
     tp_src_uv.shared_mem.size = static_cast<size_t>(src_uv.stride) * src_uv.h;
-    tp_src_uv.shared_mem.drm_format_mod = gbm_bo_get_modifier(src_uv.bo);
+    tp_src_uv.shared_mem.drm_format_mod = bo_modifier(src_uv.bo);
     tp_src_uv.shared_mem.stride_w = static_cast<int>(src_uv.stride);
     pl_tex tex_src_uv = pl_tex_create(gpu, &tp_src_uv);
     if (!tex_src_uv)
@@ -236,7 +245,7 @@ int main(int argc, char** argv) {
     tp_dst_y.import_handle = PL_HANDLE_DMA_BUF;
     tp_dst_y.shared_mem.handle.fd = dup(dst_y.fd);
     tp_dst_y.shared_mem.size = static_cast<size_t>(dst_y.stride) * dst_y.h;
-    tp_dst_y.shared_mem.drm_format_mod = gbm_bo_get_modifier(dst_y.bo);
+    tp_dst_y.shared_mem.drm_format_mod = bo_modifier(dst_y.bo);
     tp_dst_y.shared_mem.stride_w = static_cast<int>(dst_y.stride);
     pl_tex tex_dst_y = pl_tex_create(gpu, &tp_dst_y);
     if (!tex_dst_y)
@@ -250,7 +259,7 @@ int main(int argc, char** argv) {
     tp_dst_uv.import_handle = PL_HANDLE_DMA_BUF;
     tp_dst_uv.shared_mem.handle.fd = dup(dst_uv.fd);
     tp_dst_uv.shared_mem.size = static_cast<size_t>(dst_uv.stride) * dst_uv.h;
-    tp_dst_uv.shared_mem.drm_format_mod = gbm_bo_get_modifier(dst_uv.bo);
+    tp_dst_uv.shared_mem.drm_format_mod = bo_modifier(dst_uv.bo);
     tp_dst_uv.shared_mem.stride_w = static_cast<int>(dst_uv.stride);
     pl_tex tex_dst_uv = pl_tex_create(gpu, &tp_dst_uv);
     if (!tex_dst_uv)

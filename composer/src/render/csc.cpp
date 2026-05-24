@@ -8,8 +8,8 @@
 #include "src/render/rga_csc.hpp"
 #endif
 
-#ifdef HAVE_GLES_CSC
-#include "src/render/csc_gles.hpp"
+#ifdef HAVE_PLACEBO_CSC
+#include "src/render/csc_placebo.hpp"
 #endif
 
 namespace csc {
@@ -55,8 +55,8 @@ bool convert(const ConvertParams& src, const ConvertParams& dst) {
     // in practice — librga only ships on RK3588 distros, libgbm always.
 #ifdef HAVE_RGA
     return rga::convert(to_rga(src), to_rga(dst));
-#elif defined(HAVE_GLES_CSC)
-    return csc_gles::convert(src, dst);
+#elif defined(HAVE_PLACEBO_CSC)
+    return csc_placebo::convert(src, dst);
 #else
     static std::atomic<bool> warned{false};
     if (!warned.exchange(true)) {

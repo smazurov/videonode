@@ -25,7 +25,7 @@
 #include "src/source/source_service.hpp"
 #include "version.hpp"
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
-#include "src/render/csc_gles.hpp"
+#include "src/render/csc_placebo.hpp"
 #endif
 
 #include <atomic>
@@ -159,18 +159,18 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     // no RGA) the GBM allocator MUST share csc_gles's gbm_device —
     // radeonsi rejects cross-gbm_device dma-buf imports as renderbuffer
     // storage, so allocating against a sibling device produces FBO-
-    // incomplete and no frames flow. csc_gles::init() lazy-creates its
+    // incomplete and no frames flow. csc_placebo::init() lazy-creates its
     // EGL+GBM stack on first call; we force-init eagerly here so the
     // allocator has the right device.
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
-    if (!csc_gles::init()) {
-        vn::log::fatal("videonode-source: csc_gles::init failed; cannot bring up Mesa CSC backend "
+    if (!csc_placebo::init()) {
+        vn::log::fatal("videonode-source: csc_placebo::init failed; cannot bring up Mesa CSC backend "
                        "(needed for the GBM allocator's gbm_device)");
         return 1;
     }
-    gbm_device* alloc_gbm = csc_gles::gbm_device_for_io();
+    gbm_device* alloc_gbm = csc_placebo::gbm_device_for_io();
     if (alloc_gbm == nullptr) {
-        vn::log::fatal("videonode-source: csc_gles::gbm_device_for_io returned null");
+        vn::log::fatal("videonode-source: csc_placebo::gbm_device_for_io returned null");
         return 1;
     }
     nv12_buf::Allocator allocator;

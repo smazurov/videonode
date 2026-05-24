@@ -64,11 +64,6 @@ if(LIBRGA_LIB)
     target_link_libraries(rga_iface INTERFACE ${LIBRGA_LIB})
 endif()
 
-# HAVE_GLES_CSC = the Mesa MRT-NV12 shader backend. Tracks HAVE_GBM (we
-# need GBM-platform EGL to render into dma-buf-backed render targets).
-# The backend implementation lands in Phase 2; for now the flag is wired
-# so src/CMakeLists.txt can switch on it once the source files arrive.
-set(HAVE_GLES_CSC ${HAVE_GBM})
 
 # librockchip_mpp is Rockchip-only. HAVE_MPP is real: TRUE iff librockchip_mpp
 # is on the system. When FALSE, mpp_jpeg_dec is skipped and any future
@@ -113,7 +108,6 @@ message(STATUS "videonode-native deps:")
 message(STATUS "  GBM (libgbm-dev):             ${HAVE_GBM}")
 message(STATUS "  libturbojpeg (libjpeg-turbo): ${TURBOJPEG_VERSION}")
 message(STATUS "  librga (Rockchip):            ${HAVE_RGA}")
-message(STATUS "  GLES MRT CSC backend:         ${HAVE_GLES_CSC}")
 message(STATUS "  librockchip_mpp (Rockchip):   ${HAVE_MPP}")
 if(HAVE_PLACEBO)
     message(STATUS "  libplacebo:                   ${PLACEBO_VERSION}")
@@ -128,11 +122,11 @@ endif()
 if(NOT HAVE_GBM)
     message(STATUS "  -> GLES probes + videonode-composer binary will be SKIPPED")
 endif()
-if(NOT HAVE_RGA AND NOT HAVE_GLES_CSC)
+if(NOT HAVE_RGA AND NOT HAVE_PLACEBO)
     message(WARNING
-        "  No CSC backend available (HAVE_RGA=off, HAVE_GLES_CSC=off). "
+        "  No CSC backend available (HAVE_RGA=off, HAVE_PLACEBO=off). "
         "videonode-source will still build, but non-NV12 V4L2 sources will "
-        "be dropped at runtime. Install librga (RK3588) or libgbm-dev "
+        "be dropped at runtime. Install librga (RK3588) or libplacebo-devel "
         "(generic Linux) to enable a real backend.")
 endif()
 

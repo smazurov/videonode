@@ -15,7 +15,7 @@
 // broadcast it should pass.
 
 #include "src/capture/jpeg_dec_turbo.hpp"
-#include "src/render/csc_gles.hpp"
+#include "src/render/csc_placebo.hpp"
 #include "src/render/nv12_buf.hpp"
 
 #include <gtest/gtest.h>
@@ -67,10 +67,10 @@ std::vector<uint8_t> compress_i420_to_jpeg(const std::vector<uint8_t>& i420, int
 TEST(JpegDecDmabufVisibility, SeparateMmapSeesDecodedY) {
     // Need a real DRM render node for the GBM allocator. Headless CI
     // (no /dev/dri/renderD12*) silently skips, matching csc_gles tests.
-    if (!csc_gles::init()) {
+    if (!csc_placebo::init()) {
         GTEST_SKIP() << "csc_gles::init failed — no DRM render node on this host";
     }
-    gbm_device* dev = csc_gles::gbm_device_for_io();
+    gbm_device* dev = csc_placebo::gbm_device_for_io();
     ASSERT_NE(dev, nullptr);
 
     nv12_buf::Allocator alloc;

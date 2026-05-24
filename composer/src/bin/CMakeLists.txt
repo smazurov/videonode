@@ -22,9 +22,9 @@ vn_add_executable(videonode-sink
 # videonode-composer — Mali-GPU canvas compositor. Reads NV12 dma-bufs
 # from N videonode-source sockets, composes BGRA via EGL/GLES, writes the
 # canvas frames to stdout. Needs libgbm.
-if(HAVE_GBM)
+if(HAVE_PLACEBO AND HAVE_GBM)
     vn_add_executable(videonode-composer
         SOURCES videonode_composer_main.cpp
         DEPS    canvas_loop world composer_service grpc_server
-                egl_ctx gl_compose gles_bundle absl_bundle)
+                egl_ctx pl_compose gles_bundle placebo_bundle absl_bundle)
 endif()

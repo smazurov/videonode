@@ -61,6 +61,9 @@ int main(int argc, char** argv) {
     int bo_fd = gbm_bo_get_fd(bo);
     uint32_t bo_stride = gbm_bo_get_stride(bo);
     uint64_t bo_mod = gbm_bo_get_modifier(bo);
+    // GBM may report INVALID even for LINEAR allocs; Vulkan import needs explicit.
+    if (bo_mod == DRM_FORMAT_MOD_INVALID)
+        bo_mod = DRM_FORMAT_MOD_LINEAR;
 
     // Fill with test pattern
     uint32_t map_stride = 0;
@@ -105,7 +108,7 @@ int main(int argc, char** argv) {
 
     bool has_dmabuf_import = !!(gpu->import_caps.tex & PL_HANDLE_DMA_BUF);
     pl_fmt fmt_r8 = pl_find_named_fmt(gpu, "r8");
-    bool has_host_readable = fmt_r8 && fmt_r8->host_readable;
+    bool has_host_readable = fmt_r8 && (fmt_r8->caps & PL_FMT_CAP_HOST_READABLE);
 
     std::printf("ok: Vulkan backend initialized\n");
     std::printf("    dma-buf import: %s\n", has_dmabuf_import ? "yes" : "NO");
