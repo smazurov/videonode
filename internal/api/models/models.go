@@ -12,6 +12,7 @@ import (
 // Mirrors process.State; redefined here to avoid an import cycle.
 type ProcessStatus string
 
+// ProcessStatus values.
 const (
 	ProcessStatusIdle     ProcessStatus = "idle"
 	ProcessStatusStarting ProcessStatus = "starting"
