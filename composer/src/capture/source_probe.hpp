@@ -51,21 +51,23 @@ class SourceProbe {
     // cleared by the next note_dqbuf_success().
     void note_format_change();
 
-    Health health() const;
+    [[nodiscard]] Health health() const;
 
     // dv_timings_state exposes the cached DV timings probe result so the
     // control-plane status snapshot can include the label without
     // re-querying the ioctl.
-    v4l2::Streamer::DvTimingsState dv_timings_state() const { return dv_timings_state_; }
+    [[nodiscard]] v4l2::Streamer::DvTimingsState dv_timings_state() const {
+        return dv_timings_state_;
+    }
 
     // dv_timings_label_for is the public form of the private label
     // helper, exposed so the status builder can render the enum.
     static const char* dv_timings_label_public(v4l2::Streamer::DvTimingsState s);
 
     // diagnostic accessors for logging
-    bool has_dv_timings() const { return has_dv_timings_; }
-    bool cable_present() const { return cable_present_; }
-    bool signal_locked() const { return signal_locked_; }
+    [[nodiscard]] bool has_dv_timings() const { return has_dv_timings_; }
+    [[nodiscard]] bool cable_present() const { return cable_present_; }
+    [[nodiscard]] bool signal_locked() const { return signal_locked_; }
 
     // refresh_dv_timings calls VIDIOC_QUERY_DV_TIMINGS right now and
     // updates internal state. Called on every SOURCE_CHANGE event and once

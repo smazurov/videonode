@@ -97,8 +97,8 @@ void reconcile_sources_(std::map<std::string, LiveSource>& live,
         ls.src = std::move(s);
         ls.scm_path = b.scm_path;
         live[b.slot] = std::move(ls);
-        vn::log::info("canvas_loop: dialed slot %s -> %s (%s)", b.slot.c_str(),
-                      b.source_id.c_str(), b.scm_path.c_str());
+        vn::log::info("canvas_loop: dialed slot %s -> %s (%s)", b.slot.c_str(), b.source_id.c_str(),
+                      b.scm_path.c_str());
     }
 }
 
@@ -134,8 +134,8 @@ bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_
 }
 
 // Build SourceSlots for the pl_compose render call from the current snapshot.
-std::vector<pl_compose::SourceSlot> build_render_slots_(
-    const Snapshot& snap, const std::map<std::string, LiveSource>& live_sources) {
+std::vector<pl_compose::SourceSlot>
+build_render_slots_(const Snapshot& snap, const std::map<std::string, LiveSource>& live_sources) {
     std::vector<pl_compose::SourceSlot> render_slots;
     render_slots.reserve(snap.layout.size());
     for (const auto& rect : snap.layout) {
@@ -204,8 +204,8 @@ void notify_composer_svc_(nativerpc::ComposerService* composer_svc, int canvas_d
     r.frame_idx = frame_idx;
     r.captured_at_ns =
         static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                   std::chrono::steady_clock::now().time_since_epoch())
-                                   .count());
+                                  std::chrono::steady_clock::now().time_since_epoch())
+                                  .count());
     composer_svc->UpdateLatestCanvas(r);
 }
 
@@ -376,8 +376,7 @@ void post_render_tick_(LoopState& ls, RenderStats* stats, int fps) {
         prune_consumers_(*ls.scm_out, ls.prev_consumer_count, ls.next_consumer_prune, stats);
 
     if (stats)
-        update_fps_stats_(*stats, ls.frames_rendered, ls.frames_at_last_sample,
-                          ls.next_fps_sample);
+        update_fps_stats_(*stats, ls.frames_rendered, ls.frames_at_last_sample, ls.next_fps_sample);
 
     advance_tick_(ls, fps_period_(fps));
 }
@@ -435,9 +434,9 @@ bool render_frame_(LoopState& ls, const Snapshot& snap,
         return false;
     }
     ls.cs.compose->finish();
-    return ls.scm_out ? render_scm_frame_(ls.cs, *ls.scm_out, ++ls.broadcast_frame_idx,
-                                          composer_svc)
-                      : render_stdout_frame_(ls.cs);
+    return ls.scm_out
+               ? render_scm_frame_(ls.cs, *ls.scm_out, ++ls.broadcast_frame_idx, composer_svc)
+               : render_stdout_frame_(ls.cs);
 }
 
 } // namespace
