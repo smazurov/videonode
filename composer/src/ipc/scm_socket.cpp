@@ -73,7 +73,8 @@ void parse_cmsg_fds(const msghdr& m, std::vector<int>& fds_out, bool& had_ctrunc
         size_t count = payload / sizeof(int);
         size_t base = fds_out.size();
         fds_out.resize(base + count);
-        std::memcpy(fds_out.data() + base, CMSG_DATA(c), count * sizeof(int));
+        std::memcpy(std::span<int>(fds_out).subspan(base, count).data(), CMSG_DATA(c),
+                    count * sizeof(int));
         ++entries;
     }
     if (had_ctrunc) {
@@ -200,8 +201,7 @@ bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out, std::vector<int
     const size_t total = dmabuf_header::SerializedSize(plane_count);
     std::vector<uint8_t> bytes(total);
     std::memcpy(bytes.data(), prefix.data(), prefix.size());
-    if (!read_full(sock_fd,
-                   std::span<uint8_t>(bytes.data() + prefix.size(), total - prefix.size()))) {
+    if (!read_full(sock_fd, std::span<uint8_t>(bytes).subspan(prefix.size()))) {
         close_and_clear(fds_out);
         return false;
     }
