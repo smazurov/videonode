@@ -9,7 +9,7 @@ allowed-tools:
 
 # /testenv-up
 
-Bring up an isolated test environment per `.testenv.toml`.
+Bring up an isolated test environment per `.testenv.toml` (+ `.testenv.local.toml` overrides if present).
 
 ## Arguments
 

@@ -32,6 +32,9 @@ func (c *UpCmd) Run(ctx *Context) error {
 	for _, line := range portLines {
 		fmt.Fprintln(stdout(), line)
 	}
+	if r.LocalOverride != "" {
+		fmt.Fprintf(stdout(), "  config: .testenv.toml + %s\n", r.LocalOverride)
+	}
 	fmt.Fprintf(stdout(), "  data: %s\n  pid:  %d\n", r.DataDir, r.PID)
 	if len(c.Lock) > 0 {
 		fmt.Fprintf(stdout(), "  locks: %s\n", strings.Join(c.Lock, ", "))

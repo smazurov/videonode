@@ -17,7 +17,7 @@ import (
 func Register(server *mcp.Server, statePath string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "testenv_up",
-		Description: "Spin up a test environment per .testenv.toml. Returns allocated slot + ports.",
+		Description: "Spin up a test environment per .testenv.toml (+ .testenv.local.toml overrides). Returns URL, auth, and ports.",
 	}, upHandler(statePath))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -37,7 +37,7 @@ func Register(server *mcp.Server, statePath string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "testenv_restart",
-		Description: "Rebuild and restart a test environment's daemon.",
+		Description: "Rebuild and restart a test environment's daemon. Picks up config and local overrides.",
 	}, restartHandler(statePath))
 
 	mcp.AddTool(server, &mcp.Tool{

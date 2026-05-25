@@ -16,6 +16,15 @@ func writeConfig(t *testing.T, dir, content string) string {
 	return path
 }
 
+func writeLocalConfig(t *testing.T, dir, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, LocalFileName)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestLoadV1_Minimal(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, `
@@ -246,5 +255,115 @@ command = "./x"
 	}
 	if filepath.Dir(path) != root {
 		t.Errorf("found at %s, expected under %s", path, root)
+	}
+}
+
+const baseConfig = `
+version = 1
+[ports.http]
+base = 8090
+step = 10
+[spawn]
+build = "make"
+command = "./daemon"
+[spawn.env]
+X = "1"
+[[spawn.files]]
+path = "/tmp/a"
+content = "a"
+`
+
+func TestLoadV1_LocalOverrideScalar(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, baseConfig)
+	writeLocalConfig(t, dir, `
+[spawn]
+build = "go build ."
+`)
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Spawn.Build != "go build ." {
+		t.Errorf("build=%q, want %q", c.Spawn.Build, "go build .")
+	}
+	if c.Spawn.Command != "./daemon" {
+		t.Errorf("command=%q, want %q (should be preserved from base)", c.Spawn.Command, "./daemon")
+	}
+	if c.LocalPath == "" {
+		t.Error("LocalPath should be set")
+	}
+}
+
+func TestLoadV1_LocalOverrideEnvMerge(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, baseConfig)
+	writeLocalConfig(t, dir, `
+[spawn.env]
+Y = "2"
+`)
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Spawn.Env["X"] != "1" {
+		t.Errorf("env X=%q, want %q", c.Spawn.Env["X"], "1")
+	}
+	if c.Spawn.Env["Y"] != "2" {
+		t.Errorf("env Y=%q, want %q", c.Spawn.Env["Y"], "2")
+	}
+}
+
+func TestLoadV1_LocalOverrideEnvReplace(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, baseConfig)
+	writeLocalConfig(t, dir, `
+[spawn.env]
+X = "overridden"
+`)
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Spawn.Env["X"] != "overridden" {
+		t.Errorf("env X=%q, want %q", c.Spawn.Env["X"], "overridden")
+	}
+}
+
+func TestLoadV1_LocalOverrideFilesReplace(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, baseConfig)
+	writeLocalConfig(t, dir, `
+[[spawn.files]]
+path = "/tmp/b"
+content = "b"
+[[spawn.files]]
+path = "/tmp/c"
+content = "c"
+`)
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Spawn.Files) != 2 {
+		t.Fatalf("files=%d, want 2", len(c.Spawn.Files))
+	}
+	if c.Spawn.Files[0].Path != "/tmp/b" {
+		t.Errorf("files[0].path=%q, want /tmp/b", c.Spawn.Files[0].Path)
+	}
+}
+
+func TestLoadV1_NoLocalFile(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, baseConfig)
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Spawn.Build != "make" {
+		t.Errorf("build=%q, want %q", c.Spawn.Build, "make")
+	}
+	if c.LocalPath != "" {
+		t.Errorf("LocalPath=%q, want empty", c.LocalPath)
 	}
 }
