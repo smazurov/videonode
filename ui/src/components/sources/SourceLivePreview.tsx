@@ -4,6 +4,7 @@ import { Button } from '../Button';
 import { SectionHeader } from '../primitives/SectionHeader';
 import { LivePreviewFrame } from '../primitives/LivePreviewFrame';
 import { API_BASE_URL } from '../../lib/api';
+import { useStreamStore } from '../../hooks/useStreamStore';
 
 interface SourceLivePreviewProps {
   sourceId: string;
@@ -15,10 +16,14 @@ interface SourceLivePreviewProps {
 }
 
 export function SourceLivePreview({ sourceId, initialFps = 1 }: Readonly<SourceLivePreviewProps>) {
+  const pipelineEnabled = useStreamStore((s) => s.pipelineEnabled);
   const [fps] = useState(initialFps);
   const [streaming, setStreaming] = useState(true);
 
-  const src = streaming
+  const pipelineOff = pipelineEnabled === false;
+  const pipelineUnknown = pipelineEnabled === null;
+
+  const src = streaming && !pipelineOff && !pipelineUnknown
     ? `${API_BASE_URL}/api/sources/${encodeURIComponent(sourceId)}/preview.mjpg?fps=${fps}`
     : undefined;
 
@@ -26,18 +31,23 @@ export function SourceLivePreview({ sourceId, initialFps = 1 }: Readonly<SourceL
     <Card padding="lg">
       <SectionHeader
         title="Live preview"
-        description={`Streaming at ${fps.toFixed(1)} Hz.`}
+        description={pipelineOff ? 'Pipeline stopped.' : `Streaming at ${fps.toFixed(1)} Hz.`}
         actions={
-          <Button
-            text={streaming ? 'Pause' : 'Resume'}
-            theme="light"
-            size="SM"
-            onClick={() => setStreaming((v) => !v)}
-          />
+          !pipelineOff && !pipelineUnknown ? (
+            <Button
+              text={streaming ? 'Pause' : 'Resume'}
+              theme="light"
+              size="SM"
+              onClick={() => setStreaming((v) => !v)}
+            />
+          ) : undefined
         }
       />
       <LivePreviewFrame
         {...(src !== undefined ? { src } : {})}
+        {...(pipelineUnknown && { state: 'loading' as const })}
+        {...(pipelineOff && { state: 'idle' as const })}
+        idleMessage="Pipeline stopped"
         loading={false}
         error={null}
         alt={`Live preview of source ${sourceId}`}

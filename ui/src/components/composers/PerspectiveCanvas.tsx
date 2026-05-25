@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import { API_BASE_URL } from '../../lib/api';
 import { ICON_SIZE } from '../../utils';
+import { useStreamStore } from '../../hooks/useStreamStore';
 
 export type Corner = [number, number];
 
@@ -52,6 +53,8 @@ export function PerspectiveCanvas({
   sorted,
   onSnapshotDimsChange,
 }: Readonly<PerspectiveCanvasProps>) {
+  const pipelineEnabled = useStreamStore((s) => s.pipelineEnabled);
+  const pipelineActive = pipelineEnabled === true;
   const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [naturalDims, setNaturalDims] = useState<SnapshotDims | null>(null);
@@ -76,8 +79,8 @@ export function PerspectiveCanvas({
   }, [snapshotSourceId]);
 
   useEffect(() => {
-    if (snapshotSourceId) takeSnapshot();
-  }, [snapshotSourceId, takeSnapshot]);
+    if (snapshotSourceId && pipelineActive) takeSnapshot();
+  }, [snapshotSourceId, pipelineActive, takeSnapshot]);
 
   const getImageCoords = useCallback(
     (clientX: number, clientY: number): Corner | null => {
@@ -94,7 +97,7 @@ export function PerspectiveCanvas({
 
   const handleImageClick = useCallback(
     (e: React.MouseEvent<HTMLImageElement>) => {
-      if (draggingIndex !== null || corners.length >= 4) return;
+      if (!pipelineActive || draggingIndex !== null || corners.length >= 4) return;
       const coord = getImageCoords(e.clientX, e.clientY);
       if (!coord) return;
       const next = [...corners, coord];
@@ -104,14 +107,15 @@ export function PerspectiveCanvas({
         onCornersChange(next, false);
       }
     },
-    [draggingIndex, corners, getImageCoords, onCornersChange],
+    [pipelineActive, draggingIndex, corners, getImageCoords, onCornersChange],
   );
 
   const handleDotMouseDown = useCallback((e: React.MouseEvent, index: number) => {
+    if (!pipelineActive) return;
     e.preventDefault();
     e.stopPropagation();
     setDraggingIndex(index);
-  }, []);
+  }, [pipelineActive]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -218,7 +222,7 @@ export function PerspectiveCanvas({
                 React docs since the ref is set by the time renderOverlay
                 runs on subsequent renders */}
             {renderOverlay()}
-            {snapshotSourceId && (
+            {snapshotSourceId && pipelineActive && (
               <button
                 onClick={takeSnapshot}
                 aria-label="Retake snapshot"
