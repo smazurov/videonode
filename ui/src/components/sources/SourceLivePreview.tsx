@@ -7,20 +7,22 @@ import { API_BASE_URL } from '../../lib/api';
 
 interface SourceLivePreviewProps {
   sourceId: string;
-  /**
-   * Initial fps for the daemon's preview.mjpg stream. Clamped server-side
-   * to [1, server.PreviewMaxFPS]. Default 1.
-   */
+  visible: boolean;
+  onToggle: () => void;
   initialFps?: number;
 }
 
-export function SourceLivePreview({ sourceId, initialFps = 1 }: Readonly<SourceLivePreviewProps>) {
+export function SourceLivePreview({
+  sourceId,
+  visible,
+  onToggle,
+  initialFps = 1,
+}: Readonly<SourceLivePreviewProps>) {
   const [fps] = useState(initialFps);
-  const [streaming, setStreaming] = useState(true);
 
-  const src = streaming
-    ? `${API_BASE_URL}/api/sources/${encodeURIComponent(sourceId)}/preview.mjpg?fps=${fps}`
-    : undefined;
+  if (!visible) return null;
+
+  const src = `${API_BASE_URL}/api/sources/${encodeURIComponent(sourceId)}/preview.mjpg?fps=${fps}`;
 
   return (
     <Card padding="lg">
@@ -29,15 +31,15 @@ export function SourceLivePreview({ sourceId, initialFps = 1 }: Readonly<SourceL
         description={`Streaming at ${fps.toFixed(1)} Hz.`}
         actions={
           <Button
-            text={streaming ? 'Pause' : 'Resume'}
+            text="Hide"
             theme="light"
             size="SM"
-            onClick={() => setStreaming((v) => !v)}
+            onClick={onToggle}
           />
         }
       />
       <LivePreviewFrame
-        {...(src !== undefined ? { src } : {})}
+        src={src}
         loading={false}
         error={null}
         alt={`Live preview of source ${sourceId}`}

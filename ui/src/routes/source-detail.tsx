@@ -27,6 +27,7 @@ export default function SourceDetail() {
   );
   const fetchSources = useSourceStore((s) => s.fetchSources);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
 
   useEffect(() => {
     if (lastUpdated === null) void fetchSources();
@@ -80,6 +81,12 @@ export default function SourceDetail() {
           <div className="flex items-center justify-between">
             <SectionHeader title={source.id} description={description} />
             <div className="flex gap-2">
+              <Button
+                theme="light"
+                size="SM"
+                text={previewVisible ? 'Hide preview' : 'Show preview'}
+                onClick={() => setPreviewVisible((v) => !v)}
+              />
               <Button theme="light" size="SM" text="Back" onClick={() => navigate('/sources')} />
               <Button
                 theme="primary"
@@ -102,13 +109,24 @@ export default function SourceDetail() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <SourceLivePreview sourceId={source.id} />
-            <div className="space-y-4">
+          {previewVisible ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <SourceLivePreview
+                sourceId={source.id}
+                visible={previewVisible}
+                onToggle={() => setPreviewVisible(false)}
+              />
+              <div className="space-y-4">
+                <SourceStatusPanel source={source} />
+                <SourceFormatPanel source={source} />
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <SourceStatusPanel source={source} />
               <SourceFormatPanel source={source} />
             </div>
-          </div>
+          )}
           <SourceConsumersPanel consumers={source.consumers ?? []} />
         </div>
       </DashboardLayout.MainContent>
