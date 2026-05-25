@@ -62,6 +62,7 @@ export default function ComposerDetail() {
   );
 
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -109,6 +110,12 @@ export default function ComposerDetail() {
               description={`Canvas ${data.canvas.w}×${data.canvas.h} @ ${fps} fps, ${data.inputs.length} input${data.inputs.length === 1 ? '' : 's'}`}
             />
             <div className="flex gap-2">
+              <Button
+                theme="light"
+                size="SM"
+                text={previewVisible ? 'Hide preview' : 'Show preview'}
+                onClick={() => setPreviewVisible((v) => !v)}
+              />
               <Button theme="light" size="SM" text="Back" onClick={() => navigate('/composers')} />
               <Button
                 theme="danger"
@@ -125,7 +132,11 @@ export default function ComposerDetail() {
             </div>
           )}
 
-          <ComposerLivePreview composerId={data.composer_id} />
+          <ComposerLivePreview
+            composerId={data.composer_id}
+            visible={previewVisible}
+            onToggle={() => setPreviewVisible(false)}
+          />
           <ComposerCanvasEditor composer={data} />
           <ComposerInputsPanel composer={data} />
           <ComposerLayoutPanel composer={data} />

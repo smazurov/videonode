@@ -8,22 +8,26 @@ import { useStreamStore } from '../../hooks/useStreamStore';
 
 interface SourceLivePreviewProps {
   sourceId: string;
-  /**
-   * Initial fps for the daemon's preview.mjpg stream. Clamped server-side
-   * to [1, server.PreviewMaxFPS]. Default 1.
-   */
+  visible: boolean;
+  onToggle: () => void;
   initialFps?: number;
 }
 
-export function SourceLivePreview({ sourceId, initialFps = 1 }: Readonly<SourceLivePreviewProps>) {
+export function SourceLivePreview({
+  sourceId,
+  visible,
+  onToggle,
+  initialFps = 1,
+}: Readonly<SourceLivePreviewProps>) {
   const pipelineEnabled = useStreamStore((s) => s.pipelineEnabled);
   const [fps] = useState(initialFps);
-  const [streaming, setStreaming] = useState(true);
+
+  if (!visible) return null;
 
   const pipelineOff = pipelineEnabled === false;
   const pipelineUnknown = pipelineEnabled === null;
 
-  const src = streaming && !pipelineOff && !pipelineUnknown
+  const src = !pipelineOff && !pipelineUnknown
     ? `${API_BASE_URL}/api/sources/${encodeURIComponent(sourceId)}/preview.mjpg?fps=${fps}`
     : undefined;
 
@@ -33,14 +37,12 @@ export function SourceLivePreview({ sourceId, initialFps = 1 }: Readonly<SourceL
         title="Live preview"
         description={pipelineOff ? 'Pipeline stopped.' : `Streaming at ${fps.toFixed(1)} Hz.`}
         actions={
-          !pipelineOff && !pipelineUnknown ? (
-            <Button
-              text={streaming ? 'Pause' : 'Resume'}
-              theme="light"
-              size="SM"
-              onClick={() => setStreaming((v) => !v)}
-            />
-          ) : undefined
+          <Button
+            text="Hide"
+            theme="light"
+            size="SM"
+            onClick={onToggle}
+          />
         }
       />
       <LivePreviewFrame

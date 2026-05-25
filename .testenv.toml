@@ -46,6 +46,16 @@ width = 1280
 height = 720
 fps = 30
 
+[[composers]]
+id = "${TESTENV_ENV_ID}-comp"
+
+[composers.canvas]
+w = 1920
+h = 1080
+
+[[composers.inputs]]
+ref = "source:${TESTENV_ENV_ID}-src"
+
 [[streams]]
 id = "${TESTENV_ENV_ID}-stream"
 upstream = "source:${TESTENV_ENV_ID}-src"
