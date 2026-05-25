@@ -8,6 +8,8 @@ package reaper
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"golang.org/x/sys/unix"
 
@@ -20,22 +22,35 @@ type ReapedEnv struct {
 	DataDir string
 }
 
-// Reap removes every env whose owner_pid no longer corresponds to a
-// running process.
+// Reap removes every env whose owner_pid is dead or whose worktree
+// directory no longer exists (e.g. removed outside Claude Code).
 func Reap(s *store.Store) (released []ReapedEnv, err error) {
 	envs, err := s.ListEnvs()
 	if err != nil {
 		return nil, fmt.Errorf("list envs: %w", err)
 	}
 	for _, e := range envs {
-		if processAlive(e.OwnerPID) {
-			continue
-		}
-		if delErr := s.DeleteEnv(e.ID); delErr == nil {
-			released = append(released, ReapedEnv{ID: e.ID, DataDir: e.DataDir})
+		if !processAlive(e.OwnerPID) || worktreeGone(e.OwnerWorktree) {
+			if processAlive(e.OwnerPID) {
+				_ = unix.Kill(e.OwnerPID, unix.SIGTERM)
+			}
+			if delErr := s.DeleteEnv(e.ID); delErr == nil {
+				released = append(released, ReapedEnv{ID: e.ID, DataDir: e.DataDir})
+			}
 		}
 	}
 	return released, nil
+}
+
+func worktreeGone(path string) bool {
+	if path == "" || path == "." {
+		return false
+	}
+	if !strings.Contains(path, "/.claude/worktrees/") {
+		return false
+	}
+	_, err := os.Stat(path)
+	return os.IsNotExist(err)
 }
 
 // processAlive returns true if kill(pid, 0) succeeds — i.e. the
