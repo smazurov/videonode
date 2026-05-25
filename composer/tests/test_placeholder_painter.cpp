@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <vector>
 
 namespace {
@@ -52,7 +53,7 @@ TEST(PlaceholderPainter, PaintBaseWritesTitleText) {
     size_t bright = 0;
     for (int y = title_y; y < title_y + title_h; ++y) {
         for (int x = 0; x < kW; ++x) {
-            if (buf[y * kW + x] > 200)
+            if (buf[size_t(y) * kW + x] > 200)
                 ++bright;
         }
     }
@@ -74,7 +75,7 @@ TEST(PlaceholderPainter, PaintBaseWithDevicePath) {
     size_t bright = 0;
     for (int y = subtitle_y_top; y < subtitle_y_top + subtitle_h; ++y) {
         for (int x = 0; x < kW; ++x) {
-            if (buf[y * kW + x] > 200)
+            if (buf[size_t(y) * kW + x] > 200)
                 ++bright;
         }
     }
@@ -92,14 +93,21 @@ TEST(PlaceholderPainter, PaintTickOnlyTouchesAnimRegion) {
     if (status_top < 0)
         status_top = 0;
 
-    std::vector<uint8_t> snapshot_above(buf.begin(), buf.begin() + size_t(status_top) * kW);
-    std::vector<uint8_t> snapshot_below(buf.begin() + size_t(region.y_end) * kW,
-                                        buf.begin() + size_t(kW) * kH);
+    const size_t above_end = static_cast<size_t>(status_top) * kW;
+    const size_t below_start = static_cast<size_t>(region.y_end) * kW;
+    const size_t luma_end = static_cast<size_t>(kW) * kH;
+
+    std::vector<uint8_t> snapshot_above(buf.begin(),
+                                        buf.begin() + static_cast<ptrdiff_t>(above_end));
+    std::vector<uint8_t> snapshot_below(buf.begin() + static_cast<ptrdiff_t>(below_start),
+                                        buf.begin() + static_cast<ptrdiff_t>(luma_end));
 
     ASSERT_TRUE(placeholder_painter::paint_tick(buf, kW, kH, 42, 12345, "TESTING"));
 
     EXPECT_EQ(0, int(std::memcmp(snapshot_above.data(), buf.data(), snapshot_above.size())));
-    EXPECT_EQ(0, int(std::memcmp(snapshot_below.data(), buf.data() + size_t(region.y_end) * kW,
+    std::span<const uint8_t> buf_span(buf);
+    EXPECT_EQ(0, int(std::memcmp(snapshot_below.data(),
+                                 buf_span.subspan(below_start, snapshot_below.size()).data(),
                                  snapshot_below.size())));
 }
 
@@ -115,7 +123,10 @@ TEST(PlaceholderPainter, PaintTickChangesWithTickIdx) {
     auto region = placeholder_painter::derive_anim_region(kW, kH);
     bool different = false;
     for (int y = region.y_start; y < region.y_end; ++y) {
-        if (std::memcmp(buf_a.data() + size_t(y) * kW, buf_b.data() + size_t(y) * kW, kW) != 0) {
+        std::span<const uint8_t> row_a(buf_a);
+        std::span<const uint8_t> row_b(buf_b);
+        if (std::memcmp(row_a.subspan(static_cast<size_t>(y) * kW, kW).data(),
+                        row_b.subspan(static_cast<size_t>(y) * kW, kW).data(), kW) != 0) {
             different = true;
             break;
         }

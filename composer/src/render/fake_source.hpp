@@ -50,9 +50,9 @@ class FakeSource {
     void tick(int frame_idx);
 
     [[nodiscard]] int dmabuf_fd() const { return buf_.fd.get(); }
-    int width() const { return w_; }
-    int height() const { return h_; }
-    size_t size() const { return buf_.size; }
+    [[nodiscard]] int width() const { return w_; }
+    [[nodiscard]] int height() const { return h_; }
+    [[nodiscard]] size_t size() const { return buf_.size; }
 
     ~FakeSource();
     FakeSource() = default;

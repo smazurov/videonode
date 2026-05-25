@@ -27,9 +27,11 @@ bool FakeSource::init(int width, int height, Color square_color, std::string_vie
     color_ = square_color;
 
     // Initialize to all-black so the first frame is well-defined even before tick().
+    const size_t y_size = static_cast<size_t>(w_) * h_;
+    std::span<uint8_t> all(map_, size);
     dmaheap::sync_start(buf_.fd.get(), dmaheap::SyncDir::Write);
-    std::memset(map_, 16, static_cast<size_t>(w_) * h_);                // Y plane = 16 (black)
-    std::memset(map_ + w_ * h_, 128, static_cast<size_t>(w_) * h_ / 2); // UV plane = neutral
+    std::memset(all.subspan(0, y_size).data(), 16, y_size);   // Y plane = 16 (black)
+    std::memset(all.subspan(y_size).data(), 128, y_size / 2); // UV plane = neutral
     dmaheap::sync_end(buf_.fd.get(), dmaheap::SyncDir::Write);
     return true;
 }
@@ -41,15 +43,20 @@ FakeSource::~FakeSource() {
 
 namespace {
 
+struct Rect {
+    int x, y, w, h;
+};
+
 // Fill a rectangle in the Y plane with a given luma value. Clipped to image.
-void fill_y(std::span<uint8_t> y_plane, int stride, int img_h, int x, int y, int w, int h,
-            uint8_t value) {
-    x = std::clamp(x, 0, stride);
-    y = std::clamp(y, 0, img_h);
-    int x2 = std::clamp(x + w, 0, stride);
-    int y2 = std::clamp(y + h, 0, img_h);
+void fill_y(std::span<uint8_t> y_plane, int stride, int img_h, Rect r, uint8_t value) {
+    int x = std::clamp(r.x, 0, stride);
+    int y = std::clamp(r.y, 0, img_h);
+    int x2 = std::clamp(r.x + r.w, 0, stride);
+    int y2 = std::clamp(r.y + r.h, 0, img_h);
     for (int row = y; row < y2; ++row) {
-        std::memset(y_plane.data() + row * stride + x, value, static_cast<size_t>(x2 - x));
+        auto line =
+            y_plane.subspan(static_cast<size_t>(row * stride + x), static_cast<size_t>(x2 - x));
+        std::memset(line.data(), value, line.size());
     }
 }
 
@@ -57,19 +64,19 @@ void fill_y(std::span<uint8_t> y_plane, int stride, int img_h, int x, int y, int
 // UV is half-resolution in both dimensions; one UV row covers two Y rows,
 // and one UV pair (2 bytes) covers two Y columns. We just compute the
 // half-coords and write in 2-byte pairs.
-void fill_uv(std::span<uint8_t> uv_plane, int stride_y, int img_h_y, int x, int y, int w, int h,
-             uint8_t u, uint8_t v) {
+void fill_uv(std::span<uint8_t> uv_plane, int stride_y, int img_h_y, Rect r, uint8_t u, uint8_t v) {
     int uv_stride = stride_y; // NV12 UV row stride matches Y row stride
     int uv_h = img_h_y / 2;
-    int uvx = std::clamp(x / 2 * 2, 0, uv_stride);
-    int uvy = std::clamp(y / 2, 0, uv_h);
-    int uvx2 = std::clamp((x + w) / 2 * 2, 0, uv_stride);
-    int uvy2 = std::clamp((y + h) / 2, 0, uv_h);
+    int uvx = std::clamp(r.x / 2 * 2, 0, uv_stride);
+    int uvy = std::clamp(r.y / 2, 0, uv_h);
+    int uvx2 = std::clamp((r.x + r.w) / 2 * 2, 0, uv_stride);
+    int uvy2 = std::clamp((r.y + r.h) / 2, 0, uv_h);
     for (int row = uvy; row < uvy2; ++row) {
-        uint8_t* p = uv_plane.data() + row * uv_stride + uvx;
+        auto line = uv_plane.subspan(static_cast<size_t>(row * uv_stride + uvx));
+        size_t idx = 0;
         for (int col = uvx; col < uvx2; col += 2) {
-            *p++ = u;
-            *p++ = v;
+            line[idx++] = u;
+            line[idx++] = v;
         }
     }
 }
@@ -81,8 +88,9 @@ void FakeSource::tick(int frame_idx) {
         return;
     const size_t y_size = static_cast<size_t>(w_) * h_;
     const size_t uv_size = y_size / 2;
-    std::span<uint8_t> y_plane(map_, y_size);
-    std::span<uint8_t> uv_plane(map_ + y_size, uv_size);
+    std::span<uint8_t> all(map_, y_size + uv_size);
+    std::span<uint8_t> y_plane = all.subspan(0, y_size);
+    std::span<uint8_t> uv_plane = all.subspan(y_size, uv_size);
 
     dmaheap::sync_start(buf_.fd.get(), dmaheap::SyncDir::Write);
 
@@ -96,16 +104,17 @@ void FakeSource::tick(int frame_idx) {
     int sweep = w_ - kSquare;
     int sx = (frame_idx * 4) % (sweep > 0 ? sweep : 1);
     int sy = (h_ - kSquare) / 2;
-    fill_y(y_plane, w_, h_, sx, sy, kSquare, kSquare, color_.y);
-    fill_uv(uv_plane, w_, h_, sx, sy, kSquare, kSquare, color_.u, color_.v);
+    fill_y(y_plane, w_, h_, Rect{.x = sx, .y = sy, .w = kSquare, .h = kSquare}, color_.y);
+    fill_uv(uv_plane, w_, h_, Rect{.x = sx, .y = sy, .w = kSquare, .h = kSquare}, color_.u,
+            color_.v);
 
     // Frame-counter bar across the top: one tick per 30 frames (1 sec @ 30fps).
     // Lets us see at a glance that each source is animating at the right rate
     // without rendering text.
     int ticks = (frame_idx / 30) % 60;
     int bar_w = ticks * 16;
-    fill_y(y_plane, w_, h_, 0, 0, bar_w, 24, color_.y);
-    fill_uv(uv_plane, w_, h_, 0, 0, bar_w, 24, color_.u, color_.v);
+    fill_y(y_plane, w_, h_, Rect{.x = 0, .y = 0, .w = bar_w, .h = 24}, color_.y);
+    fill_uv(uv_plane, w_, h_, Rect{.x = 0, .y = 0, .w = bar_w, .h = 24}, color_.u, color_.v);
 
     dmaheap::sync_end(buf_.fd.get(), dmaheap::SyncDir::Write);
 }
