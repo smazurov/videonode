@@ -270,4 +270,3 @@ The API includes endpoints for:
   1. `go build ./...`
   2. `go test ./...`
   3. `golangci-lint run ./...`
-# TEST — DELETE ME
