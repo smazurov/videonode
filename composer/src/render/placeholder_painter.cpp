@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace placeholder_painter {
 
@@ -28,17 +30,32 @@ constexpr int kSpinnerDots = 8;
 
 const char kTitle[] = "NO SIGNAL DETECTED";
 
+struct PlaneInfo {
+    std::span<uint8_t> plane;
+    int w;
+    int h;
+};
+
+struct DrawParams {
+    int px;
+    int py;
+    int scale;
+    uint8_t value;
+};
+
 // fill_luma fills a rectangular region of the luma plane with a constant
 // value. Region is clipped to [0,w) x [0,h).
-void fill_luma(uint8_t* y_plane, int w, int h, int x0, int y0, int x1, int y1, uint8_t v) {
+void fill_luma(PlaneInfo pi, int x0, int y0, int x1, int y1, uint8_t v) {
     x0 = std::max(0, x0);
     y0 = std::max(0, y0);
-    x1 = std::min(w, x1);
-    y1 = std::min(h, y1);
+    x1 = std::min(pi.w, x1);
+    y1 = std::min(pi.h, y1);
     if (x0 >= x1 || y0 >= y1)
         return;
     for (int y = y0; y < y1; ++y) {
-        std::memset(y_plane + y * w + x0, v, size_t(x1 - x0));
+        auto row =
+            pi.plane.subspan(static_cast<size_t>(y * pi.w + x0), static_cast<size_t>(x1 - x0));
+        std::memset(row.data(), v, row.size());
     }
 }
 
@@ -47,17 +64,16 @@ void fill_luma(uint8_t* y_plane, int w, int h, int x0, int y0, int x1, int y1, u
 //
 // `ch` is `int` (not `char`) so the 0/0x7F bounds check is well-defined
 // regardless of whether plain `char` is signed or unsigned on the target.
-void draw_glyph_luma(uint8_t* y_plane, int w, int h, int px, int py, int scale, uint8_t value,
-                     int ch) {
+void draw_glyph_luma(PlaneInfo pi, DrawParams dp, int ch) {
     if (ch < 0 || ch > 0x7F)
         ch = ' ';
     for (int row = 0; row < font8x8::kCharH; ++row) {
         uint8_t bits = font8x8::kData[ch][row];
         for (int col = 0; col < font8x8::kCharW; ++col) {
             if (bits & (0x80 >> col)) {
-                int x0 = px + col * scale;
-                int y0 = py + row * scale;
-                fill_luma(y_plane, w, h, x0, y0, x0 + scale, y0 + scale, value);
+                int x0 = dp.px + col * dp.scale;
+                int y0 = dp.py + row * dp.scale;
+                fill_luma(pi, x0, y0, x0 + dp.scale, y0 + dp.scale, dp.value);
             }
         }
     }
@@ -65,13 +81,14 @@ void draw_glyph_luma(uint8_t* y_plane, int w, int h, int px, int py, int scale, 
 
 // draw_text_luma writes a string with the given scale, centered around px.
 // Returns the right edge (for chaining if needed).
-int draw_text_luma(uint8_t* y_plane, int w, int h, int px, int py, int scale, uint8_t value,
-                   const char* s, int n) {
-    int char_w = font8x8::kCharW * scale;
-    int total = char_w * n;
-    int x = px - total / 2;
-    for (int i = 0; i < n; ++i) {
-        draw_glyph_luma(y_plane, w, h, x + i * char_w, py, scale, value, s[i]);
+int draw_text_luma(PlaneInfo pi, DrawParams dp, std::string_view s) {
+    int char_w = font8x8::kCharW * dp.scale;
+    int total = char_w * static_cast<int>(s.size());
+    int x = dp.px - total / 2;
+    for (int i = 0; i < static_cast<int>(s.size()); ++i) {
+        draw_glyph_luma(
+            pi, DrawParams{.px = x + i * char_w, .py = dp.py, .scale = dp.scale, .value = dp.value},
+            static_cast<unsigned char>(s[i]));
     }
     return x + total;
 }
@@ -86,7 +103,7 @@ AnimRegion derive_anim_region(int w, int h) {
     int subtitle_h = font8x8::kCharH * kTickScale + 24;
     int anim_y_start = title_baseline + subtitle_h + 24;
     int anim_y_end = anim_y_start + (kSpinnerRadius * 2) + 80;
-    return AnimRegion{anim_y_start, anim_y_end};
+    return AnimRegion{.y_start = anim_y_start, .y_end = anim_y_end};
 }
 
 bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path) {
@@ -94,17 +111,21 @@ bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path) 
     if (w <= 0 || h <= 0 || nv12.size() < need)
         return false;
 
-    uint8_t* y_plane = nv12.data();
-    uint8_t* uv_plane = nv12.data() + (w * h);
+    const size_t y_size = static_cast<size_t>(w) * h;
+    std::span<uint8_t> y_span = nv12.subspan(0, y_size);
+    std::span<uint8_t> uv_span = nv12.subspan(y_size);
 
-    std::memset(y_plane, kBgY, size_t(w) * h);
+    PlaneInfo pi{.plane = y_span, .w = w, .h = h};
+
+    std::memset(y_span.data(), kBgY, y_span.size());
     {
         const int half_h = h / 2;
         for (int cy = 0; cy < half_h; ++cy) {
-            uint8_t* row = uv_plane + cy * w;
+            auto row = uv_span.subspan(static_cast<size_t>(cy * w));
+            size_t idx = 0;
             for (int cx = 0; cx < w / 2; ++cx) {
-                *row++ = kBgCb;
-                *row++ = kBgCr;
+                row[idx++] = kBgCb;
+                row[idx++] = kBgCr;
             }
         }
     }
@@ -112,7 +133,9 @@ bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path) 
     int title_chars = int(sizeof(kTitle)) - 1;
     int title_x_center = w / 2;
     int title_y = h / 3;
-    draw_text_luma(y_plane, w, h, title_x_center, title_y, kTitleScale, kFgY, kTitle, title_chars);
+    draw_text_luma(
+        pi, DrawParams{.px = title_x_center, .py = title_y, .scale = kTitleScale, .value = kFgY},
+        std::string_view(kTitle, static_cast<size_t>(title_chars)));
 
     // Device-path subtitle: font is uppercase-only, so upper-case the
     // string before drawing. Truncate to fit canvas width at scale 2.
@@ -120,17 +143,20 @@ bool paint_base(std::span<uint8_t> nv12, int w, int h, const char* device_path) 
         int sub_scale = 2;
         int char_w = font8x8::kCharW * sub_scale;
         int max_chars = (w - 32) / char_w;
+        std::string_view dp_view(device_path);
         char sub[256];
         int n = 0;
-        for (; device_path[n] && n < int(sizeof(sub)) - 1 && n < max_chars; ++n) {
-            char c = device_path[n];
+        for (; n < static_cast<int>(dp_view.size()) && n < int(sizeof(sub)) - 1 && n < max_chars;
+             ++n) {
+            char c = dp_view[n];
             if (c >= 'a' && c <= 'z')
                 c = char(c - 'a' + 'A');
             sub[n] = c;
         }
         sub[n] = 0;
         int sub_y = title_y + font8x8::kCharH * kTitleScale + 24;
-        draw_text_luma(y_plane, w, h, w / 2, sub_y, sub_scale, kFgY, sub, n);
+        draw_text_luma(pi, DrawParams{.px = w / 2, .py = sub_y, .scale = sub_scale, .value = kFgY},
+                       std::string_view(sub, static_cast<size_t>(n)));
     }
     return true;
 }
@@ -141,7 +167,10 @@ bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64
     if (w <= 0 || h <= 0 || nv12.size() < need)
         return false;
 
-    uint8_t* y_plane = nv12.data();
+    const size_t y_size = static_cast<size_t>(w) * h;
+    std::span<uint8_t> y_span = nv12.subspan(0, y_size);
+    PlaneInfo pi{.plane = y_span, .w = w, .h = h};
+
     AnimRegion r = derive_anim_region(w, h);
 
     // Clear a strip extending a bit above r.y_start to include the
@@ -149,13 +178,14 @@ bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64
     int status_top = r.y_start - (font8x8::kCharH * kTickScale) - 8;
     if (status_top < 0)
         status_top = 0;
-    fill_luma(y_plane, w, h, 0, status_top, w, r.y_end, kBgY);
+    fill_luma(pi, 0, status_top, w, r.y_end, kBgY);
 
     if (status && *status) {
-        int n = 0;
-        while (status[n] && n < 64)
-            ++n;
-        draw_text_luma(y_plane, w, h, w / 2, status_top + 4, kTickScale, kFgY, status, n);
+        std::string_view sv(status);
+        int n = static_cast<int>(std::min(sv.size(), size_t(64)));
+        draw_text_luma(
+            pi, DrawParams{.px = w / 2, .py = status_top + 4, .scale = kTickScale, .value = kFgY},
+            sv.substr(0, n));
     }
 
     // Timestamp: "FRAME NNNNNNN  HH MM SS  MMM" — no punctuation since
@@ -173,7 +203,11 @@ bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64
 
     // Convert to uppercase-friendly (snprintf already uses digits + colons + dot).
     int text_y = r.y_start + 4;
-    draw_text_luma(y_plane, w, h, w / 2, text_y, kTickScale, kFgY, buf, n);
+    if (n > 0) {
+        draw_text_luma(pi,
+                       DrawParams{.px = w / 2, .py = text_y, .scale = kTickScale, .value = kFgY},
+                       std::string_view(buf, static_cast<size_t>(n)));
+    }
 
     // Spinner: 8 dots in a circle, one bright per tick (rotates clockwise).
     // Sits a comfortable gap below the text — too close looks crowded.
@@ -195,7 +229,7 @@ bool paint_tick(std::span<uint8_t> nv12, int w, int h, uint64_t tick_idx, uint64
         int dot_x = spinner_cx + kDx[i];
         int dot_y = spinner_cy + kDy[i];
         uint8_t v = (i == active_dot) ? kFgY : (kBgY + 24);
-        fill_luma(y_plane, w, h, dot_x - 3, dot_y - 3, dot_x + 3, dot_y + 3, v);
+        fill_luma(pi, dot_x - 3, dot_y - 3, dot_x + 3, dot_y + 3, v);
     }
     return true;
 }
