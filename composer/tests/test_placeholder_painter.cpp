@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <vector>
 
 namespace {
@@ -92,14 +93,18 @@ TEST(PlaceholderPainter, PaintTickOnlyTouchesAnimRegion) {
     if (status_top < 0)
         status_top = 0;
 
-    std::vector<uint8_t> snapshot_above(buf.begin(), buf.begin() + size_t(status_top) * kW);
-    std::vector<uint8_t> snapshot_below(buf.begin() + size_t(region.y_end) * kW,
-                                        buf.begin() + size_t(kW) * kH);
+    std::vector<uint8_t> snapshot_above(
+        buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(size_t(status_top) * size_t(kW)));
+    std::vector<uint8_t> snapshot_below(
+        buf.begin() + static_cast<std::ptrdiff_t>(size_t(region.y_end) * size_t(kW)),
+        buf.begin() + static_cast<std::ptrdiff_t>(size_t(kW) * size_t(kH)));
 
     ASSERT_TRUE(placeholder_painter::paint_tick(buf, kW, kH, 42, 12345, "TESTING"));
 
-    EXPECT_EQ(0, int(std::memcmp(snapshot_above.data(), buf.data(), snapshot_above.size())));
-    EXPECT_EQ(0, int(std::memcmp(snapshot_below.data(), buf.data() + size_t(region.y_end) * kW,
+    std::span<const uint8_t> buf_span(buf);
+    EXPECT_EQ(0, int(std::memcmp(snapshot_above.data(), buf_span.data(), snapshot_above.size())));
+    EXPECT_EQ(0, int(std::memcmp(snapshot_below.data(),
+                                 buf_span.subspan(size_t(region.y_end) * size_t(kW)).data(),
                                  snapshot_below.size())));
 }
 
@@ -113,9 +118,13 @@ TEST(PlaceholderPainter, PaintTickChangesWithTickIdx) {
     ASSERT_TRUE(placeholder_painter::paint_tick(buf_b, kW, kH, 2, 200, "LIVE"));
 
     auto region = placeholder_painter::derive_anim_region(kW, kH);
+    std::span<const uint8_t> span_a(buf_a);
+    std::span<const uint8_t> span_b(buf_b);
     bool different = false;
     for (int y = region.y_start; y < region.y_end; ++y) {
-        if (std::memcmp(buf_a.data() + size_t(y) * kW, buf_b.data() + size_t(y) * kW, kW) != 0) {
+        auto row_a = span_a.subspan(size_t(y) * size_t(kW), size_t(kW));
+        auto row_b = span_b.subspan(size_t(y) * size_t(kW), size_t(kW));
+        if (std::memcmp(row_a.data(), row_b.data(), kW) != 0) {
             different = true;
             break;
         }
