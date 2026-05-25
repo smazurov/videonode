@@ -17,20 +17,23 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <span>
 #include <sys/mman.h>
 #include <thread>
 #include <unistd.h>
 
 int main(int argc, char** argv) {
     using namespace ffmpeg_pipe_source;
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
     InitParams p;
-    p.device = (argc > 1) ? argv[1] : "/dev/video1";
-    p.input_format = (argc > 2) ? argv[2] : "mjpeg";
-    p.width = (argc > 3) ? std::atoi(argv[3]) : 1920;
-    p.height = (argc > 4) ? std::atoi(argv[4]) : 1080;
-    p.fps = (argc > 5) ? std::atoi(argv[5]) : 30;
-    int seconds = (argc > 6) ? std::atoi(argv[6]) : 3;
-    const char* out = (argc > 7) ? argv[7] : "/tmp/pipe-source.y4m";
+    p.device = (args.size() > 1) ? args[1] : "/dev/video1";
+    p.input_format = (args.size() > 2) ? args[2] : "mjpeg";
+    p.width = (args.size() > 3) ? std::atoi(args[3]) : 1920;
+    p.height = (args.size() > 4) ? std::atoi(args[4]) : 1080;
+    p.fps = (args.size() > 5) ? std::atoi(args[5]) : 30;
+    int seconds = (args.size() > 6) ? std::atoi(args[6]) : 3;
+    const char* out = (args.size() > 7) ? args[7] : "/tmp/pipe-source.y4m";
 
     FfmpegPipeSource src;
     if (!src.init(p)) {
@@ -87,24 +90,24 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    FILE* f = std::fopen(out, "wb");
+    std::unique_ptr<FILE, decltype(&std::fclose)> f(std::fopen(out, "wb"), &std::fclose);
     if (!f) {
         fprintf(stderr, "FAIL fopen %s\n", out);
         src.stop();
         return 1;
     }
-    std::fprintf(f, "YUV4MPEG2 W%d H%d F%d:1 Ip A1:1 C420mpeg2\n", fv.width, fv.height, p.fps);
-    std::fprintf(f, "FRAME\n");
-    auto* pb = static_cast<uint8_t*>(p_map);
+    std::fprintf(f.get(), "YUV4MPEG2 W%d H%d F%d:1 Ip A1:1 C420mpeg2\n", fv.width, fv.height,
+                 p.fps);
+    std::fprintf(f.get(), "FRAME\n");
+    const std::span<const uint8_t> pb(static_cast<const uint8_t*>(p_map), bytes);
     size_t y_size = static_cast<size_t>(fv.width) * fv.height;
     size_t uv_size = y_size / 2;
-    std::fwrite(pb, 1, y_size, f); // Y plane straight through
-    auto* uv = pb + y_size;
+    std::fwrite(pb.data(), 1, y_size, f.get()); // Y plane straight through
+    const std::span<const uint8_t> uv = pb.subspan(y_size);
     for (size_t i = 0; i < uv_size; i += 2)
-        std::fputc(uv[i], f);
+        std::fputc(uv[i], f.get());
     for (size_t i = 0; i < uv_size; i += 2)
-        std::fputc(uv[i + 1], f);
-    std::fclose(f);
+        std::fputc(uv[i + 1], f.get());
     ::munmap(p_map, bytes);
 
     src.stop();
