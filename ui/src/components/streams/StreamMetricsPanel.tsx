@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStreamStore } from '../../hooks/useStreamStore';
+import { useProcesses } from '../../hooks/useProcesses';
+import { formatUptime } from '../../lib/formatUptime';
 import { KVInspector, type KVEntry } from '../primitives/KVInspector';
 import { SectionHeader } from '../primitives/SectionHeader';
 import { cn } from '../../utils';
@@ -13,26 +15,6 @@ const HISTORY_LENGTH = 60;
 
 interface Sample {
   readonly fps: number | null;
-}
-
-function calculateUptime(startTime: string | undefined): string {
-  if (!startTime) return 'N/A';
-  try {
-    const start = new Date(startTime);
-    const now = new Date();
-    const uptimeMs = now.getTime() - start.getTime();
-    if (uptimeMs < 0) return 'N/A';
-    const seconds = Math.floor(uptimeMs / 1000);
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-    if (hours > 0) return `${hours}h ${minutes}m ${secs}s`;
-    return `${minutes}m ${secs}s`;
-  } catch {
-    return 'N/A';
-  }
 }
 
 function parseNumber(value: string | number | undefined): number | null {
@@ -112,33 +94,30 @@ function Sparkline({ values, label, formatValue, tone = 'accent' }: SparklinePro
 
 export function StreamMetricsPanel({ streamId, className }: StreamMetricsPanelProps) {
   const metrics = useStreamStore((state) => state.metricsById[streamId]);
-  const startTime = useStreamStore((state) => state.streamsById[streamId]?.created_at);
   const bitrate = useStreamStore((state) => state.streamsById[streamId]?.encoder?.bitrate);
+  const { processes } = useProcesses({ enabled: true });
 
-  const [uptime, setUptime] = useState(() => calculateUptime(startTime));
+  const encoderStartUs = useMemo(() => {
+    const encoder = processes.find((p) => p.kind === 'encoder' && p.stream_id === streamId);
+    return encoder?.state === 'running' ? encoder.started_at_us : undefined;
+  }, [processes, streamId]);
+
+  const uptime = formatUptime(encoderStartUs) ?? '—';
   const [history, setHistory] = useState<Sample[]>([]);
-  const lastFpsRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    const interval = setInterval(() => setUptime(calculateUptime(startTime)), 1000);
-    return () => clearInterval(interval);
-  }, [startTime]);
-
-  useEffect(() => {
-    if (metrics?.fps === lastFpsRef.current) return;
-    lastFpsRef.current = metrics?.fps;
-    // Append the freshest sample to a bounded history ring. This is the
-    // canonical "derived from external metric stream" pattern; React's
-    // set-state-in-effect lint rule fires on it but the alternatives
-    // (subscribeWithSelector, useSyncExternalStore on a parallel buffer)
-    // are more invasive here.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setHistory((prev) => {
-      const next = [...prev, { fps: parseNumber(metrics?.fps) }];
-      if (next.length > HISTORY_LENGTH) next.shift();
-      return next;
+    let lastFps: string | undefined;
+    return useStreamStore.subscribe((state) => {
+      const fps = state.metricsById[streamId]?.fps;
+      if (fps === lastFps) return;
+      lastFps = fps;
+      setHistory((prev) => {
+        const next = [...prev, { fps: parseNumber(fps) }];
+        if (next.length > HISTORY_LENGTH) next.shift();
+        return next;
+      });
     });
-  }, [metrics?.fps]);
+  }, [streamId]);
 
   const fpsValues = history.map((h) => h.fps);
 
