@@ -360,6 +360,101 @@ func Validate(dir string) (ValidateResult, error) {
 	return ValidateResult{LocalOverride: local}, cfg.Validate()
 }
 
+// --- doctor ---
+
+type DoctorFact struct {
+	Key   string
+	Value string
+}
+
+func Doctor(statePath, session string) []DoctorFact {
+	var facts []DoctorFact
+	add := func(k, v string) { facts = append(facts, DoctorFact{Key: k, Value: v}) }
+
+	cwd, _ := os.Getwd()
+	add("cwd", cwd)
+
+	if session != "" {
+		add("session", session)
+	} else {
+		add("session", "(none)")
+	}
+
+	resolvedHow := "flag/env"
+	sp := statePath
+	if sp == "" {
+		sp = store.DefaultPath()
+		resolvedHow = "default"
+	}
+	add("state_path", sp+" ("+resolvedHow+")")
+
+	if _, err := os.Stat(sp); err == nil {
+		add("state_db", "exists")
+	} else {
+		add("state_db", "missing")
+	}
+
+	// Config is per-worktree (tracked file), but .mcp.json is per-project.
+	configRoot, err := config.FindProjectRoot()
+	if err != nil {
+		add("config", "not found")
+	} else {
+		add("config", filepath.Join(configRoot, config.FileName))
+		localPath := filepath.Join(configRoot, config.LocalFileName)
+		if _, err := os.Stat(localPath); err == nil {
+			add("local_config", localPath)
+		}
+	}
+
+	projectRoot := resolveProjectRoot(configRoot)
+	if configRoot != projectRoot {
+		add("project_root", projectRoot)
+	}
+
+	wt := resolveWorktree(sp, session)
+	if session != "" {
+		if sessionCwd, _ := LookupSession(sp, session); sessionCwd != "" {
+			add("build_dir", sessionCwd+" (session registry)")
+		} else {
+			add("build_dir", wt+" (fallback)")
+		}
+	} else {
+		add("build_dir", wt+" (no session)")
+	}
+
+	if projectRoot != "" {
+		mcpPath := filepath.Join(projectRoot, ".mcp.json")
+		if data, err := os.ReadFile(mcpPath); err == nil {
+			if strings.Contains(string(data), "TESTENV_STATE") {
+				add("mcp_json", "ok (TESTENV_STATE set)")
+			} else {
+				add("mcp_json", "TESTENV_STATE missing — run `testenv install`")
+			}
+		} else {
+			add("mcp_json", "not found — run `testenv install`")
+		}
+	}
+
+	s, err := openStore(sp)
+	if err == nil {
+		envs, _ := s.ListEnvs()
+		add("envs", fmt.Sprintf("%d", len(envs)))
+		s.Close()
+	}
+
+	return facts
+}
+
+// resolveProjectRoot strips .claude/worktrees/<name> from a path to
+// get the real project root where .mcp.json lives.
+func resolveProjectRoot(dir string) string {
+	const marker = "/.claude/worktrees/"
+	if i := strings.Index(dir, marker); i >= 0 {
+		return dir[:i]
+	}
+	return dir
+}
+
 // ConfigFileName is the config file name, re-exported so cmd/ doesn't
 // need to import config directly.
 const ConfigFileName = config.FileName
