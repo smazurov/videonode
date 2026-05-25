@@ -35,6 +35,8 @@ type Env struct {
 	HTTPURL       string
 	RTSPURL       string
 	SRTURL        string
+	HealthURL     string
+	HealthAuth    string
 	NativeBinDir  string
 	DataDir       string
 	StreamsTOML   string
@@ -139,19 +141,28 @@ CREATE TABLE IF NOT EXISTS leases (
   acquired_at  INTEGER NOT NULL
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, col := range []string{
+		"health_url TEXT NOT NULL DEFAULT ''",
+		"health_auth TEXT NOT NULL DEFAULT ''",
+	} {
+		_, _ = s.db.Exec("ALTER TABLE envs ADD COLUMN " + col)
+	}
+	return nil
 }
 
 // CreateEnv inserts a new env row. Returns ErrSlotTaken if the slot is in use.
 func (s *Store) CreateEnv(e Env) error {
 	_, err := s.db.Exec(`
 INSERT INTO envs (id, owner_session, owner_pid, owner_worktree, target, source_mode,
-                  slot, http_url, rtsp_url, srt_url, native_bin_dir, data_dir,
-                  streams_toml, created_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                  slot, http_url, rtsp_url, srt_url, health_url, health_auth,
+                  native_bin_dir, data_dir, streams_toml, created_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		e.ID, e.OwnerSession, e.OwnerPID, e.OwnerWorktree, e.Target, e.SourceMode,
-		e.Slot, e.HTTPURL, e.RTSPURL, e.SRTURL, e.NativeBinDir, e.DataDir,
-		e.StreamsTOML, time.Now().Unix(),
+		e.Slot, e.HTTPURL, e.RTSPURL, e.SRTURL, e.HealthURL, e.HealthAuth,
+		e.NativeBinDir, e.DataDir, e.StreamsTOML, time.Now().Unix(),
 	)
 	if err != nil && isUniqueErr(err) {
 		return ErrSlotTaken
@@ -171,6 +182,15 @@ func (s *Store) UpdateEnvAfterSpawn(id string, pid int, nativeBinDir string) err
 	_, err := s.db.Exec(
 		`UPDATE envs SET owner_pid = ?, native_bin_dir = ? WHERE id = ?`,
 		pid, nativeBinDir, id,
+	)
+	return err
+}
+
+// UpdateEnvAfterRestart sets PID + health fields after a restart.
+func (s *Store) UpdateEnvAfterRestart(id string, pid int, healthURL, healthAuth string) error {
+	_, err := s.db.Exec(
+		`UPDATE envs SET owner_pid = ?, health_url = ?, health_auth = ? WHERE id = ?`,
+		pid, healthURL, healthAuth, id,
 	)
 	return err
 }
@@ -203,24 +223,24 @@ func (s *Store) DeleteEnvsForSession(session string) ([]string, error) {
 // GetEnv returns the env by id, or sql.ErrNoRows if missing.
 func (s *Store) GetEnv(id string) (Env, error) {
 	row := s.db.QueryRow(`SELECT id, owner_session, owner_pid, owner_worktree, target,
-		source_mode, slot, http_url, rtsp_url, srt_url, native_bin_dir, data_dir,
-		streams_toml, created_at FROM envs WHERE id = ?`, id)
+		source_mode, slot, http_url, rtsp_url, srt_url, health_url, health_auth,
+		native_bin_dir, data_dir, streams_toml, created_at FROM envs WHERE id = ?`, id)
 	return scanEnv(row)
 }
 
 // GetEnvBySession returns the env owned by the given session, or sql.ErrNoRows.
 func (s *Store) GetEnvBySession(session string) (Env, error) {
 	row := s.db.QueryRow(`SELECT id, owner_session, owner_pid, owner_worktree, target,
-		source_mode, slot, http_url, rtsp_url, srt_url, native_bin_dir, data_dir,
-		streams_toml, created_at FROM envs WHERE owner_session = ? LIMIT 1`, session)
+		source_mode, slot, http_url, rtsp_url, srt_url, health_url, health_auth,
+		native_bin_dir, data_dir, streams_toml, created_at FROM envs WHERE owner_session = ? LIMIT 1`, session)
 	return scanEnv(row)
 }
 
 // ListEnvs returns all envs ordered by slot.
 func (s *Store) ListEnvs() ([]Env, error) {
 	rows, err := s.db.Query(`SELECT id, owner_session, owner_pid, owner_worktree, target,
-		source_mode, slot, http_url, rtsp_url, srt_url, native_bin_dir, data_dir,
-		streams_toml, created_at FROM envs ORDER BY slot`)
+		source_mode, slot, http_url, rtsp_url, srt_url, health_url, health_auth,
+		native_bin_dir, data_dir, streams_toml, created_at FROM envs ORDER BY slot`)
 	if err != nil {
 		return nil, err
 	}
@@ -310,8 +330,8 @@ func scanEnv(r rowScanner) (Env, error) {
 	var e Env
 	var ts int64
 	err := r.Scan(&e.ID, &e.OwnerSession, &e.OwnerPID, &e.OwnerWorktree, &e.Target,
-		&e.SourceMode, &e.Slot, &e.HTTPURL, &e.RTSPURL, &e.SRTURL, &e.NativeBinDir,
-		&e.DataDir, &e.StreamsTOML, &ts)
+		&e.SourceMode, &e.Slot, &e.HTTPURL, &e.RTSPURL, &e.SRTURL, &e.HealthURL, &e.HealthAuth,
+		&e.NativeBinDir, &e.DataDir, &e.StreamsTOML, &ts)
 	if err != nil {
 		return Env{}, err
 	}

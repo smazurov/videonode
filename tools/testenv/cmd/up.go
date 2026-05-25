@@ -25,6 +25,10 @@ func (c *UpCmd) Run(ctx *Context) error {
 		portLines = append(portLines, fmt.Sprintf("  %s: %d", name, port))
 	}
 	fmt.Fprintf(stdout(), "env %s up · slot %d\n", r.EnvID, r.Slot)
+	fmt.Fprintf(stdout(), "  url:  %s\n", r.HTTPURL)
+	if r.Auth != "" {
+		fmt.Fprintf(stdout(), "  auth: %s\n", r.Auth)
+	}
 	for _, line := range portLines {
 		fmt.Fprintln(stdout(), line)
 	}

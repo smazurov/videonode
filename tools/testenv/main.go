@@ -27,6 +27,7 @@ type cli struct {
 	Init           cmd.InitCmd           `cmd:"" help:"Create a .testenv.toml template."`
 	Up             cmd.UpCmd             `cmd:"" help:"Spin up a test environment."`
 	Down           cmd.DownCmd           `cmd:"" help:"Tear down a test environment."`
+	Restart        cmd.RestartCmd        `cmd:"" help:"Rebuild and restart a test environment."`
 	List           cmd.ListCmd           `cmd:"" help:"Show the active env inventory."`
 	Lease          cmd.LeaseCmd          `cmd:"" help:"Acquire a named resource lease."`
 	Release        cmd.ReleaseCmd        `cmd:"" help:"Release a named resource lease."`

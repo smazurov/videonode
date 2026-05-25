@@ -36,6 +36,11 @@ func Register(server *mcp.Server, statePath string) {
 	}, leaseHandler(statePath))
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "testenv_restart",
+		Description: "Rebuild and restart a test environment's daemon.",
+	}, restartHandler(statePath))
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "testenv_release",
 		Description: "Release an exclusive resource lock.",
 	}, releaseHandler(statePath))
@@ -47,10 +52,12 @@ type upIn struct {
 }
 
 type upOut struct {
-	EnvID string         `json:"env_id"`
-	Slot  int            `json:"slot"`
-	Ports map[string]int `json:"ports"`
-	PID   int            `json:"pid"`
+	EnvID   string         `json:"env_id"`
+	Slot    int            `json:"slot"`
+	Ports   map[string]int `json:"ports"`
+	HTTPURL string         `json:"http_url"`
+	Auth    string         `json:"auth,omitempty"`
+	PID     int            `json:"pid"`
 }
 
 type downIn struct {
@@ -109,7 +116,8 @@ func upHandler(sp string) mcp.ToolHandlerFor[upIn, upOut] {
 		}
 		return nil, upOut{
 			EnvID: r.EnvID, Slot: r.Slot,
-			Ports: r.Ports, PID: r.PID,
+			Ports: r.Ports, HTTPURL: r.HTTPURL, Auth: r.Auth,
+			PID: r.PID,
 		}, nil
 	}
 }
@@ -156,6 +164,32 @@ func leaseHandler(sp string) mcp.ToolHandlerFor[leaseIn, leaseOut] {
 			return nil, leaseOut{}, err
 		}
 		return nil, leaseOut{ResourceID: in.ResourceID}, nil
+	}
+}
+
+type restartIn struct {
+	EnvID   string `json:"env_id,omitempty"`
+	Session string `json:"session,omitempty"`
+}
+
+type restartOut struct {
+	EnvID   string `json:"env_id"`
+	HTTPURL string `json:"http_url"`
+	Auth    string `json:"auth,omitempty"`
+	PID     int    `json:"pid"`
+}
+
+func restartHandler(sp string) mcp.ToolHandlerFor[restartIn, restartOut] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in restartIn) (*mcp.CallToolResult, restartOut, error) {
+		r, err := envctl.Restart(ctx, envctl.RestartParams{
+			StatePath: sp, EnvID: in.EnvID, Session: sessionOrEnv(in.Session),
+		})
+		if err != nil {
+			return nil, restartOut{}, err
+		}
+		return nil, restartOut{
+			EnvID: r.EnvID, HTTPURL: r.HTTPURL, Auth: r.Auth, PID: r.PID,
+		}, nil
 	}
 }
 

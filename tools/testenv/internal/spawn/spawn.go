@@ -21,11 +21,12 @@ import (
 
 // Request is the input to a spawn.
 type Request struct {
-	Config  *config.V1
-	EnvID   string
-	DataDir string
-	Locks   []string
-	Held    *slots.Held
+	Config   *config.V1
+	EnvID    string
+	DataDir  string
+	Locks    []string
+	Worktree string
+	Held     *slots.Held
 }
 
 // Result is what the spawn produced.
@@ -37,7 +38,7 @@ type Result struct {
 // health check passes or an error.
 func Spawn(ctx context.Context, req Request) (Result, error) {
 	cfg := req.Config
-	worktree, _ := os.Getwd()
+	worktree := req.Worktree
 
 	if err := os.MkdirAll(req.DataDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("mkdir data dir: %w", err)
@@ -58,28 +59,45 @@ func Spawn(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 
-	// Build step (optional).
-	if cfg.Spawn.Build != "" {
-		buildCmd := config.ExpandVars(cfg.Spawn.Build, vars)
-		cmd := exec.CommandContext(ctx, "sh", "-c", buildCmd)
-		cmd.Dir = worktree
-		cmd.Env = env
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return Result{}, fmt.Errorf("build step failed: %w", err)
-		}
+	if err := Build(ctx, cfg, worktree, vars, env); err != nil {
+		return Result{}, err
 	}
 
 	// Release held ports right before exec.
 	req.Held.Release()
 
-	// Spawn the daemon.
+	pid, err := Start(ctx, cfg, worktree, vars, env, req.DataDir)
+	if err != nil {
+		return Result{}, err
+	}
+
+	return Result{PID: pid}, nil
+}
+
+// Build runs the spawn.build command from the config.
+func Build(ctx context.Context, cfg *config.V1, worktree string, vars map[string]string, env []string) error {
+	if cfg.Spawn.Build == "" {
+		return nil
+	}
+	buildCmd := config.ExpandVars(cfg.Spawn.Build, vars)
+	cmd := exec.CommandContext(ctx, "sh", "-c", buildCmd)
+	cmd.Dir = worktree
+	cmd.Env = env
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("build step failed: %w", err)
+	}
+	return nil
+}
+
+// Start spawns the daemon and waits for the health check. Returns the PID.
+func Start(ctx context.Context, cfg *config.V1, worktree string, vars map[string]string, env []string, dataDir string) (int, error) {
 	command := config.ExpandVars(cfg.Spawn.Command, vars)
-	logPath := filepath.Join(req.DataDir, "daemon.log")
+	logPath := filepath.Join(dataDir, "daemon.log")
 	logFile, err := os.Create(logPath)
 	if err != nil {
-		return Result{}, fmt.Errorf("create log: %w", err)
+		return 0, fmt.Errorf("create log: %w", err)
 	}
 
 	cmd := exec.Command("sh", "-c", command)
@@ -89,15 +107,14 @@ func Spawn(ctx context.Context, req Request) (Result, error) {
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
-		return Result{}, fmt.Errorf("start daemon: %w", err)
+		return 0, fmt.Errorf("start daemon: %w", err)
 	}
 	pid := cmd.Process.Pid
 	if err := cmd.Process.Release(); err != nil {
 		logFile.Close()
-		return Result{}, fmt.Errorf("release process: %w", err)
+		return 0, fmt.Errorf("release process: %w", err)
 	}
 
-	// Health check.
 	if cfg.Spawn.HealthURL != "" {
 		healthURL := config.ExpandVars(cfg.Spawn.HealthURL, vars)
 		timeout := 15 * time.Second
@@ -108,11 +125,21 @@ func Spawn(ctx context.Context, req Request) (Result, error) {
 		}
 		if err := waitHealthy(ctx, healthURL, cfg.Spawn.HealthAuth, timeout); err != nil {
 			tail := tailFile(logPath, 4096)
-			return Result{}, fmt.Errorf("health check failed at %s: %w\n--- log tail ---\n%s", healthURL, err, tail)
+			return 0, fmt.Errorf("health check failed at %s: %w\n--- log tail ---\n%s", healthURL, err, tail)
 		}
 	}
 
-	return Result{PID: pid}, nil
+	return pid, nil
+}
+
+// BuildVarsForSlot constructs TESTENV_* vars for an existing slot (used by restart).
+func BuildVarsForSlot(cfg *config.V1, slot int, envID, dataDir, worktree string, locks []string) map[string]string {
+	return cfg.BuildVars(slot, envID, dataDir, worktree, locks)
+}
+
+// BuildEnv constructs the environment for build/spawn commands.
+func BuildEnv(cfg *config.V1, vars map[string]string) []string {
+	return buildEnv(cfg, vars)
 }
 
 func buildEnv(cfg *config.V1, vars map[string]string) []string {

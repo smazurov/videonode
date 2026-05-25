@@ -37,6 +37,8 @@ type UpResult struct {
 	EnvID   string
 	Slot    int
 	Ports   map[string]int // port name → number
+	HTTPURL string
+	Auth    string
 	DataDir string
 	PID     int
 }
@@ -59,15 +61,17 @@ type ListParams struct {
 }
 
 type EnvInfo struct {
-	ID        string
-	Slot      int
-	Target    string
-	Source    string
-	HTTPURL   string
-	Worktree  string
-	PID       int
-	Leases    []string
-	CreatedAt time.Time
+	ID         string
+	Slot       int
+	Target     string
+	Source     string
+	HTTPURL    string
+	HealthURL  string
+	HealthAuth string
+	Worktree   string
+	PID        int
+	Leases     []string
+	CreatedAt  time.Time
 }
 
 type LeaseParams struct {
@@ -87,7 +91,9 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 		p.Session = "unattached-" + randHex(4)
 	}
 
-	cfg, err := config.Load(".")
+	worktree := resolveWorktree(p.StatePath, p.Session)
+
+	cfg, err := config.Load(worktree)
 	if err != nil {
 		return UpResult{}, err
 	}
@@ -102,16 +108,13 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	if existing, err := s.GetEnvBySession(p.Session); err == nil {
 		return UpResult{
 			EnvID: existing.ID, Slot: existing.Slot,
+			HTTPURL: existing.HTTPURL, Auth: existing.HealthAuth,
 			DataDir: existing.DataDir, PID: existing.OwnerPID,
 		}, nil
 	}
 
 	envID := "env-" + randHex(4)
 	dataDir := filepath.Join(filepath.Dir(s.Path()), "envs", envID)
-	worktree := filepath.Dir(cfg.Path)
-	if sessionCwd, _ := LookupSession(p.StatePath, p.Session); sessionCwd != "" {
-		worktree = sessionCwd
-	}
 
 	var held *slots.Held
 	err = s.WithLock(func() error {
@@ -127,11 +130,14 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 		}
 		// First port in sorted order is used as the primary HTTP URL.
 		firstPort := held.Ports[cfg.PortNames()[0]]
+		vars := cfg.BuildVars(held.Slot, envID, dataDir, worktree, p.Locks)
 		env := store.Env{
 			ID: envID, OwnerSession: p.Session, OwnerPID: os.Getpid(),
 			OwnerWorktree: worktree, Target: "host", SourceMode: derivedSourceMode(p.Locks),
 			Slot: held.Slot, HTTPURL: fmt.Sprintf("http://localhost:%d", firstPort),
 			RTSPURL: "", SRTURL: "",
+			HealthURL: config.ExpandVars(cfg.Spawn.HealthURL, vars),
+			HealthAuth: cfg.Spawn.HealthAuth,
 			DataDir: dataDir, StreamsTOML: filepath.Join(dataDir, "streams.toml"),
 		}
 		if err := s.CreateEnv(env); err != nil {
@@ -152,11 +158,12 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	}
 
 	res, err := spawn.Spawn(ctx, spawn.Request{
-		Config:  cfg,
-		EnvID:   envID,
-		DataDir: dataDir,
-		Locks:   p.Locks,
-		Held:    held,
+		Config:   cfg,
+		EnvID:    envID,
+		DataDir:  dataDir,
+		Locks:    p.Locks,
+		Worktree: worktree,
+		Held:     held,
 	})
 	if err != nil {
 		s.DeleteEnv(envID)
@@ -164,9 +171,11 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	}
 	s.UpdateEnvAfterSpawn(envID, res.PID, "")
 
+	httpURL := fmt.Sprintf("http://localhost:%d", held.Ports[cfg.PortNames()[0]])
 	return UpResult{
 		EnvID: envID, Slot: held.Slot,
-		Ports: held.Ports, DataDir: dataDir, PID: res.PID,
+		Ports: held.Ports, HTTPURL: httpURL, Auth: cfg.Spawn.HealthAuth,
+		DataDir: dataDir, PID: res.PID,
 	}, nil
 }
 
@@ -232,7 +241,8 @@ func List(ctx context.Context, p ListParams) ([]EnvInfo, error) {
 		}
 		out = append(out, EnvInfo{
 			ID: e.ID, Slot: e.Slot, Target: e.Target, Source: e.SourceMode,
-			HTTPURL: e.HTTPURL, Worktree: DisplayWorktree(e.OwnerWorktree),
+			HTTPURL: e.HTTPURL, HealthURL: e.HealthURL, HealthAuth: e.HealthAuth,
+			Worktree: DisplayWorktree(e.OwnerWorktree),
 			PID: e.OwnerPID, Leases: ids, CreatedAt: e.CreatedAt,
 		})
 	}
@@ -354,6 +364,93 @@ func DisplayWorktree(absPath string) string {
 		rest = rest[:j]
 	}
 	return rest + "/" + project
+}
+
+// resolveWorktree returns the session's registered cwd, falling back to ".".
+func resolveWorktree(statePath, session string) string {
+	if cwd, _ := LookupSession(statePath, session); cwd != "" {
+		return cwd
+	}
+	return "."
+}
+
+type RestartParams struct {
+	StatePath string
+	EnvID     string
+	Session   string
+}
+
+type RestartResult struct {
+	EnvID   string
+	HTTPURL string
+	Auth    string
+	PID     int
+}
+
+func Restart(ctx context.Context, p RestartParams) (RestartResult, error) {
+	worktree := resolveWorktree(p.StatePath, p.Session)
+
+	cfg, err := config.Load(worktree)
+	if err != nil {
+		return RestartResult{}, err
+	}
+
+	s, err := openStore(p.StatePath)
+	if err != nil {
+		return RestartResult{}, err
+	}
+	defer s.Close()
+	reaper.Reap(s)
+
+	envID := p.EnvID
+	if envID == "" {
+		if p.Session == "" {
+			return RestartResult{}, errors.New("no env id and no session to resolve")
+		}
+		e, err := s.GetEnvBySession(p.Session)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return RestartResult{}, fmt.Errorf("no env owned by session %s", p.Session)
+			}
+			return RestartResult{}, err
+		}
+		envID = e.ID
+	}
+
+	e, err := s.GetEnv(envID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return RestartResult{}, fmt.Errorf("no such env: %s", envID)
+		}
+		return RestartResult{}, err
+	}
+
+	leases, _ := s.ListLeasesFor(envID)
+	var lockIDs []string
+	for _, l := range leases {
+		lockIDs = append(lockIDs, l.ResourceID)
+	}
+
+	vars := spawn.BuildVarsForSlot(cfg, e.Slot, envID, e.DataDir, e.OwnerWorktree, lockIDs)
+	env := spawn.BuildEnv(cfg, vars)
+
+	signalDaemon(e.OwnerPID)
+
+	if err := spawn.Build(ctx, cfg, e.OwnerWorktree, vars, env); err != nil {
+		return RestartResult{}, fmt.Errorf("rebuild: %w", err)
+	}
+
+	pid, err := spawn.Start(ctx, cfg, e.OwnerWorktree, vars, env, e.DataDir)
+	if err != nil {
+		return RestartResult{}, fmt.Errorf("restart: %w", err)
+	}
+
+	healthURL := config.ExpandVars(cfg.Spawn.HealthURL, vars)
+	s.UpdateEnvAfterRestart(envID, pid, healthURL, cfg.Spawn.HealthAuth)
+
+	return RestartResult{
+		EnvID: envID, HTTPURL: e.HTTPURL, Auth: cfg.Spawn.HealthAuth, PID: pid,
+	}, nil
 }
 
 // --- helpers ---
