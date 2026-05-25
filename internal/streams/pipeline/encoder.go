@@ -117,9 +117,17 @@ func ProgressSocketPathFor(streamID string) string {
 // pipeInputFor maps a FrameSource to the ffmpeg.PipeInput shape:
 // NV12-Y4M is self-describing; BGRA-raw needs explicit dims + framerate.
 func pipeInputFor(fs FrameSource) *ffmpeg.PipeInput {
+	w, h := fs.Dims()
 	switch fs.Kind() {
+	case FrameKindNV12Raw:
+		return &ffmpeg.PipeInput{
+			Format:      "rawvideo",
+			PixelFormat: "nv12",
+			Width:       w,
+			Height:      h,
+			FPS:         fs.FPS(),
+		}
 	case FrameKindBGRARaw:
-		w, h := fs.Dims()
 		return &ffmpeg.PipeInput{
 			Format:      "rawvideo",
 			PixelFormat: "bgra",
@@ -127,10 +135,14 @@ func pipeInputFor(fs FrameSource) *ffmpeg.PipeInput {
 			Height:      h,
 			FPS:         fs.FPS(),
 		}
-	case FrameKindNV12Y4M, FrameKindUnknown:
-		fallthrough
 	default:
-		return &ffmpeg.PipeInput{Format: "yuv4mpegpipe"}
+		return &ffmpeg.PipeInput{
+			Format:      "rawvideo",
+			PixelFormat: "nv12",
+			Width:       w,
+			Height:      h,
+			FPS:         fs.FPS(),
+		}
 	}
 }
 

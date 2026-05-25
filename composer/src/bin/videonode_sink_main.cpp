@@ -1,13 +1,13 @@
 // videonode-sink — SCM_RIGHTS → stdout frame carrier. Dials an SCM_RIGHTS
 // socket exposed by either a videonode-source (NV12 capture frames) or a
 // videonode-composer with --scm-out (BGRA composed frames), mmaps each
-// incoming dma-buf, and writes frames to stdout in a format-appropriate
-// wrapping for the downstream ffmpeg consumer.
+// incoming dma-buf, and writes frames to stdout for the downstream ffmpeg
+// consumer.
 //
 //   videonode-source --device /dev/videoN --out-socket /tmp/vn-bus-<id>.sock
 //   videonode-sink --socket /tmp/vn-bus-<id>.sock
-//     | ffmpeg -f yuv4mpegpipe -i pipe:0   # NV12 → Y4M auto-detect dims
-//              <encoder ...> -f rtsp rtsp://127.0.0.1:8554/<id>
+//     | ffmpeg -f rawvideo -pix_fmt nv12 -video_size WxH -framerate N
+//              -i pipe:0 <encoder ...> -f rtsp rtsp://127.0.0.1:8554/<id>
 //
 //   videonode-composer ... --scm-out /tmp/vn-bus-composer-<id>.sock
 //   videonode-sink --socket /tmp/vn-bus-composer-<id>.sock
@@ -15,9 +15,8 @@
 //              <encoder ...> -f rtsp ...
 //
 // Output format is auto-selected from the first frame's fourcc:
-//   - NV*  (NV12, NV24, NV16) → emit YUV4MPEG2 (NV12 only today; chroma
-//                                deinterleave to I420 on CPU via Y4mWriter).
-//   - BGRA / ARGB / etc.       → emit raw bytes per frame, no header.
+//   - NV12            → raw NV12 bytes (Y plane, then UV plane).
+//   - BGRA / ARGB     → raw bytes per frame, no header.
 //
 // The first frame announces dims + format on stderr so callers can size
 // the downstream ffmpeg invocation accordingly.
@@ -25,7 +24,6 @@
 #include "src/common/log_levels.hpp"
 #include "src/common/signal.hpp"
 #include "src/ipc/scm_rights_source.hpp"
-#include "src/process/y4m_writer.hpp"
 #include "version.hpp"
 
 #include <atomic>
@@ -35,20 +33,22 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <memory>
+#include <linux/dma-buf.h>
 #include <span>
 #include <string>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <thread>
 #include <unistd.h>
-#include <vector>
+
+#ifdef __SSE4_1__
+#include <immintrin.h>
+#endif
 
 namespace {
 
 std::atomic<bool> g_running{true};
 
-// write_full retries until all bytes are flushed or the consumer closes.
-// Used for the raw-BGRA path; the Y4M path lives in vn::process::Y4mWriter.
 bool write_full(int fd, std::span<const uint8_t> buf) {
     while (!buf.empty()) {
         ssize_t w = ::write(fd, buf.data(), buf.size());
@@ -64,16 +64,79 @@ bool write_full(int fd, std::span<const uint8_t> buf) {
     return true;
 }
 
-// emit_frame_nv12_y4m mmaps the producer's NV12 dma-buf(s) and hands plane
-// spans to the Y4mWriter for a YUV4MPEG2 FRAME.
+void dmabuf_sync_start(int fd) {
+    struct dma_buf_sync sync {};
+    sync.flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ;
+    ::ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync);
+}
+
+void dmabuf_sync_end(int fd) {
+    struct dma_buf_sync sync {};
+    sync.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ;
+    ::ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync);
+}
+
+// emit_frame_nv12_raw mmaps the producer's NV12 dma-buf(s) and writes
+// raw NV12 bytes (Y plane then UV plane) to stdout. No format conversion —
+// ffmpeg reads via `-f rawvideo -pix_fmt nv12 -video_size WxH -framerate N`.
 //
-// Honors the source's reported strides + plane layout:
-//   - plane0_pitch / plane1_pitch may be > width when the allocator
-//     pads rows (e.g. GBM tiled BOs); Y4mWriter packs rows tightly.
-//   - plane1_fd >= 0 → separate dma-buf for the UV plane; mmap each
-//     side independently. Otherwise UV lives in the same fd at
-//     plane1_offset (or contiguous after Y when plane1_offset==0).
-bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, vn::process::Y4mWriter& writer) {
+// Honors stride padding: rows are packed tightly in the output even when
+// the allocator pads them (e.g. GBM tiled BOs).
+// Reusable scratch buffer — avoids per-frame allocation. Aligned to 16
+// bytes for SSE streaming stores.
+static std::vector<uint8_t, std::allocator<uint8_t>> g_scratch;
+static uint8_t* aligned_scratch(size_t needed) {
+    if (g_scratch.size() < needed + 15)
+        g_scratch.resize(needed + 15);
+    auto p = reinterpret_cast<uintptr_t>(g_scratch.data());
+    return reinterpret_cast<uint8_t*>((p + 15) & ~uintptr_t(15));
+}
+
+// streaming_memcpy uses non-temporal loads (movntdqa) to read from
+// write-combining memory efficiently, then regular stores into cached dst.
+// Unrolled 4x streaming load for reading write-combining memory.
+// movntdqa bypasses the WC serialization bottleneck that makes regular
+// loads ~100x slower than cached reads on GPU-allocated dma-bufs.
+void streaming_memcpy(uint8_t* dst, const uint8_t* src, size_t len) {
+#ifdef __SSE4_1__
+    auto* d = reinterpret_cast<__m128i*>(dst);
+    auto* s = const_cast<__m128i*>(reinterpret_cast<const __m128i*>(src));
+    size_t n = len / 16;
+    while (n >= 4) {
+        __m128i r0 = _mm_stream_load_si128(s + 0);
+        __m128i r1 = _mm_stream_load_si128(s + 1);
+        __m128i r2 = _mm_stream_load_si128(s + 2);
+        __m128i r3 = _mm_stream_load_si128(s + 3);
+        _mm_store_si128(d + 0, r0);
+        _mm_store_si128(d + 1, r1);
+        _mm_store_si128(d + 2, r2);
+        _mm_store_si128(d + 3, r3);
+        s += 4;
+        d += 4;
+        n -= 4;
+    }
+    while (n-- > 0) {
+        _mm_store_si128(d++, _mm_stream_load_si128(s++));
+    }
+    size_t tail = len & 15;
+    if (tail > 0)
+        std::memcpy(reinterpret_cast<uint8_t*>(d), reinterpret_cast<const uint8_t*>(s), tail);
+    _mm_sfence();
+#else
+    std::memcpy(dst, src, len);
+#endif
+}
+
+void copy_plane(uint8_t* dst, const uint8_t* src, size_t width, size_t pitch, size_t rows) {
+    if (pitch == width) {
+        streaming_memcpy(dst, src, width * rows);
+    } else {
+        for (size_t r = 0; r < rows; ++r)
+            streaming_memcpy(dst + r * width, src + r * pitch, width);
+    }
+}
+
+bool emit_frame_nv12_raw(const scm_rights_source::FrameView& v) {
     if (v.fd < 0 || v.width <= 0 || v.height <= 0)
         return true;
     const size_t width = size_t(v.width);
@@ -86,9 +149,11 @@ bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, vn::process::Y4m
         return true;
     }
     const size_t uv_rows = height / 2;
-    const size_t uv_raw_bytes = uv_pitch * uv_rows; // mmap'd region size
+    const size_t uv_raw_bytes = uv_pitch * uv_rows;
+    const size_t frame_bytes = width * height + width * uv_rows;
 
-    // Map Y plane (possibly with the UV plane appended in single-fd mode).
+    uint8_t* scratch = aligned_scratch(frame_bytes);
+
     const size_t y_map_size = v.plane0_offset + y_pitch * height +
                               (v.plane1_fd >= 0 ? 0 : uv_raw_bytes + v.plane1_offset);
     void* y_map = ::mmap(nullptr, y_map_size, PROT_READ, MAP_SHARED, v.fd, 0);
@@ -96,9 +161,9 @@ bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, vn::process::Y4m
         vn::log::error("videonode-sink: mmap y_fd=%d failed: %s", v.fd, strerror(errno));
         return true;
     }
+    dmabuf_sync_start(v.fd);
     const auto* y_base = static_cast<const uint8_t*>(y_map) + v.plane0_offset;
 
-    // Map UV plane: separate fd, or same fd at plane1_offset.
     void* uv_map = nullptr;
     size_t uv_map_size = 0;
     const uint8_t* uv_base = nullptr;
@@ -108,23 +173,30 @@ bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, vn::process::Y4m
         if (uv_map == MAP_FAILED) {
             vn::log::error("videonode-sink: mmap uv_fd=%d failed: %s", v.plane1_fd,
                            strerror(errno));
+            dmabuf_sync_end(v.fd);
             ::munmap(y_map, y_map_size);
             return true;
         }
+        dmabuf_sync_start(v.plane1_fd);
         uv_base = static_cast<const uint8_t*>(uv_map) + v.plane1_offset;
     } else {
-        // Single-fd NV12: UV starts at v.plane1_offset, or right after Y
-        // when plane1_offset is the default zero.
         size_t uv_off = v.plane1_offset ? v.plane1_offset : v.plane0_offset + y_pitch * height;
         uv_base = static_cast<const uint8_t*>(y_map) + uv_off;
     }
 
-    bool ok = writer.WriteFrameNV12(std::span<const uint8_t>(y_base, y_pitch * height), y_pitch,
-                                    std::span<const uint8_t>(uv_base, uv_raw_bytes), uv_pitch);
-    if (uv_map != nullptr) {
+    // Copy from (potentially uncached) dma-buf into the cached scratch
+    // buffer in one pass, then release the mmap before writing to the pipe.
+    copy_plane(scratch, y_base, width, y_pitch, height);
+    copy_plane(scratch + width * height, uv_base, width, uv_pitch, uv_rows);
+
+    if (v.plane1_fd >= 0 && uv_map != nullptr) {
+        dmabuf_sync_end(v.plane1_fd);
         ::munmap(uv_map, uv_map_size);
     }
+    dmabuf_sync_end(v.fd);
     ::munmap(y_map, y_map_size);
+
+    bool ok = write_full(STDOUT_FILENO, std::span(scratch, frame_bytes));
     if (!ok) {
         vn::log::info("videonode-sink: stdout closed, exiting");
         return false;
@@ -132,43 +204,32 @@ bool emit_frame_nv12_y4m(const scm_rights_source::FrameView& v, vn::process::Y4m
     return true;
 }
 
-// emit_frame_raw_bgra writes one BGRA frame's bytes straight to stdout
-// (no per-frame header, no chunking). Downstream ffmpeg consumes via
-// `-f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0` — the daemon
-// knows the dims it asked the composer to render, so no muxing is needed.
-// The composer's canvas BO may have row stride > width*4 on tiled
-// backends; pack rows tightly so ffmpeg's -s WxH interpretation matches.
 bool emit_frame_raw_bgra(const scm_rights_source::FrameView& v) {
     if (v.fd < 0 || v.width <= 0 || v.height <= 0)
         return true;
     const size_t row_bytes = size_t(v.width) * 4;
     const size_t stride = v.plane0_pitch ? v.plane0_pitch : row_bytes;
-    // Reject obviously-malformed pitches — a producer reporting
-    // stride < row_bytes would cause our row loop to read past each
-    // row boundary into the next row's prefix, producing sheared
-    // output. Treat as a recoverable frame-drop (return true =
-    // continue with next frame) rather than exit.
     if (stride < row_bytes) {
         vn::log::error("videonode-sink: BGRA stride %zu < row_bytes %zu (width=%d); dropping frame",
                        stride, row_bytes, v.width);
         return true;
     }
+    const size_t frame_bytes = row_bytes * v.height;
+    uint8_t* scratch = aligned_scratch(frame_bytes);
+
     const size_t map_size = v.plane0_offset + stride * v.height;
     void* m = ::mmap(nullptr, map_size, PROT_READ, MAP_SHARED, v.fd, 0);
     if (m == MAP_FAILED) {
         vn::log::error("videonode-sink: mmap fd=%d failed: %s", v.fd, strerror(errno));
         return true;
     }
+    dmabuf_sync_start(v.fd);
     const auto* base = static_cast<const uint8_t*>(m) + v.plane0_offset;
-    bool ok = true;
-    if (stride == row_bytes) {
-        ok = write_full(STDOUT_FILENO, std::span(base, row_bytes * v.height));
-    } else {
-        for (int y = 0; y < v.height && ok; ++y) {
-            ok = write_full(STDOUT_FILENO, std::span(base + size_t(y) * stride, row_bytes));
-        }
-    }
+    copy_plane(scratch, base, row_bytes, stride, size_t(v.height));
+    dmabuf_sync_end(v.fd);
     ::munmap(m, map_size);
+
+    bool ok = write_full(STDOUT_FILENO, std::span(scratch, frame_bytes));
     if (!ok) {
         vn::log::info("videonode-sink: stdout closed, exiting");
         return false;
@@ -176,13 +237,6 @@ bool emit_frame_raw_bgra(const scm_rights_source::FrameView& v) {
     return true;
 }
 
-// is_nv12_format returns true when fourcc names NV12 specifically.
-// Empty fourcc defaults to NV12 for back-compat with legacy senders.
-// NV16 (4:2:2) and NV24 (4:4:4) deliberately fall through to raw mode
-// even though their fourccs start with "NV" — the Y4M path's chroma
-// layout is hardcoded to 4:2:0 and would under-map and mis-classify
-// the chroma plane otherwise. Future work: a real NV16/NV24 Y4M path
-// (CHROMA422 / CHROMA444 in the YUV4MPEG2 header).
 bool is_nv12_format(const std::string& fourcc) {
     return fourcc.empty() || fourcc == "NV12";
 }
@@ -194,8 +248,8 @@ namespace {
 struct Args {
     std::string socket_path;
     bool verbose = false;
-    int poll_ms = 5;     // sleep between latest_frame() polls
-    int settle_ms = 200; // delay after dial before first read
+    int poll_ms = 5;
+    int settle_ms = 200;
     int first_frame_timeout_s = 30;
 };
 
@@ -211,11 +265,12 @@ void print_help(const Args& d) {
             "  --first-frame-timeout N      seconds to wait for first frame (default %d)\n"
             "\n"
             "Output mode is auto-selected from the first frame's fourcc:\n"
-            "  NV12 / NV24 / NV16  → YUV4MPEG2 (NV12-only today; chroma → I420 on CPU).\n"
-            "                          Pipe to `ffmpeg -f yuv4mpegpipe -i pipe:0 ...`.\n"
-            "  BGRA / ARGB / etc.  → raw bytes per frame (no header).\n"
-            "                          Pipe to `ffmpeg -f rawvideo -pix_fmt bgra -s WxH "
-            "-framerate N -i pipe:0 ...`.\n"
+            "  NV12              → raw NV12 bytes (Y + UV planes).\n"
+            "                      Pipe to `ffmpeg -f rawvideo -pix_fmt nv12 -video_size WxH\n"
+            "                      -framerate N -i pipe:0 ...`.\n"
+            "  BGRA / ARGB       → raw bytes per frame (no header).\n"
+            "                      Pipe to `ffmpeg -f rawvideo -pix_fmt bgra -s WxH\n"
+            "                      -framerate N -i pipe:0 ...`.\n"
             "\n"
             "Stderr announces the dims + format on the first frame.\n",
             d.poll_ms, d.settle_ms, d.first_frame_timeout_s);
@@ -262,9 +317,6 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    // stderr defaults to block-buffered when redirected to a file (which
-    // the supervisor does via `>log 2>&1`). Force line-buffered so log
-    // lines are visible to `tail -f` immediately.
     ::setvbuf(stderr, nullptr, _IOLBF, 0);
 
     vn::signal::install_shutdown(g_running);
@@ -283,8 +335,7 @@ int main(int argc, char** argv) {
     uint64_t last_idx = 0;
     bool announced = false;
     int announced_w = 0, announced_h = 0;
-    bool yuv_mode = true; // decided on first frame from FrameView::format
-    std::unique_ptr<vn::process::Y4mWriter> y4m;
+    bool nv12_mode = true;
     auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(a.first_frame_timeout_s);
     while (g_running.load()) {
@@ -309,22 +360,10 @@ int main(int argc, char** argv) {
                               "likely needs restart",
                               announced_w, announced_h, v.width, v.height);
             }
-            yuv_mode = is_nv12_format(v.format);
-            if (yuv_mode) {
-                y4m = std::make_unique<vn::process::Y4mWriter>(STDOUT_FILENO, v.width, v.height, 60,
-                                                               1);
-                if (!y4m->WriteHeader())
-                    break;
-                vn::log::info("videonode-sink: streaming Y4M %dx%d (I420 from NV12 fourcc=%s) "
-                              "from %s",
-                              v.width, v.height, v.format.empty() ? "NV12" : v.format.c_str(),
-                              a.socket_path.c_str());
-            } else {
-                // Raw-bytes mode: no header. Downstream ffmpeg is invoked
-                // with -f rawvideo -pix_fmt <format> -s WxH -framerate N.
-                vn::log::info("videonode-sink: streaming raw %dx%d (fourcc=%s) from %s", v.width,
-                              v.height, v.format.c_str(), a.socket_path.c_str());
-            }
+            nv12_mode = is_nv12_format(v.format);
+            vn::log::info("videonode-sink: streaming raw %dx%d (%s fourcc=%s) from %s", v.width,
+                          v.height, nv12_mode ? "NV12" : "BGRA",
+                          v.format.empty() ? "NV12" : v.format.c_str(), a.socket_path.c_str());
             announced = true;
             announced_w = v.width;
             announced_h = v.height;
@@ -334,7 +373,7 @@ int main(int argc, char** argv) {
                           static_cast<unsigned long long>(v.frame_idx), v.fd);
         }
         last_idx = v.frame_idx;
-        bool ok = yuv_mode ? emit_frame_nv12_y4m(v, *y4m) : emit_frame_raw_bgra(v);
+        bool ok = nv12_mode ? emit_frame_nv12_raw(v) : emit_frame_raw_bgra(v);
         if (!ok)
             break;
     }

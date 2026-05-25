@@ -12,14 +12,11 @@ type MediaSource struct {
 // EncoderStage argv builder) can pick the right ffmpeg input args.
 type FrameKind int
 
-// FrameKind values: Unknown is the zero value reserved for unset; the
-// other two select the wire format vn-sink emits for ffmpeg.
+// FrameKind values select the wire format vn-sink emits for ffmpeg.
 const (
 	FrameKindUnknown FrameKind = iota
-	// FrameKindNV12Y4M is what vn-sink emits when consuming a producer
-	// socket: YUV4MPEG2 wrapping NV12. ffmpeg consumes via
-	// `-f yuv4mpegpipe -i pipe:0`.
-	FrameKindNV12Y4M
+	// FrameKindNV12Raw — raw NV12 bytes (Y + UV planes) on stdout.
+	FrameKindNV12Raw
 	// FrameKindBGRARaw is what vn-sink emits when consuming a composer
 	// socket: raw BGRA bytes. ffmpeg consumes via
 	// `-f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0`.
@@ -37,19 +34,22 @@ type FrameSource interface {
 // ProducerFrameSource — encoder dialing a Source's SCM socket directly.
 type ProducerFrameSource struct {
 	Socket string
+	Width  int
+	Height int
+	Fps    int
 }
 
-// Kind reports the wire format: NV12 wrapped in YUV4MPEG2.
-func (p ProducerFrameSource) Kind() FrameKind { return FrameKindNV12Y4M }
+// Kind reports raw NV12 wire format.
+func (p ProducerFrameSource) Kind() FrameKind { return FrameKindNV12Raw }
 
 // SocketPath returns the producer SCM socket vn-sink dials.
 func (p ProducerFrameSource) SocketPath() string { return p.Socket }
 
-// Dims returns (0, 0) — producer dims come from the y4m header at runtime.
-func (p ProducerFrameSource) Dims() (int, int) { return 0, 0 }
+// Dims returns the source capture resolution.
+func (p ProducerFrameSource) Dims() (int, int) { return p.Width, p.Height }
 
-// FPS returns 0 — producer framerate comes from the y4m header at runtime.
-func (p ProducerFrameSource) FPS() int { return 0 }
+// FPS returns the source capture framerate.
+func (p ProducerFrameSource) FPS() int { return p.Fps }
 
 // ComposerFrameSource — encoder dialing a Composer's `--scm-out` socket.
 type ComposerFrameSource struct {

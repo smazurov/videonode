@@ -4,13 +4,16 @@
 #include "src/ipc/dma_heap.hpp"
 
 #include <cstring>
+#include <linux/memfd.h>
 #include <memory>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <utility>
 
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
 #include "src/render/gbm_alloc.hpp"
+#include <gbm.h>
 #endif
 
 namespace nv12_buf {
@@ -46,6 +49,12 @@ struct GbmImpl {
     size_t y_map_size = 0;
     void* uv_map = nullptr;
     size_t uv_map_size = 0;
+    int staged_y_fd = -1;
+    int staged_uv_fd = -1;
+    void* staged_y_map = nullptr;
+    void* staged_uv_map = nullptr;
+    size_t staged_y_size = 0;
+    size_t staged_uv_size = 0;
 };
 #else
 // dma_heap backend: impl is a heap-allocated single dmaheap::Buffer + map.
@@ -84,8 +93,11 @@ Buffer& Buffer::operator=(Buffer&& o) noexcept {
     uv_pitch = o.uv_pitch;
     width = o.width;
     height = o.height;
+    staged_y_fd = o.staged_y_fd;
+    staged_uv_fd = o.staged_uv_fd;
     impl = o.impl;
     o.y_fd = o.uv_fd = -1;
+    o.staged_y_fd = o.staged_uv_fd = -1;
     o.impl = nullptr;
     return *this;
 }
@@ -101,6 +113,14 @@ Buffer::~Buffer() {
         ::munmap(g->y_map, g->y_map_size);
     if (g->uv_map)
         ::munmap(g->uv_map, g->uv_map_size);
+    if (g->staged_y_map)
+        ::munmap(g->staged_y_map, g->staged_y_size);
+    if (g->staged_uv_map)
+        ::munmap(g->staged_uv_map, g->staged_uv_size);
+    if (g->staged_y_fd >= 0)
+        ::close(g->staged_y_fd);
+    if (g->staged_uv_fd >= 0)
+        ::close(g->staged_uv_fd);
     gbm_alloc::free(g->nv);
 #else
     std::unique_ptr<DmaImpl> d{static_cast<DmaImpl*>(impl)};
@@ -218,11 +238,12 @@ Buffer Allocator::alloc(int width, int height) {
         return out;
     auto impl = std::make_unique<DmaImpl>();
     const size_t sz = static_cast<size_t>(width) * static_cast<size_t>(height) * 3 / 2;
-    // Try "system-uncached" first (RK3588 prefers it for output buffers
-    // RGA writes to without CPU readback); fall back to plain "system".
-    impl->bo = dmaheap::alloc(dmaheap::kHeapUncached, sz);
+    // "system" (cached) — consumers (vn-sink) mmap and CPU-read every
+    // frame; uncached pages would serialize every load through DRAM.
+    // RGA writes are coherent via DMA_BUF_IOCTL_SYNC.
+    impl->bo = dmaheap::alloc(dmaheap::kHeapSystem, sz);
     if (!impl->bo.valid())
-        impl->bo = dmaheap::alloc(dmaheap::kHeapSystem, sz);
+        impl->bo = dmaheap::alloc(dmaheap::kHeapUncached, sz);
     if (!impl->bo.valid())
         return out;
     out.y_fd = impl->bo.fd.get();
@@ -265,6 +286,96 @@ void unmap(Buffer& b) {
         impl->mapped = nullptr;
     }
 }
+
+#endif
+
+// ── stage_for_read ─────────────────────────────────────────────────────
+
+namespace {
+int create_memfd_(const char* name, size_t size) {
+    int fd = static_cast<int>(::syscall(SYS_memfd_create, name, MFD_CLOEXEC));
+    if (fd < 0)
+        return -1;
+    if (::ftruncate(fd, static_cast<off_t>(size)) < 0) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
+}
+} // namespace
+
+#if defined(HAVE_GBM) && !defined(HAVE_RGA)
+
+void stage_for_read(Buffer& b) {
+    if (!b.valid() || !b.impl)
+        return;
+    auto* g = static_cast<GbmImpl*>(b.impl);
+    const size_t y_bytes = size_t(b.height) * b.y_pitch;
+    const size_t uv_bytes = size_t(b.height) / 2 * b.uv_pitch;
+
+    if (g->staged_y_fd < 0) {
+        g->staged_y_fd = create_memfd_("nv12-y", y_bytes);
+        if (g->staged_y_fd < 0) {
+            vn::log::error("nv12_buf::stage_for_read: memfd_create Y failed");
+            return;
+        }
+        g->staged_y_size = y_bytes;
+        g->staged_y_map =
+            ::mmap(nullptr, y_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, g->staged_y_fd, 0);
+        if (g->staged_y_map == MAP_FAILED) {
+            g->staged_y_map = nullptr;
+            ::close(g->staged_y_fd);
+            g->staged_y_fd = -1;
+            return;
+        }
+    }
+    if (g->staged_uv_fd < 0) {
+        g->staged_uv_fd = create_memfd_("nv12-uv", uv_bytes);
+        if (g->staged_uv_fd < 0) {
+            vn::log::error("nv12_buf::stage_for_read: memfd_create UV failed");
+            return;
+        }
+        g->staged_uv_size = uv_bytes;
+        g->staged_uv_map =
+            ::mmap(nullptr, uv_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, g->staged_uv_fd, 0);
+        if (g->staged_uv_map == MAP_FAILED) {
+            g->staged_uv_map = nullptr;
+            ::close(g->staged_uv_fd);
+            g->staged_uv_fd = -1;
+            return;
+        }
+    }
+
+    // Use gbm_bo_map(TRANSFER_READ) which triggers GPU DMA into a cached
+    // staging buffer on radeonsi. Then memcpy from that cached staging
+    // into our memfd (also cached). Both reads and writes hit L1/L2.
+    {
+        std::lock_guard<std::mutex> lock(gbm_alloc::gbm_device_mu());
+        uint32_t stride = 0;
+        void* y_map_data = nullptr;
+        void* y_ptr = gbm_bo_map(g->nv.y_bo, 0, 0, b.width, b.height, GBM_BO_TRANSFER_READ,
+                                 &stride, &y_map_data);
+        if (y_ptr) {
+            std::memcpy(g->staged_y_map, y_ptr, y_bytes);
+            gbm_bo_unmap(g->nv.y_bo, y_map_data);
+        }
+
+        void* uv_map_data = nullptr;
+        void* uv_ptr = gbm_bo_map(g->nv.uv_bo, 0, 0, b.width / 2, b.height / 2,
+                                  GBM_BO_TRANSFER_READ, &stride, &uv_map_data);
+        if (uv_ptr) {
+            std::memcpy(g->staged_uv_map, uv_ptr, uv_bytes);
+            gbm_bo_unmap(g->nv.uv_bo, uv_map_data);
+        }
+    }
+
+    b.staged_y_fd = g->staged_y_fd;
+    b.staged_uv_fd = g->staged_uv_fd;
+}
+
+#else
+
+void stage_for_read(Buffer&) {}
 
 #endif
 
