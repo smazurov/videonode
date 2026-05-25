@@ -4,7 +4,7 @@ import { clearAuthState } from '../hooks/useAuthStore';
 import { getAuthCredentials } from './auth';
 import type { paths } from "./api.generated";
 
-export const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8090`;
+export const API_BASE_URL = window.location.origin;
 
 const SESSION_EXPIRED_MSG = 'Session expired. Please log in again.';
 
