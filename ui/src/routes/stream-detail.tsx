@@ -99,6 +99,7 @@ export default function StreamDetail() {
   const refreshKey = useStreamStore(
     (state) => (streamId ? state.streamRefreshKeys[streamId] ?? 0 : 0),
   );
+  const pipelineEnabled = useStreamStore((state) => state.pipelineEnabled);
 
   const { mode: previewMode, setMode: setPreviewMode } = useStreamPreviewMode(streamId ?? '');
 
@@ -190,6 +191,7 @@ export default function StreamDetail() {
 
   const isRunning = stream.status === 'running';
   const showSmallPreview = previewMode === 'small';
+  const previewIdleMessage = pipelineEnabled === false ? 'Pipeline stopped' : 'Stream disabled';
 
   return (
     <DashboardLayout onLogout={logout} bottomBar={<InfoBar />}>
@@ -252,7 +254,7 @@ export default function StreamDetail() {
                   </div>
                   <LivePreviewFrame
                     state={isRunning ? 'ready' : 'idle'}
-                    idleMessage="Stream disabled"
+                    idleMessage={previewIdleMessage}
                     mediaClassName="bg-black"
                   >
                     {isRunning && (

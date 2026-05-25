@@ -19,6 +19,7 @@ interface StreamOverviewPanelProps {
 export function StreamOverviewPanel({ streamId, className, videoHidden = false }: StreamOverviewPanelProps) {
   const stream = useStreamStore((state) => state.streamsById[streamId]);
   const refreshKey = useStreamStore((state) => state.streamRefreshKeys[streamId] ?? 0);
+  const pipelineEnabled = useStreamStore((state) => state.pipelineEnabled);
 
   if (!stream) {
     return (
@@ -31,6 +32,7 @@ export function StreamOverviewPanel({ streamId, className, videoHidden = false }
   const upstream = resolveUpstream(stream);
   const status = poolStateToPill(stream.status);
   const isRunning = stream.status === 'running';
+  const idleMessage = pipelineEnabled === false ? 'Pipeline stopped' : 'Stream disabled';
 
   return (
     <section className={cn('space-y-4 rounded-lg border border-border bg-surface-raised p-4', className)}>
@@ -43,7 +45,7 @@ export function StreamOverviewPanel({ streamId, className, videoHidden = false }
       {!videoHidden && (
         <LivePreviewFrame
           state={isRunning ? 'ready' : 'idle'}
-          idleMessage="Stream disabled"
+          idleMessage={idleMessage}
           mediaClassName="bg-black"
         >
           {isRunning && (
