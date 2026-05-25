@@ -135,6 +135,16 @@ func mergeHooks(root string, dryRun bool) error {
 	return nil
 }
 
+func projectStatePath(root string) string {
+	project := filepath.Base(root)
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		home, _ := os.UserHomeDir()
+		stateDir = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(stateDir, "testenv", project, "state.db")
+}
+
 func writeMCPJSON(root string, dryRun bool) error {
 	path := filepath.Join(root, ".mcp.json")
 	exe, err := os.Executable()
@@ -147,7 +157,9 @@ func writeMCPJSON(root string, dryRun bool) error {
 			"testenv": map[string]any{
 				"command": exe,
 				"args":    []string{"mcp"},
-				"env":     map[string]string{},
+				"env": map[string]string{
+					"TESTENV_STATE": projectStatePath(root),
+				},
 			},
 		},
 	}

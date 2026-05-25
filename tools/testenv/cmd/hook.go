@@ -22,6 +22,9 @@ type HookCmd struct {
 type HookSessionStartCmd struct{}
 
 func (c *HookSessionStartCmd) Run(ctx *Context) error {
+	raw, _ := io.ReadAll(os.Stdin)
+	envctl.EvalSessionStart(bytes.NewReader(raw), ctx.StatePath)
+
 	r, err := envctl.Reap(ctx.Ctx, ctx.StatePath)
 	if err != nil {
 		return err

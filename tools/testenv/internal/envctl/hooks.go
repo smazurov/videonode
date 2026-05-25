@@ -147,6 +147,25 @@ func EvalPostToolUse(r io.Reader, statePath string) HookDecision {
 	return HookDecision{}
 }
 
+// SessionStartPayload is the JSON stdin from a SessionStart hook.
+type SessionStartPayload struct {
+	SessionID string `json:"session_id"`
+	Cwd       string `json:"cwd"`
+}
+
+// EvalSessionStart registers the session's initial cwd so that
+// resolveWorktree can find it even before EnterWorktree fires.
+func EvalSessionStart(r io.Reader, statePath string) {
+	var payload SessionStartPayload
+	if err := json.NewDecoder(r).Decode(&payload); err != nil {
+		return
+	}
+	if payload.SessionID == "" || payload.Cwd == "" {
+		return
+	}
+	RegisterSession(statePath, payload.SessionID, payload.Cwd)
+}
+
 // SessionStartContext returns inventory text to inject into the
 // session as additional context.
 func SessionStartContext(ctx context.Context, statePath string) string {

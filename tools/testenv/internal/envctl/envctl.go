@@ -381,10 +381,15 @@ func DisplayWorktree(absPath string) string {
 	return rest + "/" + project
 }
 
-// resolveWorktree returns the session's registered cwd, falling back to ".".
+// resolveWorktree returns the session's registered cwd, falling back to the
+// project root (the directory containing .testenv.toml found by walking up
+// from the process cwd).
 func resolveWorktree(statePath, session string) string {
 	if cwd, _ := LookupSession(statePath, session); cwd != "" {
 		return cwd
+	}
+	if dir, err := config.FindProjectRoot(); err == nil {
+		return dir
 	}
 	return "."
 }
