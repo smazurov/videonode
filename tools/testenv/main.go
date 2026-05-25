@@ -10,10 +10,13 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/alecthomas/kong"
 
 	"github.com/smazurov/videonode/tools/testenv/cmd"
+	"github.com/smazurov/videonode/tools/testenv/internal/config"
 )
 
 // cli is the Kong root.
@@ -43,6 +46,9 @@ func main() {
 		kong.Description("Coordinator for parallel test environments."),
 		kong.UsageOnError(),
 	)
+	if root.StatePath == "" {
+		root.StatePath = resolveProjectStatePath()
+	}
 	err := k.Run(&cmd.Context{
 		Ctx:       context.Background(),
 		StatePath: root.StatePath,
@@ -52,4 +58,35 @@ func main() {
 		_, _ = os.Stderr.WriteString("testenv: " + err.Error() + "\n")
 		os.Exit(1)
 	}
+}
+
+func resolveProjectStatePath() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, config.FileName)); err == nil {
+			project := filepath.Base(resolveProjectRoot(dir))
+			stateDir := os.Getenv("XDG_STATE_HOME")
+			if stateDir == "" {
+				home, _ := os.UserHomeDir()
+				stateDir = filepath.Join(home, ".local", "state")
+			}
+			return filepath.Join(stateDir, "testenv", project, "state.db")
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func resolveProjectRoot(dir string) string {
+	const marker = "/.claude/worktrees/"
+	if i := strings.Index(dir, marker); i >= 0 {
+		return dir[:i]
+	}
+	return dir
 }
