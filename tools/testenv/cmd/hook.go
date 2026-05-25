@@ -77,20 +77,19 @@ func (c *HookPostToolUseCmd) Run(ctx *Context) error {
 type HookWorktreeRemoveCmd struct{}
 
 func (c *HookWorktreeRemoveCmd) Run(ctx *Context) error {
-	// Read the worktree_dir from the hook payload.
 	var payload struct {
-		WorktreeDir string `json:"worktree_dir"`
+		WorktreePath string `json:"worktree_path"`
 	}
-	if err := readJSON(os.Stdin, &payload); err != nil || payload.WorktreeDir == "" {
+	if err := readJSON(os.Stdin, &payload); err != nil || payload.WorktreePath == "" {
 		return nil
 	}
-	released, err := envctl.ReleaseWorktree(ctx.Ctx, ctx.StatePath, payload.WorktreeDir)
+	released, err := envctl.ReleaseWorktree(ctx.Ctx, ctx.StatePath, payload.WorktreePath)
 	if err != nil {
 		return err
 	}
 	if len(released) > 0 {
 		fmt.Fprintf(os.Stderr, "testenv: released %d env(s) from removed worktree %s\n",
-			len(released), payload.WorktreeDir)
+			len(released), payload.WorktreePath)
 	}
 	return nil
 }

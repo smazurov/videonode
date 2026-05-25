@@ -32,7 +32,7 @@ func TestReapRemovesDeadPID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(released) != 1 || released[0] != "dead" {
+	if len(released) != 1 || released[0].ID != "dead" {
 		t.Errorf("expected [dead], got %v", released)
 	}
 }

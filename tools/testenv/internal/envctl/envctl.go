@@ -97,7 +97,7 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 		return UpResult{}, err
 	}
 	defer s.Close()
-	reaper.Reap(s)
+	reapAndClean(s)
 
 	if existing, err := s.GetEnvBySession(p.Session); err == nil {
 		return UpResult{
@@ -176,7 +176,7 @@ func Down(ctx context.Context, p DownParams) (DownResult, error) {
 		return DownResult{}, err
 	}
 	defer s.Close()
-	reaper.Reap(s)
+	reapAndClean(s)
 
 	envID := p.EnvID
 	if envID == "" {
@@ -204,6 +204,7 @@ func Down(ctx context.Context, p DownParams) (DownResult, error) {
 	if err := s.DeleteEnv(envID); err != nil {
 		return DownResult{}, err
 	}
+	removeDataDir(e.DataDir)
 	return DownResult{EnvID: envID, PID: e.OwnerPID}, nil
 }
 
@@ -213,7 +214,7 @@ func List(ctx context.Context, p ListParams) ([]EnvInfo, error) {
 		return nil, err
 	}
 	defer s.Close()
-	reaper.Reap(s)
+	reapAndClean(s)
 
 	envs, err := s.ListEnvs()
 	if err != nil {
@@ -244,7 +245,7 @@ func Lease(ctx context.Context, p LeaseParams) error {
 		return err
 	}
 	defer s.Close()
-	reaper.Reap(s)
+	reapAndClean(s)
 
 	if p.Session == "" {
 		return errors.New("no session to resolve env for lease")
@@ -284,6 +285,7 @@ func ReleaseSession(ctx context.Context, statePath, session string) ([]string, e
 	for _, e := range envs {
 		if e.OwnerSession == session {
 			signalDaemon(e.OwnerPID)
+			removeDataDir(e.DataDir)
 		}
 	}
 	return s.DeleteEnvsForSession(session)
@@ -307,6 +309,7 @@ func ReleaseWorktree(ctx context.Context, statePath, worktreeDir string) ([]stri
 		if e.OwnerWorktree == worktreeDir {
 			signalDaemon(e.OwnerPID)
 			if s.DeleteEnv(e.ID) == nil {
+				removeDataDir(e.DataDir)
 				released = append(released, e.ID)
 			}
 		}
@@ -320,8 +323,8 @@ func Reap(ctx context.Context, statePath string) (ReapResult, error) {
 		return ReapResult{}, err
 	}
 	defer s.Close()
-	released, err := reaper.Reap(s)
-	return ReapResult{Released: released}, err
+	ids := reapAndClean(s)
+	return ReapResult{Released: ids}, nil
 }
 
 func Validate(dir string) error {
@@ -386,6 +389,23 @@ func signalDaemon(pid int) {
 	}
 	_ = unix.Kill(-pid, unix.SIGTERM)
 	_ = unix.Kill(pid, unix.SIGTERM)
+}
+
+func reapAndClean(s *store.Store) []string {
+	reaped, _ := reaper.Reap(s)
+	var ids []string
+	for _, r := range reaped {
+		removeDataDir(r.DataDir)
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+func removeDataDir(dir string) {
+	if dir == "" {
+		return
+	}
+	os.RemoveAll(dir)
 }
 
 func randHex(nBytes int) string {

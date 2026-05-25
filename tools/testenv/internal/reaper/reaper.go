@@ -14,11 +14,15 @@ import (
 	"github.com/smazurov/videonode/tools/testenv/internal/store"
 )
 
+// ReapedEnv holds the identity and data directory of a reaped env.
+type ReapedEnv struct {
+	ID      string
+	DataDir string
+}
+
 // Reap removes every env whose owner_pid no longer corresponds to a
-// running process. Returns the ids it released. Errors during
-// individual deletions are swallowed and reported via the second
-// return value.
-func Reap(s *store.Store) (released []string, err error) {
+// running process.
+func Reap(s *store.Store) (released []ReapedEnv, err error) {
 	envs, err := s.ListEnvs()
 	if err != nil {
 		return nil, fmt.Errorf("list envs: %w", err)
@@ -28,7 +32,7 @@ func Reap(s *store.Store) (released []string, err error) {
 			continue
 		}
 		if delErr := s.DeleteEnv(e.ID); delErr == nil {
-			released = append(released, e.ID)
+			released = append(released, ReapedEnv{ID: e.ID, DataDir: e.DataDir})
 		}
 	}
 	return released, nil
