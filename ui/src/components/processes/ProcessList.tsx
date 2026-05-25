@@ -1,7 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Badge } from '../Badge';
 import { useProcesses, type ProcessEntry } from '../../hooks/useProcesses';
-import { formatUptime as formatUptimeShared } from '../../lib/formatUptime';
 
 const STATE_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
   running: 'success',
@@ -17,8 +16,17 @@ const KIND_TONE: Record<string, 'canvas' | 'webrtc' | 'rtsp' | 'neutral'> = {
   encoder: 'webrtc',
 };
 
-function formatUptime(startedAtUS?: number): string {
-  return formatUptimeShared(startedAtUS) ?? '—';
+function formatUptimeFromNow(startedAtUs: number, nowMs: number): string {
+  const ageMs = nowMs - Math.floor(startedAtUs / 1000);
+  if (ageMs < 0) return '—';
+  const seconds = Math.floor(ageMs / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h${minutes % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d${hours % 24}h`;
 }
 
 function formatRSS(bytes: number): string {
@@ -32,7 +40,7 @@ interface ProcessRowProps {
   readonly proc: ProcessEntry;
 }
 
-function ProcessRow({ proc }: ProcessRowProps) {
+function ProcessRow({ proc, now }: ProcessRowProps & { readonly now: number }) {
   const stateTone = STATE_TONE[proc.state] ?? 'neutral';
   const kindTone = KIND_TONE[proc.kind] ?? 'neutral';
   const isError = proc.state === 'error';
@@ -71,13 +79,13 @@ function ProcessRow({ proc }: ProcessRowProps) {
         {proc.started_at_us !== undefined && proc.started_at_us > 0 && (
           <>
             <span className="text-fg-subtle">uptime</span>
-            <span className="text-fg">{formatUptime(proc.started_at_us)}</span>
+            <span className="text-fg">{formatUptimeFromNow(proc.started_at_us, now)}</span>
           </>
         )}
-        {proc.cpu_percent !== undefined && proc.cpu_percent > 0 && (
+        {proc.pid !== undefined && proc.pid > 0 && (
           <>
             <span className="text-fg-subtle">cpu</span>
-            <span className="text-fg">{proc.cpu_percent.toFixed(1)}%</span>
+            <span className="text-fg">{(proc.cpu_percent ?? 0).toFixed(1)}%</span>
           </>
         )}
         {proc.rss_bytes !== undefined && proc.rss_bytes > 0 && (
@@ -115,6 +123,13 @@ interface ProcessListProps {
 export function ProcessList({ enabled = true }: ProcessListProps) {
   const { processes, loading, error } = useProcesses({ enabled });
 
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!enabled) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [enabled]);
+
   const grouped = useMemo(() => {
     const order: Record<string, number> = { producer: 0, composer: 1, encoder: 2 };
     return [...processes].sort((a, b) => {
@@ -143,7 +158,7 @@ export function ProcessList({ enabled = true }: ProcessListProps) {
           <div className="px-3 py-4 text-sm text-fg-subtle">No processes running</div>
         )}
         {grouped.map((proc) => (
-          <ProcessRow key={proc.id} proc={proc} />
+          <ProcessRow key={proc.id} proc={proc} now={now} />
         ))}
       </div>
     </div>
