@@ -52,9 +52,11 @@ type managedProcess struct {
 	cancel       context.CancelFunc
 	done         chan struct{}
 
+	// Stats populated by the background poller — never written by GetStatus.
+	rssBytes  int64
+	cpuPct    float64
 	prevTicks int64
 	prevWall  time.Time
-	cpuPct    float64
 }
 
 // pool implements the Pool interface.
@@ -81,13 +83,17 @@ func NewPool(opts *PoolOptions) Pool {
 		logger = slog.Default()
 	}
 
-	return &pool{
+	p := &pool{
 		opts:      *opts,
 		processes: make(map[string]*managedProcess),
 		logger:    logger,
 		ctx:       ctx,
 		cancel:    cancel,
 	}
+
+	p.wg.Go(func() { p.pollStats(ctx) })
+
+	return p
 }
 
 // Start starts a process by ID.
@@ -215,7 +221,9 @@ func (p *pool) Restart(id string) error {
 	return p.Start(id)
 }
 
-// GetStatus returns process info.
+// GetStatus returns process info. Pure cache read — never does I/O or
+// takes a write lock. RSS/CPU values are populated by the background
+// stats poller.
 func (p *pool) GetStatus(id string) *Info {
 	p.mu.RLock()
 	mp, exists := p.processes[id]
@@ -224,47 +232,110 @@ func (p *pool) GetStatus(id string) *Info {
 		return &Info{ID: id, State: StateIdle}
 	}
 
-	pid := 0
-	if mp.proc != nil && mp.proc.cmd != nil && mp.proc.cmd.Process != nil {
-		pid = mp.proc.cmd.Process.Pid
-	}
-
 	info := &Info{
 		ID:           id,
 		Kind:         mp.kind,
 		State:        mp.state,
-		PID:          pid,
+		PID:          mp.proc.PID(),
 		StartedAt:    mp.startedAt,
 		RestartCount: mp.restartCount,
 		LastError:    mp.lastError,
+		RSSBytes:     mp.rssBytes,
+		CPUPercent:   mp.cpuPct,
 	}
-	prevTicks, prevWall := mp.prevTicks, mp.prevWall
-	state := mp.state
 	p.mu.RUnlock()
 
-	if pid > 0 && state == StateRunning {
-		if ps, err := readProcStat(pid); err == nil {
-			info.RSSBytes = ps.RSSBytes
-			now := time.Now()
-			ticks := ps.UtimeTicks + ps.StimeTicks
-			var cpuPct float64
-			if !prevWall.IsZero() {
-				dt := now.Sub(prevWall).Seconds()
-				if dt > 0 {
-					cpuPct = float64(ticks-prevTicks) / userHZ / dt * 100
-				}
-			}
-			info.CPUPercent = cpuPct
+	return info
+}
 
-			p.mu.Lock()
-			mp.prevTicks = ticks
-			mp.prevWall = now
-			mp.cpuPct = cpuPct
-			p.mu.Unlock()
+const statsPollInterval = 2 * time.Second
+
+func (p *pool) pollStats(ctx context.Context) {
+	ticker := time.NewTicker(statsPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.refreshStats()
 		}
 	}
+}
 
-	return info
+func (p *pool) refreshStats() {
+	type snap struct {
+		id        string
+		pid       int
+		prevTicks int64
+		prevWall  time.Time
+	}
+
+	p.mu.RLock()
+	snaps := make([]snap, 0, len(p.processes))
+	for _, mp := range p.processes {
+		if mp.state != StateRunning {
+			continue
+		}
+		pid := mp.proc.PID()
+		if pid <= 0 {
+			continue
+		}
+		snaps = append(snaps, snap{
+			id: mp.id, pid: pid,
+			prevTicks: mp.prevTicks, prevWall: mp.prevWall,
+		})
+	}
+	p.mu.RUnlock()
+
+	if len(snaps) == 0 {
+		return
+	}
+
+	type result struct {
+		id    string
+		rss   int64
+		cpu   float64
+		ticks int64
+		wall  time.Time
+	}
+	results := make([]result, 0, len(snaps))
+	now := time.Now()
+	for _, s := range snaps {
+		ps, err := readProcStat(s.pid)
+		if err != nil {
+			continue
+		}
+		ticks := ps.UtimeTicks + ps.StimeTicks
+		var cpuPct float64
+		if !s.prevWall.IsZero() {
+			dt := now.Sub(s.prevWall).Seconds()
+			if dt > 0 {
+				cpuPct = float64(ticks-s.prevTicks) / userHZ / dt * 100
+			}
+		}
+		results = append(results, result{
+			id: s.id, rss: ps.RSSBytes, cpu: cpuPct,
+			ticks: ticks, wall: now,
+		})
+	}
+
+	if len(results) == 0 {
+		return
+	}
+
+	p.mu.Lock()
+	for _, r := range results {
+		mp, ok := p.processes[r.id]
+		if !ok {
+			continue
+		}
+		mp.rssBytes = r.rss
+		mp.cpuPct = r.cpu
+		mp.prevTicks = r.ticks
+		mp.prevWall = r.wall
+	}
+	p.mu.Unlock()
 }
 
 // SetKind sets the free-form classifier surfaced via Info.Kind for a
