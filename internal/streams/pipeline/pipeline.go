@@ -41,6 +41,10 @@ type Config struct {
 	// the composer starts but its canvas stays uninitialized and
 	// downstream encoders see only black frames.
 	ControlServer *pipelinectl.Manager
+
+	// Registry, when non-nil, is used to Touch entities on pool state
+	// transitions so their SSE snapshot refreshes with the new status.
+	Registry *events.Registry
 }
 
 // Pipeline is the stage assembler. One Pipeline owns the runtime state
@@ -802,7 +806,9 @@ func (p *Pipeline) entityLock(key string) *sync.Mutex {
 	return mu
 }
 
-// onStateChange forwards pool state transitions to the event bus.
+// onStateChange forwards pool state transitions to the event bus and
+// touches the owning entity so its SSE snapshot refreshes with the new
+// pool-derived status field.
 func (p *Pipeline) onStateChange(id string, oldState, newState process.State, err error) {
 	if p.cfg.EventBus == nil {
 		return
@@ -827,6 +833,17 @@ func (p *Pipeline) onStateChange(id string, oldState, newState process.State, er
 		ev.PID = p.pool.GetStatus(id).PID
 	}
 	p.cfg.EventBus.Publish(ev)
+
+	if p.cfg.Registry != nil {
+		switch {
+		case strings.HasPrefix(id, "producer:"):
+			p.cfg.Registry.Touch(context.Background(), "source", strings.TrimPrefix(id, "producer:"))
+		case strings.HasPrefix(id, "composer:"):
+			p.cfg.Registry.Touch(context.Background(), "composer", strings.TrimPrefix(id, "composer:"))
+		case strings.HasPrefix(id, "encoder:"):
+			p.cfg.Registry.Touch(context.Background(), "stream", strings.TrimPrefix(id, "encoder:"))
+		}
+	}
 }
 
 // commandFor is the pool's CommandProvider callback.

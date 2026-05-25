@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
 
@@ -20,6 +21,9 @@ type StreamService interface {
 	Update(ctx context.Context, id string, patch func(*pipeline.Stream) error) (*pipeline.Stream, error)
 	Delete(ctx context.Context, id string) error
 	Restart(ctx context.Context, id string) error
+
+	// EncoderStatus returns the process pool state for a stream's encoder.
+	EncoderStatus(streamID string) models.ProcessStatus
 
 	// PipelineEnabled / StartPipeline / StopPipeline drive the daemon-wide
 	// pipeline master switch. Persisted on the store.

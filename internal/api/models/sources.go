@@ -23,6 +23,7 @@ type SourceData struct {
 	TestMode  bool              `json:"test_mode,omitempty" example:"false" doc:"When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device."`
 	Format    *SourceFormatBody `json:"format,omitempty" doc:"Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate."`
 	Consumers []SourceReference `json:"consumers,omitempty" republish:"stream,composer" doc:"Composers and streams currently referencing this source. Server-denormalized; auto-republished when references change."`
+	Status    ProcessStatus     `json:"status,omitempty" example:"running" enum:"idle,starting,running,stopping,error" doc:"Process pool state"`
 	CreatedAt time.Time         `json:"created_at,omitzero" doc:"When the source record was created"`
 	UpdatedAt time.Time         `json:"updated_at,omitzero" doc:"When the source record was last updated"`
 }

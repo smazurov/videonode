@@ -298,15 +298,12 @@ func (s *Server) streamToAPI(st pipeline.Stream) models.StreamData {
 		Encoder:           encoderToAPI(st.Encoder),
 		Publish:           publishToAPI(st.Publish),
 		CustomEncoderArgs: st.CustomEncoderArgs,
-		// In v2 the encoder process is lazy: it spins up when a consumer
-		// attaches and idles when the last consumer leaves. There is no
-		// per-stream enabled toggle anymore; "true" here means "the stream
-		// is configured and the daemon will start the encoder on demand".
-		Enabled:   true,
-		RTSPURL:   fmt.Sprintf("%s/%s", s.rtspPortOrDefault(), st.ID),
-		SRTURL:    fmt.Sprintf("%s?streamid=%s", s.srtPortOrDefault(), st.ID),
-		CreatedAt: st.CreatedAt,
-		UpdatedAt: st.UpdatedAt,
+		Enabled:           true,
+		Status:            s.streamService.EncoderStatus(st.ID),
+		RTSPURL:           fmt.Sprintf("%s/%s", s.rtspPortOrDefault(), st.ID),
+		SRTURL:            fmt.Sprintf("%s?streamid=%s", s.srtPortOrDefault(), st.ID),
+		CreatedAt:         st.CreatedAt,
+		UpdatedAt:         st.UpdatedAt,
 	}
 }
 

@@ -67,8 +67,9 @@ func (s *composerService) GetComposer(_ context.Context, id string) (*models.Com
 
 // enrichRuntime layers in the denormalized DownstreamStreamIDs (cheap
 // store-side join across streams whose upstream == "composer:<id>")
-// and the warm/cold Status (taken from the pipeline pool when available).
-// Kept out of composerToAPI so the static helper stays pure for tests.
+// enrichRuntime layers in the denormalized DownstreamStreamIDs and
+// the process pool state. Kept out of composerToAPI so the static
+// helper stays pure for tests.
 func (s *composerService) enrichRuntime(out *models.ComposerData, streams []streams.PipelineStream) {
 	downstream := make([]string, 0)
 	wanted := "composer:" + out.ID
@@ -79,11 +80,7 @@ func (s *composerService) enrichRuntime(out *models.ComposerData, streams []stre
 	}
 	out.DownstreamStreamIDs = downstream
 	if s.pipe != nil {
-		if s.pipe.Pool().IsRunning(pipeline.ComposerPoolKey(out.ID)) {
-			out.Status = "warm"
-		} else {
-			out.Status = "cold"
-		}
+		out.Status = models.ProcessStatus(s.pipe.Pool().GetStatus(pipeline.ComposerPoolKey(out.ID)).State)
 	}
 }
 

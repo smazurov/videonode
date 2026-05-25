@@ -28,6 +28,7 @@ type Source struct {
 	Device    string
 	TestMode  bool
 	Format    *SourceFormat
+	Status    models.ProcessStatus
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	Consumers []models.SourceReference
@@ -243,6 +244,7 @@ func sourceToAPI(src Source) models.SourceData {
 		SourceID:  src.ID,
 		Device:    src.Device,
 		TestMode:  src.TestMode,
+		Status:    src.Status,
 		CreatedAt: src.CreatedAt,
 		UpdatedAt: src.UpdatedAt,
 		Consumers: src.Consumers,
