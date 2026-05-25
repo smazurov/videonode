@@ -613,10 +613,23 @@ func (p *Pipeline) resolveUpstream(upstream string) (FrameSource, error) {
 	}
 	switch kind {
 	case "source":
-		if _, found := p.sources.Get(id); !found {
+		src, found := p.sources.Get(id)
+		if !found {
 			return nil, fmt.Errorf("pipeline: upstream source %q not registered", id)
 		}
-		return ProducerFrameSource{Socket: SCMSocketPathFor(id)}, nil
+		pfs := ProducerFrameSource{Socket: SCMSocketPathFor(id)}
+		if src.Format != nil {
+			pfs.Width = int(src.Format.Width)
+			pfs.Height = int(src.Format.Height)
+			pfs.Fps = int(src.Format.FPS)
+		}
+		if pfs.Width == 0 || pfs.Height == 0 {
+			pfs.Width, pfs.Height = 1920, 1080
+		}
+		if pfs.Fps == 0 {
+			pfs.Fps = 30
+		}
+		return pfs, nil
 	case "composer":
 		c, found := p.composers.Get(id)
 		if !found {
