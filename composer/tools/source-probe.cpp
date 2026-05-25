@@ -13,15 +13,18 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <unistd.h>
+#include <memory>
+#include <span>
 #include <sys/mman.h>
+#include <unistd.h>
 
 int main(int argc, char** argv) {
-    int w = (argc > 1) ? std::atoi(argv[1]) : 640;
-    int h = (argc > 2) ? std::atoi(argv[2]) : 480;
-    int frames = (argc > 3) ? std::atoi(argv[3]) : 30;
-    int pick_src = (argc > 4) ? std::atoi(argv[4]) : 0;
-    const char* out = (argc > 5) ? argv[5] : "/tmp/source-probe.y4m";
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    int w = (args.size() > 1) ? std::atoi(args[1]) : 640;
+    int h = (args.size() > 2) ? std::atoi(args[2]) : 480;
+    int frames = (args.size() > 3) ? std::atoi(args[3]) : 30;
+    int pick_src = (args.size() > 4) ? std::atoi(args[4]) : 0;
+    const char* out = (args.size() > 5) ? args[5] : "/tmp/source-probe.y4m";
 
     using fake_source::FakeSource;
     FakeSource src[4];
@@ -42,41 +45,41 @@ int main(int argc, char** argv) {
     }
 
     // YUV4MPEG (Y4M) header + frame loop dumped from source[pick_src].
-    FILE* f = std::fopen(out, "wb");
+    std::unique_ptr<FILE, decltype(&std::fclose)> f(std::fopen(out, "wb"), &std::fclose);
     if (!f) {
         fprintf(stderr, "FAIL fopen(%s)\n", out);
         return 1;
     }
-    std::fprintf(f, "YUV4MPEG2 W%d H%d F30:1 Ip A1:1 C420mpeg2\n", w, h);
+    std::fprintf(f.get(), "YUV4MPEG2 W%d H%d F30:1 Ip A1:1 C420mpeg2\n", w, h);
 
-    auto* p = reinterpret_cast<uint8_t*>(
+    auto* p_raw = reinterpret_cast<uint8_t*>(
         ::mmap(nullptr, src[pick_src].size(), PROT_READ, MAP_SHARED, src[pick_src].dmabuf_fd(), 0));
-    if (p == MAP_FAILED) {
+    if (p_raw == MAP_FAILED) {
         fprintf(stderr, "FAIL mmap for dump\n");
         return 1;
     }
+    const std::span<const uint8_t> p(p_raw, src[pick_src].size());
 
     for (int i = 0; i < frames; ++i) {
         for (int k = 0; k < 4; ++k)
             src[k].tick(i); // tick all so they progress independently
         dmaheap::sync_start(src[pick_src].dmabuf_fd(), dmaheap::SyncDir::Read);
-        std::fputs("FRAME\n", f);
+        std::fputs("FRAME\n", f.get());
         // NV12 -> I420 conversion: Y plane is the same; deinterleave UV into U then V.
         size_t y_size = static_cast<size_t>(w) * h;
         size_t uv_size = y_size / 2;
-        std::fwrite(p, 1, y_size, f);
+        std::fwrite(p.data(), 1, y_size, f.get());
         // Write U plane (every other byte starting at 0) then V plane (every other byte starting at
         // 1).
-        auto* uv = p + y_size;
+        const std::span<const uint8_t> uv = p.subspan(y_size);
         for (size_t j = 0; j < uv_size; j += 2)
-            std::fputc(uv[j], f);
+            std::fputc(uv[j], f.get());
         for (size_t j = 0; j < uv_size; j += 2)
-            std::fputc(uv[j + 1], f);
+            std::fputc(uv[j + 1], f.get());
         dmaheap::sync_end(src[pick_src].dmabuf_fd(), dmaheap::SyncDir::Read);
     }
 
-    ::munmap(p, src[pick_src].size());
-    std::fclose(f);
+    ::munmap(p_raw, src[pick_src].size());
     printf("PASS: wrote %d frames of source %d to %s\n", frames, pick_src, out);
     return 0;
 }

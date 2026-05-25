@@ -37,10 +37,10 @@ class EglCtx {
     EglCtx(const EglCtx&) = delete;
     EglCtx& operator=(const EglCtx&) = delete;
 
-    EGLDisplay display() const { return dpy_; }
-    EGLContext context() const { return ctx_; }
-    gbm_device* gbm() const { return gbm_; }
-    int drm_fd() const { return drm_fd_; }
+    [[nodiscard]] EGLDisplay display() const { return dpy_; }
+    [[nodiscard]] EGLContext context() const { return ctx_; }
+    [[nodiscard]] gbm_device* gbm() const { return gbm_; }
+    [[nodiscard]] int drm_fd() const { return drm_fd_; }
 
     // Convenience: bind the context to the calling thread (no surfaces).
     [[nodiscard]] bool make_current() const;

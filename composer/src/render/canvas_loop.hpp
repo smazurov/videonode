@@ -56,12 +56,9 @@ struct RenderStats {
     std::atomic<int32_t> consumer_count{0}; // SCM mode only; 0 in stdout mode
 };
 
-// Render at the target frame rate until `running` goes false, the
-// composer's stdout closes (EPIPE in stdout mode) or all SCM consumers
-// hang up after running once (SCM mode is fanout-tolerant), or
-// `run_seconds` (if non-zero) elapses.
+// Configuration bundle for RunCanvasLoop.
 //
-// `target_fps` is the loop's tick rate; `world.snapshot().canvas_fps`
+// `target_fps` is the loop's tick rate; world.snapshot().canvas_fps
 // is preferred once ready, but until then we tick at this rate.
 //
 // `scm_out_path` selects the output mode:
@@ -73,17 +70,26 @@ struct RenderStats {
 //                   the composer via EPIPE.
 //
 // `stats` (optional) is updated each frame and on each consumer-prune
-// tick. Pass nullptr when no observer is wired up (smoke tests, no-gRPC
-// diagnostic runs).
+// tick. Pass nullptr when no observer is wired up.
 //
 // `composer_svc` (optional) receives a FrameRef pointing at the latest
-// canvas dma-buf after each SCM broadcast. The service holds the ref so
-// its Snapshot RPC can mmap+pack on demand instead of paying per frame.
-// Pass nullptr when no gRPC server is wired up.
+// canvas dma-buf after each SCM broadcast.
+struct CanvasLoopConfig {
+    egl_ctx::EglCtx& ctx;
+    World& world;
+    int target_fps = 30;
+    int run_seconds = 0;
+    std::atomic<bool>& running;
+    std::string scm_out_path;
+    RenderStats* stats = nullptr;
+    nativerpc::ComposerService* composer_svc = nullptr;
+};
+
+// Render at the target frame rate until `running` goes false, the
+// composer's stdout closes (EPIPE in stdout mode), or `run_seconds`
+// (if non-zero) elapses.
 //
 // Returns the number of frames rendered (placeholder + real).
-int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
-                  std::atomic<bool>& running, const std::string& scm_out_path = "",
-                  RenderStats* stats = nullptr, nativerpc::ComposerService* composer_svc = nullptr);
+int RunCanvasLoop(CanvasLoopConfig cfg);
 
 } // namespace render

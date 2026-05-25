@@ -61,7 +61,7 @@ struct BufferRef {
     uint32_t length = 0;
     std::vector<PlaneRef> planes;
 
-    int primary_dma_buf() const { return planes.empty() ? -1 : planes[0].dma_buf_fd; }
+    [[nodiscard]] int primary_dma_buf() const { return planes.empty() ? -1 : planes[0].dma_buf_fd; }
 };
 
 // DequeuedFrame is what DequeueBuffer returns: the index of a ready
@@ -93,9 +93,9 @@ class Streamer {
     Streamer(const Streamer&) = delete;
     Streamer& operator=(const Streamer&) = delete;
 
-    bool multiplanar() const { return multiplanar_; }
-    int fd() const { return fd_; }
-    const std::string& device_path() const { return device_path_; }
+    [[nodiscard]] bool multiplanar() const { return multiplanar_; }
+    [[nodiscard]] int fd() const { return fd_; }
+    [[nodiscard]] const std::string& device_path() const { return device_path_; }
 
     // set_format() calls VIDIOC_S_FMT (and S_PARM if fps != 0). Returns
     // false on error.
@@ -184,7 +184,7 @@ class Streamer {
 
     // Buffer access (after request_buffers() succeeded). The vector is
     // valid until the next request_buffers() call or close().
-    const std::vector<BufferRef>& buffers() const { return bufs_; }
+    [[nodiscard]] const std::vector<BufferRef>& buffers() const { return bufs_; }
 
     // mmap_buffer_span maps one previously-QUERYBUF'd buffer for CPU read.
     // Used by the MJPEG path to read variable-length JPEG bitstreams out of
@@ -196,7 +196,7 @@ class Streamer {
     std::optional<std::span<std::byte>> mmap_buffer_span(uint32_t index);
 
   private:
-    uint32_t buf_type_() const; // CAPTURE vs CAPTURE_MPLANE
+    [[nodiscard]] uint32_t buf_type_() const; // CAPTURE vs CAPTURE_MPLANE
     bool query_buffer_(uint32_t index, BufferRef& out);
     void unmap_all_();
 

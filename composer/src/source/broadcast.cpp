@@ -48,49 +48,45 @@ void broadcast_buffer(scm_rights_producer::ScmRightsProducer& prod, const nv12_b
     broadcast_nv12(prod, d, frame_idx);
 }
 
-void build_status_proto(::videonode::control::Status& out, const std::string& device_id,
-                        source_probe::SourceProbe& probe, source_probe::Health h,
-                        const CaptureSession& cap, const Args& a, uint64_t real_frame_idx,
-                        uint64_t placeholder_frames, uint32_t last_seq,
-                        scm_rights_producer::ScmRightsProducer& prod) {
+void build_status_proto(::videonode::control::Status& out, const StatusContext& ctx) {
     out.Clear();
-    out.set_device_id(device_id);
+    out.set_device_id(ctx.device_id);
     out.set_ts_ms(static_cast<int64_t>(now_ms()));
-    out.set_health(source_probe::status_text(h));
+    out.set_health(source_probe::status_text(ctx.health));
 
     auto* dev = out.mutable_device();
-    dev->set_path(a.device);
-    dev->set_multiplanar(cap.active && cap.cap.multiplanar());
+    dev->set_path(ctx.args.device);
+    dev->set_multiplanar(ctx.cap.active && ctx.cap.cap.multiplanar());
 
     auto* sig = out.mutable_signal();
-    sig->set_has_dv_timings(probe.has_dv_timings());
-    sig->set_cable_present(probe.cable_present());
-    sig->set_signal_locked(probe.signal_locked());
+    sig->set_has_dv_timings(ctx.probe.has_dv_timings());
+    sig->set_cable_present(ctx.probe.cable_present());
+    sig->set_signal_locked(ctx.probe.signal_locked());
     sig->set_dv_timings(
-        source_probe::SourceProbe::dv_timings_label_public(probe.dv_timings_state()));
+        source_probe::SourceProbe::dv_timings_label_public(ctx.probe.dv_timings_state()));
 
     auto* fmt = out.mutable_format();
-    if (cap.active) {
-        fmt->set_fourcc(cap.src_fmt_name);
-        fmt->set_w(static_cast<uint32_t>(cap.width));
-        fmt->set_h(static_cast<uint32_t>(cap.height));
-        fmt->set_fps(static_cast<uint32_t>(a.in_fps));
-        fmt->set_buffers(static_cast<uint32_t>(cap.cap.buffers().size()));
-        const char* mode_name = (cap.mode == DecodeMode::Mjpeg)
-                                    ? (cap.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg")
+    if (ctx.cap.active) {
+        fmt->set_fourcc(ctx.cap.src_fmt_name);
+        fmt->set_w(static_cast<uint32_t>(ctx.cap.width));
+        fmt->set_h(static_cast<uint32_t>(ctx.cap.height));
+        fmt->set_fps(static_cast<uint32_t>(ctx.args.in_fps));
+        fmt->set_buffers(static_cast<uint32_t>(ctx.cap.cap.buffers().size()));
+        const char* mode_name = (ctx.cap.mode == DecodeMode::Mjpeg)
+                                    ? (ctx.cap.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg")
                                     : "rga";
         fmt->set_mode(mode_name);
     }
 
     auto* bc = out.mutable_broadcast();
-    bc->set_target_fps(static_cast<uint32_t>(a.placeholder_broadcast_fps));
-    bc->set_real_frames(real_frame_idx);
-    bc->set_placeholder_frames(placeholder_frames);
-    bc->set_last_seq(last_seq);
+    bc->set_target_fps(static_cast<uint32_t>(ctx.args.placeholder_broadcast_fps));
+    bc->set_real_frames(ctx.real_frame_idx);
+    bc->set_placeholder_frames(ctx.placeholder_frames);
+    bc->set_last_seq(ctx.last_seq);
 
     auto* cons = out.mutable_consumers();
-    auto stats = prod.stats();
-    cons->set_count(prod.consumer_count());
+    auto stats = ctx.prod.stats();
+    cons->set_count(ctx.prod.consumer_count());
     for (const auto& cs : stats) {
         if (cs.evicted_at_frame != 0) {
             auto* row = cons->add_evicted();

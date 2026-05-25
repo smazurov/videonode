@@ -5,6 +5,7 @@
 #include "src/ipc/scm_socket.hpp"
 
 #include <cerrno>
+#include <cstddef>
 #include <cstring>
 #include <fcntl.h>
 #include <poll.h>
@@ -166,7 +167,7 @@ bool ScmRightsProducer::broadcast(const dmabuf_header::Header& header,
     // Erase evicted (highest index first to keep remaining indices valid).
     // ~Consumer closes each fd.
     for (auto it = to_evict.rbegin(); it != to_evict.rend(); ++it) {
-        consumers_.erase(consumers_.begin() + *it);
+        consumers_.erase(consumers_.begin() + static_cast<std::ptrdiff_t>(*it));
     }
     return true;
 }
@@ -198,7 +199,7 @@ int ScmRightsProducer::prune_dead_consumers() {
         }
     }
     for (auto it = to_evict.rbegin(); it != to_evict.rend(); ++it) {
-        consumers_.erase(consumers_.begin() + *it);
+        consumers_.erase(consumers_.begin() + static_cast<std::ptrdiff_t>(*it));
     }
     return static_cast<int>(to_evict.size());
 }

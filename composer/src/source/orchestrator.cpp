@@ -33,6 +33,7 @@
 #include <chrono>
 #include <cstring>
 #include <linux/videodev2.h>
+#include <optional>
 #include <poll.h>
 #include <span>
 #include <string>
@@ -108,6 +109,9 @@ struct PlaceholderRing {
         // an init failure to surface that.
         if (!placeholder_painter::paint_base(stage_, w, h, device_path.c_str()))
             return false;
+        std::span<const uint8_t> stage_span(stage_);
+        auto y_plane = stage_span.first(size_t(w) * h);
+        auto uv_plane = stage_span.subspan(size_t(w) * h);
         for (int i = 0; i < 2; ++i) {
             nv12_buf::Buffer b = alloc.alloc(w, h);
             if (!b.valid())
@@ -115,12 +119,16 @@ struct PlaceholderRing {
             auto m = nv12_buf::map_rw(b);
             if (!m.y || !m.uv)
                 return false;
-            const uint8_t* src_y = stage_.data();
-            const uint8_t* src_uv = stage_.data() + size_t(w) * h;
-            for (int y = 0; y < h; ++y)
-                std::memcpy(static_cast<uint8_t*>(m.y) + y * b.y_pitch, src_y + y * w, w);
-            for (int y = 0; y < h / 2; ++y)
-                std::memcpy(static_cast<uint8_t*>(m.uv) + y * b.uv_pitch, src_uv + y * w, w);
+            auto dst_y = m.y_bytes();
+            auto dst_uv = m.uv_bytes();
+            for (int y = 0; y < h; ++y) {
+                std::memcpy(dst_y.subspan(size_t(y) * b.y_pitch, size_t(w)).data(),
+                            y_plane.subspan(size_t(y) * w, size_t(w)).data(), size_t(w));
+            }
+            for (int y = 0; y < h / 2; ++y) {
+                std::memcpy(dst_uv.subspan(size_t(y) * b.uv_pitch, size_t(w)).data(),
+                            uv_plane.subspan(size_t(y) * w, size_t(w)).data(), size_t(w));
+            }
             nv12_buf::unmap(b);
             bufs.push_back(std::move(b));
         }
@@ -140,9 +148,13 @@ struct PlaceholderRing {
         nv12_buf::Buffer& b = bufs[idx];
         auto m = nv12_buf::map_rw(b);
         if (m.y) {
-            for (int y = 0; y < height; ++y)
-                std::memcpy(static_cast<uint8_t*>(m.y) + y * b.y_pitch, stage_.data() + y * width,
-                            width);
+            std::span<const uint8_t> stage_span(stage_);
+            auto dst_y = m.y_bytes();
+            for (int y = 0; y < height; ++y) {
+                std::memcpy(dst_y.subspan(size_t(y) * b.y_pitch, size_t(width)).data(),
+                            stage_span.subspan(size_t(y) * width, size_t(width)).data(),
+                            size_t(width));
+            }
         }
         nv12_buf::unmap(b);
         return b;
@@ -153,6 +165,340 @@ struct PlaceholderRing {
     }
 };
 
+// LoopState bundles mutable state that is shared across the helper
+// functions extracted from Run.
+struct LoopState {
+    using clock = std::chrono::steady_clock;
+
+    PlaceholderRing& ph;
+    scm_rights_producer::ScmRightsProducer& prod;
+    CaptureSession& cap;
+    source_probe::SourceProbe& probe;
+    nativerpc::SourceService& grpc_svc;
+    nativerpc::SourceContext& gctx;
+    Args& a;
+    bool grpc_enabled;
+
+    uint64_t real_frame_idx = 0;
+    uint32_t last_dqbuf_seq = 0;
+    jpeg_dec::DecodedNv12 last_good_decoded{};
+    source_probe::Health prev_health = source_probe::Health::Probing;
+    bool need_reinit = false;
+    clock::time_point next_broadcast;
+    clock::time_point next_power_poll;
+    clock::time_point next_status_heartbeat;
+    int prev_consumer_count = -1;
+    std::chrono::nanoseconds broadcast_period;
+};
+
+// Handle V4L2 priority events (SOURCE_CHANGE).
+void handle_v4l2_events_(LoopState& st) {
+    std::vector<v4l2_event> evs;
+    if (!st.cap.cap.drain_events_typed(evs))
+        return;
+    bool need_restart = false;
+    for (const auto& e : evs) {
+        st.probe.note_event(e);
+        if (e.type == V4L2_EVENT_SOURCE_CHANGE)
+            need_restart = true;
+    }
+    if (!need_restart)
+        return;
+    if (st.cap.cap.restart_streaming()) {
+        st.probe.note_streaming_restarted();
+    } else {
+        teardown_session_(st.cap);
+        st.need_reinit = true;
+    }
+}
+
+// Dequeue one frame, CSC/decode it, and broadcast it. Returns true if a
+// real frame was successfully broadcast.
+bool handle_dqbuf_(LoopState& st) {
+    v4l2::DequeuedFrame df;
+    if (!st.cap.cap.dequeue_buffer(0, df)) {
+        int e = errno;
+        if (e != ETIMEDOUT && e != EAGAIN) {
+            st.probe.note_dqbuf_failure(e);
+            if (e == ENODEV) {
+                teardown_session_(st.cap);
+                st.last_good_decoded = {};
+                st.need_reinit = true;
+            }
+        }
+        return false;
+    }
+
+    st.probe.note_dqbuf_success();
+    st.last_dqbuf_seq = df.sequence;
+
+    bool ok = false;
+    jpeg_dec::DecodedNv12 decoded;
+    if (st.cap.mode == DecodeMode::Rga) {
+        nv12_buf::Buffer& dst_buf = st.cap.out_ring[df.index % st.cap.out_ring.size()];
+        csc::ConvertParams src_p, dst_p;
+        src_p.fd = st.cap.cap.buffers()[df.index].primary_dma_buf();
+        src_p.fmt = st.cap.src_fmt;
+        src_p.width = st.cap.width;
+        src_p.height = st.cap.height;
+        dst_p.fd = dst_buf.y_fd;
+        dst_p.uv_fd = (dst_buf.uv_fd != dst_buf.y_fd) ? dst_buf.uv_fd : -1;
+        dst_p.uv_wstride = int(dst_buf.uv_pitch);
+        dst_p.fmt = csc::PixelFormat::Nv12;
+        dst_p.width = st.cap.width;
+        dst_p.height = st.cap.height;
+        dst_p.wstride = int(dst_buf.y_pitch);
+        if (csc::convert(src_p, dst_p)) {
+            nv12_buf::stage_for_read(dst_buf);
+            decoded.fd = (dst_buf.staged_y_fd >= 0) ? dst_buf.staged_y_fd : dst_buf.y_fd;
+            decoded.plane1_fd = (dst_buf.staged_uv_fd >= 0) ? dst_buf.staged_uv_fd : dst_buf.uv_fd;
+            decoded.width = st.cap.width;
+            decoded.height = st.cap.height;
+            decoded.y_pitch = dst_buf.y_pitch;
+            decoded.uv_pitch = dst_buf.uv_pitch;
+            decoded.y_offset = (dst_buf.staged_y_fd >= 0) ? 0 : dst_buf.y_offset;
+            decoded.uv_offset = (dst_buf.staged_uv_fd >= 0) ? 0 : dst_buf.uv_offset;
+            ok = true;
+        }
+    } else { // DecodeMode::Mjpeg
+        if (df.index < st.cap.in_maps.size() && df.bytesused > 0) {
+            const auto* jpeg = static_cast<const uint8_t*>(st.cap.in_maps[df.index]);
+            ok = st.cap.jpeg->decode(std::span<const uint8_t>(jpeg, df.bytesused), decoded);
+        }
+    }
+
+    if (ok) {
+        ++st.real_frame_idx;
+        broadcast_nv12(st.prod, decoded, st.real_frame_idx);
+        if (st.grpc_enabled)
+            st.grpc_svc.UpdateLastFrame(make_frame_ref_(decoded, st.real_frame_idx));
+        st.last_good_decoded = decoded;
+        st.next_broadcast = LoopState::clock::now() + st.broadcast_period;
+    }
+
+    if (!st.cap.cap.queue_buffer(df.index)) {
+        vn::log::warn("videonode-source: QBUF failed (idx=%u errno=%d); "
+                      "kernel ring depth reduced, continuing",
+                      df.index, errno);
+    }
+
+    return ok;
+}
+
+// Poll the capture fd with a deadline, dispatch V4L2 events + DQBUF.
+void poll_and_dispatch_(LoopState& st) {
+    auto until_next = st.next_broadcast - LoopState::clock::now();
+    int poll_timeout_ms =
+        int(std::chrono::duration_cast<std::chrono::milliseconds>(until_next).count());
+    if (poll_timeout_ms < 0)
+        poll_timeout_ms = 0;
+    if (poll_timeout_ms > 100)
+        poll_timeout_ms = 100;
+
+    std::vector<pollfd> pset;
+    int cap_idx = -1;
+    if (st.cap.active) {
+        pollfd pfd{};
+        pfd.fd = st.cap.cap.fd();
+        pfd.events = POLLIN | POLLPRI;
+        cap_idx = int(pset.size());
+        pset.push_back(pfd);
+    }
+
+    if (pset.empty()) {
+        std::this_thread::sleep_until(st.next_broadcast);
+        return;
+    }
+
+    int pr = ::poll(pset.data(), pset.size(), poll_timeout_ms);
+    if (pr <= 0 || cap_idx < 0)
+        return;
+
+    pollfd pfd = pset[cap_idx];
+    if (pfd.revents & POLLPRI)
+        handle_v4l2_events_(st);
+    if (pfd.revents & POLLIN)
+        handle_dqbuf_(st);
+}
+
+// Push a status proto to gRPC subscribers when warranted.
+void maybe_publish_status_(LoopState& st, source_probe::Health h, bool health_changed,
+                           uint64_t placeholder_frames) {
+    if (!st.grpc_enabled)
+        return;
+    int cur_consumers = st.prod.consumer_count();
+    bool consumers_changed = (cur_consumers != st.prev_consumer_count);
+    bool heartbeat_due = LoopState::clock::now() >= st.next_status_heartbeat;
+    if (!health_changed && !consumers_changed && !heartbeat_due)
+        return;
+    videonode::control::Status sp;
+    StatusContext ctx{.device_id = st.a.device_id,
+                      .probe = st.probe,
+                      .health = h,
+                      .cap = st.cap,
+                      .args = st.a,
+                      .real_frame_idx = st.real_frame_idx,
+                      .placeholder_frames = placeholder_frames,
+                      .last_seq = st.last_dqbuf_seq,
+                      .prod = st.prod};
+    build_status_proto(sp, ctx);
+    st.grpc_svc.PublishStatus(sp);
+    st.prev_consumer_count = cur_consumers;
+    st.next_status_heartbeat = LoopState::clock::now() + std::chrono::seconds(1);
+}
+
+// Broadcast a tick (placeholder or re-broadcast of last good frame).
+void broadcast_tick_(LoopState& st, source_probe::Health h) {
+    if (h == source_probe::Health::Transitioning && st.last_good_decoded.fd >= 0) {
+        ++st.real_frame_idx;
+        broadcast_nv12(st.prod, st.last_good_decoded, st.real_frame_idx);
+        if (st.grpc_enabled)
+            st.grpc_svc.UpdateLastFrame(make_frame_ref_(st.last_good_decoded, st.real_frame_idx));
+    } else {
+        nv12_buf::Buffer& ph_buf = st.ph.paint_and_pick(now_ms(), source_probe::status_text(h));
+        nv12_buf::stage_for_read(ph_buf);
+        broadcast_buffer(st.prod, ph_buf, st.ph.tick_idx);
+        if (st.grpc_enabled)
+            st.grpc_svc.UpdateLastFrame(make_frame_ref_(ph_buf, st.ph.tick_idx));
+    }
+}
+
+// Attempt (re)open of the capture device, publish active_format on success.
+void maybe_reinit_capture_(LoopState& st, nv12_buf::Allocator& allocator,
+                           auto& publish_active_format) {
+    if (!st.need_reinit)
+        return;
+    Args snap;
+    {
+        std::lock_guard<std::mutex> lock(st.gctx.set_format_mu);
+        snap = st.a;
+    }
+    if (snap.device.empty()) {
+        st.need_reinit = false;
+        return;
+    }
+    if (try_open_capture(st.cap, snap, allocator)) {
+        st.probe.attach();
+        publish_active_format(snap);
+        st.need_reinit = false;
+    }
+    // even if reinit failed we proceed — placeholder still ticks
+}
+
+// Handle a format-change request from the gRPC SetFormat handler.
+void handle_format_change_(LoopState& st, nv12_buf::Allocator& allocator,
+                           auto& publish_active_format, auto& clear_active_format) {
+    bool reinit_now = false;
+    {
+        std::lock_guard<std::mutex> lock(st.gctx.set_format_mu);
+        if (*st.gctx.need_reinit_for_format_change) {
+            reinit_now = true;
+            *st.gctx.need_reinit_for_format_change = false;
+        }
+    }
+    if (!reinit_now)
+        return;
+
+    st.last_good_decoded = {};
+    Args snap;
+    {
+        std::lock_guard<std::mutex> lock(st.gctx.set_format_mu);
+        snap = st.a;
+    }
+    if (snap.device.empty()) {
+        teardown_session_(st.cap);
+        clear_active_format();
+        st.need_reinit = false;
+    } else if (try_open_capture(st.cap, snap, allocator)) {
+        st.probe.attach();
+        publish_active_format(snap);
+        st.need_reinit = false;
+    } else {
+        clear_active_format();
+        st.need_reinit = true;
+    }
+}
+
+// Initialize the NV12 allocator. Returns false and logs on failure.
+// On rig (HAVE_RGA) this is dma_heap-backed; on host (HAVE_GBM, no RGA)
+// the allocator must share csc_placebo's GBM device.
+bool init_allocator_(nv12_buf::Allocator& allocator) {
+#if defined(HAVE_GBM) && !defined(HAVE_RGA)
+    if (!csc_placebo::init()) {
+        vn::log::fatal(
+            "videonode-source: csc_placebo::init failed; cannot bring up Mesa CSC backend "
+            "(needed for the GBM allocator's gbm_device)");
+        return false;
+    }
+    gbm_device* alloc_gbm = csc_placebo::gbm_device_for_io();
+    if (alloc_gbm == nullptr) {
+        vn::log::fatal("videonode-source: csc_placebo::gbm_device_for_io returned null");
+        return false;
+    }
+    if (!allocator.init(alloc_gbm)) {
+        vn::log::fatal("videonode-source: nv12_buf::Allocator::init failed");
+        return false;
+    }
+#else
+    if (!allocator.init()) {
+        vn::log::fatal("videonode-source: nv12_buf::Allocator::init failed");
+        return false;
+    }
+#endif
+    return true;
+}
+
+// Start the gRPC server if configured. Returns false on failure (grpc_enabled
+// is set to false in that case so the caller can branch on it).
+bool start_grpc_(const Args& a, nativerpc::SourceService& grpc_svc, nativerpc::GrpcServer& grpc_srv,
+                 bool& grpc_enabled) {
+    grpc_enabled = !a.grpc_listen.empty() && !a.device_id.empty();
+    if (!grpc_enabled)
+        return true;
+    std::vector<grpc::Service*> services = {&grpc_svc};
+    if (!grpc_srv.Start(a.grpc_listen, services)) {
+        vn::log::fatal("videonode-source: gRPC server failed to start on %s",
+                       a.grpc_listen.c_str());
+        grpc_enabled = false;
+        return false;
+    }
+    vn::log::info("videonode-source: grpc server listening on %s (id=%s)", a.grpc_listen.c_str(),
+                  a.device_id.c_str());
+    return true;
+}
+
+// Populate a SourceContext from the objects Run owns.
+void populate_gctx_(nativerpc::SourceContext& gctx, std::atomic<bool>& running, Args& a,
+                    bool& need_reinit_flag, source_probe::SourceProbe& probe,
+                    std::optional<nativerpc::ActiveFormat>& active_format) {
+    gctx.device_id = a.device_id;
+    gctx.version = vn::kVersion;
+    gctx.running = &running;
+    gctx.args = &a;
+    gctx.need_reinit_for_format_change = &need_reinit_flag;
+    gctx.probe = &probe;
+    gctx.active_format = &active_format;
+}
+
+// Shut down gRPC, prod, cap, and the placeholder ring.
+void shutdown_(LoopState& st, nativerpc::GrpcServer& grpc_srv, PlaceholderRing& ph) {
+    vn::log::info("videonode-source: shutting down (real=%llu placeholder=%llu)",
+                  static_cast<unsigned long long>(st.real_frame_idx),
+                  static_cast<unsigned long long>(ph.tick_idx));
+    if (st.grpc_enabled) {
+        st.grpc_svc.StopStreams();
+        grpc_srv.Shutdown();
+    }
+    st.prod.stop();
+    if (st.cap.active) {
+        if (!st.cap.cap.stream_off()) {
+            vn::log::error("videonode-source: STREAMOFF failed during shutdown (errno=%d)", errno);
+        }
+        teardown_session_(st.cap);
+    }
+    ph.destroy();
+}
+
 } // namespace
 
 int Run(const Args& a_in, std::atomic<bool>& running) {
@@ -160,38 +506,9 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     // width/height/fps for the reinit-with-new-args path below.
     Args a = a_in;
 
-    // NV12 output allocator. On rig (HAVE_RGA) this is stateless and
-    // backed by dma_heap (single bo); on Fedora / Mesa hosts (HAVE_GBM,
-    // no RGA) the GBM allocator MUST share csc_gles's gbm_device —
-    // radeonsi rejects cross-gbm_device dma-buf imports as renderbuffer
-    // storage, so allocating against a sibling device produces FBO-
-    // incomplete and no frames flow. csc_placebo::init() lazy-creates its
-    // EGL+GBM stack on first call; we force-init eagerly here so the
-    // allocator has the right device.
-#if defined(HAVE_GBM) && !defined(HAVE_RGA)
-    if (!csc_placebo::init()) {
-        vn::log::fatal(
-            "videonode-source: csc_placebo::init failed; cannot bring up Mesa CSC backend "
-            "(needed for the GBM allocator's gbm_device)");
-        return 1;
-    }
-    gbm_device* alloc_gbm = csc_placebo::gbm_device_for_io();
-    if (alloc_gbm == nullptr) {
-        vn::log::fatal("videonode-source: csc_placebo::gbm_device_for_io returned null");
-        return 1;
-    }
     nv12_buf::Allocator allocator;
-    if (!allocator.init(alloc_gbm)) {
-        vn::log::fatal("videonode-source: nv12_buf::Allocator::init failed");
+    if (!init_allocator_(allocator))
         return 1;
-    }
-#else
-    nv12_buf::Allocator allocator;
-    if (!allocator.init()) {
-        vn::log::fatal("videonode-source: nv12_buf::Allocator::init failed");
-        return 1;
-    }
-#endif
 
     PlaceholderRing ph;
     if (!ph.init(allocator, a.placeholder_w, a.placeholder_h, a.device)) {
@@ -210,25 +527,10 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     CaptureSession cap;
     source_probe::SourceProbe probe(cap.cap);
 
-    // Control plane: --grpc-listen + --device-id together bring up an
-    // in-process gRPC server (nativerpc::SourceService) that the daemon
-    // dials. Both empty → standalone mode (R smoke scenarios), no
-    // server, no daemon-issued SetFormat / Snapshot / status stream.
     bool need_reinit_for_format_change = false;
-    // active_format mirrors the post-negotiation format whenever cap is
-    // streaming. Populated under gctx.set_format_mu after every successful
-    // try_open_capture; cleared on teardown. SourceService::SetFormat
-    // reads it to skip rebuilds when the request already matches.
     std::optional<nativerpc::ActiveFormat> active_format;
-
     nativerpc::SourceContext gctx;
-    gctx.device_id = a.device_id;
-    gctx.version = vn::kVersion;
-    gctx.running = &running;
-    gctx.args = &a;
-    gctx.need_reinit_for_format_change = &need_reinit_for_format_change;
-    gctx.probe = &probe;
-    gctx.active_format = &active_format;
+    populate_gctx_(gctx, running, a, need_reinit_for_format_change, probe, active_format);
 
     auto publish_active_format = [&](const Args& used) {
         std::lock_guard<std::mutex> lock(gctx.set_format_mu);
@@ -242,336 +544,78 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         active_format.reset();
     };
 
-    if (a.device.empty()) {
-        // Daemon-managed sources start with no device; SetDevice arrives
-        // later. Skip the initial open() entirely to avoid logging
-        // open(""): ENOENT before the daemon has assigned a path.
-    } else if (try_open_capture(cap, a, allocator)) {
-        probe.attach();
-        publish_active_format(a);
-    } else {
-        vn::log::warn("videonode-source: capture not ready at startup");
-    }
-    nativerpc::SourceService grpc_svc(&gctx);
-    nativerpc::GrpcServer grpc_srv;
-    bool grpc_enabled = !a.grpc_listen.empty() && !a.device_id.empty();
-    if (grpc_enabled) {
-        std::vector<grpc::Service*> services = {&grpc_svc};
-        if (!grpc_srv.Start(a.grpc_listen, services)) {
-            vn::log::fatal("videonode-source: gRPC server failed to start on %s",
-                           a.grpc_listen.c_str());
-            grpc_enabled = false;
+    if (!a.device.empty()) {
+        if (try_open_capture(cap, a, allocator)) {
+            probe.attach();
+            publish_active_format(a);
         } else {
-            vn::log::info("videonode-source: grpc server listening on %s (id=%s)",
-                          a.grpc_listen.c_str(), a.device_id.c_str());
+            vn::log::warn("videonode-source: capture not ready at startup");
         }
     }
+
+    nativerpc::SourceService grpc_svc(&gctx);
+    nativerpc::GrpcServer grpc_srv;
+    bool grpc_enabled = false;
+    start_grpc_(a, grpc_svc, grpc_srv, grpc_enabled);
 
     using clock = std::chrono::steady_clock;
     const auto broadcast_period =
         std::chrono::nanoseconds(1'000'000'000LL / std::max(1, a.placeholder_broadcast_fps));
     auto loop_start = clock::now();
-    auto next_broadcast = clock::now();
 
-    uint64_t real_frame_idx = 0;
-    uint32_t last_dqbuf_seq = 0;
-    // Last fully-decoded real frame; re-broadcast during driver
-    // renegotiation gaps so downstream sees stable content. fd == -1
-    // means no good frame yet.
-    jpeg_dec::DecodedNv12 last_good_decoded{};
-    source_probe::Health prev_health = source_probe::Health::Probing;
-    bool need_reinit = !cap.active;
-    // Power-present poll backstop: re-read the control once per second in
-    // case the driver doesn't fire SOURCE_CHANGE on cable unplug. Cheap
-    // (one VIDIOC_G_CTRL ioctl); guards against event-only blindspots.
-    auto next_power_poll = clock::now();
-    auto next_status_heartbeat = clock::now();
-    int prev_consumer_count = -1;
+    LoopState st{.ph = ph,
+                 .prod = prod,
+                 .cap = cap,
+                 .probe = probe,
+                 .grpc_svc = grpc_svc,
+                 .gctx = gctx,
+                 .a = a,
+                 .grpc_enabled = grpc_enabled,
+                 .need_reinit = !cap.active,
+                 .next_broadcast = clock::now(),
+                 .next_power_poll = clock::now(),
+                 .next_status_heartbeat = clock::now(),
+                 .broadcast_period = broadcast_period};
 
     while (running.load()) {
         if (a.run_seconds > 0 && clock::now() - loop_start > std::chrono::seconds(a.run_seconds))
             break;
 
-        // Prune dead consumers on every loop iteration. broadcast()'s
-        // in-band eviction stalls during DQBUF gaps (signal transitions) or
-        // when next_broadcast keeps being pushed forward by a steady DQBUF
-        // stream; this keeps the consumer list bounded regardless.
         (void)prod.prune_dead_consumers();
 
-        // Format-change reinit: synchronous teardown + reopen with the
-        // new args. The gRPC SetFormat handler runs on a separate thread
-        // and mutates `a` + `need_reinit_for_format_change` under
-        // set_format_mu; copy out the flag (and atomically clear it)
-        // under the lock so the reinit reads a consistent Args snapshot.
-        // try_open_capture takes Args by const ref so further writes by
-        // SetFormat during the V4L2 ioctls only affect the *next* loop
-        // iteration's reinit.
-        bool reinit_now = false;
-        {
-            std::lock_guard<std::mutex> lock(gctx.set_format_mu);
-            if (need_reinit_for_format_change) {
-                reinit_now = true;
-                need_reinit_for_format_change = false;
-            }
-        }
-        if (reinit_now) {
-            last_good_decoded = {};
-            // Snapshot Args under the lock so try_open_capture sees a
-            // coherent set even if SetFormat races us.
-            Args snap;
-            {
-                std::lock_guard<std::mutex> lock(gctx.set_format_mu);
-                snap = a;
-            }
-            if (snap.device.empty()) {
-                // SetDevice("") detached us; tear down any open capture
-                // and stay in placeholder mode until a new path arrives.
-                teardown_session_(cap);
-                clear_active_format();
-                need_reinit = false;
-            } else if (try_open_capture(cap, snap, allocator)) {
-                probe.attach();
-                publish_active_format(snap);
-                need_reinit = false;
-            } else {
-                clear_active_format();
-                need_reinit = true;
-            }
-        }
+        handle_format_change_(st, allocator, publish_active_format, clear_active_format);
+        maybe_reinit_capture_(st, allocator, publish_active_format);
+        poll_and_dispatch_(st);
 
-        // Reinit capture if we lost it. Empty device means daemon hasn't
-        // assigned one yet (or detached us); skip silently so the loop
-        // doesn't spin on open() retries.
-        if (need_reinit) {
-            Args snap;
-            {
-                std::lock_guard<std::mutex> lock(gctx.set_format_mu);
-                snap = a;
-            }
-            if (snap.device.empty()) {
-                need_reinit = false;
-            } else if (try_open_capture(cap, snap, allocator)) {
-                probe.attach();
-                publish_active_format(snap);
-                need_reinit = false;
-            }
-            // even if reinit failed we proceed — placeholder still ticks
-        }
-
-        // poll() with a timeout that wakes us up in time for next broadcast.
-        // Negative deltas clamp to 0.
-        auto until_next = next_broadcast - clock::now();
-        int poll_timeout_ms =
-            int(std::chrono::duration_cast<std::chrono::milliseconds>(until_next).count());
-        if (poll_timeout_ms < 0)
-            poll_timeout_ms = 0;
-        if (poll_timeout_ms > 100)
-            poll_timeout_ms = 100;
-
-        // Build pollset: capture fd (if active). The gRPC control plane
-        // runs on its own thread (see nativerpc::GrpcServer), so we no
-        // longer multiplex its socket through this poll.
-        std::vector<pollfd> pset;
-        int cap_idx = -1;
-        if (cap.active) {
-            pollfd pfd{};
-            pfd.fd = cap.cap.fd();
-            pfd.events = POLLIN | POLLPRI;
-            cap_idx = int(pset.size());
-            pset.push_back(pfd);
-        }
-
-        if (!pset.empty()) {
-            int pr = ::poll(pset.data(), pset.size(), poll_timeout_ms);
-            if (pr > 0 && cap_idx >= 0) {
-                pollfd pfd = pset[cap_idx];
-                if (pfd.revents & POLLPRI) {
-                    std::vector<v4l2_event> evs;
-                    if (cap.cap.drain_events_typed(evs)) {
-                        bool need_restart = false;
-                        for (const auto& e : evs) {
-                            probe.note_event(e);
-                            if (e.type == V4L2_EVENT_SOURCE_CHANGE)
-                                need_restart = true;
-                        }
-                        if (need_restart) {
-                            if (cap.cap.restart_streaming()) {
-                                probe.note_streaming_restarted();
-                            } else {
-                                teardown_session_(cap);
-                                clear_active_format();
-                                need_reinit = true;
-                            }
-                        }
-                    }
-                }
-                if (pfd.revents & POLLIN) {
-                    v4l2::DequeuedFrame df;
-                    if (cap.cap.dequeue_buffer(0, df)) {
-                        probe.note_dqbuf_success();
-                        last_dqbuf_seq = df.sequence;
-                        bool ok = false;
-                        jpeg_dec::DecodedNv12 decoded;
-                        if (cap.mode == DecodeMode::Rga) {
-                            nv12_buf::Buffer& dst_buf =
-                                cap.out_ring[df.index % cap.out_ring.size()];
-                            csc::ConvertParams src_p, dst_p;
-                            src_p.fd = cap.cap.buffers()[df.index].primary_dma_buf();
-                            src_p.fmt = cap.src_fmt;
-                            src_p.width = cap.width;
-                            src_p.height = cap.height;
-                            dst_p.fd = dst_buf.y_fd;
-                            // Split-allocator (host GBM) gives distinct
-                            // y_fd / uv_fd; single-buffer (rig dma_heap)
-                            // shares one fd at different offsets. csc_gles
-                            // distinguishes via uv_fd ≥ 0.
-                            dst_p.uv_fd = (dst_buf.uv_fd != dst_buf.y_fd) ? dst_buf.uv_fd : -1;
-                            dst_p.uv_wstride = int(dst_buf.uv_pitch);
-                            dst_p.fmt = csc::PixelFormat::Nv12;
-                            dst_p.width = cap.width;
-                            dst_p.height = cap.height;
-                            dst_p.wstride = int(dst_buf.y_pitch);
-                            if (csc::convert(src_p, dst_p)) {
-                                nv12_buf::stage_for_read(dst_buf);
-                                decoded.fd = (dst_buf.staged_y_fd >= 0) ? dst_buf.staged_y_fd
-                                                                        : dst_buf.y_fd;
-                                decoded.plane1_fd = (dst_buf.staged_uv_fd >= 0)
-                                                        ? dst_buf.staged_uv_fd
-                                                        : dst_buf.uv_fd;
-                                decoded.width = cap.width;
-                                decoded.height = cap.height;
-                                decoded.y_pitch = dst_buf.y_pitch;
-                                decoded.uv_pitch = dst_buf.uv_pitch;
-                                decoded.y_offset =
-                                    (dst_buf.staged_y_fd >= 0) ? 0 : dst_buf.y_offset;
-                                decoded.uv_offset =
-                                    (dst_buf.staged_uv_fd >= 0) ? 0 : dst_buf.uv_offset;
-                                ok = true;
-                            }
-                        } else { // DecodeMode::Mjpeg
-                            if (df.index < cap.in_maps.size() && df.bytesused > 0) {
-                                const auto* jpeg =
-                                    static_cast<const uint8_t*>(cap.in_maps[df.index]);
-                                ok = cap.jpeg->decode(std::span<const uint8_t>(jpeg, df.bytesused),
-                                                      decoded);
-                            }
-                        }
-                        if (ok) {
-                            ++real_frame_idx;
-                            broadcast_nv12(prod, decoded, real_frame_idx);
-                            if (grpc_enabled) {
-                                grpc_svc.UpdateLastFrame(make_frame_ref_(decoded, real_frame_idx));
-                            }
-                            last_good_decoded = decoded;
-                            // Push the next-broadcast forward so a real
-                            // frame's broadcast counts as the tick.
-                            next_broadcast = clock::now() + broadcast_period;
-                        }
-                        if (!cap.cap.queue_buffer(df.index)) {
-                            vn::log::warn("videonode-source: QBUF failed (idx=%u errno=%d); "
-                                          "kernel ring depth reduced, continuing",
-                                          df.index, errno);
-                        }
-                    } else {
-                        int e = errno;
-                        if (e != ETIMEDOUT && e != EAGAIN) {
-                            probe.note_dqbuf_failure(e);
-                            if (e == ENODEV) {
-                                teardown_session_(cap);
-                                clear_active_format();
-                                last_good_decoded = {};
-                                need_reinit = true;
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            // No capture; just sleep to next broadcast.
-            std::this_thread::sleep_until(next_broadcast);
-        }
-
-        // Log state transitions regardless of whether this iteration
-        // already broadcast a real frame — otherwise Live transitions go
-        // unlogged whenever DQBUFs keep arriving inside the broadcast period.
-        if (clock::now() >= next_power_poll) {
+        if (clock::now() >= st.next_power_poll) {
             probe.refresh_power_present();
-            next_power_poll = clock::now() + std::chrono::seconds(1);
+            st.next_power_poll = clock::now() + std::chrono::seconds(1);
         }
+
         source_probe::Health h = probe.health();
-        bool health_changed = (h != prev_health);
+        bool health_changed = (h != st.prev_health);
         if (health_changed) {
             vn::log::info("videonode-source: state -> %s", source_probe::status_text(h));
-            prev_health = h;
+            st.prev_health = h;
         }
 
-        // Control-plane status push (gRPC StreamStatus subscribers): on
-        // health change, consumer-count change, or every ~1s as a
-        // heartbeat. PublishStatus is non-blocking — slow subscribers
-        // see stale snapshots, not deadlock.
-        if (grpc_enabled) {
-            int cur_consumers = prod.consumer_count();
-            bool consumers_changed = (cur_consumers != prev_consumer_count);
-            bool heartbeat_due = clock::now() >= next_status_heartbeat;
-            if (health_changed || consumers_changed || heartbeat_due) {
-                videonode::control::Status sp;
-                build_status_proto(sp, a.device_id, probe, h, cap, a, real_frame_idx, ph.tick_idx,
-                                   last_dqbuf_seq, prod);
-                grpc_svc.PublishStatus(sp);
-                prev_consumer_count = cur_consumers;
-                next_status_heartbeat = clock::now() + std::chrono::seconds(1);
-            }
-        }
+        maybe_publish_status_(st, h, health_changed, ph.tick_idx);
 
-        // Time to broadcast a tick?
-        if (clock::now() < next_broadcast)
+        if (clock::now() < st.next_broadcast)
             continue;
 
         if (h == source_probe::Health::Live) {
-            // already broadcast via DQBUF path; nothing extra to do here.
-            // (prune_dead_consumers runs unconditionally at the top of every
-            // loop iteration, so dead consumers are reaped regardless of the
-            // broadcast cadence.)
-            next_broadcast += broadcast_period;
+            st.next_broadcast += broadcast_period;
             continue;
         }
-        if (h == source_probe::Health::Transitioning && last_good_decoded.fd >= 0) {
-            // Re-broadcast last good real frame with fresh sequence.
-            ++real_frame_idx;
-            broadcast_nv12(prod, last_good_decoded, real_frame_idx);
-            if (grpc_enabled) {
-                grpc_svc.UpdateLastFrame(make_frame_ref_(last_good_decoded, real_frame_idx));
-            }
-        } else {
-            // Probing / NoCable / NoLock / Gone / Transitioning-without-history.
-            nv12_buf::Buffer& ph_buf = ph.paint_and_pick(now_ms(), source_probe::status_text(h));
-            nv12_buf::stage_for_read(ph_buf);
-            broadcast_buffer(prod, ph_buf, ph.tick_idx);
-            if (grpc_enabled) {
-                grpc_svc.UpdateLastFrame(make_frame_ref_(ph_buf, ph.tick_idx));
-            }
-        }
-        next_broadcast += broadcast_period;
-        if (next_broadcast < clock::now()) {
-            next_broadcast = clock::now() + broadcast_period;
-        }
+
+        broadcast_tick_(st, h);
+        st.next_broadcast += broadcast_period;
+        if (st.next_broadcast < clock::now())
+            st.next_broadcast = clock::now() + broadcast_period;
     }
 
-    vn::log::info("videonode-source: shutting down (real=%llu placeholder=%llu)",
-                  static_cast<unsigned long long>(real_frame_idx),
-                  static_cast<unsigned long long>(ph.tick_idx));
-    if (grpc_enabled) {
-        grpc_svc.StopStreams();
-        grpc_srv.Shutdown();
-    }
-    prod.stop();
-    if (cap.active) {
-        if (!cap.cap.stream_off()) {
-            vn::log::error("videonode-source: STREAMOFF failed during shutdown (errno=%d)", errno);
-        }
-        teardown_session_(cap);
-    }
-    ph.destroy();
+    shutdown_(st, grpc_srv, ph);
     return 0;
 }
 

@@ -38,14 +38,24 @@ class Status;
 
 namespace source {
 
+// Parameters for build_status_proto. Groups the 10 individual arguments so
+// callers don't have to maintain a long parameter list at every call site.
+struct StatusContext {
+    const std::string& device_id;
+    source_probe::SourceProbe& probe;
+    source_probe::Health health;
+    const CaptureSession& cap;
+    const Args& args;
+    uint64_t real_frame_idx;
+    uint64_t placeholder_frames;
+    uint32_t last_seq;
+    scm_rights_producer::ScmRightsProducer& prod;
+};
+
 // Populate a Status proto from the current capture / probe / broadcast
 // state. Called by the orchestrator on health change, consumer-count
 // change, or once per second as a heartbeat; the gRPC StreamStatus
 // subscribers receive each published Status.
-void build_status_proto(::videonode::control::Status& out, const std::string& device_id,
-                        source_probe::SourceProbe& probe, source_probe::Health h,
-                        const CaptureSession& cap, const Args& a, uint64_t real_frame_idx,
-                        uint64_t placeholder_frames, uint32_t last_seq,
-                        scm_rights_producer::ScmRightsProducer& prod);
+void build_status_proto(::videonode::control::Status& out, const StatusContext& ctx);
 
 } // namespace source

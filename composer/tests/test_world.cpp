@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <span>
 #include <thread>
 
 namespace {
@@ -42,16 +43,17 @@ composer_rpc::SetLayoutRequest layout_one(const char* slot, int32_t x, int32_t y
     return r;
 }
 
-composer_rpc::SetEffectsRequest perspective_effect(const char* sid, int corners[8], int snap_w,
-                                                   int snap_h) {
+composer_rpc::SetEffectsRequest perspective_effect(const char* sid, std::span<const int, 8> corners,
+                                                   int snap_w, int snap_h) {
     composer_rpc::SetEffectsRequest r;
     r.source_id = sid;
     composer_rpc::Effect e;
     e.type = "perspective";
     e.recognized = true;
     composer_rpc::PerspectiveEffectParams p{};
+    std::span<int32_t, 8> dst(p.corners);
     for (int i = 0; i < 8; ++i)
-        p.corners[i] = corners[i];
+        dst[i] = corners[i];
     p.snapshot_w = snap_w;
     p.snapshot_h = snap_h;
     e.perspective = p;

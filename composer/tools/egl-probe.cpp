@@ -37,7 +37,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <span>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -76,86 +78,10 @@ void dump_modifier_matrix(EGLDisplay dpy) {
     }
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
-    const std::span<char*> args(argv, static_cast<size_t>(argc));
-    const char* device = (args.size() > 1) ? args[1] : "/dev/dri/renderD130";
-    const char* outpath = (args.size() > 2) ? args[2] : "/tmp/egl-probe.ppm";
-    constexpr int W = 64;
-    constexpr int H = 64;
-
-    // 1. EGL/GBM/GLES2 bootstrap via the shared helper.
-    egl_ctx::EglCtx ctx;
-    VN_CHECK(ctx.init(device), "EglCtx::init(%s)", device);
-    std::fprintf(stderr, "ok: EglCtx up on %s\n", device);
-    std::fprintf(stderr, "ok: GL renderer=%s\n", glGetString(GL_RENDERER));
-    std::fprintf(stderr, "ok: GL version=%s\n", glGetString(GL_VERSION));
-
-    // Driver capability dump — useful when a probe fails on a new rig.
-    const char* exts = eglQueryString(ctx.display(), EGL_EXTENSIONS);
-    std::fprintf(stderr, "ok: EGL_EXTENSIONS=%s\n", exts ? exts : "(null)");
-    dump_modifier_matrix(ctx.display());
-
-    // 2. Allocate a GBM bo we can render to and export as dma-buf.
-    gbm_bo* bo = gbm_bo_create(ctx.gbm(), W, H, GBM_FORMAT_ARGB8888,
-                               GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
-    VN_CHECK(bo, "gbm_bo_create");
-    uint32_t stride = gbm_bo_get_stride(bo);
-    int dmabuf_fd = gbm_bo_get_fd(bo);
-    VN_CHECK(dmabuf_fd >= 0, "gbm_bo_get_fd");
-    std::fprintf(stderr, "ok: gbm_bo %dx%d stride=%u dmabuf_fd=%d\n", W, H, stride, dmabuf_fd);
-
-    // 3. Import the dma-buf back as an EGLImage via EglCtx (the round-trip
-    // the composer depends on).
-    egl_ctx::EglCtx::ImageDesc desc;
-    desc.fd = dmabuf_fd;
-    desc.fourcc = DRM_FORMAT_ARGB8888;
-    desc.modifier = DRM_FORMAT_MOD_LINEAR;
-    desc.width = W;
-    desc.height = H;
-    desc.plane0_offset = 0;
-    desc.plane0_pitch = static_cast<int>(stride);
-    EGLImage img = ctx.import_dmabuf(desc);
-    VN_CHECK(img != EGL_NO_IMAGE, "EglCtx::import_dmabuf");
-    std::fprintf(stderr, "ok: imported dma-buf as EGLImage\n");
-
-    // 4. Attach EGLImage to an FBO renderbuffer, clear red, finish.
-    GLuint rbo = 0;
-    glGenRenderbuffers(1, &rbo);
-    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-
-    auto glEGLImageTargetRenderbufferStorageOES_ =
-        (PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC)eglGetProcAddress(
-            "glEGLImageTargetRenderbufferStorageOES");
-    VN_CHECK(glEGLImageTargetRenderbufferStorageOES_, "no glEGLImageTargetRenderbufferStorageOES");
-    glEGLImageTargetRenderbufferStorageOES_(GL_RENDERBUFFER, img);
-    GL_CHECK("RBStorageOES");
-
-    GLuint fbo = 0;
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
-    VN_CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
-             "framebuffer incomplete");
-
-    glViewport(0, 0, W, H);
-    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glFinish();
-    std::fprintf(stderr, "ok: rendered red to dma-buf FBO\n");
-
-    // 5. mmap the bo and write a PPM. Verifies CPU can read what GPU wrote.
-    uint32_t map_stride = 0;
-    void* map_data = nullptr;
-    void* mapped = gbm_bo_map(bo, 0, 0, W, H, GBM_BO_TRANSFER_READ, &map_stride, &map_data);
-    VN_CHECK(mapped, "gbm_bo_map");
-
-    // Probe tool — keep PPM writer minimal. Bare FILE* is fine here; the
-    // owning-memory checks below are pacified with NOLINT.
-    FILE* f = std::fopen(outpath, "wb"); // NOLINT(cppcoreguidelines-owning-memory)
+int write_ppm(const char* outpath, const void* mapped, uint32_t map_stride, int W, int H) {
+    std::unique_ptr<FILE, decltype(&std::fclose)> f(std::fopen(outpath, "wb"), &std::fclose);
     VN_CHECK(f, "fopen(%s): %s", outpath, std::strerror(errno));
-    std::fprintf(f, "P6\n%d %d\n255\n", W, H);
+    std::fprintf(f.get(), "P6\n%d %d\n255\n", W, H);
     int red_pixels = 0;
     const std::span<const uint8_t> pixels(static_cast<const uint8_t*>(mapped),
                                           static_cast<size_t>(map_stride) * H);
@@ -163,19 +89,81 @@ int main(int argc, char** argv) {
         const std::span<const uint8_t> row =
             pixels.subspan(static_cast<size_t>(y) * map_stride, static_cast<size_t>(W) * 4);
         for (int x = 0; x < W; ++x) {
-            // ARGB8888 in memory little-endian = BGRA bytes: B=row[0], G=row[1], R=row[2].
             const size_t off = static_cast<size_t>(x) * 4;
             uint8_t b = row[off + 0];
             uint8_t g = row[off + 1];
             uint8_t r = row[off + 2];
             uint8_t out[3] = {r, g, b};
-            std::fwrite(out, 1, 3, f);
+            std::fwrite(out, 1, 3, f.get());
             if (r >= 250 && g <= 5 && b <= 5)
                 red_pixels++;
         }
     }
-    std::fclose(f); // NOLINT(cppcoreguidelines-owning-memory)
-    gbm_bo_unmap(bo, map_data);
+    return red_pixels;
+}
+
+struct FboState {
+    gbm_bo* bo{nullptr};
+    EGLImage img{EGL_NO_IMAGE};
+    GLuint rbo{0};
+    GLuint fbo{0};
+    uint32_t stride{0};
+};
+
+FboState setup_fbo(egl_ctx::EglCtx& ctx, int W, int H) {
+    FboState s;
+    s.bo = gbm_bo_create(ctx.gbm(), W, H, GBM_FORMAT_ARGB8888,
+                         GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
+    VN_CHECK(s.bo, "gbm_bo_create");
+    s.stride = gbm_bo_get_stride(s.bo);
+    int dmabuf_fd = gbm_bo_get_fd(s.bo);
+    VN_CHECK(dmabuf_fd >= 0, "gbm_bo_get_fd");
+    std::fprintf(stderr, "ok: gbm_bo %dx%d stride=%u dmabuf_fd=%d\n", W, H, s.stride, dmabuf_fd);
+
+    egl_ctx::EglCtx::ImageDesc desc;
+    desc.fd = dmabuf_fd;
+    desc.fourcc = DRM_FORMAT_ARGB8888;
+    desc.modifier = DRM_FORMAT_MOD_LINEAR;
+    desc.width = W;
+    desc.height = H;
+    desc.plane0_offset = 0;
+    desc.plane0_pitch = static_cast<int>(s.stride);
+    s.img = ctx.import_dmabuf(desc);
+    ::close(dmabuf_fd);
+    VN_CHECK(s.img != EGL_NO_IMAGE, "EglCtx::import_dmabuf");
+    std::fprintf(stderr, "ok: imported dma-buf as EGLImage\n");
+
+    glGenRenderbuffers(1, &s.rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, s.rbo);
+    auto glEGLImageTargetRenderbufferStorageOES_ =
+        (PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC)eglGetProcAddress(
+            "glEGLImageTargetRenderbufferStorageOES");
+    VN_CHECK(glEGLImageTargetRenderbufferStorageOES_, "no glEGLImageTargetRenderbufferStorageOES");
+    glEGLImageTargetRenderbufferStorageOES_(GL_RENDERBUFFER, s.img);
+    GL_CHECK("RBStorageOES");
+
+    glGenFramebuffers(1, &s.fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, s.rbo);
+    VN_CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
+             "framebuffer incomplete");
+    return s;
+}
+
+int render_and_verify(egl_ctx::EglCtx& ctx, const FboState& s, const char* outpath, int W, int H) {
+    glViewport(0, 0, W, H);
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glFinish();
+    std::fprintf(stderr, "ok: rendered red to dma-buf FBO\n");
+
+    uint32_t map_stride = 0;
+    void* map_data = nullptr;
+    void* mapped = gbm_bo_map(s.bo, 0, 0, W, H, GBM_BO_TRANSFER_READ, &map_stride, &map_data);
+    VN_CHECK(mapped, "gbm_bo_map");
+
+    int red_pixels = write_ppm(outpath, mapped, map_stride, W, H);
+    gbm_bo_unmap(s.bo, map_data);
 
     int expected = W * H;
     std::fprintf(stderr, "ok: PPM written to %s, %d/%d red pixels\n", outpath, red_pixels,
@@ -185,11 +173,34 @@ int main(int argc, char** argv) {
              "is wrong)",
              red_pixels, expected);
 
-    // Teardown. EglCtx's destructor handles display/context/gbm/drm cleanup.
-    eglDestroyImage(ctx.display(), img);
-    glDeleteFramebuffers(1, &fbo);
-    glDeleteRenderbuffers(1, &rbo);
-    gbm_bo_destroy(bo);
+    eglDestroyImage(ctx.display(), s.img);
+    glDeleteFramebuffers(1, &s.fbo);
+    glDeleteRenderbuffers(1, &s.rbo);
+    gbm_bo_destroy(s.bo);
+    return red_pixels;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    const char* device = (args.size() > 1) ? args[1] : "/dev/dri/renderD130";
+    const char* outpath = (args.size() > 2) ? args[2] : "/tmp/egl-probe.ppm";
+    constexpr int W = 64;
+    constexpr int H = 64;
+
+    egl_ctx::EglCtx ctx;
+    VN_CHECK(ctx.init(device), "EglCtx::init(%s)", device);
+    std::fprintf(stderr, "ok: EglCtx up on %s\n", device);
+    std::fprintf(stderr, "ok: GL renderer=%s\n", glGetString(GL_RENDERER));
+    std::fprintf(stderr, "ok: GL version=%s\n", glGetString(GL_VERSION));
+
+    const char* exts = eglQueryString(ctx.display(), EGL_EXTENSIONS);
+    std::fprintf(stderr, "ok: EGL_EXTENSIONS=%s\n", exts ? exts : "(null)");
+    dump_modifier_matrix(ctx.display());
+
+    FboState s = setup_fbo(ctx, W, H);
+    render_and_verify(ctx, s, outpath, W, H);
 
     std::printf("PASS\n");
     return 0;

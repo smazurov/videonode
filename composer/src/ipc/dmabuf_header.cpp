@@ -24,19 +24,19 @@ void put_u64_le(std::vector<uint8_t>& out, uint64_t v) {
     }
 }
 
-uint32_t get_u32_le(const uint8_t* p) {
+uint32_t get_u32_le(std::span<const uint8_t> p) {
     return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
            (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
 }
 
-uint16_t get_u16_le(const uint8_t* p) {
+uint16_t get_u16_le(std::span<const uint8_t> p) {
     return static_cast<uint16_t>(p[0]) | static_cast<uint16_t>(p[1] << 8);
 }
 
-uint64_t get_u64_le(const uint8_t* p) {
+uint64_t get_u64_le(std::span<const uint8_t> p) {
     uint64_t v = 0;
     for (int shift = 0; shift < 64; shift += 8) {
-        v |= static_cast<uint64_t>(*p++) << shift;
+        v |= static_cast<uint64_t>(p[static_cast<size_t>(shift / 8)]) << shift;
     }
     return v;
 }
@@ -85,31 +85,30 @@ bool Decode(std::span<const uint8_t> bytes, Header& out, std::string* err) {
     if (bytes.size() < 36) {
         return set_err(err, "header bytes < 36");
     }
-    const uint8_t* p = bytes.data();
-    const uint32_t magic = get_u32_le(p);
+    const uint32_t magic = get_u32_le(bytes.subspan(0, 4));
     if (magic != kMagic) {
         return set_err(err, "bad magic");
     }
-    const uint16_t version = get_u16_le(p + 4);
+    const uint16_t version = get_u16_le(bytes.subspan(4, 2));
     if (version != kVersion) {
         return set_err(err, "unsupported version");
     }
-    // flags at p+6: reserved, must be 0 today. Unknown flag bits are
+    // flags at offset 6: reserved, must be 0 today. Unknown flag bits are
     // tolerated in case a future minor version adds opt-in semantics.
-    out.slot_index = get_u32_le(p + 8);
-    out.width = get_u32_le(p + 12);
-    out.height = get_u32_le(p + 16);
-    out.format.assign(reinterpret_cast<const char*>(p + 20), 4);
+    out.slot_index = get_u32_le(bytes.subspan(8, 4));
+    out.width = get_u32_le(bytes.subspan(12, 4));
+    out.height = get_u32_le(bytes.subspan(16, 4));
+    out.format.assign(reinterpret_cast<const char*>(bytes.subspan(20, 4).data()), 4);
     // Trim trailing nuls so callers comparing to "NV12" (3-char fourccs
     // pad with \0) don't see a longer string than they expect.
     while (!out.format.empty() && out.format.back() == '\0') {
         out.format.pop_back();
     }
-    out.frame_idx = get_u64_le(p + 24);
-    out.color_matrix = static_cast<ColorMatrix>(p[32]);
-    out.color_range = static_cast<ColorRange>(p[33]);
-    out.chroma_siting = static_cast<ChromaSiting>(p[34]);
-    const uint8_t plane_count = p[35];
+    out.frame_idx = get_u64_le(bytes.subspan(24, 8));
+    out.color_matrix = static_cast<ColorMatrix>(bytes[32]);
+    out.color_range = static_cast<ColorRange>(bytes[33]);
+    out.chroma_siting = static_cast<ChromaSiting>(bytes[34]);
+    const uint8_t plane_count = bytes[35];
     if (plane_count == 0 || plane_count > kMaxPlanes) {
         return set_err(err, "plane_count out of range");
     }
@@ -119,11 +118,11 @@ bool Decode(std::span<const uint8_t> bytes, Header& out, std::string* err) {
     }
     out.plane_pitches.resize(plane_count);
     out.plane_offsets.resize(plane_count);
-    const uint8_t* pitches = p + 36;
-    const uint8_t* offsets = pitches + 4 * plane_count;
+    const auto pitches = bytes.subspan(36, 4 * plane_count);
+    const auto offsets = bytes.subspan(36 + 4 * plane_count, 4 * plane_count);
     for (size_t i = 0; i < plane_count; ++i) {
-        out.plane_pitches[i] = get_u32_le(pitches + 4 * i);
-        out.plane_offsets[i] = get_u32_le(offsets + 4 * i);
+        out.plane_pitches[i] = get_u32_le(pitches.subspan(4 * i, 4));
+        out.plane_offsets[i] = get_u32_le(offsets.subspan(4 * i, 4));
     }
     return true;
 }
