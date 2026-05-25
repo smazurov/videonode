@@ -3,6 +3,7 @@ import { Badge } from '../Badge';
 import { DataTable, type DataTableColumn } from '../primitives/DataTable';
 import { EmptyState } from '../primitives/EmptyState';
 import { StatusPill } from '../primitives/StatusPill';
+import { poolStateToPill } from '../../lib/pool-status';
 import type { SourceEntry } from '../../hooks/useSourceStore';
 import { formatUptime } from '../../lib/formatUptime';
 
@@ -38,7 +39,7 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
     {
       id: 'status',
       header: 'Status',
-      cell: (row) => <StatusPill status={row.status ?? 'idle'} />,
+      cell: (row) => <StatusPill status={poolStateToPill(row.status)} />,
       sortValue: (row) => row.status ?? '',
     },
     {

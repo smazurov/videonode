@@ -261,6 +261,7 @@ func main() {
 			DeviceResolver: streams.MakeDeviceResolver(logger),
 			EventBus:       eventBus,
 			ControlServer:  ctlServer,
+			Registry:       eventRegistry,
 		}, logger)
 
 		// Pump status notifications into the event bus AND the uniform

@@ -47,7 +47,7 @@ type ComposerData struct {
 	Inputs              []ComposerInputData `json:"inputs" doc:"Composer inputs (refs + optional effects)"`
 	Layout              []LayoutSlotData    `json:"layout" doc:"Layout slots placing each input on the canvas"`
 	DownstreamStreamIDs []string            `json:"downstream_stream_ids,omitempty" example:"[\"main-720p\",\"main-1080p\"]" republish:"stream" doc:"Server-denormalized list of stream IDs whose upstream is composer:<this>. Auto-republished via dependency graph when streams change."`
-	Status              string              `json:"status,omitempty" example:"warm" doc:"Runtime composer status: warm (process up) | cold (no referent / process down) | unknown"`
+	Status              ProcessStatus       `json:"status,omitempty" example:"running" enum:"idle,starting,running,stopping,error" doc:"Process pool state"`
 	CreatedAt           time.Time           `json:"created_at,omitzero" doc:"Creation timestamp"`
 	UpdatedAt           time.Time           `json:"updated_at,omitzero" doc:"Last update timestamp"`
 }

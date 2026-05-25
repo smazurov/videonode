@@ -2,6 +2,7 @@ import { Card } from '../Card';
 import { SectionHeader } from '../primitives/SectionHeader';
 import { KVInspector, type KVEntry } from '../primitives/KVInspector';
 import { StatusPill } from '../primitives/StatusPill';
+import { poolStateToPill } from '../../lib/pool-status';
 import type { SourceEntry } from '../../hooks/useSourceStore';
 import { formatUptime } from '../../lib/formatUptime';
 
@@ -32,7 +33,7 @@ export function SourceStatusPanel({ source }: Readonly<SourceStatusPanelProps>) 
         { label: 'placeholder_frames', value: String(status.broadcast.placeholder_frames) },
       ]
     : [];
-  if (status && source.status !== 'running') {
+  if (status && poolStateToPill(source.status) !== 'running') {
     broadcastEntries.push({
       label: 'placeholder_cadence',
       value: `${status.broadcast.target_fps} fps`,
@@ -46,7 +47,7 @@ export function SourceStatusPanel({ source }: Readonly<SourceStatusPanelProps>) 
       <SectionHeader
         title="Status"
         description="Live status snapshot from the source sidecar."
-        actions={<StatusPill status={source.status ?? 'idle'} />}
+        actions={<StatusPill status={poolStateToPill(source.status)} />}
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>

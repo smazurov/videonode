@@ -105,9 +105,8 @@ export const createSourceDataSlice: StateCreator<
           const next = { ...state.statusById, [id]: payload };
           const src = state.sourcesById[id];
           if (!src || !snap) return { statusById: next };
-          const status = healthToPill(snap.health);
           const lastAt = snap.ts_ms ? new Date(snap.ts_ms).toISOString() : new Date().toISOString();
-          const merged: Source = { ...src, status, last_status_at: lastAt };
+          const merged: Source = { ...src, last_status_at: lastAt };
           if (payload) merged.latest_status = payload as NonNullable<Source['latest_status']>;
           if (typeof snap.started_at_us === 'number' && snap.started_at_us > 0) {
             merged.started_at_us = snap.started_at_us;
@@ -162,7 +161,6 @@ export const createSourceDataSlice: StateCreator<
 function mergeRuntime(prev: Source | undefined, next: Source): Source {
   if (!prev) return next;
   const merged: Source = { ...next };
-  if (prev.status !== undefined) merged.status = prev.status;
   if (prev.latest_status !== undefined) merged.latest_status = prev.latest_status;
   if (prev.last_status_at !== undefined) merged.last_status_at = prev.last_status_at;
   if (prev.started_at_us !== undefined) merged.started_at_us = prev.started_at_us;
@@ -202,27 +200,3 @@ function computeEffectiveFps(prev: unknown, next: {
   return Math.round((df / (dt / 1000)) * 10) / 10;
 }
 
-// Map the source binary's collapsed health enum onto the small
-// StatusPill vocabulary the UI ships. videonode-source emits health
-// strings either lower-case ("live") or upper-case ("INITIALIZING"),
-// so normalise before matching.
-function healthToPill(
-  health: string | undefined,
-): 'running' | 'idle' | 'error' | 'warm' | 'stopped' {
-  switch ((health ?? '').toLowerCase()) {
-    case 'live':
-    case 'transitioning':
-      return 'running';
-    case 'placeholder':
-    case 'no_signal':
-    case 'initializing':
-      return 'warm';
-    case 'error':
-    case 'failed':
-      return 'error';
-    case '':
-      return 'stopped';
-    default:
-      return 'idle';
-  }
-}

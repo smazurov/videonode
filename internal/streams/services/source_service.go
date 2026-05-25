@@ -51,6 +51,7 @@ func (s *sourceService) List(_ context.Context) ([]api.Source, error) {
 	for i, e := range entries {
 		out[i] = sourceToAPI(e)
 		out[i].Consumers = s.findReferences(e.ID)
+		s.enrichStatus(&out[i])
 	}
 	return out, nil
 }
@@ -65,6 +66,7 @@ func (s *sourceService) Get(_ context.Context, id string) (*api.Source, error) {
 	}
 	out := sourceToAPI(src)
 	out.Consumers = s.findReferences(id)
+	s.enrichStatus(&out)
 	return &out, nil
 }
 
@@ -243,6 +245,12 @@ func (s *sourceService) findReferences(id string) []models.SourceReference {
 		}
 	}
 	return refs
+}
+
+func (s *sourceService) enrichStatus(out *api.Source) {
+	if s.pipe != nil {
+		out.Status = models.ProcessStatus(s.pipe.Pool().GetStatus(pipeline.SourcePoolKey(out.ID)).State)
+	}
 }
 
 func validateSourceCreate(src api.Source) error {

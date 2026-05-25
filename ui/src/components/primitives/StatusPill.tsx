@@ -1,17 +1,21 @@
 import React from "react";
 import { cva, cn, type VariantProps } from "../../utils";
 
+const TRANSITIONING = "bg-status-warm-soft text-status-warm-soft-fg";
+
 const pillVariants = cva({
   base: "inline-flex items-center gap-1.5 font-medium rounded-full shrink-0 whitespace-nowrap border border-transparent",
   variants: {
     status: {
-      warm: "bg-status-warm-soft text-status-warm-soft-fg",
+      warm: TRANSITIONING,
       cold: "bg-status-cold-soft text-status-cold-soft-fg",
       error: "bg-status-error-soft text-status-error-soft-fg",
       encoding: "bg-status-encoding-soft text-status-encoding-soft-fg",
       idle: "bg-status-idle-soft text-status-idle-soft-fg",
       running: "bg-status-running-soft text-status-running-soft-fg",
       stopped: "bg-status-stopped-soft text-status-stopped-soft-fg",
+      starting: TRANSITIONING,
+      stopping: TRANSITIONING,
     },
     size: {
       xs: "px-1.5 py-0.5 text-[10px]",
@@ -21,6 +25,8 @@ const pillVariants = cva({
   },
   defaultVariants: { status: "idle", size: "sm" },
 });
+
+const TRANSITIONING_DOT = "bg-status-warm-soft-fg animate-pulse";
 
 const dotVariants = cva({
   base: "inline-block rounded-full",
@@ -33,6 +39,8 @@ const dotVariants = cva({
       idle: "bg-status-idle-soft-fg",
       running: "bg-status-running-soft-fg animate-pulse",
       stopped: "bg-status-stopped-soft-fg",
+      starting: TRANSITIONING_DOT,
+      stopping: TRANSITIONING_DOT,
     },
     size: {
       xs: "h-1.5 w-1.5",
@@ -60,6 +68,8 @@ const DEFAULT_LABELS: Record<StatusPillStatus, string> = {
   idle: "Idle",
   running: "Running",
   stopped: "Stopped",
+  starting: "Starting",
+  stopping: "Stopping",
 };
 
 export function StatusPill({

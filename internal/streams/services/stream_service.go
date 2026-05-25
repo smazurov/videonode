@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/api"
+	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
@@ -213,6 +214,15 @@ func (s *streamService) pipelineSwitchEnabled() bool {
 // PipelineEnabled returns the persisted daemon-wide master switch state.
 func (s *streamService) PipelineEnabled() bool {
 	return s.pipelineSwitchEnabled()
+}
+
+// EncoderStatus returns the process pool state for a stream's encoder
+// stage. Returns ProcessStatusIdle when the pipeline is nil.
+func (s *streamService) EncoderStatus(streamID string) models.ProcessStatus {
+	if s.pipe == nil {
+		return models.ProcessStatusIdle
+	}
+	return models.ProcessStatus(s.pipe.Pool().GetStatus(pipeline.EncoderIDFor(streamID)).State)
 }
 
 // StartPipeline flips the persisted master switch on and re-applies every

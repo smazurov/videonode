@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useStreamStore } from '../../hooks/useStreamStore';
 import { LivePreviewFrame } from '../primitives/LivePreviewFrame';
 import { StatusPill } from '../primitives/StatusPill';
+import { poolStateToPill } from '../../lib/pool-status';
 import { SectionHeader } from '../primitives/SectionHeader';
 import { Badge } from '../Badge';
 import { WebRTCPlayer } from '../webrtc';
@@ -28,27 +29,24 @@ export function StreamOverviewPanel({ streamId, className, videoHidden = false }
   }
 
   const upstream = resolveUpstream(stream);
-  const enabled = !!stream.enabled;
+  const status = poolStateToPill(stream.status);
+  const isRunning = stream.status === 'running';
 
   return (
     <section className={cn('space-y-4 rounded-lg border border-border bg-surface-raised p-4', className)}>
       <SectionHeader
         title="Live preview"
         description="WebRTC playback of this stream"
-        actions={
-          <StatusPill status={enabled ? 'running' : 'idle'}>
-            {enabled ? 'running' : 'idle'}
-          </StatusPill>
-        }
+        actions={<StatusPill status={status} />}
       />
 
       {!videoHidden && (
         <LivePreviewFrame
-          state={enabled ? 'ready' : 'idle'}
+          state={isRunning ? 'ready' : 'idle'}
           idleMessage="Stream disabled"
           mediaClassName="bg-black"
         >
-          {enabled && (
+          {isRunning && (
             <WebRTCPlayer
               key={`${streamId}:${refreshKey}`}
               streamId={streamId}
@@ -78,9 +76,7 @@ export function StreamOverviewPanel({ streamId, className, videoHidden = false }
         <div className="rounded-md border border-border bg-surface-muted/30 p-3">
           <div className="text-xs uppercase tracking-wide text-fg-muted">Encoder</div>
           <div className="mt-1">
-            <StatusPill status={enabled ? 'running' : 'idle'}>
-              {enabled ? 'running' : 'idle'}
-            </StatusPill>
+            <StatusPill status={status} />
           </div>
         </div>
       </div>

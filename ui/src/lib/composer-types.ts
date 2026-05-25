@@ -55,11 +55,9 @@ export interface ComposerLayoutPatch {
   layout: LayoutSlot[];
 }
 
-export type ComposerStatus = 'warm' | 'cold' | 'error' | 'idle' | 'unknown';
-
 export interface ComposerData extends Omit<Composer, 'id'> {
   composer_id: string;
-  status?: ComposerStatus;
+  status?: string;
   downstream_stream_ids?: string[];
 }
 

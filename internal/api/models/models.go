@@ -8,6 +8,18 @@ import (
 	"github.com/smazurov/videonode/internal/ffmpeg"
 )
 
+// ProcessStatus is the process pool state surfaced on every entity.
+// Mirrors process.State; redefined here to avoid an import cycle.
+type ProcessStatus string
+
+const (
+	ProcessStatusIdle     ProcessStatus = "idle"
+	ProcessStatusStarting ProcessStatus = "starting"
+	ProcessStatusRunning  ProcessStatus = "running"
+	ProcessStatusStopping ProcessStatus = "stopping"
+	ProcessStatusError    ProcessStatus = "error"
+)
+
 // HealthData contains health check response fields.
 type HealthData struct {
 	Status  string `json:"status" example:"ok" doc:"Service status"`
@@ -86,6 +98,7 @@ type StreamData struct {
 	Publish           []PublishTargetData `json:"publish,omitempty" doc:"Output destinations"`
 	CustomEncoderArgs string              `json:"custom_encoder_args,omitempty" doc:"User-supplied ffmpeg encoder args (replaces daemon-generated argv from -c:v onward)"`
 	Enabled           bool                `json:"enabled" example:"true" doc:"Runtime state — true when the encoder process is intended to run"`
+	Status            ProcessStatus       `json:"status,omitempty" example:"running" enum:"idle,starting,running,stopping,error" doc:"Encoder process pool state"`
 	RTSPURL           string              `json:"rtsp_url,omitempty" example:"rtsp://localhost:8554/stream-001" doc:"RTSP playback URL"`
 	SRTURL            string              `json:"srt_url,omitempty" example:"srt://localhost:6001?streamid=stream-001" doc:"SRT playback URL"`
 	CreatedAt         time.Time           `json:"created_at,omitzero" doc:"When the stream spec was created"`

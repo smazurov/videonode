@@ -7,6 +7,7 @@ import { Badge } from '../Badge';
 import { Button } from '../Button';
 import { Card } from '../Card';
 import { StatusPill, type StatusPillStatus } from '../primitives/StatusPill';
+import { poolStateToPill } from '../../lib/pool-status';
 import { EffectEditor } from './EffectEditor';
 import { InputRefPicker } from './InputRefPicker';
 import type { ComposerData, ComposerInput, LayoutSlot } from '../../lib/composer-types';
@@ -43,7 +44,7 @@ function sourceIdFromRef(ref: string): string | null {
 
 function resolveStatus(source: Source | undefined): StatusPillStatus | 'missing' {
   if (!source) return 'missing';
-  return source.status ?? 'idle';
+  return poolStateToPill(source.status);
 }
 
 function sourceLabel(source: Source): string {
