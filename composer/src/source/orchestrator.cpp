@@ -432,14 +432,20 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                             dst_p.height = cap.height;
                             dst_p.wstride = int(dst_buf.y_pitch);
                             if (csc::convert(src_p, dst_p)) {
-                                decoded.fd = dst_buf.y_fd;
-                                decoded.plane1_fd = dst_buf.uv_fd;
+                                nv12_buf::stage_for_read(dst_buf);
+                                decoded.fd = (dst_buf.staged_y_fd >= 0) ? dst_buf.staged_y_fd
+                                                                        : dst_buf.y_fd;
+                                decoded.plane1_fd = (dst_buf.staged_uv_fd >= 0)
+                                                        ? dst_buf.staged_uv_fd
+                                                        : dst_buf.uv_fd;
                                 decoded.width = cap.width;
                                 decoded.height = cap.height;
                                 decoded.y_pitch = dst_buf.y_pitch;
                                 decoded.uv_pitch = dst_buf.uv_pitch;
-                                decoded.y_offset = dst_buf.y_offset;
-                                decoded.uv_offset = dst_buf.uv_offset;
+                                decoded.y_offset =
+                                    (dst_buf.staged_y_fd >= 0) ? 0 : dst_buf.y_offset;
+                                decoded.uv_offset =
+                                    (dst_buf.staged_uv_fd >= 0) ? 0 : dst_buf.uv_offset;
                                 ok = true;
                             }
                         } else { // DecodeMode::Mjpeg
@@ -539,6 +545,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         } else {
             // Probing / NoCable / NoLock / Gone / Transitioning-without-history.
             nv12_buf::Buffer& ph_buf = ph.paint_and_pick(now_ms(), source_probe::status_text(h));
+            nv12_buf::stage_for_read(ph_buf);
             broadcast_buffer(prod, ph_buf, ph.tick_idx);
             if (grpc_enabled) {
                 grpc_svc.UpdateLastFrame(make_frame_ref_(ph_buf, ph.tick_idx));

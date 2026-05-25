@@ -39,6 +39,11 @@ struct Buffer {
     int width = 0;
     int height = 0;
 
+    // Staged (cached) fds for broadcast. When >= 0, consumers should
+    // read from these instead of y_fd/uv_fd. Set by stage_for_read().
+    int staged_y_fd = -1;
+    int staged_uv_fd = -1;
+
     // Backend-private pointers (filled by alloc(), released by free()).
     void* impl = nullptr;
 
@@ -94,5 +99,11 @@ void unmap(Buffer& b);
 enum class SyncDir { Read, Write, ReadWrite };
 void sync_start(const Buffer& b, SyncDir dir);
 void sync_end(const Buffer& b, SyncDir dir);
+
+// stage_for_read copies the buffer's plane data into a cached staging
+// buffer (memfd). After this call, staged_y_fd() / staged_uv_fd()
+// return fds that consumers can mmap with full cache bandwidth. On
+// the dma_heap backend (already cached) this is a no-op.
+void stage_for_read(Buffer& b);
 
 } // namespace nv12_buf

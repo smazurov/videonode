@@ -37,14 +37,14 @@ void broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec
 void broadcast_buffer(scm_rights_producer::ScmRightsProducer& prod, const nv12_buf::Buffer& b,
                       uint64_t frame_idx) {
     jpeg_dec::DecodedNv12 d;
-    d.fd = b.y_fd;
-    d.plane1_fd = b.uv_fd;
+    d.fd = (b.staged_y_fd >= 0) ? b.staged_y_fd : b.y_fd;
+    d.plane1_fd = (b.staged_uv_fd >= 0) ? b.staged_uv_fd : b.uv_fd;
     d.width = b.width;
     d.height = b.height;
     d.y_pitch = b.y_pitch;
     d.uv_pitch = b.uv_pitch;
-    d.y_offset = b.y_offset;
-    d.uv_offset = b.uv_offset;
+    d.y_offset = (b.staged_y_fd >= 0) ? 0 : b.y_offset;
+    d.uv_offset = (b.staged_uv_fd >= 0) ? 0 : b.uv_offset;
     broadcast_nv12(prod, d, frame_idx);
 }
 
