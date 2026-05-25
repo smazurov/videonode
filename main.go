@@ -279,18 +279,13 @@ func main() {
 
 		// Pump status notifications into the event bus AND the uniform
 		// entity envelope so the UI's per-source status pill and
-		// consumer count react in real time. StartedAtUs is stamped
-		// daemon-side from the supervisor pool so the UI can derive
-		// uptime regardless of when the operator's browser connected.
+		// consumer count react in real time. RunStatusFanout decouples
+		// the drain from the publish so a slow event subscriber can
+		// never block the StatusFeed channel.
 		if ctlServer != nil {
-			go func() {
-				for st := range ctlServer.StatusFeed() {
-					if st.DeviceID != "" {
-						info := nativePipeline.Pool().GetStatus("producer:" + st.DeviceID)
-						if !info.StartedAt.IsZero() {
-							st.StartedAtUs = info.StartedAt.UnixMicro()
-						}
-					}
+			pipelinectl.RunStatusFanout(
+				ctlServer.StatusFeed(),
+				func(st pipelinectl.StatusParams) {
 					eventBus.Publish(events.SourceStatusEvent{
 						DeviceID:  st.DeviceID,
 						Status:    st,
@@ -300,8 +295,15 @@ func main() {
 						eventRegistry.Publish("source", events.ActionStatus, st.DeviceID, st)
 						eventRegistry.Publish("source", events.ActionConsumers, st.DeviceID, st.Consumers)
 					}
-				}
-			}()
+				},
+				func(poolKey string) int64 {
+					info := nativePipeline.Pool().GetStatus(poolKey)
+					if !info.StartedAt.IsZero() {
+						return info.StartedAt.UnixMicro()
+					}
+					return 0
+				},
+			)
 		}
 
 		// Lazy encoder lifecycle: idle the encoder once the last consumer
@@ -511,8 +513,19 @@ func main() {
 				logger.Error("Error stopping HTTP server", "error", err)
 			}
 
-			// Stop all supervised stream/source/composer processes (after the
-			// HTTP server stops accepting new requests).
+			// Tear down the native control plane FIRST: cancels in-flight
+			// StreamStatus goroutines and closes the StatusFeed channel
+			// that the fan-out goroutines drain. This must happen before
+			// Pool().StopAll() kills the source processes, otherwise the
+			// StreamStatus recv loop enters a retry loop against a dead
+			// socket until the 30s StaleStreamTimeout evicts it.
+			if ctlServer != nil {
+				if err := ctlServer.Stop(); err != nil {
+					logger.Error("Error stopping control manager", "error", err)
+				}
+			}
+
+			// Stop all supervised stream/source/composer processes.
 			logger.Info("Stopping all stream processes")
 			nativePipeline.Pool().StopAll()
 
@@ -537,17 +550,6 @@ func main() {
 			}
 			if mppCollector != nil {
 				_ = mppCollector.Stop()
-			}
-
-			// Tear down the native control plane: closes every per-source
-			// gRPC channel, cancels in-flight StreamStatus goroutines, and
-			// closes the StatusFeed channel that the fan-out goroutine in
-			// main reads. Without this the daemon hangs on SIGTERM because
-			// the fan-out goroutine blocks on a never-closed channel.
-			if ctlServer != nil {
-				if err := ctlServer.Stop(); err != nil {
-					logger.Error("Error stopping control manager", "error", err)
-				}
 			}
 
 			// Exit with non-zero code if restart was requested (systemd will restart)
