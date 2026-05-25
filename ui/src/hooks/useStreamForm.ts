@@ -34,8 +34,10 @@ function emptyValue(): StreamFormValue {
 
 function fromStreamData(s: StreamData | undefined): StreamFormValue {
   if (!s) return emptyValue();
-  const encoder: EncoderConfig = (s.encoder as EncoderConfig | undefined) ?? defaultEncoder();
-  const audio: AudioConfig = (s.audio as AudioConfig | undefined) ?? defaultAudio();
+  const rawEnc = { ...defaultEncoder(), ...(s.encoder as Partial<EncoderConfig>) };
+  const encoder: EncoderConfig = { ...rawEnc };
+  const rawAudio = { ...defaultAudio(), ...(s.audio as Partial<AudioConfig>) };
+  const audio: AudioConfig = { ...rawAudio, devices: rawAudio.devices ?? [] };
   return {
     stream_id: s.stream_id,
     upstream: s.upstream ?? '',

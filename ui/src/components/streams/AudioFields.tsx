@@ -33,7 +33,7 @@ export function AudioFields({
     // Preserve any device that was saved but is currently unplugged so
     // the user can still see/deselect it.
     const known = new Set(fromAPI.map((o) => o.value));
-    for (const dev of value.devices) {
+    for (const dev of value.devices ?? []) {
       if (!known.has(dev)) {
         fromAPI.push({ value: dev, label: `${dev} (offline)` });
       }
@@ -54,7 +54,7 @@ export function AudioFields({
         <label className="block text-sm font-medium text-fg">ALSA Devices</label>
         <MultiSelect
           options={options}
-          selected={value.devices}
+          selected={value.devices ?? []}
           onChange={(next) => update('devices', next)}
           placeholder={loading ? 'Loading devices...' : 'Select audio inputs'}
           label="ALSA devices"
