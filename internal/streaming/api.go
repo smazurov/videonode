@@ -27,9 +27,8 @@ type StreamListOutput struct {
 	}
 }
 
-// RegisterWebRTCAPI registers WebRTC signaling endpoints with the Huma API.
-func RegisterWebRTCAPI(api huma.API, webrtcManager *WebRTCManager) {
-	// POST /api/webrtc?stream=<id> - WebRTC signaling
+// RegisterStreamingAPI registers WebRTC signaling and consumer management endpoints.
+func RegisterStreamingAPI(api huma.API, webrtcManager *WebRTCManager, srtServer *SRTServer) {
 	huma.Register(api, huma.Operation{
 		OperationID: "webrtc-offer",
 		Method:      http.MethodPost,
@@ -48,7 +47,6 @@ func RegisterWebRTCAPI(api huma.API, webrtcManager *WebRTCManager) {
 		}, nil
 	})
 
-	// GET /api/streams/live - List active streams
 	huma.Register(api, huma.Operation{
 		OperationID: "list-live-streams",
 		Method:      http.MethodGet,
@@ -65,5 +63,35 @@ func RegisterWebRTCAPI(api huma.API, webrtcManager *WebRTCManager) {
 				Streams: streams,
 			},
 		}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "disconnect-consumer",
+		Method:      http.MethodDelete,
+		Path:        "/api/streams/{stream_id}/{protocol}/consumers/{client_id}",
+		Summary:     "Disconnect consumer",
+		Description: "Disconnect a WebRTC peer or SRT consumer by protocol and client ID",
+		Tags:        []string{"streaming"},
+		Errors:      []int{400, 404},
+	}, func(_ context.Context, input *struct {
+		StreamID string `path:"stream_id" doc:"Stream identifier"`
+		Protocol string `path:"protocol" enum:"webrtc,srt" doc:"Consumer protocol"`
+		ClientID string `path:"client_id" doc:"Client identifier (peer name or consumer ID)"`
+	}) (*struct{}, error) {
+		var found bool
+		switch input.Protocol {
+		case "webrtc":
+			found = webrtcManager.DisconnectPeer(input.ClientID)
+		case "srt":
+			if srtServer != nil {
+				found = srtServer.DisconnectConsumer(input.ClientID)
+			}
+		default:
+			return nil, huma.Error400BadRequest("unsupported protocol: " + input.Protocol)
+		}
+		if !found {
+			return nil, huma.Error404NotFound("consumer not found")
+		}
+		return &struct{}{}, nil
 	})
 }
