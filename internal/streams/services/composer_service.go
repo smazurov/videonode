@@ -16,8 +16,9 @@ import (
 // ComposerServiceOptions wires the ComposerService to persistence and
 // the supervised pipeline.
 type ComposerServiceOptions struct {
-	Store    streams.EntityStore
-	Pipeline *pipeline.Pipeline
+	Store          streams.EntityStore
+	Pipeline       *pipeline.Pipeline
+	PipelineSwitch PipelineSwitch
 }
 
 // composerService implements api.ComposerService backed by the v2
@@ -25,6 +26,7 @@ type ComposerServiceOptions struct {
 type composerService struct {
 	store  streams.EntityStore
 	pipe   *pipeline.Pipeline
+	psw    PipelineSwitch
 	logger logging.Logger
 	mu     sync.Mutex
 }
@@ -38,8 +40,16 @@ func NewComposerService(opts ComposerServiceOptions) api.ComposerService {
 	return &composerService{
 		store:  opts.Store,
 		pipe:   opts.Pipeline,
+		psw:    opts.PipelineSwitch,
 		logger: logging.GetLogger("composer_svc"),
 	}
+}
+
+func (s *composerService) pipelineSwitchEnabled() bool {
+	if s.psw == nil {
+		return true
+	}
+	return s.psw.GetPipeline().Enabled
 }
 
 // ListComposers returns all persisted composers in API wire shape.
@@ -113,14 +123,16 @@ func (s *composerService) CreateComposer(_ context.Context, data models.Composer
 		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
 	}
 	if s.pipe != nil {
-		if err := s.pipe.ApplyComposer(entity); err != nil {
-			// Roll back the insert so the persisted state matches what
-			// the pipeline accepts.
-			if rmErr := s.store.RemoveComposerEntity(entity.ID); rmErr != nil {
-				s.logger.Error("CreateComposer: rollback after ApplyComposer failure also failed",
-					"composer_id", entity.ID, "apply_error", err, "rollback_error", rmErr)
+		if s.pipelineSwitchEnabled() {
+			if err := s.pipe.ApplyComposer(entity); err != nil {
+				if rmErr := s.store.RemoveComposerEntity(entity.ID); rmErr != nil {
+					s.logger.Error("CreateComposer: rollback after ApplyComposer failure also failed",
+						"composer_id", entity.ID, "apply_error", err, "rollback_error", rmErr)
+				}
+				return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
 			}
-			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
+		} else {
+			_ = s.pipe.RegisterComposer(entity)
 		}
 	}
 	out := composerToAPI(entity)
@@ -177,7 +189,7 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 	if err := s.store.UpdateComposerEntity(id, c); err != nil {
 		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
 	}
-	if s.pipe != nil {
+	if s.pipe != nil && s.pipelineSwitchEnabled() {
 		var applyErr error
 		switch {
 		case canvasChanged || inputsChanged:
@@ -192,6 +204,8 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 			}
 			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + applyErr.Error()}
 		}
+	} else if s.pipe != nil {
+		_ = s.pipe.RegisterComposer(c)
 	}
 	out := composerToAPI(c)
 	return &out, nil
@@ -253,7 +267,7 @@ func (s *composerService) ReplaceLayout(_ context.Context, id string, layout []m
 	if err := s.store.UpdateComposerEntity(id, c); err != nil {
 		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
 	}
-	if s.pipe != nil {
+	if s.pipe != nil && s.pipelineSwitchEnabled() {
 		if err := s.pipe.UpdateComposerLayout(id, c.Layout); err != nil {
 			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
 				s.logger.Error("ReplaceLayout: rollback after UpdateComposerLayout failure also failed",
@@ -310,7 +324,7 @@ func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effe
 	if err := s.store.UpdateComposerEntity(id, c); err != nil {
 		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
 	}
-	if s.pipe != nil {
+	if s.pipe != nil && s.pipelineSwitchEnabled() {
 		if err := s.pipe.UpdateComposerEffect(id, ref, applied); err != nil {
 			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
 				s.logger.Error("SetInputEffect: rollback after UpdateComposerEffect failure also failed",

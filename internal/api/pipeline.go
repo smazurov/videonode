@@ -3,8 +3,11 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/smazurov/videonode/internal/events"
 )
 
 // PipelineStateBody is the response body for pipeline state endpoints.
@@ -24,7 +27,7 @@ func (s *Server) registerPipelineRoutes() {
 		Method:      http.MethodGet,
 		Path:        "/api/pipeline",
 		Summary:     "Get Pipeline State",
-		Description: "Return the daemon-wide pipeline master switch state. When false, no stream processes are running.",
+		Description: "Return the daemon-wide pipeline master switch state. When false, no pipeline processes are running.",
 		Tags:        []string{"pipeline"},
 		Errors:      []int{401},
 		Security:    withAuth(),
@@ -39,7 +42,7 @@ func (s *Server) registerPipelineRoutes() {
 		Method:      http.MethodPost,
 		Path:        "/api/pipeline/start",
 		Summary:     "Start Pipeline",
-		Description: "Flip the daemon-wide pipeline master switch on and start every configured stream.",
+		Description: "Flip the daemon-wide pipeline master switch on and start every configured source, composer, and stream.",
 		Tags:        []string{"pipeline"},
 		Errors:      []int{401, 500},
 		Security:    withAuth(),
@@ -47,8 +50,15 @@ func (s *Server) registerPipelineRoutes() {
 		if _, err := s.streamService.StartPipeline(ctx); err != nil {
 			return nil, huma.Error500InternalServerError("failed to start pipeline", err)
 		}
+		enabled := s.streamService.PipelineEnabled()
+		if s.eventBus != nil {
+			s.eventBus.Publish(events.PipelineStateChangedEvent{
+				Enabled:   enabled,
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
+		}
 		return &PipelineStateResponse{
-			Body: PipelineStateBody{Enabled: s.streamService.PipelineEnabled()},
+			Body: PipelineStateBody{Enabled: enabled},
 		}, nil
 	})
 
@@ -65,8 +75,15 @@ func (s *Server) registerPipelineRoutes() {
 		if _, err := s.streamService.StopPipeline(ctx); err != nil {
 			return nil, huma.Error500InternalServerError("failed to stop pipeline", err)
 		}
+		enabled := s.streamService.PipelineEnabled()
+		if s.eventBus != nil {
+			s.eventBus.Publish(events.PipelineStateChangedEvent{
+				Enabled:   enabled,
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
+		}
 		return &PipelineStateResponse{
-			Body: PipelineStateBody{Enabled: s.streamService.PipelineEnabled()},
+			Body: PipelineStateBody{Enabled: enabled},
 		}, nil
 	})
 }

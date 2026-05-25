@@ -29,8 +29,8 @@ type ComposerCanvasDims = pipeline.CanvasDims
 type PipelineStream = pipeline.Stream
 
 // PipelineConfig is the persisted, daemon-wide pipeline master switch.
-// When Enabled is false, no stream encoder processes are auto-started on
-// boot regardless of per-stream configuration.
+// When Enabled is false, no processes of any kind (sources, composers,
+// or streams) are spawned.
 type PipelineConfig struct {
 	Enabled bool `toml:"enabled" json:"enabled"`
 }

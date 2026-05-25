@@ -71,8 +71,7 @@ func (s *Server) SetOnProducerConnected(callback func(streamID string)) {
 }
 
 // SetOnLastReaderGone registers a callback fired (after a debounce) once a
-// stream's last reader disconnects. Lets the daemon idle the encoder while
-// keeping upstream producers/composers warm.
+// stream's last reader disconnects. Lets the daemon idle the encoder.
 func (s *Server) SetOnLastReaderGone(callback func(streamID string)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

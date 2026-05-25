@@ -136,9 +136,9 @@ Available integration tests:
 
 Sources, composers, and streams are three independent top-level entities. Each has its own identity, CRUD surface, and lifecycle policy. Streams reference upstream by explicit string ref (`source:<id>` or `composer:<id>`) — there is no monolithic `[[streams]]` table carrying inputs/layout/effects, and there is no implicit "canvas" entity.
 
-- **Source** (`videonode-source`, one per source-id) — captures V4L2 frames (or runs an RPC-driven test pattern when `test_mode = true`), broadcasts NV12 dma-bufs via SCM_RIGHTS to N consumers. **Lifecycle: always warm.** Sources start when configured and stay up until deleted; composers and streams attach/detach without restarting them.
-- **Composer** (`videonode-composer`, one per composer-id) — reads N source SCM sockets, GLES-composites onto a BGRA canvas, broadcasts the canvas dma-buf via SCM_RIGHTS. **Lifecycle: warm-when-referenced.** A composer is up whenever at least one stream's `upstream` points at it, and is torn down when the last referent goes away. Layout and per-input effects are live-editable via unary RPCs without restarting the process.
-- **Stream** (encoder = `vn-sink | ffmpeg`, one per stream-id) — vn-sink dials the upstream SCM (NV12 from a source or BGRA from a composer) and pipes to ffmpeg. Stream-id is encoder identity end-to-end (RTSP/SRT path, WebRTC peer key, metrics label). **Lifecycle: lazy-encoder-on-reader.** The stream's pipeline plan is resident, but the encoder process only spawns when a reader (WebRTC/SRT/RTSP) connects, and stops after the last reader disconnects (debounced). Upstream stays warm across encoder cycles.
+- **Source** (`videonode-source`, one per source-id) — captures V4L2 frames (or runs an RPC-driven test pattern when `test_mode = true`), broadcasts NV12 dma-bufs via SCM_RIGHTS to N consumers. **Lifecycle: pipeline-gated.** Sources run when the pipeline master switch is on and stop when it's off. While on, sources stay up until deleted; composers and streams attach/detach without restarting them. CRUD persists config regardless of switch state; on start, everything rehydrates.
+- **Composer** (`videonode-composer`, one per composer-id) — reads N source SCM sockets, GLES-composites onto a BGRA canvas, broadcasts the canvas dma-buf via SCM_RIGHTS. **Lifecycle: pipeline-gated.** Layout and per-input effects are live-editable via unary RPCs without restarting the process.
+- **Stream** (encoder = `vn-sink | ffmpeg`, one per stream-id) — vn-sink dials the upstream SCM (NV12 from a source or BGRA from a composer) and pipes to ffmpeg. Stream-id is encoder identity end-to-end (RTSP/SRT path, WebRTC peer key, metrics label). **Lifecycle: pipeline-gated, lazy-encoder-on-reader.** The stream's pipeline plan is resident, but the encoder process only spawns when the pipeline switch is on AND a reader (WebRTC/SRT/RTSP) connects, and stops after the last reader disconnects (debounced).
 
 User-facing config: three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with explicit `upstream = "source:<id>"` or `upstream = "composer:<id>"` references. See `examples/sources-composers-streams.toml`.
 
@@ -183,9 +183,9 @@ go doc github.com/pelletier/go-toml/v2           # TOML parsing
 ```
 
 Service-layer split (all live under `internal/streams`):
-- `SourceService` — CRUD + lifecycle for `videonode-source` instances (always-warm policy).
-- `ComposerService` — CRUD + live layout/effect edits for `videonode-composer` instances (warm-when-referenced policy).
-- `StreamService` — CRUD for encoder/audio/publish config; owns the lazy-encoder-on-reader lifecycle.
+- `SourceService` — CRUD + lifecycle for `videonode-source` instances (pipeline-gated).
+- `ComposerService` — CRUD + live layout/effect edits for `videonode-composer` instances (pipeline-gated).
+- `StreamService` — CRUD for encoder/audio/publish config; owns the lazy-encoder-on-reader lifecycle and the pipeline master switch.
 
 The HTTP surface is implemented in `internal/api/sources.go` and `internal/api/composers.go` (new alongside `streams.go`), with their request/response models in `internal/api/models/`. TOML persistence and the v1→v2 auto-migration live in `internal/streams/store` (see `migrate.go`).
 

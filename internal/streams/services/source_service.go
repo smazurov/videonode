@@ -17,8 +17,9 @@ import (
 // SourceServiceOptions wires the SourceService to persistence and the
 // supervised pipeline.
 type SourceServiceOptions struct {
-	Store    streams.EntityStore
-	Pipeline *pipeline.Pipeline
+	Store          streams.EntityStore
+	Pipeline       *pipeline.Pipeline
+	PipelineSwitch PipelineSwitch
 }
 
 // sourceService implements api.SourceService backed by the v2 EntityStore
@@ -27,6 +28,7 @@ type SourceServiceOptions struct {
 type sourceService struct {
 	store  streams.EntityStore
 	pipe   *pipeline.Pipeline
+	psw    PipelineSwitch
 	logger logging.Logger
 	mu     sync.Mutex
 }
@@ -40,8 +42,16 @@ func NewSourceService(opts SourceServiceOptions) api.SourceService {
 	return &sourceService{
 		store:  opts.Store,
 		pipe:   opts.Pipeline,
+		psw:    opts.PipelineSwitch,
 		logger: logging.GetLogger("source_svc"),
 	}
+}
+
+func (s *sourceService) pipelineSwitchEnabled() bool {
+	if s.psw == nil {
+		return true
+	}
+	return s.psw.GetPipeline().Enabled
 }
 
 // List returns all configured sources, each with Consumers denormalized.
@@ -96,14 +106,16 @@ func (s *sourceService) Create(_ context.Context, src api.Source) (*api.Source, 
 		return nil, fmt.Errorf("persist source: %w", err)
 	}
 	if s.pipe != nil {
-		if err := s.pipe.ApplySource(entity); err != nil {
-			// Roll back the store insert so the operator doesn't see a
-			// persisted source that the pipeline never accepted.
-			if rmErr := s.store.RemoveSourceEntity(src.ID); rmErr != nil {
-				s.logger.Error("Create: rollback after ApplySource failure also failed",
-					"source_id", src.ID, "apply_error", err, "rollback_error", rmErr)
+		if s.pipelineSwitchEnabled() {
+			if err := s.pipe.ApplySource(entity); err != nil {
+				if rmErr := s.store.RemoveSourceEntity(src.ID); rmErr != nil {
+					s.logger.Error("Create: rollback after ApplySource failure also failed",
+						"source_id", src.ID, "apply_error", err, "rollback_error", rmErr)
+				}
+				return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
 			}
-			return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
+		} else {
+			_ = s.pipe.RegisterSource(entity)
 		}
 	}
 	out := sourceToAPI(entity)
@@ -145,7 +157,7 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 	if err := s.store.UpdateSourceEntity(id, src); err != nil {
 		return nil, fmt.Errorf("persist source update: %w", err)
 	}
-	if s.pipe != nil {
+	if s.pipe != nil && s.pipelineSwitchEnabled() {
 		// Format-only edit on a real device: hot-apply via gRPC so
 		// connected consumers (composer, vn-sink) stay attached. Falls
 		// back to ApplySource (restart) if the hot-apply path can't
@@ -166,8 +178,6 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 		}
 		if !applied {
 			if err := s.pipe.ApplySource(src); err != nil {
-				// Roll back to the previous spec so the persisted state stays
-				// consistent with what the pipeline accepts.
 				if restoreErr := s.store.UpdateSourceEntity(id, prev); restoreErr != nil {
 					s.logger.Error("Update: rollback after ApplySource failure also failed",
 						"source_id", id, "apply_error", err, "rollback_error", restoreErr)
@@ -175,6 +185,8 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 				return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
 			}
 		}
+	} else if s.pipe != nil {
+		_ = s.pipe.RegisterSource(src)
 	}
 	out := sourceToAPI(src)
 	return &out, nil

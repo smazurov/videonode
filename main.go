@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -307,10 +308,9 @@ func main() {
 		}
 
 		// Lazy encoder lifecycle: idle the encoder once the last consumer
-		// disconnects, restart it on the next consumer attach. Producers
-		// and composers stay warm across the cycle. Mirror encoder
-		// teardown on the entity envelope so the UI's per-stream status
-		// pill flips back to "idle" without polling.
+		// disconnects, restart it on the next consumer attach. Mirror
+		// encoder teardown on the entity envelope so the UI's per-stream
+		// status pill flips back to "idle" without polling.
 		streamingServer.SetOnLastReaderGone(func(streamID string) {
 			_ = nativePipeline.StopEncoder(streamID)
 			if eventRegistry != nil {
@@ -322,6 +322,9 @@ func main() {
 			}
 		})
 		streamingServer.SetOnEnsureStream(func(streamID string) error {
+			if !streamStore.GetPipeline().Enabled {
+				return fmt.Errorf("pipeline is disabled")
+			}
 			return nativePipeline.EnsureEncoder(streamID)
 		})
 
@@ -339,12 +342,14 @@ func main() {
 		)
 		if entityStore != nil {
 			sourceSvc = services.NewSourceService(services.SourceServiceOptions{
-				Store:    entityStore,
-				Pipeline: nativePipeline,
+				Store:          entityStore,
+				Pipeline:       nativePipeline,
+				PipelineSwitch: streamStore,
 			})
 			composerSvc = services.NewComposerService(services.ComposerServiceOptions{
-				Store:    entityStore,
-				Pipeline: nativePipeline,
+				Store:          entityStore,
+				Pipeline:       nativePipeline,
+				PipelineSwitch: streamStore,
 			})
 			streamSvc = services.NewStreamService(services.StreamServiceOptions{
 				Store:          entityStore,
@@ -355,10 +360,10 @@ func main() {
 
 		validationProvider := streams.NewValidationService(streamStore)
 
-		// Replay v2 entities into the pipeline at startup. Sources and
-		// composers always register so upstream-ref validation in
-		// stream-create works even when the pipeline master switch is
-		// off; only the encoder stages obey the switch.
+		// Replay v2 entities into the pipeline at startup. When the
+		// pipeline switch is on, all processes spawn. When off, entities
+		// are registered in the pipeline registry (for upstream-ref
+		// resolution) but no processes are spawned.
 		if entityStore != nil {
 			if err := streams.ReplayV2Entities(entityStore, nativePipeline, streamStore.GetPipeline().Enabled); err != nil {
 				logger.Warn("Failed to replay v2 entities", "error", err)

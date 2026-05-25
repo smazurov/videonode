@@ -8,8 +8,8 @@
 //   - Stream: an encoder (`vn-sink | ffmpeg`) keyed by stream-id; its
 //     Upstream string names exactly one Source or Composer.
 //
-// One Stream → exactly one supervised Encoder process. Sources and
-// Composers are warm regardless of stream lifecycle. Stream-id == encoder
+// One Stream → exactly one supervised Encoder process. All three entity
+// kinds obey the daemon-wide pipeline master switch. Stream-id == encoder
 // identity end-to-end (`encoder:<stream-id>`, peer tracking, metrics).
 //
 // Data-model types live in this file; Stage interface in stage.go;

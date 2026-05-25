@@ -255,6 +255,48 @@ func (p *Pipeline) UpdateSourceFormat(id string, f SourceFormat) error {
 	return nil
 }
 
+// RegisterSource validates and populates the in-memory source registry
+// without spawning a process. Used when the pipeline master switch is
+// off so the registry stays current for upstream-ref resolution while
+// no processes are running.
+func (p *Pipeline) RegisterSource(s Source) error {
+	if s.ID == "" {
+		return errors.New("pipeline: source.ID is required")
+	}
+	if s.TestMode && s.Device != "" {
+		return fmt.Errorf("pipeline: source %s has both Device and TestMode set", s.ID)
+	}
+	if !s.TestMode && s.Device == "" {
+		return fmt.Errorf("pipeline: source %s requires one of Device or TestMode", s.ID)
+	}
+	p.sources.Put(s)
+	return nil
+}
+
+// StopSource stops the source's process and tears down its gRPC
+// registration and stage, but preserves the registry entry so the UI
+// shows the entity as idle. Used by StopPipeline.
+func (p *Pipeline) StopSource(id string) error {
+	if id == "" {
+		return nil
+	}
+	mu := p.entityLock("source:" + id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if p.cfg.ControlServer != nil {
+		p.cfg.ControlServer.Unregister(id)
+	}
+	poolID := SourcePoolKey(id)
+	if err := p.pool.Stop(poolID); err != nil {
+		p.logger.Warn("StopSource: pool.Stop failed", "id", poolID, "error", err)
+	}
+	p.mu.Lock()
+	delete(p.stages, poolID)
+	p.mu.Unlock()
+	return nil
+}
+
 // DeleteSource stops the source's `videonode-source` process and drops
 // the registry entry. No-op for unknown ids. Callers are responsible
 // for guaranteeing no composer or stream references this source — the
@@ -530,6 +572,41 @@ func (p *Pipeline) UpdateComposerEffect(id, inputRef string, effect *Effect) err
 	return p.cfg.ControlServer.SendSetEffects(ctx, id, params)
 }
 
+// RegisterComposer validates and populates the in-memory composer
+// registry without spawning a process. Used when the pipeline master
+// switch is off.
+func (p *Pipeline) RegisterComposer(c Composer) error {
+	if c.ID == "" {
+		return errors.New("pipeline: composer.ID is required")
+	}
+	p.composers.Put(c)
+	return nil
+}
+
+// StopComposer stops the composer's process and tears down its gRPC
+// registration and stage, but preserves the registry entry so the UI
+// shows the entity as idle. Used by StopPipeline.
+func (p *Pipeline) StopComposer(id string) error {
+	if id == "" {
+		return nil
+	}
+	mu := p.entityLock("composer:" + id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if p.cfg.ControlServer != nil {
+		p.cfg.ControlServer.Unregister(id)
+	}
+	poolID := ComposerPoolKey(id)
+	if err := p.pool.Stop(poolID); err != nil {
+		p.logger.Warn("StopComposer: pool.Stop failed", "id", poolID, "error", err)
+	}
+	p.mu.Lock()
+	delete(p.stages, poolID)
+	p.mu.Unlock()
+	return nil
+}
+
 // DeleteComposer stops the composer process and drops the registry
 // entry. No-op for unknown ids.
 func (p *Pipeline) DeleteComposer(id string) error {
@@ -721,8 +798,7 @@ func SplitUpstream(s string) (kind, id string, ok bool) {
 }
 
 // StopEncoder stops the encoder stage for a stream if it is running.
-// No-op when the encoder isn't running. Sources and composers stay
-// warm — only the encoder cycles.
+// No-op when the encoder isn't running.
 func (p *Pipeline) StopEncoder(streamID string) error {
 	if streamID == "" {
 		return errors.New("pipeline: streamID is required")

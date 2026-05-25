@@ -11,6 +11,7 @@ import (
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/process"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
@@ -225,8 +226,10 @@ func (s *streamService) EncoderStatus(streamID string) models.ProcessStatus {
 	return models.ProcessStatus(s.pipe.Pool().GetStatus(pipeline.EncoderIDFor(streamID)).State)
 }
 
-// StartPipeline flips the persisted master switch on and re-applies every
-// persisted stream so the encoder pool comes back up.
+// StartPipeline flips the persisted master switch on and starts every
+// persisted entity: sources first, then composers, then streams.
+// Skips entities that are already running (or starting) from concurrent
+// CRUD to avoid unnecessary restarts.
 func (s *streamService) StartPipeline(_ context.Context) (bool, error) {
 	if s.psw == nil {
 		return false, nil
@@ -237,7 +240,29 @@ func (s *streamService) StartPipeline(_ context.Context) (bool, error) {
 	}
 	var errs []error
 	if s.pipe != nil {
+		pool := s.pipe.Pool()
+		for _, src := range s.store.ListSourceEntities() {
+			if pool.GetStatus(pipeline.SourcePoolKey(src.ID)).State != process.StateIdle {
+				continue
+			}
+			if err := s.pipe.ApplySource(src); err != nil {
+				s.logger.Error("StartPipeline: ApplySource failed", "source_id", src.ID, "error", err)
+				errs = append(errs, fmt.Errorf("source %s: %w", src.ID, err))
+			}
+		}
+		for _, c := range s.store.ListComposerEntities() {
+			if pool.GetStatus(pipeline.ComposerPoolKey(c.ID)).State != process.StateIdle {
+				continue
+			}
+			if err := s.pipe.ApplyComposer(c); err != nil {
+				s.logger.Error("StartPipeline: ApplyComposer failed", "composer_id", c.ID, "error", err)
+				errs = append(errs, fmt.Errorf("composer %s: %w", c.ID, err))
+			}
+		}
 		for _, st := range s.store.ListPipelineStreams() {
+			if pool.GetStatus(pipeline.EncoderIDFor(st.ID)).State != process.StateIdle {
+				continue
+			}
 			if err := s.pipe.ApplyStream(st); err != nil {
 				s.logger.Error("StartPipeline: ApplyStream failed", "stream_id", st.ID, "error", err)
 				errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
@@ -248,8 +273,8 @@ func (s *streamService) StartPipeline(_ context.Context) (bool, error) {
 }
 
 // StopPipeline flips the persisted master switch off and stops every
-// supervised encoder process. Sources/composers stay warm so the user can
-// re-engage without spawning them again.
+// supervised process. Order: streams → composers → sources. Registry
+// entries are preserved so the UI shows entities as idle.
 func (s *streamService) StopPipeline(_ context.Context) (bool, error) {
 	if s.psw == nil {
 		return false, nil
@@ -261,9 +286,21 @@ func (s *streamService) StopPipeline(_ context.Context) (bool, error) {
 	var errs []error
 	if s.pipe != nil {
 		for _, st := range s.store.ListPipelineStreams() {
-			if err := s.pipe.DeleteStream(st.ID); err != nil {
-				s.logger.Error("StopPipeline: DeleteStream failed", "stream_id", st.ID, "error", err)
+			if err := s.pipe.StopEncoder(st.ID); err != nil {
+				s.logger.Error("StopPipeline: StopEncoder failed", "stream_id", st.ID, "error", err)
 				errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
+			}
+		}
+		for _, c := range s.store.ListComposerEntities() {
+			if err := s.pipe.StopComposer(c.ID); err != nil {
+				s.logger.Error("StopPipeline: StopComposer failed", "composer_id", c.ID, "error", err)
+				errs = append(errs, fmt.Errorf("composer %s: %w", c.ID, err))
+			}
+		}
+		for _, src := range s.store.ListSourceEntities() {
+			if err := s.pipe.StopSource(src.ID); err != nil {
+				s.logger.Error("StopPipeline: StopSource failed", "source_id", src.ID, "error", err)
+				errs = append(errs, fmt.Errorf("source %s: %w", src.ID, err))
 			}
 		}
 	}
