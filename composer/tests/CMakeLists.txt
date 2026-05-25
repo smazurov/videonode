@@ -25,8 +25,8 @@ vn_add_test(scm_rights_producer
     DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
 
-vn_add_test(scm_stress
-    DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
+vn_add_test(scm_ctrunc_repro
+    DEPS scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
 
 vn_add_test(placeholder_painter DEPS placeholder_painter          LABELS render)
