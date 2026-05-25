@@ -23,4 +23,6 @@ type Info struct {
 	StartedAt    time.Time
 	RestartCount int
 	LastError    error
+	RSSBytes     int64
+	CPUPercent   float64
 }

@@ -11,15 +11,17 @@ import (
 // row carries pool state, kind discriminator, and ids so the operator
 // dashboard can answer ownership questions without further joins.
 type ProcessView struct {
-	ID           string `json:"id" doc:"Pool key (e.g. 'producer:hdmi0' / 'composer:main' / 'encoder:cam')"`
-	Kind         string `json:"kind" doc:"'producer' | 'composer' | 'encoder'"`
-	StreamID     string `json:"stream_id" doc:"User-facing stream id (empty for sources/composers)"`
-	SourceID     string `json:"source_id,omitempty" doc:"Source id (producers only)"`
-	State        string `json:"state" doc:"Pool state: idle/starting/running/stopping/error"`
-	PID          int    `json:"pid,omitempty" doc:"OS pid when running; 0 otherwise"`
-	StartedAtUS  int64  `json:"started_at_us,omitempty" doc:"Unix microseconds at Start; 0 when never started"`
-	RestartCount int    `json:"restart_count,omitempty" doc:"Times the supervisor restarted this stage"`
-	LastError    string `json:"last_error,omitempty" doc:"Most recent error from the supervisor"`
+	ID           string  `json:"id" doc:"Pool key (e.g. 'producer:hdmi0' / 'composer:main' / 'encoder:cam')"`
+	Kind         string  `json:"kind" doc:"'producer' | 'composer' | 'encoder'"`
+	StreamID     string  `json:"stream_id" doc:"User-facing stream id (empty for sources/composers)"`
+	SourceID     string  `json:"source_id,omitempty" doc:"Source id (producers only)"`
+	State        string  `json:"state" doc:"Pool state: idle/starting/running/stopping/error"`
+	PID          int     `json:"pid,omitempty" doc:"OS pid when running; 0 otherwise"`
+	StartedAtUS  int64   `json:"started_at_us,omitempty" doc:"Unix microseconds at Start; 0 when never started"`
+	RestartCount int     `json:"restart_count,omitempty" doc:"Times the supervisor restarted this stage"`
+	LastError    string  `json:"last_error,omitempty" doc:"Most recent error from the supervisor"`
+	RSSBytes     int64   `json:"rss_bytes,omitempty" doc:"Resident set size in bytes"`
+	CPUPercent   float64 `json:"cpu_percent,omitempty" doc:"CPU usage as percentage (0-100 per core)"`
 }
 
 // Snapshot returns the current set of supervised processes joined with
@@ -40,6 +42,8 @@ func (p *Pipeline) Snapshot() []ProcessView {
 			Kind:         info.Kind,
 			PID:          info.PID,
 			RestartCount: info.RestartCount,
+			RSSBytes:     info.RSSBytes,
+			CPUPercent:   info.CPUPercent,
 		}
 		if !info.StartedAt.IsZero() {
 			view.StartedAtUS = info.StartedAt.UnixMicro()

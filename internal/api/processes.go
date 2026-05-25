@@ -37,6 +37,8 @@ type ProcessEntry struct {
 	StartedAtUS  int64    `json:"started_at_us,omitempty" doc:"Unix microseconds at Start; 0 when never started"`
 	RestartCount int      `json:"restart_count,omitempty" doc:"Times the supervisor restarted this stage"`
 	LastError    string   `json:"last_error,omitempty" doc:"Most recent error from the supervisor"`
+	RSSBytes     int64    `json:"rss_bytes,omitempty" doc:"Resident set size in bytes"`
+	CPUPercent   float64  `json:"cpu_percent,omitempty" doc:"CPU usage as percentage (0-100 per core)"`
 	Device       string   `json:"device,omitempty" doc:"Device id (sources only)"`
 	Refcount     int      `json:"refcount,omitempty" doc:"Number of streams holding this source (sources only)"`
 	Consumers    []string `json:"consumers,omitempty" doc:"Stream ids holding this source (sources only; sorted)"`
@@ -84,6 +86,8 @@ func toProcessEntries(views []pipeline.ProcessView) []ProcessEntry {
 			StartedAtUS:  v.StartedAtUS,
 			RestartCount: v.RestartCount,
 			LastError:    v.LastError,
+			RSSBytes:     v.RSSBytes,
+			CPUPercent:   v.CPUPercent,
 		}
 	}
 	return out

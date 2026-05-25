@@ -21,6 +21,13 @@ function formatUptime(startedAtUS?: number): string {
   return formatUptimeShared(startedAtUS) ?? '—';
 }
 
+function formatRSS(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+
 interface ProcessRowProps {
   readonly proc: ProcessEntry;
 }
@@ -65,6 +72,18 @@ function ProcessRow({ proc }: ProcessRowProps) {
           <>
             <span className="text-fg-subtle">uptime</span>
             <span className="text-fg">{formatUptime(proc.started_at_us)}</span>
+          </>
+        )}
+        {proc.cpu_percent !== undefined && proc.cpu_percent > 0 && (
+          <>
+            <span className="text-fg-subtle">cpu</span>
+            <span className="text-fg">{proc.cpu_percent.toFixed(1)}%</span>
+          </>
+        )}
+        {proc.rss_bytes !== undefined && proc.rss_bytes > 0 && (
+          <>
+            <span className="text-fg-subtle">rss</span>
+            <span className="text-fg">{formatRSS(proc.rss_bytes)}</span>
           </>
         )}
         {proc.refcount !== undefined && proc.refcount > 0 && (

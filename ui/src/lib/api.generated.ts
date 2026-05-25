@@ -1348,7 +1348,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "nv16" | "yuyv422" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24";
+            format_name: "nv12" | "mjpeg" | "yu12" | "h264" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "yuyv422";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1511,6 +1511,11 @@ export interface components {
         ProcessEntry: {
             /** @description Stream ids holding this source (sources only; sorted) */
             consumers?: string[] | null;
+            /**
+             * Format: double
+             * @description CPU usage as percentage (0-100 per core)
+             */
+            cpu_percent?: number;
             /** @description Device id (sources only) */
             device?: string;
             /** @description Pool key (e.g. 'source:hdmi0' / 'composer:cam-front') */
@@ -1537,6 +1542,11 @@ export interface components {
              * @description Times the supervisor restarted this stage
              */
             restart_count?: number;
+            /**
+             * Format: int64
+             * @description Resident set size in bytes
+             */
+            rss_bytes?: number;
             /**
              * Format: int64
              * @description Unix microseconds at Start; 0 when never started
@@ -1701,7 +1711,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24" | "nv16" | "yuyv422" | "nv12" | "h264";
+            format_name: "h264" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "nv12" | "mjpeg" | "yu12";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -2793,7 +2803,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24" | "nv16";
+                format_name?: "yuyv422" | "nv12" | "mjpeg" | "yu12" | "h264" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2859,7 +2869,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24" | "nv16";
+                format_name?: "nv24" | "nv16" | "yuyv422" | "nv12" | "mjpeg" | "yu12" | "h264" | "yv12" | "bgr24" | "rgb24";
             };
             header?: never;
             path: {

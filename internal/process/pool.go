@@ -51,6 +51,10 @@ type managedProcess struct {
 	lastError    error
 	cancel       context.CancelFunc
 	done         chan struct{}
+
+	prevTicks int64
+	prevWall  time.Time
+	cpuPct    float64
 }
 
 // pool implements the Pool interface.
@@ -214,10 +218,9 @@ func (p *pool) Restart(id string) error {
 // GetStatus returns process info.
 func (p *pool) GetStatus(id string) *Info {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
-
 	mp, exists := p.processes[id]
 	if !exists {
+		p.mu.RUnlock()
 		return &Info{ID: id, State: StateIdle}
 	}
 
@@ -225,7 +228,8 @@ func (p *pool) GetStatus(id string) *Info {
 	if mp.proc != nil && mp.proc.cmd != nil && mp.proc.cmd.Process != nil {
 		pid = mp.proc.cmd.Process.Pid
 	}
-	return &Info{
+
+	info := &Info{
 		ID:           id,
 		Kind:         mp.kind,
 		State:        mp.state,
@@ -234,6 +238,33 @@ func (p *pool) GetStatus(id string) *Info {
 		RestartCount: mp.restartCount,
 		LastError:    mp.lastError,
 	}
+	prevTicks, prevWall := mp.prevTicks, mp.prevWall
+	state := mp.state
+	p.mu.RUnlock()
+
+	if pid > 0 && state == StateRunning {
+		if ps, err := readProcStat(pid); err == nil {
+			info.RSSBytes = ps.RSSBytes
+			now := time.Now()
+			ticks := ps.UtimeTicks + ps.StimeTicks
+			var cpuPct float64
+			if !prevWall.IsZero() {
+				dt := now.Sub(prevWall).Seconds()
+				if dt > 0 {
+					cpuPct = float64(ticks-prevTicks) / userHZ / dt * 100
+				}
+			}
+			info.CPUPercent = cpuPct
+
+			p.mu.Lock()
+			mp.prevTicks = ticks
+			mp.prevWall = now
+			mp.cpuPct = cpuPct
+			p.mu.Unlock()
+		}
+	}
+
+	return info
 }
 
 // SetKind sets the free-form classifier surfaced via Info.Kind for a
