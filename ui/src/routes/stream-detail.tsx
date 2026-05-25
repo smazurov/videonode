@@ -188,7 +188,7 @@ export default function StreamDetail() {
     );
   }
 
-  const enabled = !!stream.enabled;
+  const isRunning = stream.status === 'running';
   const showSmallPreview = previewMode === 'small';
 
   return (
@@ -251,11 +251,11 @@ export default function StreamDetail() {
                     </span>
                   </div>
                   <LivePreviewFrame
-                    state={enabled ? 'ready' : 'idle'}
+                    state={isRunning ? 'ready' : 'idle'}
                     idleMessage="Stream disabled"
                     mediaClassName="bg-black"
                   >
-                    {enabled && (
+                    {isRunning && (
                       <WebRTCPlayer
                         key={`small:${streamId}:${refreshKey}`}
                         streamId={streamId}

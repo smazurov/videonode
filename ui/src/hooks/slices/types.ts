@@ -8,11 +8,7 @@ export type SourceData = components['schemas']['SourceData'];
 export type SourceRequestData = components['schemas']['SourceData'];
 export type SourceStatusSnapshot = components['schemas']['StatusParams'];
 
-import type { StatusPillStatus } from '../../components/primitives/StatusPill';
-
 export interface Source extends SourceData {
-  // Runtime fields populated by SourceStatusEvent / consumer tracking.
-  status?: StatusPillStatus;
   latest_status?: SourceStatusSnapshot;
   consumers?: { kind: 'composer' | 'stream'; id: string }[];
   consumer_count?: number;

@@ -468,26 +468,6 @@ export interface paths {
         patch: operations["update-source"];
         trace?: never;
     };
-    "/api/sources/{source_id}/snapshot": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Capture source snapshot
-         * @description Captures a raw NV12-derived JPEG snapshot from a running source producer.
-         */
-        post: operations["capture-source-snapshot"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/streams": {
         parameters: {
             query?: never;
@@ -574,26 +554,6 @@ export interface paths {
          * @description Re-apply the persisted spec to the pipeline (stop + start the encoder)
          */
         post: operations["restart-stream"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/streams/{stream_id}/snapshot": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Capture stream snapshot
-         * @description Captures a JPEG snapshot from a running encoded stream's RTSP keyframe.
-         */
-        post: operations["capture-stream-snapshot"];
         delete?: never;
         options?: never;
         head?: never;
@@ -864,10 +824,11 @@ export interface components {
             /** @description Layout slots placing each input on the canvas */
             layout: components["schemas"]["LayoutSlotData"][] | null;
             /**
-             * @description Runtime composer status: warm (process up) | cold (no referent / process down) | unknown
-             * @example warm
+             * @description Process pool state
+             * @example running
+             * @enum {string}
              */
-            status?: string;
+            status?: "idle" | "starting" | "running" | "stopping" | "error";
             /**
              * Format: date-time
              * @description Last update timestamp
@@ -1387,7 +1348,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yuyv422" | "h264" | "nv12" | "mjpeg" | "yu12" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16";
+            format_name: "nv16" | "yuyv422" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1622,19 +1583,6 @@ export interface components {
              */
             width: number;
         };
-        SnapshotOutputBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SnapshotOutputBody.json
-             */
-            readonly $schema?: string;
-            /**
-             * @description URL path to the snapshot image
-             * @example /api/snapshots/streams/test/20260404_005015.jpg
-             */
-            url: string;
-        };
         SourceBroadcastInfo: {
             /** Format: int32 */
             last_seq: number;
@@ -1721,6 +1669,12 @@ export interface components {
              */
             id: string;
             /**
+             * @description Process pool state
+             * @example running
+             * @enum {string}
+             */
+            status?: "idle" | "starting" | "running" | "stopping" | "error";
+            /**
              * @description When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device.
              * @example false
              */
@@ -1747,7 +1701,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "nv12" | "mjpeg" | "yu12" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "h264";
+            format_name: "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24" | "nv16" | "yuyv422" | "nv12" | "h264";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -1971,6 +1925,12 @@ export interface components {
              */
             srt_url?: string;
             /**
+             * @description Encoder process pool state
+             * @example running
+             * @enum {string}
+             */
+            status?: "idle" | "starting" | "running" | "stopping" | "error";
+            /**
              * @description Unique stream identifier
              * @example stream-001
              */
@@ -2030,9 +1990,11 @@ export interface components {
             streams: string[] | null;
         };
         StreamMetricsEvent: {
+            bytes_out: string;
             dropped_frames: string;
             duplicate_frames: string;
             fps: string;
+            packets_out: string;
             stream_id: string;
             type: string;
         };
@@ -2831,7 +2793,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "bgr24" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "h264" | "nv12" | "mjpeg" | "yu12" | "yv12";
+                format_name?: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24" | "nv16";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2897,7 +2859,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "nv12" | "mjpeg" | "yu12" | "yv12" | "bgr24" | "rgb24" | "nv24" | "nv16" | "yuyv422" | "h264";
+                format_name?: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yu12" | "bgr24" | "nv24" | "yv12" | "rgb24" | "nv16";
             };
             header?: never;
             path: {
@@ -3848,74 +3810,6 @@ export interface operations {
             };
         };
     };
-    "capture-source-snapshot": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Source ID to capture snapshot from */
-                source_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SnapshotOutputBody"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Gateway Timeout */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
     "list-streams": {
         parameters: {
             query?: never;
@@ -4306,74 +4200,6 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "capture-stream-snapshot": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Stream ID to capture snapshot from */
-                stream_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SnapshotOutputBody"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Gateway Timeout */
-            504: {
                 headers: {
                     [name: string]: unknown;
                 };

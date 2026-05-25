@@ -1,26 +1,12 @@
 import { useNavigate } from 'react-router-dom';
-import { Badge } from '../Badge';
 import { DataTable, type DataTableColumn } from '../primitives/DataTable';
-import type { ComposerData, ComposerStatus } from '../../lib/composer-types';
+import { StatusPill } from '../primitives/StatusPill';
+import { poolStateToPill } from '../../lib/pool-status';
+import type { ComposerData } from '../../lib/composer-types';
 import { formatCanvasDims } from '../../lib/composer-types';
 
 interface ComposerListProps {
   composers: ComposerData[];
-}
-
-function statusTone(status: ComposerStatus | undefined): React.ComponentProps<typeof Badge>['tone'] {
-  switch (status) {
-    case 'warm':
-      return 'success';
-    case 'cold':
-      return 'neutral';
-    case 'error':
-      return 'danger';
-    case 'idle':
-      return 'info';
-    default:
-      return 'neutral';
-  }
 }
 
 export function ComposerList({ composers }: Readonly<ComposerListProps>) {
@@ -56,11 +42,7 @@ export function ComposerList({ composers }: Readonly<ComposerListProps>) {
     {
       id: 'status',
       header: 'Status',
-      cell: (row) => (
-        <Badge tone={statusTone(row.status)} size="xs">
-          {row.status ?? 'unknown'}
-        </Badge>
-      ),
+      cell: (row) => <StatusPill status={poolStateToPill(row.status)} size="xs" />,
     },
   ];
 

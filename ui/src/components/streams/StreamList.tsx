@@ -10,6 +10,7 @@ import { Card } from '../Card';
 import { Badge } from '../Badge';
 import { DataTable, type DataTableColumn } from '../primitives/DataTable';
 import { StatusPill, type StatusPillStatus } from '../primitives/StatusPill';
+import { poolStateToPill } from '../../lib/pool-status';
 import { useStreamStore } from '../../hooks/useStreamStore';
 import { buildStreamURL } from '../../lib/api';
 import type { components } from '../../lib/api.generated';
@@ -32,8 +33,8 @@ interface StreamListProps {
 }
 
 function encoderStatusTone(stream: StreamData): { status: StatusPillStatus; label: string } {
-  if (!stream.enabled) return { status: 'idle', label: 'idle' };
-  return { status: 'running', label: 'running' };
+  const s = poolStateToPill(stream.status);
+  return { status: s, label: s };
 }
 
 function codecBitrate(stream: StreamData): string {
