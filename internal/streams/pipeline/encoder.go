@@ -3,6 +3,7 @@ package pipeline
 import (
 	"errors"
 	"log/slog"
+	"path/filepath"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/process"
@@ -103,7 +104,14 @@ func (e *EncoderStage) buildFFmpegParams() *ffmpeg.Params {
 	for _, pt := range e.Publish {
 		p.Outputs = append(p.Outputs, ffmpeg.OutputTarget{Type: pt.Type, URL: pt.URL})
 	}
+	p.ProgressSocket = ProgressSocketPathFor(e.OwnerStreamID)
 	return p
+}
+
+// ProgressSocketPathFor returns the Unix socket path where the
+// FFmpegCollector listens for progress data from ffmpeg's -progress flag.
+func ProgressSocketPathFor(streamID string) string {
+	return filepath.Join(NativeUdsDir, "progress-"+sanitizeForFilename(streamID)+".sock")
 }
 
 // pipeInputFor maps a FrameSource to the ffmpeg.PipeInput shape:

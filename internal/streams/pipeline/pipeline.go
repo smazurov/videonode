@@ -11,6 +11,7 @@ import (
 
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/metrics/collectors"
 	"github.com/smazurov/videonode/internal/process"
 	"github.com/smazurov/videonode/internal/snapshots"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
@@ -61,8 +62,9 @@ type Pipeline struct {
 	sources   *SourceRegistry
 	composers *ComposerRegistry
 
-	mu     sync.Mutex
-	stages map[string]Stage // pool key → stage
+	mu         sync.Mutex
+	stages     map[string]Stage                       // pool key → stage
+	collectors map[string]*collectors.FFmpegCollector // stream id → progress collector
 
 	entityLocksMu sync.Mutex
 	entityLocks   map[string]*sync.Mutex
@@ -80,6 +82,7 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 		sources:     NewSourceRegistry(),
 		composers:   NewComposerRegistry(),
 		stages:      make(map[string]Stage),
+		collectors:  make(map[string]*collectors.FFmpegCollector),
 		entityLocks: make(map[string]*sync.Mutex),
 	}
 	p.pool = process.NewPool(&process.PoolOptions{
@@ -556,6 +559,7 @@ func (p *Pipeline) ApplyStream(s Stream) error {
 		return fmt.Errorf("pipeline: build encoder %s: %w", s.ID, err)
 	}
 	p.replaceStage(enc)
+	p.ensureCollector(s.ID)
 	if err := p.restartStage(enc); err != nil {
 		return fmt.Errorf("pipeline: start encoder %s: %w", enc.ID(), err)
 	}
@@ -572,6 +576,7 @@ func (p *Pipeline) DeleteStream(id string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
+	p.stopCollector(id)
 	poolID := EncoderIDFor(id)
 	if err := p.pool.Stop(poolID); err != nil {
 		p.logger.Warn("DeleteStream: pool.Stop failed", "id", poolID, "error", err)
@@ -743,6 +748,45 @@ func (p *Pipeline) Sources() *SourceRegistry { return p.sources }
 
 // Composers exposes the ComposerRegistry for diagnostics.
 func (p *Pipeline) Composers() *ComposerRegistry { return p.composers }
+
+// ensureCollector starts an FFmpegCollector for the given stream if one
+// isn't already running. The collector creates its Unix socket before
+// returning, so it's ready to receive data when FFmpeg spawns.
+func (p *Pipeline) ensureCollector(streamID string) {
+	p.mu.Lock()
+	_, exists := p.collectors[streamID]
+	p.mu.Unlock()
+	if exists {
+		return
+	}
+	if err := p.ensureUdsDir(); err != nil {
+		p.logger.Warn("ensureCollector: mkdir failed", "stream_id", streamID, "error", err)
+		return
+	}
+	sockPath := ProgressSocketPathFor(streamID)
+	c := collectors.NewFFmpegCollector(sockPath, streamID)
+	if err := c.Start(context.Background()); err != nil {
+		p.logger.Warn("ensureCollector: start failed", "stream_id", streamID, "error", err)
+		return
+	}
+	p.mu.Lock()
+	p.collectors[streamID] = c
+	p.mu.Unlock()
+}
+
+// stopCollector stops and removes the FFmpegCollector for the given
+// stream. Idempotent.
+func (p *Pipeline) stopCollector(streamID string) {
+	p.mu.Lock()
+	c, ok := p.collectors[streamID]
+	if ok {
+		delete(p.collectors, streamID)
+	}
+	p.mu.Unlock()
+	if ok {
+		c.Stop()
+	}
+}
 
 // ----- internal helpers -----
 
