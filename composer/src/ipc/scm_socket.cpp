@@ -22,6 +22,11 @@ namespace {
 
 constexpr size_t kHeaderFixedPrefix = 36; // see ipc/dmabuf_header.hpp
 constexpr int kMaxFds = 16;
+// recvmsg on SOCK_STREAM may deliver SCM_RIGHTS from multiple kernel
+// skbs in a single call. Each entry needs CMSG_SPACE(N*sizeof(int)).
+// Size for 8 separate 2-fd entries (8 * 24 = 192 bytes) to avoid
+// MSG_CTRUNC under back-pressure.
+constexpr size_t kCmsgBufSize = CMSG_SPACE(sizeof(int) * kMaxFds) * 4;
 constexpr uint8_t kReadyByte = 0x01;
 
 bool set_addr(sockaddr_un& addr, const std::string& path) {
@@ -55,19 +60,26 @@ bool read_full(int fd, std::span<uint8_t> buf) {
 // Extract SCM_RIGHTS fds from the cmsg buffer accompanying a recvmsg.
 // Always extracts whatever fds the kernel installed — even when
 // MSG_CTRUNC is set — so the caller can close them instead of leaking.
+// Multiple SCM_RIGHTS entries (from multiple kernel skbs consumed in
+// one recvmsg) are concatenated into fds_out.
 void parse_cmsg_fds(const msghdr& m, std::vector<int>& fds_out, bool& had_ctrunc) {
     had_ctrunc = (m.msg_flags & MSG_CTRUNC) != 0;
-    if (had_ctrunc) {
-        vn::log::warn("scm_socket: control data truncated; some fds may have been dropped");
-    }
+    int entries = 0;
     for (cmsghdr* c = CMSG_FIRSTHDR(const_cast<msghdr*>(&m)); c != nullptr;
          c = CMSG_NXTHDR(const_cast<msghdr*>(&m), c)) {
         if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_RIGHTS)
             continue;
         size_t payload = c->cmsg_len - CMSG_LEN(0);
         size_t count = payload / sizeof(int);
-        fds_out.resize(count);
-        std::memcpy(fds_out.data(), CMSG_DATA(c), count * sizeof(int));
+        size_t base = fds_out.size();
+        fds_out.resize(base + count);
+        std::memcpy(fds_out.data() + base, CMSG_DATA(c), count * sizeof(int));
+        ++entries;
+    }
+    if (had_ctrunc) {
+        vn::log::warn("scm_socket: MSG_CTRUNC — %d SCM_RIGHTS entries, %zu fds extracted, "
+                      "controllen_after=%zu",
+                      entries, fds_out.size(), m.msg_controllen);
     }
 }
 
@@ -149,7 +161,7 @@ bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out, std::vector<int
     // many trailing pitch/offset words to read in a follow-up read().
     std::array<uint8_t, kHeaderFixedPrefix> prefix{};
     iovec iov{.iov_base = prefix.data(), .iov_len = prefix.size()};
-    alignas(struct cmsghdr) uint8_t cmsg_buf[CMSG_SPACE(sizeof(int) * kMaxFds)];
+    alignas(struct cmsghdr) uint8_t cmsg_buf[kCmsgBufSize];
     msghdr m{};
     m.msg_iov = &iov;
     m.msg_iovlen = 1;
@@ -234,7 +246,7 @@ bool SendMessage(int sock_fd, const dmabuf_header::Header& header, const std::ve
     iov.iov_base = body.data();
     iov.iov_len = body.size();
 
-    uint8_t cmsg_buf[CMSG_SPACE(sizeof(int) * kMaxFds)];
+    alignas(struct cmsghdr) uint8_t cmsg_buf[CMSG_SPACE(sizeof(int) * kMaxFds)];
     msghdr m{};
     m.msg_iov = &iov;
     m.msg_iovlen = 1;
