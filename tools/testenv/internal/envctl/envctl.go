@@ -451,16 +451,25 @@ func Restart(ctx context.Context, p RestartParams) (RestartResult, error) {
 		lockIDs = append(lockIDs, l.ResourceID)
 	}
 
-	vars := spawn.BuildVarsForSlot(cfg, e.Slot, envID, e.DataDir, e.OwnerWorktree, lockIDs)
+	// Use the session's worktree (not the stored one, which may be stale ".").
+	buildDir := worktree
+	if buildDir == "" || buildDir == "." {
+		buildDir = e.OwnerWorktree
+	}
+
+	vars := spawn.BuildVarsForSlot(cfg, e.Slot, envID, e.DataDir, buildDir, lockIDs)
 	env := spawn.BuildEnv(cfg, vars)
+
+	// Park our own PID so the reaper won't delete the row while we rebuild.
+	s.UpdateEnvAfterRestart(envID, os.Getpid(), e.HealthURL, e.HealthAuth)
 
 	signalDaemon(e.OwnerPID)
 
-	if err := spawn.Build(ctx, cfg, e.OwnerWorktree, vars, env); err != nil {
+	if err := spawn.Build(ctx, cfg, buildDir, vars, env); err != nil {
 		return RestartResult{}, fmt.Errorf("rebuild: %w", err)
 	}
 
-	pid, err := spawn.Start(ctx, cfg, e.OwnerWorktree, vars, env, e.DataDir)
+	pid, err := spawn.Start(ctx, cfg, buildDir, vars, env, e.DataDir)
 	if err != nil {
 		return RestartResult{}, fmt.Errorf("restart: %w", err)
 	}
