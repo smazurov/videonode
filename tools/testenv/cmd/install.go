@@ -32,7 +32,7 @@ func (c *InstallCmd) Run(ctx *Context) error {
 	}
 
 	// Require a valid .testenv.toml before installing hooks/skills.
-	if err := envctl.Validate(root); err != nil {
+	if _, err := envctl.Validate(root); err != nil {
 		return fmt.Errorf("config invalid (run `testenv init` to create one, then `testenv validate`): %w", err)
 	}
 

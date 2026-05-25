@@ -34,13 +34,14 @@ type UpParams struct {
 }
 
 type UpResult struct {
-	EnvID   string
-	Slot    int
-	Ports   map[string]int // port name → number
-	HTTPURL string
-	Auth    string
-	DataDir string
-	PID     int
+	EnvID         string
+	Slot          int
+	Ports         map[string]int // port name → number
+	HTTPURL       string
+	Auth          string
+	LocalOverride string // basename of local config override, empty if none
+	DataDir       string
+	PID           int
 }
 
 type DownParams struct {
@@ -105,10 +106,16 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	defer s.Close()
 	reapAndClean(s)
 
+	localOverride := filepath.Base(cfg.LocalPath)
+	if cfg.LocalPath == "" {
+		localOverride = ""
+	}
+
 	if existing, err := s.GetEnvBySession(p.Session); err == nil {
 		return UpResult{
 			EnvID: existing.ID, Slot: existing.Slot,
 			HTTPURL: existing.HTTPURL, Auth: existing.HealthAuth,
+			LocalOverride: localOverride,
 			DataDir: existing.DataDir, PID: existing.OwnerPID,
 		}, nil
 	}
@@ -175,7 +182,7 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	return UpResult{
 		EnvID: envID, Slot: held.Slot,
 		Ports: held.Ports, HTTPURL: httpURL, Auth: cfg.Spawn.HealthAuth,
-		DataDir: dataDir, PID: res.PID,
+		LocalOverride: localOverride, DataDir: dataDir, PID: res.PID,
 	}, nil
 }
 
@@ -337,12 +344,20 @@ func Reap(ctx context.Context, statePath string) (ReapResult, error) {
 	return ReapResult{Released: ids}, nil
 }
 
-func Validate(dir string) error {
+type ValidateResult struct {
+	LocalOverride string // basename of local override file, empty if none
+}
+
+func Validate(dir string) (ValidateResult, error) {
 	cfg, err := config.Load(dir)
 	if err != nil {
-		return err
+		return ValidateResult{}, err
 	}
-	return cfg.Validate()
+	var local string
+	if cfg.LocalPath != "" {
+		local = filepath.Base(cfg.LocalPath)
+	}
+	return ValidateResult{LocalOverride: local}, cfg.Validate()
 }
 
 // ConfigFileName is the config file name, re-exported so cmd/ doesn't

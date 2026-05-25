@@ -41,6 +41,10 @@ func (c *InitCmd) Run(_ *Context) error {
 const configTemplate = `# testenv configuration — defines how to spawn isolated test environments.
 # See: testenv validate (checks this file) / testenv install (writes hooks+skills)
 #
+# Local overrides: create .testenv.local.toml (gitignored) next to this file.
+# Any field set there merges on top — scalars replace, maps merge keys,
+# slices replace entirely. Useful for real-device configs, custom build steps, etc.
+#
 # All values in [spawn] support ${TESTENV_*} variable expansion:
 #   TESTENV_SLOT       — allocated slot number (1..max_slots)
 #   TESTENV_ENV_ID     — unique env identifier

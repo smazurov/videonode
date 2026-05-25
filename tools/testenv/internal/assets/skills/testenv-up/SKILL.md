@@ -9,7 +9,7 @@ allowed-tools:
 
 # /testenv-up
 
-Bring up an isolated test environment per `.testenv.toml`.
+Bring up an isolated test environment per `.testenv.toml` (+ `.testenv.local.toml` overrides if present).
 
 ## Arguments
 
@@ -21,7 +21,7 @@ Bring up an isolated test environment per `.testenv.toml`.
 
 ## Bring up the env
 
-!`testenv up ${1:+--lock ${1//,/ --lock }} 2>&1`
+!`testenv up ${locks:+--lock ${locks//,/ --lock }} 2>&1`
 
 After `up` returns, the URL printed is the env you should poke at. Tell the user the URL plainly. If `up` fails with a lock conflict, the error message names the holding env/worktree/pid — surface that verbatim so the user can decide whether to take it over or wait.
 

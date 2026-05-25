@@ -8,10 +8,15 @@ import (
 
 type ValidateCmd struct{}
 
-func (c *ValidateCmd) Run(ctx *Context) error {
-	if err := envctl.Validate("."); err != nil {
+func (c *ValidateCmd) Run(_ *Context) error {
+	r, err := envctl.Validate(".")
+	if err != nil {
 		return err
 	}
-	fmt.Fprintln(stdout(), "config valid")
+	if r.LocalOverride != "" {
+		fmt.Fprintf(stdout(), "config valid (with local overrides from %s)\n", r.LocalOverride)
+	} else {
+		fmt.Fprintln(stdout(), "config valid")
+	}
 	return nil
 }

@@ -17,6 +17,7 @@ import (
 )
 
 const FileName = ".testenv.toml"
+const LocalFileName = ".testenv.local.toml"
 
 // MaxSupportedVersion is the highest config version this binary knows.
 const MaxSupportedVersion = 1
@@ -45,11 +46,16 @@ func Load(dir string) (*V1, error) {
 		return nil, fmt.Errorf("parse version from %s: %w", path, err)
 	}
 
+	var cfg *V1
 	switch env.Version {
 	case 0:
 		return nil, fmt.Errorf("%s: missing required top-level `version` field", path)
 	case 1:
-		return loadV1(data, path)
+		c, err := loadV1(data, path)
+		if err != nil {
+			return nil, err
+		}
+		cfg = c
 	default:
 		if env.Version > MaxSupportedVersion {
 			return nil, fmt.Errorf("%s: config version %d is newer than this binary supports (max %d) — upgrade testenv",
@@ -57,6 +63,21 @@ func Load(dir string) (*V1, error) {
 		}
 		return nil, fmt.Errorf("%s: unsupported config version %d", path, env.Version)
 	}
+
+	localPath := filepath.Join(filepath.Dir(path), LocalFileName)
+	if localData, err := os.ReadFile(localPath); err == nil {
+		var local V1
+		if err := toml.Unmarshal(localData, &local); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", localPath, err)
+		}
+		mergeV1(cfg, &local)
+		cfg.LocalPath = localPath
+		if err := cfg.Validate(); err != nil {
+			return nil, fmt.Errorf("merged config invalid: %w", err)
+		}
+	}
+
+	return cfg, nil
 }
 
 // find walks from dir upward looking for .testenv.toml.
@@ -87,7 +108,8 @@ type V1 struct {
 	Ports    map[string]Port   `toml:"ports"`
 	Spawn    SpawnV1           `toml:"spawn"`
 	Hooks    HooksV1           `toml:"hooks"`
-	Path     string            `toml:"-"` // resolved file path
+	Path      string            `toml:"-"` // resolved file path
+	LocalPath string            `toml:"-"` // resolved local override path, empty if none
 }
 
 type Port struct {
@@ -131,6 +153,52 @@ func loadV1(data []byte, path string) (*V1, error) {
 		c.MaxSlots = 9
 	}
 	return &c, c.Validate()
+}
+
+func mergeV1(base, local *V1) {
+	if local.MaxSlots != 0 {
+		base.MaxSlots = local.MaxSlots
+	}
+
+	for name, p := range local.Ports {
+		if base.Ports == nil {
+			base.Ports = make(map[string]Port)
+		}
+		base.Ports[name] = p
+	}
+
+	if local.Spawn.Build != "" {
+		base.Spawn.Build = local.Spawn.Build
+	}
+	if local.Spawn.Command != "" {
+		base.Spawn.Command = local.Spawn.Command
+	}
+	if local.Spawn.HealthURL != "" {
+		base.Spawn.HealthURL = local.Spawn.HealthURL
+	}
+	if local.Spawn.HealthTimeout != "" {
+		base.Spawn.HealthTimeout = local.Spawn.HealthTimeout
+	}
+	if local.Spawn.HealthAuth != "" {
+		base.Spawn.HealthAuth = local.Spawn.HealthAuth
+	}
+
+	for k, v := range local.Spawn.Env {
+		if base.Spawn.Env == nil {
+			base.Spawn.Env = make(map[string]string)
+		}
+		base.Spawn.Env[k] = v
+	}
+
+	if len(local.Spawn.Files) > 0 {
+		base.Spawn.Files = local.Spawn.Files
+	}
+	if len(local.Hooks.Block) > 0 {
+		base.Hooks.Block = local.Hooks.Block
+	}
+	if len(local.Hooks.Warn) > 0 {
+		base.Hooks.Warn = local.Hooks.Warn
+	}
 }
 
 // Validate checks the V1 config for internal consistency.
