@@ -18,6 +18,9 @@ vn_add_executable(videonode-source
 vn_add_executable(videonode-sink
     SOURCES videonode_sink_main.cpp
     DEPS    scm_rights_source absl_bundle)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    target_compile_options(videonode-sink PRIVATE -msse4.1)
+endif()
 
 # videonode-composer — Mali-GPU canvas compositor. Reads NV12 dma-bufs
 # from N videonode-source sockets, composes BGRA via EGL/GLES, writes the

@@ -41,7 +41,7 @@
 #include <thread>
 #include <unistd.h>
 
-#ifdef __x86_64__
+#ifdef __SSE4_1__
 #include <immintrin.h>
 #endif
 
@@ -97,9 +97,8 @@ static uint8_t* aligned_scratch(size_t needed) {
 // Unrolled 4x streaming load for reading write-combining memory.
 // movntdqa bypasses the WC serialization bottleneck that makes regular
 // loads ~100x slower than cached reads on GPU-allocated dma-bufs.
-__attribute__((target("sse4.1")))
 void streaming_memcpy(uint8_t* dst, const uint8_t* src, size_t len) {
-#ifdef __x86_64__
+#ifdef __SSE4_1__
     auto* d = reinterpret_cast<__m128i*>(dst);
     auto* s = const_cast<__m128i*>(reinterpret_cast<const __m128i*>(src));
     size_t n = len / 16;
