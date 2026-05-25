@@ -18,3 +18,5 @@ dist/
 data/
 composer/build/
 composer/compile_commands.json
+.claude/skills/playwright-cli/
+.playwright*/
