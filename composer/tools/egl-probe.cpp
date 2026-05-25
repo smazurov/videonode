@@ -39,6 +39,7 @@
 #include <cstring>
 #include <memory>
 #include <span>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -128,6 +129,7 @@ FboState setup_fbo(egl_ctx::EglCtx& ctx, int W, int H) {
     desc.plane0_offset = 0;
     desc.plane0_pitch = static_cast<int>(s.stride);
     s.img = ctx.import_dmabuf(desc);
+    ::close(dmabuf_fd);
     VN_CHECK(s.img != EGL_NO_IMAGE, "EglCtx::import_dmabuf");
     std::fprintf(stderr, "ok: imported dma-buf as EGLImage\n");
 

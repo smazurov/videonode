@@ -93,6 +93,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<FILE, decltype(&std::fclose)> f(std::fopen(out, "wb"), &std::fclose);
     if (!f) {
         fprintf(stderr, "FAIL fopen %s\n", out);
+        ::munmap(p_map, bytes);
         src.stop();
         return 1;
     }

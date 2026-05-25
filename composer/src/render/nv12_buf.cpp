@@ -353,8 +353,8 @@ void stage_for_read(Buffer& b) {
         std::lock_guard<std::mutex> lock(gbm_alloc::gbm_device_mu());
         uint32_t stride = 0;
         void* y_map_data = nullptr;
-        void* y_ptr = gbm_bo_map(g->nv.y_bo, 0, 0, b.width, b.height, GBM_BO_TRANSFER_READ,
-                                 &stride, &y_map_data);
+        void* y_ptr = gbm_bo_map(g->nv.y_bo, 0, 0, b.width, b.height, GBM_BO_TRANSFER_READ, &stride,
+                                 &y_map_data);
         if (y_ptr) {
             std::memcpy(g->staged_y_map, y_ptr, y_bytes);
             gbm_bo_unmap(g->nv.y_bo, y_map_data);

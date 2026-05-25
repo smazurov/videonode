@@ -116,6 +116,7 @@ static FboSetup create_fbo(egl_ctx::EglCtx& ctx, int W, int H) {
     fbo_desc.plane0_offset = 0;
     fbo_desc.plane0_pitch = static_cast<int>(result.stride);
     result.img = ctx.import_dmabuf(fbo_desc);
+    ::close(fbo_fd);
     VN_CHECK(result.img != EGL_NO_IMAGE, "import RGBA FBO dmabuf");
 
     glGenRenderbuffers(1, &result.rbo);
