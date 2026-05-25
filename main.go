@@ -409,6 +409,7 @@ func main() {
 			EventBus:           eventBus,
 			EventRegistry:      eventRegistry,
 			WebRTCManager:      webrtcManager,
+			SRTServer:          srtServer,
 			StreamProvider:     streamingServer,
 			SnapshotCache:      snapshotCache,
 			PrometheusHandler:  promhttp.Handler(), // Prometheus metrics via promauto
@@ -484,17 +485,27 @@ func main() {
 						for _, st := range list {
 							sid := st.ID
 							rtsp := streamingServer.GetStreamReaderCount(sid)
-							webrtc := webrtcManager.StreamPeerCount(sid)
-							srt := 0
+							webrtcCount := webrtcManager.StreamPeerCount(sid)
+							srtCount := 0
 							if srtServer != nil {
-								srt = srtServer.StreamConsumerCount(sid)
+								srtCount = srtServer.StreamConsumerCount(sid)
 							}
-							eventRegistry.Publish("stream", events.ActionConsumers, sid, map[string]any{
-								"total":  rtsp + webrtc + srt,
+
+							payload := map[string]any{
+								"total":  rtsp + webrtcCount + srtCount,
 								"rtsp":   rtsp,
-								"webrtc": webrtc,
-								"srt":    srt,
-							})
+								"webrtc": webrtcCount,
+								"srt":    srtCount,
+							}
+							if clients := webrtcManager.StreamPeerInfo(sid); len(clients) > 0 {
+								payload["webrtc_clients"] = clients
+							}
+							if srtServer != nil {
+								if clients := srtServer.StreamConsumerInfo(sid); len(clients) > 0 {
+									payload["srt_clients"] = clients
+								}
+							}
+							eventRegistry.Publish("stream", events.ActionConsumers, sid, payload)
 						}
 					}
 				}()

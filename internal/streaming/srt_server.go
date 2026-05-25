@@ -234,6 +234,45 @@ func (s *SRTServer) StreamConsumerCount(streamID string) int {
 	return 0
 }
 
+// StreamConsumerInfo returns per-consumer details for a stream's SRT consumers.
+func (s *SRTServer) StreamConsumerInfo(streamID string) []SRTClientInfo {
+	s.mu.RLock()
+	consumers := s.consumers[streamID]
+	if len(consumers) == 0 {
+		s.mu.RUnlock()
+		return nil
+	}
+	refs := make([]*SRTConsumer, 0, len(consumers))
+	for _, c := range consumers {
+		refs = append(refs, c)
+	}
+	s.mu.RUnlock()
+
+	out := make([]SRTClientInfo, len(refs))
+	for i, c := range refs {
+		out[i] = c.Info()
+	}
+	return out
+}
+
+// DisconnectConsumer disconnects a single SRT consumer by ID. Returns false if not found.
+func (s *SRTServer) DisconnectConsumer(consumerID string) bool {
+	s.mu.RLock()
+	var found *SRTConsumer
+	for _, consumers := range s.consumers {
+		if c, ok := consumers[consumerID]; ok {
+			found = c
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if found == nil {
+		return false
+	}
+	_ = found.Stop()
+	return true
+}
+
 // generateConsumerID creates a unique consumer ID.
 func generateConsumerID() string {
 	b := make([]byte, 4)
