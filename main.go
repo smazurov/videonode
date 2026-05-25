@@ -16,6 +16,7 @@ import (
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/auth"
 	"github.com/smazurov/videonode/internal/config"
+	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/led"
 	"github.com/smazurov/videonode/internal/logging"
@@ -262,6 +263,18 @@ func main() {
 			EventBus:       eventBus,
 			ControlServer:  ctlServer,
 			Registry:       eventRegistry,
+			EncoderResolver: func(codec, inputPixFmt string) (pipeline.EncoderResolution, error) {
+				cfg, err := encoders.MapAPICodec(codec, inputPixFmt, streamStore)
+				if err != nil {
+					return pipeline.EncoderResolution{}, err
+				}
+				res := pipeline.EncoderResolution{EncoderName: cfg.EncoderName}
+				if cfg.Settings != nil {
+					res.GlobalArgs = cfg.Settings.GlobalArgs
+					res.VideoFilters = cfg.Settings.VideoFilters
+				}
+				return res, nil
+			},
 		}, logger)
 
 		// Pump status notifications into the event bus AND the uniform

@@ -45,6 +45,22 @@ type Config struct {
 	// Registry, when non-nil, is used to Touch entities on pool state
 	// transitions so their SSE snapshot refreshes with the new status.
 	Registry *events.Registry
+
+	// EncoderResolver maps a logical codec ("h264", "h265") and the
+	// upstream pixel format ("nv12", "bgra", "") to the best validated
+	// ffmpeg encoder + its HW-specific plumbing. Called by buildEncoder
+	// when assembling an EncoderStage. When nil the pipeline falls back
+	// to libx264/libx265.
+	EncoderResolver func(codec, inputPixFmt string) (EncoderResolution, error)
+}
+
+// EncoderResolution is the output of Config.EncoderResolver: the
+// concrete ffmpeg encoder name plus any backend-specific args the
+// encoder needs (e.g. -vaapi_device, hwupload filter chain).
+type EncoderResolution struct {
+	EncoderName  string
+	GlobalArgs   []string
+	VideoFilters string
 }
 
 // Pipeline is the stage assembler. One Pipeline owns the runtime state
@@ -593,19 +609,56 @@ func (p *Pipeline) DeleteStream(id string) error {
 
 // buildEncoder resolves the stream's Upstream string and constructs the
 // matching EncoderStage. The Source/Composer must already be registered.
+// The concrete ffmpeg encoder is chosen by Config.EncoderResolver from
+// the stream's Codec + the upstream pixel format.
 func (p *Pipeline) buildEncoder(s Stream) (*EncoderStage, error) {
 	video, err := p.resolveUpstream(s.Upstream)
 	if err != nil {
 		return nil, err
 	}
+
+	resolved := p.resolveEncoder(s.Encoder.Codec, video)
+
 	return &EncoderStage{
 		OwnerStreamID:     s.ID,
 		Media:             MediaSource{Video: video, Audio: ALSADirectAudio{Config: s.Audio}},
 		Cfg:               s.Encoder,
+		Resolved:          resolved,
 		Publish:           s.Publish,
 		CustomEncoderArgs: s.CustomEncoderArgs,
 		VNSinkBin:         p.cfg.VNSinkBin,
 	}, nil
+}
+
+// resolveEncoder calls the configured EncoderResolver or falls back to
+// libx264/libx265 when no resolver is wired.
+func (p *Pipeline) resolveEncoder(codec string, video FrameSource) EncoderResolution {
+	inputPixFmt := ""
+	if video != nil {
+		switch video.Kind() {
+		case FrameKindBGRARaw:
+			inputPixFmt = "bgra"
+		default:
+			inputPixFmt = "nv12"
+		}
+	}
+
+	if p.cfg.EncoderResolver != nil {
+		res, err := p.cfg.EncoderResolver(codec, inputPixFmt)
+		if err != nil {
+			p.logger.Warn("EncoderResolver failed, using software fallback",
+				"codec", codec, "input_pix_fmt", inputPixFmt, "error", err)
+		} else {
+			p.logger.Info("Resolved encoder", "codec", codec, "encoder", res.EncoderName)
+			return res
+		}
+	}
+
+	fallback := "libx264"
+	if codec == "h265" || codec == "hevc" {
+		fallback = "libx265"
+	}
+	return EncoderResolution{EncoderName: fallback}
 }
 
 // resolveUpstream maps a stream's Upstream reference ("source:<id>" or

@@ -21,6 +21,7 @@ type EncoderStage struct {
 	OwnerStreamID     string
 	Media             MediaSource
 	Cfg               EncoderConfig
+	Resolved          EncoderResolution // populated by buildEncoder via Config.EncoderResolver
 	Publish           []PublishTarget
 	CustomEncoderArgs string // user override; replaces -c:v onward when set
 	VNSinkBin         string // path to vn-sink binary
@@ -75,15 +76,12 @@ func (e *EncoderStage) Command() ([]string, []string, error) {
 func (e *EncoderStage) buildFFmpegParams() *ffmpeg.Params {
 	p := &ffmpeg.Params{
 		InputPipe:    pipeInputFor(e.Media.Video),
-		Encoder:      e.Cfg.EncoderName,
-		GlobalArgs:   append([]string(nil), e.Cfg.GlobalArgs...),
-		VideoFilters: e.Cfg.VideoFilters,
+		Encoder:      e.Resolved.EncoderName,
+		GlobalArgs:   append([]string(nil), e.Resolved.GlobalArgs...),
+		VideoFilters: e.Resolved.VideoFilters,
 		Bitrate:      e.Cfg.Bitrate,
 		GOP:          e.Cfg.GOP,
 		BFrames:      e.Cfg.BFrames,
-	}
-	if p.Encoder == "" {
-		p.Encoder = "libx264"
 	}
 	if p.Bitrate == "" {
 		p.Bitrate = "4M"

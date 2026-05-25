@@ -47,21 +47,17 @@ type AudioConfig struct {
 	Filters string   `toml:"filters,omitempty" json:"filters,omitempty"`
 }
 
-// EncoderConfig is the backend-agnostic encoder hint. EncoderName,
-// GlobalArgs and VideoFilters are populated upstream (typically by
-// the service layer via encoders.MapAPICodec) so HW encoders that need
-// extra plumbing carry that wiring through to ffmpeg.Params. Empty
-// EncoderName falls back to libx264 inside the EncoderStage.
+// EncoderConfig is the user-facing encoder hint persisted in streams.toml
+// and surfaced via the API. The concrete ffmpeg encoder name, global args,
+// and video-filter chain are resolved at runtime by
+// Pipeline.Config.EncoderResolver from Codec + the validation data.
 type EncoderConfig struct {
-	Codec        string   `toml:"codec,omitempty" json:"codec,omitempty"`
-	EncoderName  string   `toml:"encoder_name,omitempty" json:"encoder_name,omitempty"`
-	GlobalArgs   []string `toml:"global_args,omitempty" json:"global_args,omitempty"`
-	VideoFilters string   `toml:"video_filters,omitempty" json:"video_filters,omitempty"`
-	Bitrate      string   `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
-	GOP          int      `toml:"gop,omitempty" json:"gop,omitempty"`
-	BFrames      int      `toml:"b_frames,omitempty" json:"b_frames,omitempty"`
-	RateControl  string   `toml:"rate_control,omitempty" json:"rate_control,omitempty"`
-	Preset       string   `toml:"preset,omitempty" json:"preset,omitempty"`
+	Codec       string `toml:"codec,omitempty" json:"codec,omitempty"`
+	Bitrate     string `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
+	GOP         int    `toml:"gop,omitempty" json:"gop,omitempty"`
+	BFrames     int    `toml:"b_frames,omitempty" json:"b_frames,omitempty"`
+	RateControl string `toml:"rate_control,omitempty" json:"rate_control,omitempty"`
+	Preset      string `toml:"preset,omitempty" json:"preset,omitempty"`
 }
 
 // PublishTarget is a single output destination. Type discriminates the

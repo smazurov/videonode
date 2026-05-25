@@ -71,15 +71,12 @@ type AudioConfigData struct {
 
 // EncoderConfigData mirrors pipeline.EncoderConfig.
 type EncoderConfigData struct {
-	Codec        string   `json:"codec,omitempty" example:"h264" doc:"Logical codec (h264, h265, av1)"`
-	EncoderName  string   `json:"encoder_name,omitempty" example:"h264_rkmpp" doc:"Backend encoder name override"`
-	GlobalArgs   []string `json:"global_args,omitempty" doc:"Extra ffmpeg global args required by the encoder backend"`
-	VideoFilters string   `json:"video_filters,omitempty" doc:"Encoder-specific video filter chain"`
-	Bitrate      string   `json:"bitrate,omitempty" example:"4M" doc:"Video bitrate"`
-	GOP          int      `json:"gop,omitempty" example:"120" doc:"Keyframe interval"`
-	BFrames      int      `json:"b_frames,omitempty" example:"0" doc:"Number of B-frames"`
-	RateControl  string   `json:"rate_control,omitempty" example:"cbr" doc:"Rate control mode"`
-	Preset       string   `json:"preset,omitempty" example:"fast" doc:"Encoder preset"`
+	Codec       string `json:"codec,omitempty" example:"h264" doc:"Logical codec (h264, h265, av1)"`
+	Bitrate     string `json:"bitrate,omitempty" example:"4M" doc:"Video bitrate"`
+	GOP         int    `json:"gop,omitempty" example:"120" doc:"Keyframe interval"`
+	BFrames     int    `json:"b_frames,omitempty" example:"0" doc:"Number of B-frames"`
+	RateControl string `json:"rate_control,omitempty" example:"cbr" doc:"Rate control mode"`
+	Preset      string `json:"preset,omitempty" example:"fast" doc:"Encoder preset"`
 }
 
 // PublishTargetData mirrors pipeline.PublishTarget: one output destination.

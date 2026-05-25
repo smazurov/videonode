@@ -96,17 +96,14 @@ type V2AudioConfig struct {
 	Filters string   `toml:"filters,omitempty" json:"filters,omitempty"`
 }
 
-// V2EncoderConfig is the backend-agnostic encoder hint.
+// V2EncoderConfig is the user-facing encoder hint.
 type V2EncoderConfig struct {
-	Codec        string   `toml:"codec,omitempty" json:"codec,omitempty"`
-	EncoderName  string   `toml:"encoder_name,omitempty" json:"encoder_name,omitempty"`
-	GlobalArgs   []string `toml:"global_args,omitempty" json:"global_args,omitempty"`
-	VideoFilters string   `toml:"video_filters,omitempty" json:"video_filters,omitempty"`
-	Bitrate      string   `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
-	GOP          int      `toml:"gop,omitempty" json:"gop,omitempty"`
-	BFrames      int      `toml:"b_frames,omitempty" json:"b_frames,omitempty"`
-	RateControl  string   `toml:"rate_control,omitempty" json:"rate_control,omitempty"`
-	Preset       string   `toml:"preset,omitempty" json:"preset,omitempty"`
+	Codec       string `toml:"codec,omitempty" json:"codec,omitempty"`
+	Bitrate     string `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
+	GOP         int    `toml:"gop,omitempty" json:"gop,omitempty"`
+	BFrames     int    `toml:"b_frames,omitempty" json:"b_frames,omitempty"`
+	RateControl string `toml:"rate_control,omitempty" json:"rate_control,omitempty"`
+	Preset      string `toml:"preset,omitempty" json:"preset,omitempty"`
 }
 
 // V2PublishTarget is a single output destination.

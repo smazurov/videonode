@@ -327,29 +327,23 @@ func audioToAPI(a pipeline.AudioConfig) models.AudioConfigData {
 
 func encoderFromAPI(e models.EncoderConfigData) pipeline.EncoderConfig {
 	return pipeline.EncoderConfig{
-		Codec:        e.Codec,
-		EncoderName:  e.EncoderName,
-		GlobalArgs:   append([]string(nil), e.GlobalArgs...),
-		VideoFilters: e.VideoFilters,
-		Bitrate:      e.Bitrate,
-		GOP:          e.GOP,
-		BFrames:      e.BFrames,
-		RateControl:  e.RateControl,
-		Preset:       e.Preset,
+		Codec:       e.Codec,
+		Bitrate:     e.Bitrate,
+		GOP:         e.GOP,
+		BFrames:     e.BFrames,
+		RateControl: e.RateControl,
+		Preset:      e.Preset,
 	}
 }
 
 func encoderToAPI(e pipeline.EncoderConfig) models.EncoderConfigData {
 	return models.EncoderConfigData{
-		Codec:        e.Codec,
-		EncoderName:  e.EncoderName,
-		GlobalArgs:   append([]string(nil), e.GlobalArgs...),
-		VideoFilters: e.VideoFilters,
-		Bitrate:      e.Bitrate,
-		GOP:          e.GOP,
-		BFrames:      e.BFrames,
-		RateControl:  e.RateControl,
-		Preset:       e.Preset,
+		Codec:       e.Codec,
+		Bitrate:     e.Bitrate,
+		GOP:         e.GOP,
+		BFrames:     e.BFrames,
+		RateControl: e.RateControl,
+		Preset:      e.Preset,
 	}
 }
 

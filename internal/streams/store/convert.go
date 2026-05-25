@@ -127,9 +127,6 @@ func pipelineStreamFromV2(v V2Stream) streams.PipelineStream {
 	s.Audio.Filters = v.Audio.Filters
 
 	s.Encoder.Codec = v.Encoder.Codec
-	s.Encoder.EncoderName = v.Encoder.EncoderName
-	s.Encoder.GlobalArgs = append([]string(nil), v.Encoder.GlobalArgs...)
-	s.Encoder.VideoFilters = v.Encoder.VideoFilters
 	s.Encoder.Bitrate = v.Encoder.Bitrate
 	s.Encoder.GOP = v.Encoder.GOP
 	s.Encoder.BFrames = v.Encoder.BFrames
@@ -160,9 +157,6 @@ func pipelineStreamToV2(s streams.PipelineStream) V2Stream {
 	v.Audio.Filters = s.Audio.Filters
 
 	v.Encoder.Codec = s.Encoder.Codec
-	v.Encoder.EncoderName = s.Encoder.EncoderName
-	v.Encoder.GlobalArgs = append([]string(nil), s.Encoder.GlobalArgs...)
-	v.Encoder.VideoFilters = s.Encoder.VideoFilters
 	v.Encoder.Bitrate = s.Encoder.Bitrate
 	v.Encoder.GOP = s.Encoder.GOP
 	v.Encoder.BFrames = s.Encoder.BFrames

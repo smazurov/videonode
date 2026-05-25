@@ -118,7 +118,8 @@ func TestEncoderStage_NV12_Y4M_BuildsYuv4mpegpipeInput(t *testing.T) {
 		Media: MediaSource{
 			Video: ProducerFrameSource{Socket: "/tmp/vn-bus-cam.sock"},
 		},
-		Cfg:       EncoderConfig{Codec: "h264", EncoderName: "h264_rkmpp", Bitrate: "4M", GOP: 60},
+		Cfg:       EncoderConfig{Codec: "h264", Bitrate: "4M", GOP: 60},
+		Resolved:  EncoderResolution{EncoderName: "h264_rkmpp"},
 		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://localhost:8554/cam-front"}},
 		VNSinkBin: "/usr/local/bin/vn-sink",
 	}
@@ -148,7 +149,8 @@ func TestEncoderStage_BGRA_RawBuildsRawvideoInput(t *testing.T) {
 				Width:  3840, Height: 1080, Fps: 30,
 			},
 		},
-		Cfg:       EncoderConfig{Codec: "h265", EncoderName: "hevc_rkmpp", Bitrate: "12M"},
+		Cfg:       EncoderConfig{Codec: "h265", Bitrate: "12M"},
+		Resolved:  EncoderResolution{EncoderName: "hevc_rkmpp"},
 		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://localhost:8554/canvas-1"}},
 		VNSinkBin: "/usr/local/bin/vn-sink",
 	}
