@@ -433,8 +433,8 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                             dst_p.wstride = int(dst_buf.y_pitch);
                             if (csc::convert(src_p, dst_p)) {
                                 nv12_buf::stage_for_read(dst_buf);
-                                decoded.fd = (dst_buf.staged_y_fd >= 0) ? dst_buf.staged_y_fd
-                                                                        : dst_buf.y_fd;
+                                decoded.fd =
+                                    (dst_buf.staged_y_fd >= 0) ? dst_buf.staged_y_fd : dst_buf.y_fd;
                                 decoded.plane1_fd = (dst_buf.staged_uv_fd >= 0)
                                                         ? dst_buf.staged_uv_fd
                                                         : dst_buf.uv_fd;

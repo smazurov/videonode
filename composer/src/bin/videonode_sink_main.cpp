@@ -65,13 +65,13 @@ bool write_full(int fd, std::span<const uint8_t> buf) {
 }
 
 void dmabuf_sync_start(int fd) {
-    struct dma_buf_sync sync {};
+    struct dma_buf_sync sync{};
     sync.flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ;
     ::ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync);
 }
 
 void dmabuf_sync_end(int fd) {
-    struct dma_buf_sync sync {};
+    struct dma_buf_sync sync{};
     sync.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ;
     ::ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync);
 }

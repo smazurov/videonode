@@ -22,9 +22,10 @@
 #include <linux/dma-heap.h>
 #include <sys/ioctl.h>
 
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <span>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -38,10 +39,18 @@ struct NamedFmt {
     const char* name;
 };
 const NamedFmt kNamedFormats[] = {
-    {DRM_FORMAT_NV12, "NV12"},     {DRM_FORMAT_NV16, "NV16"},     {DRM_FORMAT_NV24, "NV24"},
-    {DRM_FORMAT_NV21, "NV21"},     {DRM_FORMAT_YUYV, "YUYV"},     {DRM_FORMAT_UYVY, "UYVY"},
-    {DRM_FORMAT_BGR888, "BG24"},   {DRM_FORMAT_RGB888, "RG24"},   {DRM_FORMAT_ARGB8888, "AR24"},
-    {DRM_FORMAT_XRGB8888, "XR24"}, {DRM_FORMAT_ABGR8888, "AB24"}, {DRM_FORMAT_XBGR8888, "XB24"},
+    {.fourcc = DRM_FORMAT_NV12, .name = "NV12"},
+    {.fourcc = DRM_FORMAT_NV16, .name = "NV16"},
+    {.fourcc = DRM_FORMAT_NV24, .name = "NV24"},
+    {.fourcc = DRM_FORMAT_NV21, .name = "NV21"},
+    {.fourcc = DRM_FORMAT_YUYV, .name = "YUYV"},
+    {.fourcc = DRM_FORMAT_UYVY, .name = "UYVY"},
+    {.fourcc = DRM_FORMAT_BGR888, .name = "BG24"},
+    {.fourcc = DRM_FORMAT_RGB888, .name = "RG24"},
+    {.fourcc = DRM_FORMAT_ARGB8888, .name = "AR24"},
+    {.fourcc = DRM_FORMAT_XRGB8888, .name = "XR24"},
+    {.fourcc = DRM_FORMAT_ABGR8888, .name = "AB24"},
+    {.fourcc = DRM_FORMAT_XBGR8888, .name = "XB24"},
 };
 
 std::string fourcc_str(uint32_t f) {
@@ -167,7 +176,8 @@ bool try_import(const egl_ctx::EglCtx& ctx, uint32_t fourcc, int w, int h) {
 } // namespace
 
 int main(int argc, char** argv) {
-    const char* drm_path = (argc > 1) ? argv[1] : "/dev/dri/renderD130";
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    const char* drm_path = (args.size() > 1) ? args[1] : "/dev/dri/renderD130";
 
     egl_ctx::EglCtx ctx;
     if (!ctx.init(drm_path)) {
