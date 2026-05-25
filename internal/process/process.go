@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -50,6 +51,7 @@ type Process struct {
 	killTimeout      time.Duration
 	visionPipeReads  []*os.File
 	visionPipeWrites []*os.File // write ends passed to child as fd 3, 4, 5, ...
+	pid              atomic.Int32
 }
 
 // NewProcess creates a new process.
@@ -72,6 +74,10 @@ func NewProcessWithOutput(id, command string, logger logging.Logger, handler Out
 		killTimeout:     5 * time.Second,
 	}
 }
+
+// PID returns the OS process ID, or 0 if the process hasn't started.
+// Safe to call concurrently — uses an atomic.
+func (p *Process) PID() int { return int(p.pid.Load()) }
 
 // GetCommand returns the current command string.
 func (p *Process) GetCommand() string {
@@ -157,6 +163,8 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 		p.logger.Error("Failed to start process", "error", err, "command", command)
 		return nil, err
 	}
+
+	p.pid.Store(int32(p.cmd.Process.Pid))
 
 	// Close parent's copy of write ends; child inherited them.
 	for _, w := range p.visionPipeWrites {

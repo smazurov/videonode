@@ -301,3 +301,55 @@ func TestNewPoolPanicsWithoutCommandProvider(t *testing.T) {
 
 	NewPool(nil)
 }
+
+func TestGetStatus_NoPIDRace(_ *testing.T) {
+	p := NewPool(&PoolOptions{
+		CommandProvider: func(_ string) (string, error) {
+			return `sh -c "trap 'exit 0' INT TERM; while :; do sleep 0.1; done"`, nil
+		},
+		Logger: poolTestLogger(),
+	})
+	defer p.StopAll()
+
+	for i := range 10 {
+		_ = p.Start(fmt.Sprintf("race-%d", i))
+		for range 50 {
+			p.GetStatus(fmt.Sprintf("race-%d", i))
+		}
+	}
+}
+
+func TestGetStatus_TakesNoWriteLock(t *testing.T) {
+	p := NewPool(&PoolOptions{
+		CommandProvider: func(_ string) (string, error) {
+			return `sh -c "trap 'exit 0' INT TERM; while :; do sleep 0.1; done"`, nil
+		},
+		Logger: poolTestLogger(),
+	})
+
+	if err := p.Start("test1"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.StopAll()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Hold a read lock from the outside. If GetStatus internally
+	// escalates to a write lock (p.mu.Lock), it will deadlock and
+	// the test times out.
+	pp := p.(*pool)
+	pp.mu.RLock()
+	defer pp.mu.RUnlock()
+
+	done := make(chan *Info, 1)
+	go func() { done <- p.GetStatus("test1") }()
+
+	select {
+	case info := <-done:
+		if info.State != StateRunning {
+			t.Errorf("want StateRunning, got %v", info.State)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("GetStatus deadlocked — takes a write lock while read lock is held")
+	}
+}
