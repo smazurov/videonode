@@ -49,12 +49,15 @@ namespace scm_socket {
 // Receive one binary header + accompanying SCM_RIGHTS fds.
 // On success `header_out` and `fds_out` are populated and returns true.
 // On EOF (peer closed cleanly) returns false with `eof_out = true` if
-// non-null. On any other failure returns false and sets errno (if a
-// syscall failed) or leaves it untouched (parser failure).
+// non-null. On fd/plane mismatch (MSG_CTRUNC or partial delivery)
+// returns false with `truncated_out = true` — the byte stream is still
+// aligned, so the caller can retry for the next frame. On any other
+// failure returns false and sets errno.
 //
 // Caller owns the fds returned in fds_out and must close them when done.
 [[nodiscard]] bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out,
-                               std::vector<int>& fds_out, bool* eof_out = nullptr);
+                               std::vector<int>& fds_out, bool* eof_out = nullptr,
+                               bool* truncated_out = nullptr);
 
 // SendMessage sends a binary header + SCM_RIGHTS fds atomically.
 [[nodiscard]] bool SendMessage(int sock_fd, const dmabuf_header::Header& header,
