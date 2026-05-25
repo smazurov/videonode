@@ -14,7 +14,7 @@ base = 6001
 step = 10
 
 [spawn]
-build = "go build -o ${TESTENV_DIR}/videonode ."
+build = "pnpm --prefix ui install --frozen-lockfile && pnpm --prefix ui build && go build -tags ui_embed -o ${TESTENV_DIR}/videonode ."
 command = "${TESTENV_DIR}/videonode"
 health_url = "http://localhost:${TESTENV_PORT_HTTP}/api/health"
 health_timeout = "15s"
