@@ -238,11 +238,12 @@ Buffer Allocator::alloc(int width, int height) {
         return out;
     auto impl = std::make_unique<DmaImpl>();
     const size_t sz = static_cast<size_t>(width) * static_cast<size_t>(height) * 3 / 2;
-    // Try "system-uncached" first (RK3588 prefers it for output buffers
-    // RGA writes to without CPU readback); fall back to plain "system".
-    impl->bo = dmaheap::alloc(dmaheap::kHeapUncached, sz);
+    // "system" (cached) — consumers (vn-sink) mmap and CPU-read every
+    // frame; uncached pages would serialize every load through DRAM.
+    // RGA writes are coherent via DMA_BUF_IOCTL_SYNC.
+    impl->bo = dmaheap::alloc(dmaheap::kHeapSystem, sz);
     if (!impl->bo.valid())
-        impl->bo = dmaheap::alloc(dmaheap::kHeapSystem, sz);
+        impl->bo = dmaheap::alloc(dmaheap::kHeapUncached, sz);
     if (!impl->bo.valid())
         return out;
     out.y_fd = impl->bo.fd.get();
