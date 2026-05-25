@@ -979,7 +979,14 @@ func (p *Pipeline) onStateChange(id string, oldState, newState process.State, er
 	if p.cfg.Registry != nil {
 		switch {
 		case strings.HasPrefix(id, "producer:"):
-			p.cfg.Registry.Touch(context.Background(), "source", strings.TrimPrefix(id, "producer:"))
+			sourceID := strings.TrimPrefix(id, "producer:")
+			p.cfg.Registry.Touch(context.Background(), "source", sourceID)
+			if newState == process.StateIdle {
+				p.cfg.Registry.Publish("source", events.ActionStatus, sourceID, map[string]any{
+					"started_at_us": nil,
+					"ts_ms":         time.Now().UnixMilli(),
+				})
+			}
 		case strings.HasPrefix(id, "composer:"):
 			p.cfg.Registry.Touch(context.Background(), "composer", strings.TrimPrefix(id, "composer:"))
 		case strings.HasPrefix(id, "encoder:"):

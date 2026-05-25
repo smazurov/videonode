@@ -163,7 +163,7 @@ function mergeRuntime(prev: Source | undefined, next: Source): Source {
   const merged: Source = { ...next };
   if (prev.latest_status !== undefined) merged.latest_status = prev.latest_status;
   if (prev.last_status_at !== undefined) merged.last_status_at = prev.last_status_at;
-  if (prev.started_at_us !== undefined) merged.started_at_us = prev.started_at_us;
+  if (prev.started_at_us !== undefined && next.status !== 'idle') merged.started_at_us = prev.started_at_us;
   if (prev.effective_fps !== undefined) merged.effective_fps = prev.effective_fps;
   if (prev.consumer_count !== undefined && next.consumer_count === undefined) {
     merged.consumer_count = prev.consumer_count;
