@@ -13,49 +13,79 @@ namespace egl_ctx {
 
 namespace {
 
-#define DIE_F(...)                                                                                 \
-    do {                                                                                           \
-        vn::log::error("egl_ctx: " __VA_ARGS__);                                                   \
-        return false;                                                                              \
-    } while (0)
+bool check_required_extensions(EGLDisplay dpy) {
+    const char* exts = eglQueryString(dpy, EGL_EXTENSIONS);
+    if (!exts)
+        return false;
+    if (!std::strstr(exts, "EGL_KHR_no_config_context"))
+        return false;
+    if (!std::strstr(exts, "EGL_KHR_surfaceless_context"))
+        return false;
+    if (!std::strstr(exts, "EGL_EXT_image_dma_buf_import"))
+        return false;
+    return true;
+}
+
+bool open_drm_and_gbm(std::string_view device_path, int& drm_fd_out, gbm_device*& gbm_out) {
+    std::string dev(device_path);
+    drm_fd_out = ::open(dev.c_str(), O_RDWR | O_CLOEXEC);
+    if (drm_fd_out < 0) {
+        vn::log::error("egl_ctx: open(%s): %s", dev.c_str(), strerror(errno));
+        return false;
+    }
+    gbm_out = gbm_create_device(drm_fd_out);
+    if (!gbm_out) {
+        vn::log::error("egl_ctx: gbm_create_device");
+        return false;
+    }
+    return true;
+}
+
+bool create_egl_display(gbm_device* gbm, EGLDisplay& dpy_out) {
+    dpy_out = eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm, nullptr);
+    if (dpy_out == EGL_NO_DISPLAY) {
+        vn::log::error("egl_ctx: eglGetPlatformDisplay");
+        return false;
+    }
+    EGLint major = 0, minor = 0;
+    if (!eglInitialize(dpy_out, &major, &minor)) {
+        vn::log::error("egl_ctx: eglInitialize");
+        return false;
+    }
+    return true;
+}
+
+bool create_egl_context(EGLDisplay dpy, EGLContext& ctx_out) {
+    if (!eglBindAPI(EGL_OPENGL_ES_API)) {
+        vn::log::error("egl_ctx: eglBindAPI");
+        return false;
+    }
+    if (!check_required_extensions(dpy)) {
+        vn::log::error("egl_ctx: required EGL extensions missing");
+        return false;
+    }
+    const EGLint ctx_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+    ctx_out = eglCreateContext(dpy, EGL_NO_CONFIG_KHR, EGL_NO_CONTEXT, ctx_attribs);
+    if (ctx_out == EGL_NO_CONTEXT) {
+        vn::log::error("egl_ctx: eglCreateContext");
+        return false;
+    }
+    return true;
+}
 
 } // namespace
 
 bool EglCtx::init(std::string_view device_path) {
-    std::string dev(device_path);
-    drm_fd_ = ::open(dev.c_str(), O_RDWR | O_CLOEXEC);
-    if (drm_fd_ < 0)
-        DIE_F("open(%s): %s", dev.c_str(), strerror(errno));
-
-    gbm_ = gbm_create_device(drm_fd_);
-    if (!gbm_)
-        DIE_F("gbm_create_device");
-
-    dpy_ = eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm_, nullptr);
-    if (dpy_ == EGL_NO_DISPLAY)
-        DIE_F("eglGetPlatformDisplay");
-
-    EGLint major = 0, minor = 0;
-    if (!eglInitialize(dpy_, &major, &minor))
-        DIE_F("eglInitialize");
-
-    if (!eglBindAPI(EGL_OPENGL_ES_API))
-        DIE_F("eglBindAPI");
-
-    const char* exts = eglQueryString(dpy_, EGL_EXTENSIONS);
-    if (!exts || !std::strstr(exts, "EGL_KHR_no_config_context") ||
-        !std::strstr(exts, "EGL_KHR_surfaceless_context") ||
-        !std::strstr(exts, "EGL_EXT_image_dma_buf_import")) {
-        DIE_F("required EGL extensions missing");
+    if (!open_drm_and_gbm(device_path, drm_fd_, gbm_))
+        return false;
+    if (!create_egl_display(gbm_, dpy_))
+        return false;
+    if (!create_egl_context(dpy_, ctx_))
+        return false;
+    if (!eglMakeCurrent(dpy_, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx_)) {
+        vn::log::error("egl_ctx: eglMakeCurrent");
+        return false;
     }
-
-    const EGLint ctx_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
-    ctx_ = eglCreateContext(dpy_, EGL_NO_CONFIG_KHR, EGL_NO_CONTEXT, ctx_attribs);
-    if (ctx_ == EGL_NO_CONTEXT)
-        DIE_F("eglCreateContext");
-
-    if (!eglMakeCurrent(dpy_, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx_))
-        DIE_F("eglMakeCurrent");
     return true;
 }
 
