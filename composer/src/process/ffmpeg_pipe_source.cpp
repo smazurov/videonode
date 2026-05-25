@@ -145,23 +145,25 @@ void FfmpegPipeSource::thread_main_() {
             break;
         }
         bool ok = true;
-        uint8_t* y_base = static_cast<uint8_t*>(m.y);
+        std::span<uint8_t> y_span(static_cast<uint8_t*>(m.y), size_t(slot.buf.y_stride) * height_);
         if (slot.buf.y_stride == uint32_t(width_)) {
-            ok = read_exact(ffmpeg_stdout_fd_, std::span(y_base, size_t(width_) * height_));
+            ok = read_exact(ffmpeg_stdout_fd_, y_span.subspan(0, size_t(width_) * height_));
         } else {
             for (int y = 0; y < height_ && ok; ++y)
                 ok = read_exact(ffmpeg_stdout_fd_,
-                                std::span(y_base + y * slot.buf.y_stride, size_t(width_)));
+                                y_span.subspan(size_t(y) * slot.buf.y_stride, size_t(width_)));
         }
         if (ok) {
-            uint8_t* uv_base = static_cast<uint8_t*>(m.uv);
+            std::span<uint8_t> uv_span(static_cast<uint8_t*>(m.uv),
+                                       size_t(slot.buf.uv_stride) * (height_ / 2));
             if (slot.buf.uv_stride == uint32_t(width_)) {
                 ok = read_exact(ffmpeg_stdout_fd_,
-                                std::span(uv_base, size_t(width_) * (height_ / 2)));
+                                uv_span.subspan(0, size_t(width_) * (height_ / 2)));
             } else {
                 for (int y = 0; y < height_ / 2 && ok; ++y)
-                    ok = read_exact(ffmpeg_stdout_fd_,
-                                    std::span(uv_base + y * slot.buf.uv_stride, size_t(width_)));
+                    ok =
+                        read_exact(ffmpeg_stdout_fd_,
+                                   uv_span.subspan(size_t(y) * slot.buf.uv_stride, size_t(width_)));
             }
         }
         gbm_alloc::unmap(slot.buf);

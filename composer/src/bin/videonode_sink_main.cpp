@@ -99,28 +99,29 @@ static uint8_t* aligned_scratch(size_t needed) {
 // loads ~100x slower than cached reads on GPU-allocated dma-bufs.
 void streaming_memcpy(uint8_t* dst, const uint8_t* src, size_t len) {
 #ifdef __SSE4_1__
-    auto* d = reinterpret_cast<__m128i*>(dst);
-    auto* s = const_cast<__m128i*>(reinterpret_cast<const __m128i*>(src));
     size_t n = len / 16;
-    while (n >= 4) {
-        __m128i r0 = _mm_stream_load_si128(s + 0);
-        __m128i r1 = _mm_stream_load_si128(s + 1);
-        __m128i r2 = _mm_stream_load_si128(s + 2);
-        __m128i r3 = _mm_stream_load_si128(s + 3);
-        _mm_store_si128(d + 0, r0);
-        _mm_store_si128(d + 1, r1);
-        _mm_store_si128(d + 2, r2);
-        _mm_store_si128(d + 3, r3);
-        s += 4;
-        d += 4;
-        n -= 4;
+    std::span<uint8_t> dst_bytes(dst, len);
+    std::span<const uint8_t> src_bytes(src, len);
+    std::span<__m128i> dst_blocks(reinterpret_cast<__m128i*>(dst_bytes.data()), n);
+    std::span<__m128i> src_blocks(
+        const_cast<__m128i*>(reinterpret_cast<const __m128i*>(src_bytes.data())), n);
+    size_t i = 0;
+    for (; i + 4 <= n; i += 4) {
+        __m128i r0 = _mm_stream_load_si128(&src_blocks[i + 0]);
+        __m128i r1 = _mm_stream_load_si128(&src_blocks[i + 1]);
+        __m128i r2 = _mm_stream_load_si128(&src_blocks[i + 2]);
+        __m128i r3 = _mm_stream_load_si128(&src_blocks[i + 3]);
+        _mm_store_si128(&dst_blocks[i + 0], r0);
+        _mm_store_si128(&dst_blocks[i + 1], r1);
+        _mm_store_si128(&dst_blocks[i + 2], r2);
+        _mm_store_si128(&dst_blocks[i + 3], r3);
     }
-    while (n-- > 0) {
-        _mm_store_si128(d++, _mm_stream_load_si128(s++));
+    for (; i < n; ++i) {
+        _mm_store_si128(&dst_blocks[i], _mm_stream_load_si128(&src_blocks[i]));
     }
     size_t tail = len & 15;
     if (tail > 0)
-        std::memcpy(reinterpret_cast<uint8_t*>(d), reinterpret_cast<const uint8_t*>(s), tail);
+        std::memcpy(dst_bytes.subspan(n * 16).data(), src_bytes.subspan(n * 16).data(), tail);
     _mm_sfence();
 #else
     std::memcpy(dst, src, len);
@@ -131,8 +132,11 @@ void copy_plane(uint8_t* dst, const uint8_t* src, size_t width, size_t pitch, si
     if (pitch == width) {
         streaming_memcpy(dst, src, width * rows);
     } else {
+        std::span<uint8_t> dst_span(dst, width * rows);
+        std::span<const uint8_t> src_span(src, pitch * rows);
         for (size_t r = 0; r < rows; ++r)
-            streaming_memcpy(dst + r * width, src + r * pitch, width);
+            streaming_memcpy(dst_span.subspan(r * width, width).data(),
+                             src_span.subspan(r * pitch, width).data(), width);
     }
 }
 
@@ -162,7 +166,8 @@ bool emit_frame_nv12_raw(const scm_rights_source::FrameView& v) {
         return true;
     }
     dmabuf_sync_start(v.fd);
-    const auto* y_base = static_cast<const uint8_t*>(y_map) + v.plane0_offset;
+    std::span<const uint8_t> y_map_span(static_cast<const uint8_t*>(y_map), y_map_size);
+    const auto* y_base = y_map_span.subspan(v.plane0_offset).data();
 
     void* uv_map = nullptr;
     size_t uv_map_size = 0;
@@ -178,16 +183,18 @@ bool emit_frame_nv12_raw(const scm_rights_source::FrameView& v) {
             return true;
         }
         dmabuf_sync_start(v.plane1_fd);
-        uv_base = static_cast<const uint8_t*>(uv_map) + v.plane1_offset;
+        std::span<const uint8_t> uv_map_span(static_cast<const uint8_t*>(uv_map), uv_map_size);
+        uv_base = uv_map_span.subspan(v.plane1_offset).data();
     } else {
         size_t uv_off = v.plane1_offset ? v.plane1_offset : v.plane0_offset + y_pitch * height;
-        uv_base = static_cast<const uint8_t*>(y_map) + uv_off;
+        uv_base = y_map_span.subspan(uv_off).data();
     }
 
     // Copy from (potentially uncached) dma-buf into the cached scratch
     // buffer in one pass, then release the mmap before writing to the pipe.
-    copy_plane(scratch, y_base, width, y_pitch, height);
-    copy_plane(scratch + width * height, uv_base, width, uv_pitch, uv_rows);
+    std::span<uint8_t> scratch_span(scratch, frame_bytes);
+    copy_plane(scratch_span.subspan(0, width * height).data(), y_base, width, y_pitch, height);
+    copy_plane(scratch_span.subspan(width * height).data(), uv_base, width, uv_pitch, uv_rows);
 
     if (v.plane1_fd >= 0 && uv_map != nullptr) {
         dmabuf_sync_end(v.plane1_fd);
@@ -224,7 +231,8 @@ bool emit_frame_raw_bgra(const scm_rights_source::FrameView& v) {
         return true;
     }
     dmabuf_sync_start(v.fd);
-    const auto* base = static_cast<const uint8_t*>(m) + v.plane0_offset;
+    std::span<const uint8_t> m_span(static_cast<const uint8_t*>(m), map_size);
+    const auto* base = m_span.subspan(v.plane0_offset).data();
     copy_plane(scratch, base, row_bytes, stride, size_t(v.height));
     dmabuf_sync_end(v.fd);
     ::munmap(m, map_size);
@@ -276,20 +284,19 @@ void print_help(const Args& d) {
             d.poll_ms, d.settle_ms, d.first_frame_timeout_s);
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
-    Args a;
-
+// parse_args returns -1 on parse error (caller should return 2), 0 on success,
+// or 1 if an early-exit flag (--help/--version) was handled (caller returns 0).
+int parse_args(int argc, char** argv, Args& a) {
+    std::span<char*> args(argv, static_cast<size_t>(argc));
     for (int i = 1; i < argc; ++i) {
-        std::string s = argv[i];
+        std::string s = args[static_cast<size_t>(i)];
         auto next = [&](std::string& dst) {
             if (i + 1 < argc)
-                dst = argv[++i];
+                dst = args[static_cast<size_t>(++i)];
         };
         auto nexti = [&](int& dst) {
             if (i + 1 < argc)
-                dst = std::atoi(argv[++i]);
+                dst = std::atoi(args[static_cast<size_t>(++i)]);
         };
         if (s == "--socket")
             next(a.socket_path);
@@ -303,38 +310,29 @@ int main(int argc, char** argv) {
             nexti(a.first_frame_timeout_s);
         else if (s == "-h" || s == "--help") {
             print_help(Args{});
-            return 0;
+            return 1;
         } else if (s == "--version") {
             printf("videonode-sink %s\n", vn::kVersion);
-            return 0;
+            return 1;
         } else {
             vn::log::error("videonode-sink: unknown arg %s (use --help)", s.c_str());
-            return 2;
+            return -1;
         }
     }
     if (a.socket_path.empty()) {
         vn::log::error("videonode-sink: --socket PATH is required");
-        return 2;
+        return -1;
     }
+    return 0;
+}
 
-    ::setvbuf(stderr, nullptr, _IOLBF, 0);
-
-    vn::signal::install_shutdown(g_running);
-
-    scm_rights_source::ScmRightsSource src;
-    scm_rights_source::InitParams p;
-    p.socket_path = a.socket_path;
-    p.dial = true;
-    if (!src.init(p) || !src.start()) {
-        vn::log::fatal("videonode-sink: failed to dial %s (is videonode-source up?)",
-                       a.socket_path.c_str());
-        return 1;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(a.settle_ms));
-
+// run_frame_loop polls the source for new frames and writes them to stdout.
+// Returns 0 on clean shutdown, 1 on fatal error.
+int run_frame_loop(scm_rights_source::ScmRightsSource& src, const Args& a) {
     uint64_t last_idx = 0;
     bool announced = false;
-    int announced_w = 0, announced_h = 0;
+    int announced_w = 0;
+    int announced_h = 0;
     bool nv12_mode = true;
     auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(a.first_frame_timeout_s);
@@ -344,7 +342,6 @@ int main(int argc, char** argv) {
             if (std::chrono::steady_clock::now() > deadline) {
                 vn::log::fatal("videonode-sink: timeout waiting for first frame on %s",
                                a.socket_path.c_str());
-                src.stop();
                 return 1;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(a.poll_ms));
@@ -377,8 +374,33 @@ int main(int argc, char** argv) {
         if (!ok)
             break;
     }
+    return 0;
+}
 
+} // namespace
+
+int main(int argc, char** argv) {
+    Args a;
+    int parse_result = parse_args(argc, argv, a);
+    if (parse_result != 0)
+        return parse_result > 0 ? 0 : 2;
+
+    ::setvbuf(stderr, nullptr, _IOLBF, 0);
+    vn::signal::install_shutdown(g_running);
+
+    scm_rights_source::ScmRightsSource src;
+    scm_rights_source::InitParams p;
+    p.socket_path = a.socket_path;
+    p.dial = true;
+    if (!src.init(p) || !src.start()) {
+        vn::log::fatal("videonode-sink: failed to dial %s (is videonode-source up?)",
+                       a.socket_path.c_str());
+        return 1;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(a.settle_ms));
+
+    int rc = run_frame_loop(src, a);
     src.stop();
     vn::log::info("videonode-sink: shutdown");
-    return 0;
+    return rc;
 }
