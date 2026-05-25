@@ -135,13 +135,12 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 				return formatLeaseConflict(s, lock, holder)
 			}
 		}
-		// First port in sorted order is used as the primary HTTP URL.
-		firstPort := held.Ports[cfg.PortNames()[0]]
+		primaryPort := held.Ports[cfg.PrimaryPortName()]
 		vars := cfg.BuildVars(held.Slot, envID, dataDir, worktree, p.Locks)
 		env := store.Env{
 			ID: envID, OwnerSession: p.Session, OwnerPID: os.Getpid(),
 			OwnerWorktree: worktree, Target: "host", SourceMode: derivedSourceMode(p.Locks),
-			Slot: held.Slot, HTTPURL: fmt.Sprintf("http://localhost:%d", firstPort),
+			Slot: held.Slot, HTTPURL: fmt.Sprintf("http://localhost:%d", primaryPort),
 			RTSPURL: "", SRTURL: "",
 			HealthURL: config.ExpandVars(cfg.Spawn.HealthURL, vars),
 			HealthAuth: cfg.Spawn.HealthAuth,
@@ -178,7 +177,7 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	}
 	s.UpdateEnvAfterSpawn(envID, res.PID, "")
 
-	httpURL := fmt.Sprintf("http://localhost:%d", held.Ports[cfg.PortNames()[0]])
+	httpURL := fmt.Sprintf("http://localhost:%d", held.Ports[cfg.PrimaryPortName()])
 	return UpResult{
 		EnvID: envID, Slot: held.Slot,
 		Ports: held.Ports, HTTPURL: httpURL, Auth: cfg.Spawn.HealthAuth,
