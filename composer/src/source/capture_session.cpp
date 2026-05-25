@@ -66,6 +66,152 @@ bool maybe_renegotiate_to_rga_friendly_(v4l2::Streamer& cap, v4l2::StreamFormat&
     return cap.get_format(cur);
 }
 
+// Negotiate format and determine decode mode. On success, sets s.width,
+// s.height, s.mode, s.src_fmt_name (and s.src_fmt for RGA path).
+// Returns false and closes cap on failure.
+bool negotiate_format_(CaptureSession& s, const Args& a) {
+    v4l2::StreamFormat cur;
+    if (a.in_format.empty()) {
+        if (!s.cap.get_format(cur)) {
+            s.cap.close();
+            return false;
+        }
+        maybe_renegotiate_to_rga_friendly_(s.cap, cur);
+    } else {
+        cur.pixel_format = v4l2_pix_fmt_(a.in_format);
+        cur.width = a.in_width > 0 ? a.in_width : a.placeholder_w;
+        cur.height = a.in_height > 0 ? a.in_height : a.placeholder_h;
+        cur.fps = a.in_fps;
+        if (!s.cap.set_format(cur)) {
+            s.cap.close();
+            return false;
+        }
+        if (!s.cap.get_format(cur)) {
+            s.cap.close();
+            return false;
+        }
+    }
+
+    if (cur.pixel_format == V4L2_PIX_FMT_MJPEG) {
+        s.mode = DecodeMode::Mjpeg;
+        s.src_fmt_name = "MJPG";
+    } else {
+        s.mode = DecodeMode::Rga;
+        if (!v4l2_to_csc_(cur.pixel_format, s.src_fmt, s.src_fmt_name)) {
+            s.cap.close();
+            return false;
+        }
+    }
+    s.width = int(cur.width);
+    s.height = int(cur.height);
+    if (s.width <= 0 || s.height <= 0) {
+        s.cap.close();
+        return false;
+    }
+    return true;
+}
+
+// Request buffers, export DMA-BUF planes, and queue all buffers for
+// streaming. Returns false and closes cap on failure.
+bool allocate_and_queue_buffers_(CaptureSession& s, const Args& a) {
+    std::vector<v4l2::BufferRef> _ignored;
+    if (!s.cap.request_buffers(a.buffers, _ignored)) {
+        s.cap.close();
+        return false;
+    }
+    if (!s.cap.export_all_planes()) {
+        s.cap.close();
+        return false;
+    }
+    for (const auto& b : s.cap.buffers()) {
+        if (!s.cap.queue_buffer(b.index)) {
+            s.cap.close();
+            return false;
+        }
+    }
+    if (!s.cap.stream_on()) {
+        s.cap.close();
+        return false;
+    }
+    return true;
+}
+
+// Set up the MJPEG decode path: mmap capture buffers for CPU JPEG reads,
+// probe MPP or fall back to TurboJPEG, populate s.jpeg + s.out_ring.
+bool setup_mjpeg_decoder_(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator) {
+    for (const auto& b : s.cap.buffers()) {
+        auto mapped = s.cap.mmap_buffer_span(b.index);
+        if (!mapped) {
+            s.cap.close();
+            return false;
+        }
+        s.in_maps.push_back(mapped->data());
+        s.in_map_sizes.push_back(mapped->size());
+    }
+
+    std::unique_ptr<jpeg_dec::JpegDec> mpp;
+#if defined(HAVE_MPP)
+    auto mpp_concrete = std::make_unique<mpp_jpeg_dec::MppJpegDec>();
+    if (mpp_concrete->init(s.width, s.height))
+        mpp = std::move(mpp_concrete);
+#endif
+    if (mpp) {
+        s.jpeg = std::move(mpp);
+        s.using_mpp = true;
+        vn::log::info("videonode-source: MJPEG backend = MPP (HW)");
+        return true;
+    }
+
+    // TurboJPEG fallback: allocate out_ring + map each slot for CPU writes.
+    for (int i = 0; i < a.buffers; ++i) {
+        nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
+        if (!b.valid()) {
+            s.cap.close();
+            s.out_ring.clear();
+            return false;
+        }
+        s.out_ring.push_back(std::move(b));
+    }
+    std::vector<jpeg_dec::TurboJpegDec::Slot> slots;
+    slots.reserve(s.out_ring.size());
+    for (auto& buf : s.out_ring) {
+        auto m = nv12_buf::map_rw(buf);
+        if (!m.y || !m.uv) {
+            vn::log::error("videonode-source: map_rw out_ring y_fd=%d uv_fd=%d failed (y=%p uv=%p)",
+                           buf.y_fd, buf.uv_fd, m.y, m.uv);
+            s.cap.close();
+            return false;
+        }
+        s.out_y.push_back(m.y);
+        s.out_uv.push_back(m.uv);
+        slots.push_back({buf.y_fd, buf.uv_fd, static_cast<uint8_t*>(m.y),
+                         static_cast<uint8_t*>(m.uv), buf.y_pitch, buf.uv_pitch});
+    }
+    auto tj = std::make_unique<jpeg_dec::TurboJpegDec>();
+    if (!tj->init(s.width, s.height, std::move(slots))) {
+        s.cap.close();
+        return false;
+    }
+    s.jpeg = std::move(tj);
+    s.using_mpp = false;
+    vn::log::info("videonode-source: MJPEG backend = TurboJPEG (SW)");
+    return true;
+}
+
+// Set up the RGA/GLES CSC output ring (NV12 buffers the CSC writes into).
+bool setup_rga_output_ring_(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator) {
+    for (int i = 0; i < a.buffers; ++i) {
+        nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
+        if (!b.valid()) {
+            s.cap.close();
+            s.out_ring.clear();
+            return false;
+        }
+        s.out_ring.push_back(std::move(b));
+    }
+    return true;
+}
+
 } // namespace
 
 uint32_t v4l2_pix_fmt_(const std::string& s) {
@@ -109,148 +255,17 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
     teardown_session_(s);
     if (!s.cap.open(a.device))
         return false;
-
-    v4l2::StreamFormat cur;
-    if (a.in_format.empty()) {
-        if (!s.cap.get_format(cur)) {
-            s.cap.close();
-            return false;
-        }
-        maybe_renegotiate_to_rga_friendly_(s.cap, cur);
-    } else {
-        cur.pixel_format = v4l2_pix_fmt_(a.in_format);
-        cur.width = a.in_width > 0 ? a.in_width : a.placeholder_w;
-        cur.height = a.in_height > 0 ? a.in_height : a.placeholder_h;
-        cur.fps = a.in_fps;
-        if (!s.cap.set_format(cur)) {
-            s.cap.close();
-            return false;
-        }
-        if (!s.cap.get_format(cur)) {
-            s.cap.close();
-            return false;
-        }
-    }
-
-    if (cur.pixel_format == V4L2_PIX_FMT_MJPEG) {
-        s.mode = DecodeMode::Mjpeg;
-        s.src_fmt_name = "MJPG";
-    } else {
-        s.mode = DecodeMode::Rga;
-        if (!v4l2_to_csc_(cur.pixel_format, s.src_fmt, s.src_fmt_name)) {
-            s.cap.close();
-            return false;
-        }
-    }
-    s.width = int(cur.width);
-    s.height = int(cur.height);
-    if (s.width <= 0 || s.height <= 0) {
-        s.cap.close();
+    if (!negotiate_format_(s, a))
         return false;
-    }
-
-    std::vector<v4l2::BufferRef> _ignored;
-    if (!s.cap.request_buffers(a.buffers, _ignored)) {
-        s.cap.close();
+    if (!allocate_and_queue_buffers_(s, a))
         return false;
-    }
-    if (!s.cap.export_all_planes()) {
-        s.cap.close();
-        return false;
-    }
-    for (const auto& b : s.cap.buffers()) {
-        if (!s.cap.queue_buffer(b.index)) {
-            s.cap.close();
-            return false;
-        }
-    }
-    if (!s.cap.stream_on()) {
-        s.cap.close();
-        return false;
-    }
-
     if (s.mode == DecodeMode::Mjpeg) {
-        // mmap each V4L2 capture buffer for CPU read of variable-length
-        // JPEG payloads. MJPEG is single-plane only — mmap_buffer asserts.
-        for (const auto& b : s.cap.buffers()) {
-            auto mapped = s.cap.mmap_buffer_span(b.index);
-            if (!mapped) {
-                s.cap.close();
-                return false;
-            }
-            s.in_maps.push_back(mapped->data());
-            s.in_map_sizes.push_back(mapped->size());
-        }
-
-        // Probe MPP first; if librockchip_mpp isn't compiled in, skip it
-        // entirely and use TurboJPEG. The concrete-typed local is needed
-        // because MppJpegDec::init lives on the concrete class, not the
-        // base interface.
-        std::unique_ptr<jpeg_dec::JpegDec> mpp;
-#if defined(HAVE_MPP)
-        auto mpp_concrete = std::make_unique<mpp_jpeg_dec::MppJpegDec>();
-        if (mpp_concrete->init(s.width, s.height))
-            mpp = std::move(mpp_concrete);
-#endif
-        if (mpp) {
-            s.jpeg = std::move(mpp);
-            s.using_mpp = true;
-            vn::log::info("videonode-source: MJPEG backend = MPP (HW)");
-        } else {
-            // TurboJPEG fallback. Allocate out_ring via nv12_buf + map
-            // each slot for CPU writes; hand the slot's (y_fd, y_mapped,
-            // uv_fd, uv_mapped) tuple to the decoder. Works on both
-            // contiguous (rig dma_heap: same fd, uv_mapped = y_mapped + W*H)
-            // and split (Fedora GBM: separate fds and mmaps) slot shapes.
-            for (int i = 0; i < a.buffers; ++i) {
-                nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
-                if (!b.valid()) {
-                    s.cap.close();
-                    s.out_ring.clear();
-                    return false;
-                }
-                s.out_ring.push_back(std::move(b));
-            }
-            std::vector<jpeg_dec::TurboJpegDec::Slot> slots;
-            slots.reserve(s.out_ring.size());
-            for (auto& buf : s.out_ring) {
-                auto m = nv12_buf::map_rw(buf);
-                if (!m.y || !m.uv) {
-                    vn::log::error(
-                        "videonode-source: map_rw out_ring y_fd=%d uv_fd=%d failed (y=%p uv=%p)",
-                        buf.y_fd, buf.uv_fd, m.y, m.uv);
-                    s.cap.close();
-                    return false;
-                }
-                s.out_y.push_back(m.y);
-                s.out_uv.push_back(m.uv);
-                slots.push_back({buf.y_fd, buf.uv_fd, static_cast<uint8_t*>(m.y),
-                                 static_cast<uint8_t*>(m.uv), buf.y_pitch, buf.uv_pitch});
-            }
-            auto tj = std::make_unique<jpeg_dec::TurboJpegDec>();
-            if (!tj->init(s.width, s.height, std::move(slots))) {
-                s.cap.close();
-                return false;
-            }
-            s.jpeg = std::move(tj);
-            s.using_mpp = false;
-            vn::log::info("videonode-source: MJPEG backend = TurboJPEG (SW)");
-        }
+        if (!setup_mjpeg_decoder_(s, a, allocator))
+            return false;
     } else {
-        // RGA / GLES CSC path: out_ring holds NV12 buffers the CSC writes
-        // into. Allocator is dma_heap (single bo) on rig, GBM (split
-        // bos) on Fedora — see nv12_buf.hpp.
-        for (int i = 0; i < a.buffers; ++i) {
-            nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
-            if (!b.valid()) {
-                s.cap.close();
-                s.out_ring.clear();
-                return false;
-            }
-            s.out_ring.push_back(std::move(b));
-        }
+        if (!setup_rga_output_ring_(s, a, allocator))
+            return false;
     }
-
     s.active = true;
     fprintf(
         stderr,
