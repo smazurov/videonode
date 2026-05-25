@@ -26,6 +26,10 @@ vn_add_test(scm_rights_producer
     DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
 
+vn_add_test(scm_stress
+    DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
+    LABELS ipc)
+
 vn_add_test(placeholder_painter DEPS placeholder_painter          LABELS render)
 vn_add_test(homography          DEPS homography                   LABELS render)
 vn_add_test(world               DEPS world Threads::Threads       LABELS render)

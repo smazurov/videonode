@@ -144,18 +144,34 @@ ScmRightsSource::~ScmRightsSource() {
 }
 
 void ScmRightsSource::thread_main_() {
+    int consecutive_truncations = 0;
     while (!stop_requested_.load()) {
         dmabuf_header::Header header;
         std::vector<int> fds;
         bool eof = false;
-        if (!scm_socket::RecvMessage(client_fd_.get(), header, fds, &eof)) {
+        bool truncated = false;
+        if (!scm_socket::RecvMessage(client_fd_.get(), header, fds, &eof, &truncated)) {
             if (eof) {
                 vn::log::info("scm_rights_source: peer closed");
-            } else if (!stop_requested_.load()) {
+                return;
+            }
+            if (truncated) {
+                ++consecutive_truncations;
+                if (consecutive_truncations >= 10) {
+                    vn::log::error("scm_rights_source: %d consecutive truncations, giving up",
+                                   consecutive_truncations);
+                    return;
+                }
+                vn::log::warn("scm_rights_source: frame truncated, skipping (%d consecutive)",
+                              consecutive_truncations);
+                continue;
+            }
+            if (!stop_requested_.load()) {
                 vn::log::error("scm_rights_source: RecvMessage failed: %s", strerror(errno));
             }
             return;
         }
+        consecutive_truncations = 0;
 
         // We've got a new set of fds. Wrap them in unique_fd immediately
         // so any early-return below doesn't leak them, then move into

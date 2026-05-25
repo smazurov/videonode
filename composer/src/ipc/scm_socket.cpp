@@ -53,11 +53,12 @@ bool read_full(int fd, std::span<uint8_t> buf) {
 }
 
 // Extract SCM_RIGHTS fds from the cmsg buffer accompanying a recvmsg.
-// If MSG_CTRUNC is set, logs and leaves fds_out empty.
-void parse_cmsg_fds(const msghdr& m, std::vector<int>& fds_out) {
-    if (m.msg_flags & MSG_CTRUNC) {
+// Always extracts whatever fds the kernel installed — even when
+// MSG_CTRUNC is set — so the caller can close them instead of leaking.
+void parse_cmsg_fds(const msghdr& m, std::vector<int>& fds_out, bool& had_ctrunc) {
+    had_ctrunc = (m.msg_flags & MSG_CTRUNC) != 0;
+    if (had_ctrunc) {
         vn::log::warn("scm_socket: control data truncated; some fds may have been dropped");
-        return;
     }
     for (cmsghdr* c = CMSG_FIRSTHDR(const_cast<msghdr*>(&m)); c != nullptr;
          c = CMSG_NXTHDR(const_cast<msghdr*>(&m), c)) {
@@ -135,18 +136,20 @@ unique_fd ConnectClient(const std::string& path) {
 }
 
 bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out, std::vector<int>& fds_out,
-                 bool* eof_out) {
+                 bool* eof_out, bool* truncated_out) {
     header_out = {};
     fds_out.clear();
     if (eof_out)
         *eof_out = false;
+    if (truncated_out)
+        *truncated_out = false;
 
     // First recvmsg: pull the 36-byte fixed prefix + accompanying
     // SCM_RIGHTS. The prefix's plane_count field (byte 35) tells us how
     // many trailing pitch/offset words to read in a follow-up read().
     std::array<uint8_t, kHeaderFixedPrefix> prefix{};
     iovec iov{.iov_base = prefix.data(), .iov_len = prefix.size()};
-    uint8_t cmsg_buf[CMSG_SPACE(sizeof(int) * kMaxFds)];
+    alignas(struct cmsghdr) uint8_t cmsg_buf[CMSG_SPACE(sizeof(int) * kMaxFds)];
     msghdr m{};
     m.msg_iov = &iov;
     m.msg_iovlen = 1;
@@ -167,7 +170,8 @@ bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out, std::vector<int
     // installed fds (the kernel doesn't undo install on the receiver
     // side; MSG_CMSG_CLOEXEC only sets FD_CLOEXEC, it doesn't skip
     // installation).
-    parse_cmsg_fds(m, fds_out);
+    bool had_ctrunc = false;
+    parse_cmsg_fds(m, fds_out, had_ctrunc);
 
     if (n != static_cast<ssize_t>(prefix.size())) {
         close_and_clear(fds_out);
@@ -202,6 +206,10 @@ bool RecvMessage(int sock_fd, dmabuf_header::Header& header_out, std::vector<int
         vn::log::error("scm_socket: %zu fds vs %zu plane_pitches (mismatch)", fds_out.size(),
                        header_out.plane_pitches.size());
         close_and_clear(fds_out);
+        if (truncated_out) {
+            *truncated_out = true;
+            return false;
+        }
         errno = EPROTO;
         return false;
     }
