@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Badge } from '../Badge';
 import { useProcesses, type ProcessEntry } from '../../hooks/useProcesses';
 import { formatUptime as formatUptimeShared } from '../../lib/formatUptime';
@@ -32,7 +32,7 @@ interface ProcessRowProps {
   readonly proc: ProcessEntry;
 }
 
-function ProcessRow({ proc }: ProcessRowProps) {
+function ProcessRow({ proc, tick: _tick }: ProcessRowProps & { readonly tick: number }) {
   const stateTone = STATE_TONE[proc.state] ?? 'neutral';
   const kindTone = KIND_TONE[proc.kind] ?? 'neutral';
   const isError = proc.state === 'error';
@@ -74,10 +74,10 @@ function ProcessRow({ proc }: ProcessRowProps) {
             <span className="text-fg">{formatUptime(proc.started_at_us)}</span>
           </>
         )}
-        {proc.cpu_percent !== undefined && proc.cpu_percent > 0 && (
+        {proc.pid !== undefined && proc.pid > 0 && (
           <>
             <span className="text-fg-subtle">cpu</span>
-            <span className="text-fg">{proc.cpu_percent.toFixed(1)}%</span>
+            <span className="text-fg">{(proc.cpu_percent ?? 0).toFixed(1)}%</span>
           </>
         )}
         {proc.rss_bytes !== undefined && proc.rss_bytes > 0 && (
@@ -115,6 +115,13 @@ interface ProcessListProps {
 export function ProcessList({ enabled = true }: ProcessListProps) {
   const { processes, loading, error } = useProcesses({ enabled });
 
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [enabled]);
+
   const grouped = useMemo(() => {
     const order: Record<string, number> = { producer: 0, composer: 1, encoder: 2 };
     return [...processes].sort((a, b) => {
@@ -143,7 +150,7 @@ export function ProcessList({ enabled = true }: ProcessListProps) {
           <div className="px-3 py-4 text-sm text-fg-subtle">No processes running</div>
         )}
         {grouped.map((proc) => (
-          <ProcessRow key={proc.id} proc={proc} />
+          <ProcessRow key={proc.id} proc={proc} tick={tick} />
         ))}
       </div>
     </div>
