@@ -1,6 +1,8 @@
 #include "src/render/homography.hpp"
 
+#include <array>
 #include <cmath>
+#include <span>
 
 namespace homography {
 
@@ -16,7 +18,7 @@ namespace {
 // after corner normalization; a pivot under 1e-7 means the four source
 // corners don't span a quadrilateral (e.g. three are collinear, or two
 // coincide).
-bool solve_8x8(double A[8][9], double x[8]) {
+bool solve_8x8(std::array<std::array<double, 9>, 8>& A, std::array<double, 8>& x) {
     constexpr double kPivotEps = 1e-7;
     for (int col = 0; col < 8; ++col) {
         // Partial pivot: find the row >= col with the largest |A[r][col]|
@@ -32,13 +34,8 @@ bool solve_8x8(double A[8][9], double x[8]) {
         }
         if (pivot_abs < kPivotEps)
             return false;
-        if (pivot_row != col) {
-            for (int c = col; c < 9; ++c) {
-                double tmp = A[col][c];
-                A[col][c] = A[pivot_row][c];
-                A[pivot_row][c] = tmp;
-            }
-        }
+        if (pivot_row != col)
+            std::swap(A[col], A[pivot_row]);
         // Eliminate rows below.
         for (int r = col + 1; r < 8; ++r) {
             double factor = A[r][col] / A[col][col];
@@ -58,7 +55,8 @@ bool solve_8x8(double A[8][9], double x[8]) {
 
 } // namespace
 
-Status corners_to_warp(const int corners_px[8], int snapshot_w, int snapshot_h, float out[9]) {
+Status corners_to_warp(std::span<const int, 8> corners_px, int snapshot_w, int snapshot_h,
+                       std::span<float, 9> out) {
     if (snapshot_w <= 0 || snapshot_h <= 0)
         return Status::BadSnapshotDims;
 
@@ -72,20 +70,20 @@ Status corners_to_warp(const int corners_px[8], int snapshot_w, int snapshot_h, 
     // h22 is fixed at 1.
     const double sw = static_cast<double>(snapshot_w);
     const double sh = static_cast<double>(snapshot_h);
-    const double src[4][2] = {
+    const std::array<std::array<double, 2>, 4> src = {{
         {0.0, 0.0}, // TL of dest = (0,0)
         {1.0, 0.0}, // TR
         {1.0, 1.0}, // BR
         {0.0, 1.0}, // BL
-    };
-    const double dst[4][2] = {
+    }};
+    const std::array<std::array<double, 2>, 4> dst = {{
         {corners_px[0] / sw, corners_px[1] / sh},
         {corners_px[2] / sw, corners_px[3] / sh},
         {corners_px[4] / sw, corners_px[5] / sh},
         {corners_px[6] / sw, corners_px[7] / sh},
-    };
+    }};
 
-    double A[8][9] = {};
+    std::array<std::array<double, 9>, 8> A = {};
     for (int i = 0; i < 4; ++i) {
         double u = src[i][0];
         double v = src[i][1];
@@ -113,7 +111,7 @@ Status corners_to_warp(const int corners_px[8], int snapshot_w, int snapshot_h, 
         A[2 * i + 1][8] = y;
     }
 
-    double h[8] = {};
+    std::array<double, 8> h = {};
     if (!solve_8x8(A, h))
         return Status::Degenerate;
 

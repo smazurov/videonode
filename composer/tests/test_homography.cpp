@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cmath>
+#include <span>
 
 namespace {
 
@@ -13,7 +14,7 @@ constexpr float kEps = 1e-4f;
 
 // Apply a 3x3 row-major homography to a UV point, returning the
 // homogeneous-divided result.
-std::array<float, 2> apply(const float h[9], float u, float v) {
+std::array<float, 2> apply(std::span<const float, 9> h, float u, float v) {
     float x = h[0] * u + h[1] * v + h[2];
     float y = h[3] * u + h[4] * v + h[5];
     float w = h[6] * u + h[7] * v + h[8];
@@ -29,10 +30,10 @@ bool nearly_equal(float a, float b, float eps = kEps) {
 TEST(Homography, IdentityCornersGiveIdentityMatrix) {
     // Source corners = full source rect → maps unit-square dest UVs to
     // unit-square source UVs (identity sampling).
-    int corners[8] = {
+    std::array<int, 8> corners = {
         0, 0, 1919, 0, 1919, 1079, 0, 1079,
     };
-    float h[9] = {};
+    std::array<float, 9> h = {};
     auto s = homography::corners_to_warp(corners, 1920, 1080, h);
     ASSERT_EQ(homography::Status::Ok, s);
 
@@ -54,10 +55,10 @@ TEST(Homography, KnownKeystoneTopInset) {
     // (~96 px), the bottom corners stay at the source rect's bottom
     // corners. Expect a non-identity matrix that, when applied to the
     // top-middle dest UV (0.5, 0), samples around y=0.05 in source UV.
-    int corners[8] = {
+    std::array<int, 8> corners = {
         96, 0, 1823, 0, 1919, 1079, 0, 1079,
     };
-    float h[9] = {};
+    std::array<float, 9> h = {};
     auto s = homography::corners_to_warp(corners, 1920, 1080, h);
     ASSERT_EQ(homography::Status::Ok, s);
 
@@ -77,10 +78,10 @@ TEST(Homography, RoundTripCornersThroughMatrix) {
     // dest unit-square's four vertices should reproduce the source
     // corners (up to numeric tolerance). Strongest guarantee that the
     // solve is correct.
-    int corners[8] = {
+    std::array<int, 8> corners = {
         200, 100, 1700, 80, 1750, 950, 180, 1000,
     };
-    float h[9] = {};
+    std::array<float, 9> h = {};
     auto s = homography::corners_to_warp(corners, 1920, 1080, h);
     ASSERT_EQ(homography::Status::Ok, s);
 
@@ -99,8 +100,8 @@ TEST(Homography, RoundTripCornersThroughMatrix) {
 }
 
 TEST(Homography, RejectsZeroSnapshotDims) {
-    int corners[8] = {0, 0, 1919, 0, 1919, 1079, 0, 1079};
-    float h[9] = {};
+    std::array<int, 8> corners = {0, 0, 1919, 0, 1919, 1079, 0, 1079};
+    std::array<float, 9> h = {};
     EXPECT_EQ(homography::Status::BadSnapshotDims,
               homography::corners_to_warp(corners, 0, 1080, h));
     EXPECT_EQ(homography::Status::BadSnapshotDims,
@@ -112,18 +113,18 @@ TEST(Homography, RejectsZeroSnapshotDims) {
 TEST(Homography, RejectsCollinearCorners) {
     // Three points on the top edge + one elsewhere → no unique homography
     // (the linear system is rank-deficient).
-    int corners[8] = {
+    std::array<int, 8> corners = {
         0, 0, 960, 0, 1919, 0, 0, 1079,
     };
-    float h[9] = {};
+    std::array<float, 9> h = {};
     EXPECT_EQ(homography::Status::Degenerate, homography::corners_to_warp(corners, 1920, 1080, h));
 }
 
 TEST(Homography, RejectsCoincidentCorners) {
     // Two corners at the same point also degenerate.
-    int corners[8] = {
+    std::array<int, 8> corners = {
         0, 0, 0, 0, 1919, 1079, 0, 1079,
     };
-    float h[9] = {};
+    std::array<float, 9> h = {};
     EXPECT_EQ(homography::Status::Degenerate, homography::corners_to_warp(corners, 1920, 1080, h));
 }

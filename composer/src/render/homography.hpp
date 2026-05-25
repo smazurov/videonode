@@ -25,6 +25,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 
 namespace homography {
 
@@ -43,7 +44,7 @@ enum class Status {
 // `transpose=GL_FALSE` (which gl_compose already uses).
 //
 // `corners_px` is 8 ints: [TLx, TLy, TRx, TRy, BRx, BRy, BLx, BLy].
-[[nodiscard]] Status corners_to_warp(const int corners_px[8], int snapshot_w, int snapshot_h,
-                                     float out[9]);
+[[nodiscard]] Status corners_to_warp(std::span<const int, 8> corners_px, int snapshot_w,
+                                     int snapshot_h, std::span<float, 9> out);
 
 } // namespace homography
