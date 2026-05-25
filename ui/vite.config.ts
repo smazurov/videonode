@@ -37,10 +37,10 @@ export default defineConfig(() => {
     },
     server: {
       host: "localhost",
-      port: 5173,
+      port: parseInt(process.env.VITE_DEV_PORT || "5173", 10),
       proxy: {
-        "/api": "http://localhost:8090",
-        "/openapi.json": "http://localhost:8090"
+        "/api": `http://localhost${process.env.VIDEONODE_SERVER_PORT || ":8090"}`,
+        "/openapi.json": `http://localhost${process.env.VIDEONODE_SERVER_PORT || ":8090"}`
       }
     }
   };

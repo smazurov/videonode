@@ -126,9 +126,13 @@ type V1 struct {
 	LocalPath string            `toml:"-"` // resolved local override path, empty if none
 }
 
+// Port defines a named port family with slot-based allocation.
+// At most one port may set Primary = true; that port's URL is
+// reported by "testenv up" and "testenv list" as the main entry point.
 type Port struct {
-	Base int `toml:"base"`
-	Step int `toml:"step"`
+	Base    int  `toml:"base"`
+	Step    int  `toml:"step"`
+	Primary bool `toml:"primary"`
 }
 
 type SpawnV1 struct {
@@ -239,6 +243,16 @@ func (c *V1) Validate() error {
 		}
 	}
 
+	var primaryCount int
+	for name, p := range c.Ports {
+		if p.Primary {
+			primaryCount++
+			if primaryCount > 1 {
+				errs = append(errs, fmt.Sprintf("ports.%s: multiple ports marked primary", name))
+			}
+		}
+	}
+
 	// Check for port overlap across slots.
 	for i := 1; i <= c.MaxSlots; i++ {
 		seen := map[int]string{}
@@ -294,6 +308,17 @@ func (c *V1) PortForSlot(name string, slot int) int {
 		return 0
 	}
 	return p.Base + p.Step*slot
+}
+
+// PrimaryPortName returns the port marked primary = true, or the
+// first port in alphabetical order if none is marked.
+func (c *V1) PrimaryPortName() string {
+	for name, p := range c.Ports {
+		if p.Primary {
+			return name
+		}
+	}
+	return c.PortNames()[0]
 }
 
 // PortNames returns sorted port names for deterministic iteration.

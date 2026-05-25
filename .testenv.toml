@@ -13,11 +13,16 @@ step = 10
 base = 6001
 step = 10
 
+[ports.vite]
+base = 5173
+step = 10
+primary = true
+
 [spawn]
-build = "pnpm --prefix ui install --frozen-lockfile && pnpm --prefix ui build && go build -tags ui_embed -o ${TESTENV_DIR}/videonode ."
-command = "${TESTENV_DIR}/videonode"
+build = "pnpm --prefix ui install --frozen-lockfile"
+command = "process-compose up -t=false backend frontend"
 health_url = "http://localhost:${TESTENV_PORT_HTTP}/api/health"
-health_timeout = "15s"
+health_timeout = "30s"
 health_auth = "testenv:testenv"
 
 [spawn.env]
@@ -33,6 +38,7 @@ VIDEONODE_AUTH_PASSWORD = "testenv"
 VIDEONODE_UPDATE_ENABLED = "false"
 VIDEONODE_FEATURES_LED_CONTROL = "false"
 VIDEONODE_METRICS_SSE_ENABLED = "true"
+VITE_DEV_PORT = "${TESTENV_PORT_VITE}"
 
 [[spawn.files]]
 path = "${TESTENV_DIR}/streams.toml"
