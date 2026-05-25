@@ -6,41 +6,130 @@ package mcpsrv
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"os"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/smazurov/videonode/tools/testenv/internal/envctl"
 )
 
+const resumeEnvKey = "TESTENV_MCP_RESUME"
+
+var (
+	selfExe     string
+	selfModTime time.Time
+	selfOnce    sync.Once
+	mcpServer   *mcp.Server
+)
+
+func initSelf() {
+	selfOnce.Do(func() {
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		selfExe = exe
+		if fi, err := os.Stat(exe); err == nil {
+			selfModTime = fi.ModTime()
+		}
+	})
+}
+
+func binaryUpdated() bool {
+	initSelf()
+	if selfExe == "" {
+		return false
+	}
+	fi, err := os.Stat(selfExe)
+	if err != nil {
+		return false
+	}
+	return fi.ModTime().After(selfModTime)
+}
+
+func execIfUpdated() {
+	if !binaryUpdated() || mcpServer == nil {
+		return
+	}
+	var params *mcp.InitializeParams
+	for ss := range mcpServer.Sessions() {
+		params = ss.InitializeParams()
+		break
+	}
+	if params == nil {
+		return
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		return
+	}
+	env := os.Environ()
+	env = append(env, resumeEnvKey+"="+base64.StdEncoding.EncodeToString(data))
+	syscall.Exec(selfExe, os.Args, env)
+}
+
+// ResumeState returns saved InitializeParams if this is a hot-reload
+// resume, or nil for a cold start. Unsets the env var immediately.
+func ResumeState() *mcp.InitializeParams {
+	raw := os.Getenv(resumeEnvKey)
+	os.Unsetenv(resumeEnvKey)
+	if raw == "" {
+		return nil
+	}
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil
+	}
+	var params mcp.InitializeParams
+	if err := json.Unmarshal(data, &params); err != nil {
+		return nil
+	}
+	return &params
+}
+
+// addTool wraps mcp.AddTool with hot-reload middleware.
+func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
+	wrapped := func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		execIfUpdated()
+		return h(ctx, req, in)
+	}
+	mcp.AddTool(s, t, mcp.ToolHandlerFor[In, Out](wrapped))
+}
+
 // Register adds all testenv tools to server, backed by statePath.
 func Register(server *mcp.Server, statePath string) {
-	mcp.AddTool(server, &mcp.Tool{
+	mcpServer = server
+	addTool(server, &mcp.Tool{
 		Name:        "testenv_up",
 		Description: "Spin up a test environment per .testenv.toml (+ .testenv.local.toml overrides). Returns URL, auth, and ports.",
 	}, upHandler(statePath))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "testenv_down",
 		Description: "Tear down a test environment by env_id (or the current session's).",
 	}, downHandler(statePath))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "testenv_list",
 		Description: "Show the active test-env inventory across all sessions.",
 	}, listHandler(statePath))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "testenv_lease",
 		Description: "Acquire an exclusive resource lock for the current session's env.",
 	}, leaseHandler(statePath))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "testenv_restart",
 		Description: "Rebuild and restart a test environment's daemon. Picks up config and local overrides.",
 	}, restartHandler(statePath))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "testenv_release",
 		Description: "Release an exclusive resource lock.",
 	}, releaseHandler(statePath))
@@ -202,3 +291,4 @@ func releaseHandler(sp string) mcp.ToolHandlerFor[leaseIn, leaseOut] {
 		return nil, leaseOut{ResourceID: in.ResourceID}, nil
 	}
 }
+

@@ -80,6 +80,20 @@ func Load(dir string) (*V1, error) {
 	return cfg, nil
 }
 
+// FindProjectRoot walks up from the process cwd looking for .testenv.toml
+// and returns the directory that contains it.
+func FindProjectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	p, err := find(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(p), nil
+}
+
 // find walks from dir upward looking for .testenv.toml.
 func find(dir string) (string, error) {
 	dir, err := filepath.Abs(dir)

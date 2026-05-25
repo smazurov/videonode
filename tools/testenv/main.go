@@ -33,6 +33,7 @@ type cli struct {
 	Release        cmd.ReleaseCmd        `cmd:"" help:"Release a named resource lease."`
 	ReleaseSession cmd.ReleaseSessionCmd `cmd:"release-session" help:"Release everything a session owns."`
 	Reap           cmd.ReapCmd           `cmd:"" help:"Sweep stale env records."`
+	Doctor         cmd.DoctorCmd         `cmd:"" help:"Print diagnostic facts about the current testenv setup."`
 	MCP            cmd.MCPCmd            `cmd:"" help:"Run as a stdio MCP server."`
 	Validate       cmd.ValidateCmd       `cmd:"" help:"Validate the .testenv.toml config."`
 	Install        cmd.InstallCmd        `cmd:"" help:"Write skills, hooks, and .mcp.json into a project."`
