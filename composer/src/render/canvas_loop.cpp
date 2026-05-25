@@ -60,8 +60,6 @@ struct LiveSource {
 
 void reconcile_sources_(std::map<std::string, LiveSource>& live,
                         const std::vector<SlotBinding>& bindings) {
-    // Phase 1: figure out which existing slots need to be torn down (no
-    // longer present, or path changed).
     std::vector<std::string> to_drop;
     for (const auto& [slot, ls] : live) {
         auto it = std::find_if(bindings.begin(), bindings.end(),
@@ -78,7 +76,6 @@ void reconcile_sources_(std::map<std::string, LiveSource>& live,
             vn::log::info("canvas_loop: dropped slot %s", slot.c_str());
         }
     }
-    // Phase 2: add any new slot bindings.
     for (const auto& b : bindings) {
         if (live.find(b.slot) != live.end())
             continue;
@@ -100,19 +97,15 @@ void reconcile_sources_(std::map<std::string, LiveSource>& live,
         ls.src = std::move(s);
         ls.scm_path = b.scm_path;
         live[b.slot] = std::move(ls);
-        vn::log::info("canvas_loop: dialed slot %s -> %s (%s)", b.slot.c_str(), b.source_id.c_str(),
-                      b.scm_path.c_str());
+        vn::log::info("canvas_loop: dialed slot %s -> %s (%s)", b.slot.c_str(),
+                      b.source_id.c_str(), b.scm_path.c_str());
     }
 }
 
-// Write a solid-black BGRA canvas of the requested size to stdout. Used
-// before World is ready, so the downstream encoder pipe stays alive.
-// Only meaningful in stdout mode — SCM mode has no pipe to keep alive
-// (consumers retry-dial when they're ready), so callers in SCM mode just
-// idle until World is ready.
+// Write a solid-black BGRA canvas to stdout; keeps the downstream pipe alive
+// before World is ready.
 bool write_black_canvas_(int w, int h) {
     if (w <= 0 || h <= 0) {
-        // Nothing to write — sleep briefly so the caller doesn't spin.
         std::this_thread::sleep_for(std::chrono::milliseconds(33));
         return true;
     }
@@ -124,15 +117,6 @@ bool write_black_canvas_(int w, int h) {
 }
 
 // Broadcast the canvas BGRA dma-buf to all connected SCM consumers.
-// `canvas_fd` is a dup of the canvas gbm_bo's dma-buf fd (caller owns,
-// passed by value because broadcast() does not consume it). Header
-// describes single-plane BGRA at canvas dims with the stride the GBM
-// allocator chose. frame_idx is the strictly-increasing composer
-// frame counter. Returns false on broadcast attempt failure; today the
-// producer never surfaces per-consumer failures (slow consumers get
-// frames_dropped++ instead), so this only returns false when there are
-// zero consumers — caller treats that as "render anyway, encoder may
-// dial in later."
 bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_fd, int width,
                        int height, uint32_t stride, uint64_t frame_idx) {
     dmabuf_header::Header h;
@@ -142,11 +126,6 @@ bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_
     h.format = "BGRA";
     h.plane_pitches = {stride};
     h.plane_offsets = {0};
-    // Compositor renders into a BGRA color buffer; sRGB primaries, full
-    // range. Use Bt709/Full/Mpeg2 as a reasonable BGRA contract — the
-    // downstream encoder (ffmpeg via vn-sink|rawvideo wrapper) doesn't
-    // consume these enums today, but emit something non-Unspecified so
-    // future consumers see a real value.
     h.color_matrix = dmabuf_header::ColorMatrix::Bt709;
     h.color_range = dmabuf_header::ColorRange::Full;
     h.chroma_siting = dmabuf_header::ChromaSiting::Mpeg2;
@@ -154,309 +133,368 @@ bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_
     return prod.broadcast(h, {canvas_fd});
 }
 
+// Build SourceSlots for the pl_compose render call from the current snapshot.
+std::vector<pl_compose::SourceSlot> build_render_slots_(
+    const Snapshot& snap, const std::map<std::string, LiveSource>& live_sources) {
+    std::vector<pl_compose::SourceSlot> render_slots;
+    render_slots.reserve(snap.layout.size());
+    for (const auto& rect : snap.layout) {
+        auto bit = std::find_if(snap.slots.begin(), snap.slots.end(),
+                                [&](const SlotBinding& b) { return b.slot == rect.slot; });
+        if (bit == snap.slots.end())
+            continue;
+        auto lit = live_sources.find(rect.slot);
+        if (lit == live_sources.end() || !lit->second.src)
+            continue;
+        auto fv = lit->second.src->latest_frame();
+        if (fv.fd < 0 || fv.frame_idx == 0)
+            continue;
+        if (fv.plane1_fd < 0 || fv.width <= 0 || fv.height <= 0)
+            continue;
+
+        pl_compose::SourceSlot s;
+        s.src_y_fd = fv.fd;
+        s.src_uv_fd = fv.plane1_fd;
+        s.src_w = fv.width;
+        s.src_h = fv.height;
+        s.src_y_pitch = fv.plane0_pitch ? int(fv.plane0_pitch) : fv.width;
+        s.src_uv_pitch = fv.plane1_pitch ? int(fv.plane1_pitch) : fv.width;
+        s.x = rect.x;
+        s.y = rect.y;
+        s.w = rect.w;
+        s.h = rect.h;
+        auto sit = snap.source_states.find(bit->source_id);
+        if (sit != snap.source_states.end()) {
+            const auto& ss = sit->second;
+            if (ss.state != "placeholder" && ss.has_perspective)
+                std::memcpy(s.warp.m, ss.warp.data(), 9 * sizeof(float));
+        }
+        render_slots.push_back(s);
+    }
+    return render_slots;
+}
+
+// Write canvas rows to stdout (stride-aware). Returns false on write failure.
+bool write_canvas_stdout_(void* canvas_map, int compose_w, int compose_h, uint32_t map_stride) {
+    std::span<const uint8_t> canvas_span(static_cast<const uint8_t*>(canvas_map),
+                                         size_t(compose_h) * map_stride);
+    size_t width_bytes = size_t(compose_w) * 4;
+    if (map_stride == uint32_t(compose_w) * 4)
+        return write_full_(STDOUT_FILENO, canvas_span.subspan(0, width_bytes * size_t(compose_h)));
+    for (int y = 0; y < compose_h; ++y) {
+        if (!write_full_(STDOUT_FILENO, canvas_span.subspan(size_t(y) * map_stride, width_bytes)))
+            return false;
+    }
+    return true;
+}
+
+// Notify the ComposerService of the latest canvas frame (SCM mode only).
+void notify_composer_svc_(nativerpc::ComposerService* composer_svc, int canvas_dmabuf_fd,
+                          int compose_w, int compose_h, uint32_t stride, uint64_t frame_idx) {
+    vn::snapshot::FrameRef r{};
+    r.format = vn::snapshot::Format::Bgra;
+    r.width = static_cast<uint32_t>(compose_w);
+    r.height = static_cast<uint32_t>(compose_h);
+    r.pitch_y = stride;
+    r.planes[0] = {.fd = canvas_dmabuf_fd,
+                   .offset = 0,
+                   .pitch = stride,
+                   .row_bytes = size_t(compose_w) * 4,
+                   .rows = size_t(compose_h)};
+    r.frame_idx = frame_idx;
+    r.captured_at_ns =
+        static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                   std::chrono::steady_clock::now().time_since_epoch())
+                                   .count());
+    composer_svc->UpdateLatestCanvas(r);
+}
+
+// Mutable state for the pl_compose instance and its associated dma-buf fd.
+struct ComposeState {
+    std::unique_ptr<pl_compose::PlCompose> compose;
+    int w = 0;
+    int h = 0;
+    int canvas_dmabuf_fd = -1;
+};
+
+// Initialize the lazy pl_compose on the first ready snapshot.
+// Returns false on failure (caller should skip the frame and retry).
+bool init_compose_(ComposeState& cs, scm_rights_producer::ScmRightsProducer* scm_out,
+                   std::atomic<bool>& running, const Snapshot& snap, RenderStats* stats) {
+    cs.compose = std::make_unique<pl_compose::PlCompose>();
+    const char* drm_candidates[] = {"/dev/dri/renderD128", "/dev/dri/renderD129",
+                                    "/dev/dri/renderD130"};
+    bool inited = false;
+    for (const char* d : drm_candidates) {
+        if (cs.compose->init(d, int(snap.canvas_w), int(snap.canvas_h))) {
+            inited = true;
+            break;
+        }
+    }
+    if (!inited) {
+        vn::log::error("canvas_loop: pl_compose init %dx%d failed", int(snap.canvas_w),
+                       int(snap.canvas_h));
+        cs.compose.reset();
+        return false;
+    }
+    cs.w = int(snap.canvas_w);
+    cs.h = int(snap.canvas_h);
+    vn::log::info("canvas_loop: ready canvas %dx%d (%u fps)", cs.w, cs.h, snap.canvas_fps);
+    if (stats) {
+        stats->canvas_w.store(snap.canvas_w, std::memory_order_relaxed);
+        stats->canvas_h.store(snap.canvas_h, std::memory_order_relaxed);
+        stats->canvas_fps.store(snap.canvas_fps, std::memory_order_relaxed);
+    }
+    if (scm_out) {
+        std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
+        cs.canvas_dmabuf_fd = gbm_bo_get_fd(cs.compose->canvas_bo());
+        if (cs.canvas_dmabuf_fd < 0) {
+            vn::log::fatal("canvas_loop: gbm_bo_get_fd failed; cannot SCM-broadcast");
+            running.store(false);
+            return false;
+        }
+    }
+    return true;
+}
+
+// Prune dead SCM consumers and log consumer-count transitions.
+void prune_consumers_(scm_rights_producer::ScmRightsProducer& scm_out, int& prev_consumer_count,
+                      std::chrono::steady_clock::time_point& next_consumer_prune,
+                      RenderStats* stats) {
+    (void)scm_out.prune_dead_consumers();
+    int cur = scm_out.consumer_count();
+    if (cur == 0 && prev_consumer_count > 0) {
+        vn::log::warn("canvas_loop: all SCM consumers dropped (was %d); "
+                      "composer still rendering, waiting for re-dial",
+                      prev_consumer_count);
+    } else if (cur > 0 && prev_consumer_count == 0) {
+        vn::log::info("canvas_loop: SCM consumer connected (count=%d)", cur);
+    }
+    prev_consumer_count = cur;
+    if (stats)
+        stats->consumer_count.store(cur, std::memory_order_relaxed);
+    next_consumer_prune = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+}
+
+// Render one frame in SCM mode: broadcast dma-buf, notify composer service.
+bool render_scm_frame_(ComposeState& cs, scm_rights_producer::ScmRightsProducer& scm_out,
+                       uint64_t broadcast_frame_idx, nativerpc::ComposerService* composer_svc) {
+    uint32_t stride = 0;
+    {
+        std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
+        stride = gbm_bo_get_stride(cs.compose->canvas_bo());
+    }
+    (void)broadcast_canvas_(scm_out, cs.canvas_dmabuf_fd, cs.w, cs.h, stride, broadcast_frame_idx);
+    if (composer_svc)
+        notify_composer_svc_(composer_svc, cs.canvas_dmabuf_fd, cs.w, cs.h, stride,
+                             broadcast_frame_idx);
+    return true;
+}
+
+// Render one frame in stdout mode: mmap, write rows, unmap.
+bool render_stdout_frame_(ComposeState& cs) {
+    uint32_t map_stride = 0;
+    void* map_data = nullptr;
+    void* canvas_map = nullptr;
+    {
+        std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
+        canvas_map = gbm_bo_map(cs.compose->canvas_bo(), 0, 0, cs.w, cs.h, GBM_BO_TRANSFER_READ,
+                                &map_stride, &map_data);
+    }
+    if (!canvas_map) {
+        vn::log::error("canvas_loop: gbm_bo_map failed");
+        return false;
+    }
+    bool ok = write_canvas_stdout_(canvas_map, cs.w, cs.h, map_stride);
+    {
+        std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
+        gbm_bo_unmap(cs.compose->canvas_bo(), map_data);
+    }
+    return ok;
+}
+
+// Update fps_observed_centi once per second.
+void update_fps_stats_(RenderStats& stats, int frames_rendered, int& frames_at_last_sample,
+                       std::chrono::steady_clock::time_point& next_fps_sample) {
+    auto now = std::chrono::steady_clock::now();
+    if (now < next_fps_sample)
+        return;
+    int delta = frames_rendered - frames_at_last_sample;
+    frames_at_last_sample = frames_rendered;
+    next_fps_sample = now + std::chrono::seconds(1);
+    stats.fps_observed_centi.store(uint32_t(delta * 100), std::memory_order_relaxed);
+}
+
+// Initialize SCM output producer. Returns false on fatal init failure.
+bool init_scm_out_(std::unique_ptr<scm_rights_producer::ScmRightsProducer>& scm_out,
+                   const std::string& scm_out_path) {
+    scm_out = std::make_unique<scm_rights_producer::ScmRightsProducer>();
+    scm_rights_producer::InitParams pp;
+    pp.socket_path = scm_out_path;
+    if (!scm_out->init(pp) || !scm_out->start()) {
+        vn::log::fatal("canvas_loop: SCM output bind failed on %s", scm_out_path.c_str());
+        return false;
+    }
+    vn::log::info("canvas_loop: SCM output listening on %s", scm_out_path.c_str());
+    return true;
+}
+
+// All mutable per-loop state collected so helper functions take fewer params.
+struct LoopState {
+    ComposeState cs;
+    scm_rights_producer::ScmRightsProducer* scm_out = nullptr; // non-owning view
+    int frames_rendered = 0;
+    int frames_at_last_sample = 0;
+    std::chrono::steady_clock::time_point next_fps_sample;
+    uint64_t broadcast_frame_idx = 0;
+    std::chrono::steady_clock::time_point next_consumer_prune;
+    int prev_consumer_count = 0;
+    std::chrono::steady_clock::time_point next_tick;
+};
+
+std::chrono::nanoseconds fps_period_(int fps) {
+    return std::chrono::nanoseconds(fps > 0 ? 1'000'000'000LL / fps : 1'000'000'000LL / 30);
+}
+
+// Advance next_tick by period; rebase if we fell behind.
+void advance_tick_(LoopState& ls, std::chrono::nanoseconds period) {
+    ls.next_tick += period;
+    if (ls.next_tick < std::chrono::steady_clock::now())
+        ls.next_tick = std::chrono::steady_clock::now() + period;
+}
+
+// Account for one rendered frame: update counter and fps sample.
+void count_frame_(LoopState& ls, RenderStats* stats) {
+    ++ls.frames_rendered;
+    if (stats)
+        stats->frames_rendered.store(uint64_t(ls.frames_rendered), std::memory_order_relaxed);
+}
+
+// Tick fps sample and consumer prune, then advance the tick clock.
+void post_render_tick_(LoopState& ls, RenderStats* stats, int fps) {
+    if (ls.scm_out && std::chrono::steady_clock::now() >= ls.next_consumer_prune)
+        prune_consumers_(*ls.scm_out, ls.prev_consumer_count, ls.next_consumer_prune, stats);
+
+    if (stats)
+        update_fps_stats_(*stats, ls.frames_rendered, ls.frames_at_last_sample,
+                          ls.next_fps_sample);
+
+    advance_tick_(ls, fps_period_(fps));
+}
+
+// Handle a not-ready tick: write black (stdout mode), count, advance.
+// Returns false if writing black failed (EPIPE — stop the loop).
+bool handle_not_ready_(LoopState& ls, const Snapshot& snap, int target_fps, RenderStats* stats) {
+    if (!ls.scm_out) {
+        int w = ls.cs.compose ? ls.cs.w : (snap.canvas_w ? int(snap.canvas_w) : 1280);
+        int h = ls.cs.compose ? ls.cs.h : (snap.canvas_h ? int(snap.canvas_h) : 720);
+        if (!write_black_canvas_(w, h))
+            return false;
+    }
+    count_frame_(ls, stats);
+    int fps = snap.canvas_fps ? int(snap.canvas_fps) : target_fps;
+    ls.next_tick += fps_period_(fps);
+    return true;
+}
+
+// Log a one-time warning when canvas dims change mid-stream (STUB: recreate
+// not yet implemented).
+void warn_dims_changed_(int old_w, int old_h, uint32_t new_w, uint32_t new_h) {
+    static bool warned = false;
+    if (warned)
+        return;
+    vn::log::warn("canvas_loop: canvas dims changed %dx%d -> %ux%u; "
+                  "recreate not implemented, ignoring (STUB)",
+                  old_w, old_h, new_w, new_h);
+    warned = true;
+}
+
+// Ensure pl_compose is initialized for the current snapshot.
+// Returns false if compose init failed (caller should skip and retry).
+// Returns true with cs.compose valid on success.
+bool ensure_compose_(LoopState& ls, std::atomic<bool>& running, const Snapshot& snap,
+                     RenderStats* stats, int target_fps) {
+    if (ls.cs.compose) {
+        if (int(snap.canvas_w) != ls.cs.w || int(snap.canvas_h) != ls.cs.h)
+            warn_dims_changed_(ls.cs.w, ls.cs.h, snap.canvas_w, snap.canvas_h);
+        return true;
+    }
+    if (init_compose_(ls.cs, ls.scm_out, running, snap, stats))
+        return true;
+    ls.next_tick += fps_period_(target_fps);
+    return false;
+}
+
+// Render one frame (GL + output). Returns false on fatal render/write error.
+bool render_frame_(LoopState& ls, const Snapshot& snap,
+                   std::map<std::string, LiveSource>& live_sources,
+                   nativerpc::ComposerService* composer_svc) {
+    auto render_slots = build_render_slots_(snap, live_sources);
+    if (!ls.cs.compose->render(render_slots)) {
+        vn::log::error("canvas_loop: render failed");
+        return false;
+    }
+    ls.cs.compose->finish();
+    return ls.scm_out ? render_scm_frame_(ls.cs, *ls.scm_out, ++ls.broadcast_frame_idx,
+                                          composer_svc)
+                      : render_stdout_frame_(ls.cs);
+}
+
 } // namespace
 
-int RunCanvasLoop(egl_ctx::EglCtx& ctx, World& world, int target_fps, int run_seconds,
-                  std::atomic<bool>& running, const std::string& scm_out_path, RenderStats* stats,
-                  nativerpc::ComposerService* composer_svc) {
-    (void)ctx; // pl_compose manages its own EGL context
+int RunCanvasLoop(CanvasLoopConfig cfg) {
+    (void)cfg.ctx; // pl_compose manages its own EGL context
     auto start = std::chrono::steady_clock::now();
-    int frames_rendered = 0;
-    // fps_observed is a sliding 1-second sample: count frames between
-    // ticks of `next_fps_sample` and publish (delta * 100) to the atomic
-    // so observers see something close to instantaneous fps, not the
-    // run-average.
-    auto next_fps_sample = start + std::chrono::seconds(1);
-    int frames_at_last_sample = 0;
 
-    std::unique_ptr<pl_compose::PlCompose> compose;
-    int compose_w = 0, compose_h = 0;
-
-    // Optional SCM_RIGHTS output producer. nullptr → legacy stdout mode.
-    // Initialized eagerly at startup so consumers (vn-sink etc.) can dial
-    // in before the first frame is ready.
-    std::unique_ptr<scm_rights_producer::ScmRightsProducer> scm_out;
-    int canvas_dmabuf_fd = -1; // dup of canvas BO fd; closed on shutdown
-    uint64_t broadcast_frame_idx = 0;
-    auto next_consumer_prune = std::chrono::steady_clock::now();
-    // Track consumer-count transitions so a fanout-tolerant composer
-    // still surfaces "all consumers dropped" — without this signal an
-    // encoder crash leaves the composer rendering into the void with
-    // no log to correlate against.
-    int prev_consumer_count = 0;
-    if (!scm_out_path.empty()) {
-        scm_out = std::make_unique<scm_rights_producer::ScmRightsProducer>();
-        scm_rights_producer::InitParams pp;
-        pp.socket_path = scm_out_path;
-        if (!scm_out->init(pp) || !scm_out->start()) {
-            vn::log::fatal("canvas_loop: SCM output bind failed on %s", scm_out_path.c_str());
-            return 1;
-        }
-        vn::log::info("canvas_loop: SCM output listening on %s", scm_out_path.c_str());
-    }
+    std::unique_ptr<scm_rights_producer::ScmRightsProducer> scm_out_owned;
+    if (!cfg.scm_out_path.empty() && !init_scm_out_(scm_out_owned, cfg.scm_out_path))
+        return 1;
 
     std::map<std::string, LiveSource> live_sources;
+    LoopState ls;
+    ls.scm_out = scm_out_owned.get();
+    ls.next_fps_sample = start + std::chrono::seconds(1);
+    ls.next_tick = std::chrono::steady_clock::now();
+    ls.next_consumer_prune = ls.next_tick;
 
-    auto period = [&](int fps) {
-        return std::chrono::nanoseconds(fps > 0 ? 1'000'000'000LL / fps : 1'000'000'000LL / 30);
-    };
-
-    auto next_tick = std::chrono::steady_clock::now();
-
-    while (running.load()) {
-        if (run_seconds > 0 &&
-            std::chrono::steady_clock::now() - start > std::chrono::seconds(run_seconds))
+    while (cfg.running.load()) {
+        if (cfg.run_seconds > 0 &&
+            std::chrono::steady_clock::now() - start > std::chrono::seconds(cfg.run_seconds))
             break;
 
-        // Control plane runs on its own thread (nativerpc::GrpcServer);
-        // the canvas loop just snapshots World after sleeping to next
-        // tick. No poll multiplexing here.
-        std::this_thread::sleep_until(next_tick);
-
-        Snapshot snap = world.snapshot();
+        std::this_thread::sleep_until(ls.next_tick);
+        Snapshot snap = cfg.world.snapshot();
 
         if (!snap.ready) {
-            // In stdout mode: write solid black so the downstream pipe
-            // stays alive. In SCM mode: there's no pipe to keep alive
-            // (consumers retry-dial); just tick without writing anything.
-            if (!scm_out) {
-                int w = compose ? compose_w : (snap.canvas_w ? int(snap.canvas_w) : 1280);
-                int h = compose ? compose_h : (snap.canvas_h ? int(snap.canvas_h) : 720);
-                if (!write_black_canvas_(w, h)) {
-                    running.store(false);
-                    break;
-                }
+            if (!handle_not_ready_(ls, snap, cfg.target_fps, cfg.stats)) {
+                cfg.running.store(false);
+                break;
             }
-            ++frames_rendered;
-            if (stats)
-                stats->frames_rendered.store(uint64_t(frames_rendered), std::memory_order_relaxed);
-            next_tick += period(int(snap.canvas_fps ? snap.canvas_fps : uint32_t(target_fps)));
             continue;
         }
 
-        // Lazy pl_compose init on first ready snapshot.
-        if (!compose) {
-            compose = std::make_unique<pl_compose::PlCompose>();
-            // Use the same DRM device the egl_ctx was opened on.
-            const char* drm_candidates[] = {"/dev/dri/renderD128", "/dev/dri/renderD129",
-                                            "/dev/dri/renderD130"};
-            bool inited = false;
-            for (const char* d : drm_candidates) {
-                if (compose->init(d, int(snap.canvas_w), int(snap.canvas_h))) {
-                    inited = true;
-                    break;
-                }
-            }
-            if (!inited) {
-                vn::log::error("canvas_loop: pl_compose init %dx%d failed", int(snap.canvas_w),
-                               int(snap.canvas_h));
-                compose.reset();
-                next_tick += period(target_fps);
-                continue;
-            }
-            compose_w = int(snap.canvas_w);
-            compose_h = int(snap.canvas_h);
-            vn::log::info("canvas_loop: ready canvas %dx%d (%u fps)", compose_w, compose_h,
-                          snap.canvas_fps);
-            if (stats) {
-                stats->canvas_w.store(snap.canvas_w, std::memory_order_relaxed);
-                stats->canvas_h.store(snap.canvas_h, std::memory_order_relaxed);
-                stats->canvas_fps.store(snap.canvas_fps, std::memory_order_relaxed);
-            }
-            // Export the canvas BO's dma-buf fd once for the SCM mode.
-            // gbm_bo_get_fd() returns a new fd each call; we hold this one
-            // for the producer's lifetime and broadcast() lets the kernel
-            // dup it per-consumer. Closed on shutdown below.
-            if (scm_out) {
-                std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
-                canvas_dmabuf_fd = gbm_bo_get_fd(compose->canvas_bo());
-                if (canvas_dmabuf_fd < 0) {
-                    vn::log::fatal("canvas_loop: gbm_bo_get_fd failed; cannot SCM-broadcast");
-                    running.store(false);
-                    break;
-                }
-            }
-        } else if (int(snap.canvas_w) != compose_w || int(snap.canvas_h) != compose_h) {
-            // MVP STUB: canvas dim change mid-stream not supported. Log once.
-            static bool warned = false;
-            if (!warned) {
-                vn::log::warn("canvas_loop: canvas dims changed %dx%d -> %ux%u; "
-                              "recreate not implemented, ignoring (STUB)",
-                              compose_w, compose_h, snap.canvas_w, snap.canvas_h);
-                warned = true;
-            }
-        }
+        if (!ensure_compose_(ls, cfg.running, snap, cfg.stats, cfg.target_fps))
+            continue;
 
         reconcile_sources_(live_sources, snap.slots);
 
-        // Build SourceSlots for the pl_compose render call.
-        std::vector<pl_compose::SourceSlot> render_slots;
-        render_slots.reserve(snap.layout.size());
-        for (const auto& rect : snap.layout) {
-            auto bit = std::find_if(snap.slots.begin(), snap.slots.end(),
-                                    [&](const SlotBinding& b) { return b.slot == rect.slot; });
-            if (bit == snap.slots.end())
-                continue;
-            auto lit = live_sources.find(rect.slot);
-            if (lit == live_sources.end() || !lit->second.src)
-                continue;
-            auto fv = lit->second.src->latest_frame();
-            if (fv.fd < 0 || fv.frame_idx == 0)
-                continue;
-            if (fv.plane1_fd < 0 || fv.width <= 0 || fv.height <= 0)
-                continue;
-
-            pl_compose::SourceSlot s;
-            s.src_y_fd = fv.fd;
-            s.src_uv_fd = fv.plane1_fd;
-            s.src_w = fv.width;
-            s.src_h = fv.height;
-            s.src_y_pitch = fv.plane0_pitch ? int(fv.plane0_pitch) : fv.width;
-            s.src_uv_pitch = fv.plane1_pitch ? int(fv.plane1_pitch) : fv.width;
-            s.x = rect.x;
-            s.y = rect.y;
-            s.w = rect.w;
-            s.h = rect.h;
-            auto sit = snap.source_states.find(bit->source_id);
-            if (sit != snap.source_states.end()) {
-                const auto& ss = sit->second;
-                if (ss.state != "placeholder" && ss.has_perspective) {
-                    std::memcpy(s.warp.m, ss.warp.data(), 9 * sizeof(float));
-                }
-            }
-            render_slots.push_back(s);
-        }
-
-        if (!compose->render(render_slots)) {
-            vn::log::error("canvas_loop: render failed");
+        if (!render_frame_(ls, snap, live_sources, cfg.composer_svc)) {
+            cfg.running.store(false);
             break;
         }
-        compose->finish();
-
-        bool write_ok = true;
-        if (scm_out) {
-            // SCM mode: broadcast the canvas BO directly. No CPU readback;
-            // consumers mmap the dma-buf themselves. Stride comes from the
-            // GBM allocator (may differ from compose_w*4 on tiled backends).
-            uint32_t stride = 0;
-            {
-                std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
-                stride = gbm_bo_get_stride(compose->canvas_bo());
-            }
-            ++broadcast_frame_idx;
-            // broadcast() returns false when zero consumers are connected.
-            // That's fine — composer keeps rendering so consumers see a
-            // fresh frame the moment they dial in.
-            (void)broadcast_canvas_(*scm_out, canvas_dmabuf_fd, compose_w, compose_h, stride,
-                                    broadcast_frame_idx);
-            if (composer_svc) {
-                vn::snapshot::FrameRef r{};
-                r.format = vn::snapshot::Format::Bgra;
-                r.width = static_cast<uint32_t>(compose_w);
-                r.height = static_cast<uint32_t>(compose_h);
-                r.pitch_y = stride;
-                r.planes[0] = {.fd = canvas_dmabuf_fd,
-                               .offset = 0,
-                               .pitch = stride,
-                               .row_bytes = size_t(compose_w) * 4,
-                               .rows = size_t(compose_h)};
-                r.frame_idx = broadcast_frame_idx;
-                r.captured_at_ns =
-                    static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                              std::chrono::steady_clock::now().time_since_epoch())
-                                              .count());
-                composer_svc->UpdateLatestCanvas(r);
-            }
-        } else {
-            // stdout mode: gbm_bo_map under the process-wide lock —
-            // concurrent calls from any other gbm_alloc::* user must not
-            // race Mesa's threaded context. See gbm_alloc::gbm_device_mu().
-            uint32_t map_stride = 0;
-            void* map_data = nullptr;
-            void* canvas_map = nullptr;
-            {
-                std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
-                canvas_map = gbm_bo_map(compose->canvas_bo(), 0, 0, compose_w, compose_h,
-                                        GBM_BO_TRANSFER_READ, &map_stride, &map_data);
-            }
-            if (!canvas_map) {
-                vn::log::error("canvas_loop: gbm_bo_map failed");
-                break;
-            }
-            size_t bytes_per_frame = size_t(compose_w) * compose_h * 4;
-            if (map_stride == uint32_t(compose_w) * 4) {
-                write_ok =
-                    write_full_(STDOUT_FILENO, std::span(static_cast<const uint8_t*>(canvas_map),
-                                                         bytes_per_frame));
-            } else {
-                for (int y = 0; y < compose_h && write_ok; ++y) {
-                    const uint8_t* row = static_cast<const uint8_t*>(canvas_map) + y * map_stride;
-                    if (!write_full_(STDOUT_FILENO, std::span(row, size_t(compose_w) * 4)))
-                        write_ok = false;
-                }
-            }
-            {
-                std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
-                gbm_bo_unmap(compose->canvas_bo(), map_data);
-            }
-        }
-        if (!write_ok) {
-            running.store(false);
-            break;
-        }
-        ++frames_rendered;
-        if (stats)
-            stats->frames_rendered.store(uint64_t(frames_rendered), std::memory_order_relaxed);
-
-        // Periodic consumer-list reap in SCM mode. broadcast() catches
-        // EPIPE drops on the next send, but if a consumer dies during a
-        // pause (no frames being broadcast) the dead entry hangs around
-        // until the next broadcast. Reap on a steady 1 s tick, and log
-        // any N→0 transition so an encoder crash is visible at the
-        // composer side without requiring journal-correlation across
-        // two binaries.
-        if (scm_out && std::chrono::steady_clock::now() >= next_consumer_prune) {
-            (void)scm_out->prune_dead_consumers();
-            int cur = scm_out->consumer_count();
-            if (cur == 0 && prev_consumer_count > 0) {
-                vn::log::warn("canvas_loop: all SCM consumers dropped (was %d); "
-                              "composer still rendering, waiting for re-dial",
-                              prev_consumer_count);
-            } else if (cur > 0 && prev_consumer_count == 0) {
-                vn::log::info("canvas_loop: SCM consumer connected (count=%d)", cur);
-            }
-            prev_consumer_count = cur;
-            if (stats)
-                stats->consumer_count.store(cur, std::memory_order_relaxed);
-            next_consumer_prune = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-        }
-
-        if (stats) {
-            auto now = std::chrono::steady_clock::now();
-            if (now >= next_fps_sample) {
-                int delta = frames_rendered - frames_at_last_sample;
-                frames_at_last_sample = frames_rendered;
-                next_fps_sample = now + std::chrono::seconds(1);
-                stats->fps_observed_centi.store(uint32_t(delta * 100), std::memory_order_relaxed);
-            }
-        }
-
-        int fps = snap.canvas_fps ? int(snap.canvas_fps) : target_fps;
-        next_tick += period(fps);
-        if (next_tick < std::chrono::steady_clock::now()) {
-            // Fell behind — rebase rather than burn loop iterations.
-            next_tick = std::chrono::steady_clock::now() + period(fps);
-        }
+        count_frame_(ls, cfg.stats);
+        int fps = snap.canvas_fps ? int(snap.canvas_fps) : cfg.target_fps;
+        post_render_tick_(ls, cfg.stats, fps);
     }
 
-    for (auto& [_, ls] : live_sources)
-        if (ls.src)
-            ls.src->stop();
-    if (scm_out)
-        scm_out->stop();
-    if (canvas_dmabuf_fd >= 0)
-        ::close(canvas_dmabuf_fd);
-    return frames_rendered;
+    for (auto& [_, lsrc] : live_sources)
+        if (lsrc.src)
+            lsrc.src->stop();
+    if (scm_out_owned)
+        scm_out_owned->stop();
+    if (ls.cs.canvas_dmabuf_fd >= 0)
+        ::close(ls.cs.canvas_dmabuf_fd);
+    return ls.frames_rendered;
 }
 
 } // namespace render
