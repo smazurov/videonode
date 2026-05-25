@@ -5,7 +5,9 @@
         "mcp"
       ],
       "command": "/home/stepan/go/bin/testenv",
-      "env": {}
+      "env": {
+        "TESTENV_STATE": "/home/stepan/.local/state/testenv/videonode/state.db"
+      }
     }
   }
 }
