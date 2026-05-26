@@ -381,14 +381,20 @@ void post_render_tick_(LoopState& ls, RenderStats* stats, int fps) {
     advance_tick_(ls, fps_period_(fps));
 }
 
-// Handle a not-ready tick: write black (stdout mode), count, advance.
-// Returns false if writing black failed (EPIPE — stop the loop).
-bool handle_not_ready_(LoopState& ls, const Snapshot& snap, int target_fps, RenderStats* stats) {
+// Handle a not-ready tick: write black (stdout mode) or broadcast black
+// canvas (SCM mode). Returns false on fatal write/render error.
+bool handle_not_ready_(LoopState& ls, const Snapshot& snap, int target_fps, RenderStats* stats,
+                       nativerpc::ComposerService* composer_svc) {
     if (!ls.scm_out) {
         int w = ls.cs.compose ? ls.cs.w : (snap.canvas_w ? int(snap.canvas_w) : 1280);
         int h = ls.cs.compose ? ls.cs.h : (snap.canvas_h ? int(snap.canvas_h) : 720);
         if (!write_black_canvas_(w, h))
             return false;
+    } else if (ls.cs.compose) {
+        if (!ls.cs.compose->render({}))
+            return false;
+        ls.cs.compose->finish();
+        render_scm_frame_(ls.cs, *ls.scm_out, ++ls.broadcast_frame_idx, composer_svc);
     }
     count_frame_(ls, stats);
     int fps = snap.canvas_fps ? int(snap.canvas_fps) : target_fps;
@@ -464,16 +470,19 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
         std::this_thread::sleep_until(ls.next_tick);
         Snapshot snap = cfg.world.snapshot();
 
+        // Init compose as soon as canvas dims are known (before ready).
+        if (snap.canvas_w > 0 && snap.canvas_h > 0) {
+            if (!ensure_compose_(ls, cfg.running, snap, cfg.stats, cfg.target_fps))
+                continue;
+        }
+
         if (!snap.ready) {
-            if (!handle_not_ready_(ls, snap, cfg.target_fps, cfg.stats)) {
+            if (!handle_not_ready_(ls, snap, cfg.target_fps, cfg.stats, cfg.composer_svc)) {
                 cfg.running.store(false);
                 break;
             }
             continue;
         }
-
-        if (!ensure_compose_(ls, cfg.running, snap, cfg.stats, cfg.target_fps))
-            continue;
 
         reconcile_sources_(live_sources, snap.slots);
 
