@@ -134,11 +134,12 @@ type SetLayoutParams struct {
 // LayoutSlotEntry is the placement of one slot on the canvas. Coords are
 // in canvas pixels; x/y may be negative (off-canvas slots are clipped).
 type LayoutSlotEntry struct {
-	Slot string `json:"slot"`
-	X    int32  `json:"x"`
-	Y    int32  `json:"y"`
-	W    int32  `json:"w"`
-	H    int32  `json:"h"`
+	Slot     string `json:"slot"`
+	X        int32  `json:"x"`
+	Y        int32  `json:"y"`
+	W        int32  `json:"w"`
+	H        int32  `json:"h"`
+	Rotation int32  `json:"rotation,omitempty"`
 }
 
 // EffectParams is one effect in a per-source effect list. Tagged-union by

@@ -33,11 +33,12 @@ type ComposerInputData struct {
 // LayoutSlotData places a composer input on the canvas. The Input field
 // matches a ComposerInputData.Ref by name (not positional index).
 type LayoutSlotData struct {
-	Input string `json:"input" example:"source:hdmi-slides" doc:"Input ref this slot draws (matches inputs[].ref)"`
-	X     int    `json:"x" example:"0" doc:"Slot top-left X in canvas pixels"`
-	Y     int    `json:"y" example:"0" doc:"Slot top-left Y in canvas pixels"`
-	W     int    `json:"w" example:"1920" doc:"Slot width in canvas pixels"`
-	H     int    `json:"h" example:"1080" doc:"Slot height in canvas pixels"`
+	Input    string `json:"input" example:"source:hdmi-slides" doc:"Input ref this slot draws (matches inputs[].ref)"`
+	X        int    `json:"x" example:"0" doc:"Slot top-left X in canvas pixels"`
+	Y        int    `json:"y" example:"0" doc:"Slot top-left Y in canvas pixels"`
+	W        int    `json:"w" example:"1920" doc:"Slot width in canvas pixels"`
+	H        int    `json:"h" example:"1080" doc:"Slot height in canvas pixels"`
+	Rotation int    `json:"rotation,omitempty" example:"0" doc:"Clockwise rotation in degrees (0, 90, 180, 270)"`
 }
 
 // ComposerData is the full wire shape for a composer entity.

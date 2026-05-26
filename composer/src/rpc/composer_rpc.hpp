@@ -51,6 +51,7 @@ struct LayoutSlot {
     int32_t y = 0;
     int32_t w = 0;
     int32_t h = 0;
+    int32_t rotation = 0; // 0, 90, 180, 270 clockwise degrees
 };
 struct SetLayoutRequest {
     std::vector<LayoutSlot> slots;

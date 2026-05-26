@@ -511,6 +511,7 @@ func (m *Manager) SendSetLayout(ctx context.Context, composerID string, p SetLay
 	for _, s := range p.Slots {
 		slots = append(slots, &pb.LayoutSlot{
 			Slot: s.Slot, X: s.X, Y: s.Y, W: s.W, H: s.H,
+			Rotation: s.Rotation,
 		})
 	}
 	return m.callComposer(ctx, composerID, func(c pb.ComposerClient) error {

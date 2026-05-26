@@ -34,6 +34,7 @@ struct SourceSlot {
     int w = 0;
     int h = 0;
     Warp warp;
+    int rotation = 0; // 0, 90, 180, 270 clockwise degrees
 };
 
 class PlCompose {

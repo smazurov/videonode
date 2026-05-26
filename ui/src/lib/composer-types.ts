@@ -39,6 +39,7 @@ export interface LayoutSlot {
   y: number;
   w: number;
   h: number;
+  rotation?: number; // 0, 90, 180, 270 clockwise degrees
 }
 
 export interface Composer {

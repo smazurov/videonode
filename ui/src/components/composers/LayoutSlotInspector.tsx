@@ -128,6 +128,20 @@ export function LayoutSlotInspector({
 />
       </div>
 
+      <Select
+        label="Rotation"
+        value={String(local.rotation ?? 0)}
+        onChange={(e) => {
+          const next = { ...local, rotation: Number.parseInt(e.target.value, 10) };
+          commit(next);
+        }}
+      >
+        <option value="0">0</option>
+        <option value="90">90</option>
+        <option value="180">180</option>
+        <option value="270">270</option>
+      </Select>
+
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
