@@ -103,14 +103,15 @@ export function CanvasPreview({
                     strokeWidth={isSelected ? stroke * 2 : stroke}
                   />
                   <text
-                    x={slot.x + slot.w / 2}
-                    y={slot.y + slot.h / 2}
+                    x={cx}
+                    y={cy}
                     textAnchor="middle"
                     dominantBaseline="middle"
                     fill="#ffffff"
                     fontSize={labelSize}
                     fontFamily="monospace"
                     clipPath={`url(#${clipId})`}
+                    transform={rotation ? `rotate(${-rotation} ${cx} ${cy})` : undefined}
                   >
                     {slotNumber.get(slot.input) ?? '?'}
                     {effectSuffix}

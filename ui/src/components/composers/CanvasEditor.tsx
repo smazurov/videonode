@@ -264,11 +264,16 @@ export function CanvasEditor({
           {displayW > 0 && <div className="absolute inset-0">
             {screenRects.map(({ slot, left, top, width, height }) => {
               const isSelected = selectedInput === slot.input;
+              const rotation = slot.rotation ?? 0;
               return (
                 <div
                   key={slot.input}
                   className={`absolute ${isSelected ? 'ring-2 ring-inset ring-accent' : ''}`}
-                  style={{ left, top, width, height }}
+                  style={{
+                    left, top, width, height,
+                    transform: rotation ? `rotate(${rotation}deg)` : undefined,
+                    transformOrigin: 'center',
+                  }}
                   onPointerDown={(e) => handlePointerDown(e, 'move', slot)}
                 >
                   <LayoutSlotHandle
