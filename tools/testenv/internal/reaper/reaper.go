@@ -9,6 +9,7 @@ package reaper
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -51,6 +52,36 @@ func worktreeGone(path string) bool {
 	}
 	_, err := os.Stat(path)
 	return os.IsNotExist(err)
+}
+
+// CleanOrphanDirs removes data directories under envsDir that have no
+// corresponding env row in the DB. Handles legacy dirs left behind by
+// interrupted teardowns or pre-Setpgid daemons.
+func CleanOrphanDirs(s *store.Store, envsDir string) []string {
+	entries, err := os.ReadDir(envsDir)
+	if err != nil {
+		return nil
+	}
+	envs, err := s.ListEnvs()
+	if err != nil {
+		return nil
+	}
+	active := make(map[string]bool, len(envs))
+	for _, e := range envs {
+		active[e.DataDir] = true
+	}
+	var removed []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dirPath := filepath.Join(envsDir, entry.Name())
+		if !active[dirPath] {
+			os.RemoveAll(dirPath)
+			removed = append(removed, dirPath)
+		}
+	}
+	return removed
 }
 
 // processAlive returns true if kill(pid, 0) succeeds — i.e. the
