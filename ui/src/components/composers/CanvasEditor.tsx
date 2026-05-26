@@ -145,7 +145,7 @@ export function CanvasEditor({
       const aspectLock = CORNER_HANDLES.has(drag.handle) && !(e.ctrlKey || e.metaKey);
       let next = applyHandleDelta(drag.startSlot, drag.handle, dx, dy, canvas, aspectLock);
       if (!aspectLock && snapToGrid && gridSize > 0) next = clampToCanvas(snapSlot(next, gridSize, drag.handle), canvas, drag.handle);
-      if (aspectLock) {
+      if (aspectLock || drag.handle !== 'move') {
         setGuides([]);
         updateSlot(drag.slotInput, () => next);
         return;
