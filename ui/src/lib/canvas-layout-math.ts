@@ -149,7 +149,25 @@ export function applyHandleDelta(
   }
   ({ x, y, w, h } = applyMinSize(x, y, w, h, start, handle, aspectLock));
   ({ x, y, w, h } = applyCanvasBounds(x, y, w, h, canvas, handle));
-  return { ...start, x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+  return { ...start, ...roundForHandle(x, y, w, h, handle) };
+}
+
+function roundForHandle(
+  x: number, y: number, w: number, h: number, handle: HandlePos,
+): { x: number; y: number; w: number; h: number } {
+  if (handle === 'move') return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+  const fixedRight = handle === 'w' || handle === 'nw' || handle === 'sw';
+  const fixedBottom = handle === 'n' || handle === 'nw' || handle === 'ne';
+  const fixedLeft = handle === 'e' || handle === 'ne' || handle === 'se';
+  const fixedTop = handle === 's' || handle === 'sw' || handle === 'se';
+  let rx: number, rw: number, ry: number, rh: number;
+  if (fixedRight) { const right = Math.round(x + w); rx = Math.round(x); rw = right - rx; }
+  else if (fixedLeft) { rx = Math.round(x); rw = Math.round(x + w) - rx; }
+  else { rx = Math.round(x); rw = Math.round(w); }
+  if (fixedBottom) { const bottom = Math.round(y + h); ry = Math.round(y); rh = bottom - ry; }
+  else if (fixedTop) { ry = Math.round(y); rh = Math.round(y + h) - ry; }
+  else { ry = Math.round(y); rh = Math.round(h); }
+  return { x: rx, y: ry, w: rw, h: rh };
 }
 
 export function snap(value: number, grid: number): number {

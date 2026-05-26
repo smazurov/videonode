@@ -208,6 +208,58 @@ describe('applyHandleDelta — edge clamping preserves opposite edge', () => {
   });
 });
 
+describe('applyHandleDelta — rounding preserves fixed edge with fractional deltas', () => {
+  const start = slot();
+
+  it('west handle: right edge stable across fractional dx range', () => {
+    const rightEdge = start.x + start.w;
+    for (let dx = -10; dx >= -50; dx -= 0.3) {
+      const r = applyHandleDelta(start, 'w', dx, 0, canvas, false);
+      expect(r.x + r.w).toBe(rightEdge);
+    }
+  });
+
+  it('north handle: bottom edge stable across fractional dy range', () => {
+    const bottomEdge = start.y + start.h;
+    for (let dy = -10; dy >= -50; dy -= 0.3) {
+      const r = applyHandleDelta(start, 'n', 0, dy, canvas, false);
+      expect(r.y + r.h).toBe(bottomEdge);
+    }
+  });
+
+  it('east handle: left edge stable across fractional dx range', () => {
+    for (let dx = 10; dx <= 50; dx += 0.3) {
+      const r = applyHandleDelta(start, 'e', dx, 0, canvas, false);
+      expect(r.x).toBe(start.x);
+    }
+  });
+
+  it('south handle: top edge stable across fractional dy range', () => {
+    for (let dy = 10; dy <= 50; dy += 0.3) {
+      const r = applyHandleDelta(start, 's', 0, dy, canvas, false);
+      expect(r.y).toBe(start.y);
+    }
+  });
+
+  it('sw handle: right edge and top edge stable', () => {
+    const rightEdge = start.x + start.w;
+    for (let d = -10; d >= -50; d -= 0.3) {
+      const r = applyHandleDelta(start, 'sw', d, -d, canvas, false);
+      expect(r.x + r.w).toBe(rightEdge);
+      expect(r.y).toBe(start.y);
+    }
+  });
+
+  it('ne handle: left edge and bottom edge stable', () => {
+    const bottomEdge = start.y + start.h;
+    for (let d = 10; d <= 50; d += 0.3) {
+      const r = applyHandleDelta(start, 'ne', d, -d, canvas, false);
+      expect(r.x).toBe(start.x);
+      expect(r.y + r.h).toBe(bottomEdge);
+    }
+  });
+});
+
 describe('snapSlot preserves fixed edges for resize handles', () => {
   it('west handle: right edge stays fixed across drag range', () => {
     const start = slot({ x: 100, w: 200 });
