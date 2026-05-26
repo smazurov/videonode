@@ -1,12 +1,34 @@
 package api
 
 import (
+	"context"
 	"log/slog"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/logging"
 )
+
+// requestDeadlineMiddleware sets a context deadline on each request so
+// handlers that respect ctx.Done() bail out instead of blocking
+// indefinitely. Long-lived connections are detected by standard HTTP
+// headers and exempted — no path list to maintain:
+//   - Accept: text/event-stream → SSE (EventSource always sends this)
+//   - Connection: Upgrade → WebSocket / HTTP upgrade
+func requestDeadlineMiddleware(next http.Handler, timeout time.Duration) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Accept"), "text/event-stream") ||
+			strings.EqualFold(r.Header.Get("Connection"), "upgrade") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
 
 // HTTPLoggingMiddleware logs HTTP requests with appropriate log levels based on status codes.
 func HTTPLoggingMiddleware(ctx huma.Context, next func(huma.Context)) {

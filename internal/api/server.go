@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -479,7 +480,7 @@ func (s *Server) Start(addr string) error {
 	// Create HTTP server with proper shutdown support
 	s.httpServer = &http.Server{
 		Addr:    addr,
-		Handler: s.mux,
+		Handler: requestDeadlineMiddleware(s.mux, 30*time.Second),
 	}
 
 	return s.httpServer.ListenAndServe()
