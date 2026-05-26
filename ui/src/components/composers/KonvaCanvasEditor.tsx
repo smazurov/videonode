@@ -275,10 +275,15 @@ export function KonvaCanvasEditor({
       }
       const maxW = canvas.w * scale;
       const maxH = canvas.h * scale;
-      if (newBox.x < 0 || newBox.y < 0 || newBox.x + newBox.width > maxW || newBox.y + newBox.height > maxH) {
-        return oldBox;
-      }
-      return newBox;
+      const clamped = { ...newBox };
+      if (clamped.width > maxW) clamped.width = maxW;
+      if (clamped.height > maxH) clamped.height = maxH;
+      if (clamped.x < 0) { clamped.width += clamped.x; clamped.x = 0; }
+      if (clamped.y < 0) { clamped.height += clamped.y; clamped.y = 0; }
+      if (clamped.x + clamped.width > maxW) clamped.width = maxW - clamped.x;
+      if (clamped.y + clamped.height > maxH) clamped.height = maxH - clamped.y;
+      if (clamped.width < minW || clamped.height < minH) return oldBox;
+      return clamped;
     },
     [canvas.h, canvas.w, scale],
   );
