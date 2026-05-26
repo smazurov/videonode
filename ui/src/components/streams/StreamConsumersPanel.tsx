@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useProcesses } from '../../hooks/useProcesses';
 import { useStreamStore } from '../../hooks/useStreamStore';
 import { SectionHeader } from '../primitives/SectionHeader';
@@ -98,13 +98,14 @@ function deriveConsumers(processes: ReturnType<typeof useProcesses>['processes']
 
 type BytesSnapshot = Record<string, number>;
 
-function useClientBitrates(consumers: ConsumerCounts | undefined): Record<string, number> {
-  const prevBytes = useRef<BytesSnapshot>({});
-  const prevConsumers = useRef<ConsumerCounts | undefined>(undefined);
-  const rates = useRef<Record<string, number>>({});
+const bitrateCache = new Map<string, { prevBytes: BytesSnapshot; rates: Record<string, number> }>();
 
-  if (consumers === prevConsumers.current) return rates.current;
-  prevConsumers.current = consumers;
+function computeBitrates(key: string, consumers: ConsumerCounts | undefined): Record<string, number> {
+  let entry = bitrateCache.get(key);
+  if (!entry) {
+    entry = { prevBytes: {}, rates: {} };
+    bitrateCache.set(key, entry);
+  }
 
   const current: BytesSnapshot = {};
   for (const c of consumers?.webrtc_clients ?? []) current[c.id] = c.bytes_sent;
@@ -112,16 +113,16 @@ function useClientBitrates(consumers: ConsumerCounts | undefined): Record<string
 
   const next: Record<string, number> = {};
   for (const [id, bytes] of Object.entries(current)) {
-    const prev = prevBytes.current[id];
+    const prev = entry.prevBytes[id];
     if (prev != null && bytes >= prev) {
       next[id] = bytes - prev;
-    } else if (rates.current[id] != null) {
-      next[id] = rates.current[id];
+    } else if (entry.rates[id] != null) {
+      next[id] = entry.rates[id];
     }
   }
 
-  prevBytes.current = current;
-  rates.current = next;
+  entry.prevBytes = current;
+  entry.rates = next;
   return next;
 }
 
@@ -132,7 +133,7 @@ export function StreamConsumersPanel({ streamId, className }: StreamConsumersPan
   const consumers = useStreamStore((state) => state.consumersById[streamId]) as ConsumerCounts | undefined;
 
   const encoderState = useMemo(() => deriveConsumers(processes, streamId), [processes, streamId]);
-  const bitrates = useClientBitrates(consumers);
+  const bitrates = useMemo(() => computeBitrates(streamId, consumers), [streamId, consumers]);
 
   const rowsByProto: Record<Protocol, ConsumerRow[]> = useMemo(() => {
     const result: Record<Protocol, ConsumerRow[]> = { webrtc: [], srt: [], rtsp: [] };
@@ -175,7 +176,8 @@ export function StreamConsumersPanel({ streamId, className }: StreamConsumersPan
   }, [stream, encoderState, streamId, consumers, bitrates]);
 
   const tabs: Protocol[] = ['webrtc', 'srt', 'rtsp'];
-  const qualityHeader = activeTab === 'webrtc' ? 'Jitter' : activeTab === 'srt' ? 'RTT' : undefined;
+  const qualityHeaders: Partial<Record<Protocol, string>> = { webrtc: 'Jitter', srt: 'RTT' };
+  const qualityHeader = qualityHeaders[activeTab];
 
   return (
     <section className={cn('rounded-lg border border-border bg-surface-raised p-4', className)}>
