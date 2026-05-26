@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/smazurov/videonode/tools/testenv/internal/config"
@@ -39,10 +40,6 @@ type Result struct {
 func Spawn(ctx context.Context, req Request) (Result, error) {
 	cfg := req.Config
 	worktree := req.Worktree
-
-	if err := os.MkdirAll(req.DataDir, 0o755); err != nil {
-		return Result{}, fmt.Errorf("mkdir data dir: %w", err)
-	}
 
 	vars := cfg.BuildVars(req.Held.Slot, req.EnvID, req.DataDir, worktree, req.Locks)
 	env := buildEnv(cfg, vars)
@@ -94,24 +91,37 @@ func Build(ctx context.Context, cfg *config.V1, worktree string, vars map[string
 // Start spawns the daemon and waits for the health check. Returns the PID.
 func Start(ctx context.Context, cfg *config.V1, worktree string, vars map[string]string, env []string, dataDir string) (int, error) {
 	command := config.ExpandVars(cfg.Spawn.Command, vars)
-	logPath := filepath.Join(dataDir, "daemon.log")
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		return 0, fmt.Errorf("create log: %w", err)
+
+	var logPath string
+	var logFile *os.File
+	if cfg.Spawn.LogsEnabled() {
+		logPath = filepath.Join(dataDir, "daemon.log")
+		var err error
+		logFile, err = os.Create(logPath)
+		if err != nil {
+			return 0, fmt.Errorf("create log: %w", err)
+		}
 	}
 
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = worktree
 	cmd.Env = env
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if logFile != nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	}
 	if err := cmd.Start(); err != nil {
-		logFile.Close()
+		if logFile != nil {
+			logFile.Close()
+		}
 		return 0, fmt.Errorf("start daemon: %w", err)
 	}
 	pid := cmd.Process.Pid
 	if err := cmd.Process.Release(); err != nil {
-		logFile.Close()
+		if logFile != nil {
+			logFile.Close()
+		}
 		return 0, fmt.Errorf("release process: %w", err)
 	}
 
@@ -124,8 +134,11 @@ func Start(ctx context.Context, cfg *config.V1, worktree string, vars map[string
 			}
 		}
 		if err := waitHealthy(ctx, healthURL, cfg.Spawn.HealthAuth, timeout); err != nil {
-			tail := tailFile(logPath, 4096)
-			return 0, fmt.Errorf("health check failed at %s: %w\n--- log tail ---\n%s", healthURL, err, tail)
+			if logPath != "" {
+				tail := tailFile(logPath, 4096)
+				return 0, fmt.Errorf("health check failed at %s: %w\n--- log tail ---\n%s", healthURL, err, tail)
+			}
+			return 0, fmt.Errorf("health check failed at %s: %w", healthURL, err)
 		}
 	}
 

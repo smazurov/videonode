@@ -94,6 +94,12 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 
 	worktree := resolveWorktree(p.StatePath, p.Session)
 
+	if !isInWorktree(worktree) {
+		return UpResult{}, fmt.Errorf(
+			"testenv up requires a worktree (path must be under .claude/worktrees/); "+
+				"resolved build dir: %s", worktree)
+	}
+
 	cfg, err := config.Load(worktree)
 	if err != nil {
 		return UpResult{}, err
@@ -121,7 +127,7 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	}
 
 	envID := "env-" + randHex(4)
-	dataDir := filepath.Join(filepath.Dir(s.Path()), "envs", envID)
+	dataDir := filepath.Join(worktree, cfg.DataDir)
 
 	var held *slots.Held
 	err = s.WithLock(func() error {
@@ -219,7 +225,7 @@ func Down(ctx context.Context, p DownParams) (DownResult, error) {
 	if err := s.DeleteEnv(envID); err != nil {
 		return DownResult{}, err
 	}
-	removeDataDir(e.DataDir)
+	removeSpawnFiles(e.OwnerWorktree, e.DataDir)
 	return DownResult{EnvID: envID, PID: e.OwnerPID}, nil
 }
 
@@ -301,7 +307,7 @@ func ReleaseSession(ctx context.Context, statePath, session string) ([]string, e
 	for _, e := range envs {
 		if e.OwnerSession == session {
 			signalDaemon(e.OwnerPID)
-			removeDataDir(e.DataDir)
+			removeSpawnFiles(e.OwnerWorktree, e.DataDir)
 		}
 	}
 	return s.DeleteEnvsForSession(session)
@@ -325,7 +331,7 @@ func ReleaseWorktree(ctx context.Context, statePath, worktreeDir string) ([]stri
 		if e.OwnerWorktree == worktreeDir {
 			signalDaemon(e.OwnerPID)
 			if s.DeleteEnv(e.ID) == nil {
-				removeDataDir(e.DataDir)
+				removeSpawnFiles(e.OwnerWorktree, e.DataDir)
 				released = append(released, e.ID)
 			}
 		}
@@ -609,6 +615,28 @@ func signalDaemon(pid int) {
 	}
 	_ = unix.Kill(-pid, unix.SIGTERM)
 	_ = unix.Kill(pid, unix.SIGTERM)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if !processAlive(pid) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	_ = unix.Kill(-pid, unix.SIGKILL)
+	_ = unix.Kill(pid, unix.SIGKILL)
+}
+
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := unix.Kill(pid, 0)
+	return err == nil || err == unix.EPERM
+}
+
+func isInWorktree(path string) bool {
+	return strings.Contains(path, "/.claude/worktrees/")
 }
 
 func reapAndClean(s *store.Store) []string {
@@ -618,6 +646,7 @@ func reapAndClean(s *store.Store) []string {
 		removeDataDir(r.DataDir)
 		ids = append(ids, r.ID)
 	}
+	reaper.CleanOrphanDirs(s, filepath.Join(filepath.Dir(s.Path()), "envs"))
 	return ids
 }
 
@@ -625,7 +654,33 @@ func removeDataDir(dir string) {
 	if dir == "" {
 		return
 	}
+	if isInWorktree(dir) {
+		return
+	}
 	os.RemoveAll(dir)
+}
+
+func removeSpawnFiles(worktree, dataDir string) {
+	if worktree == "" {
+		removeDataDir(dataDir)
+		return
+	}
+	cfg, err := config.Load(worktree)
+	if err != nil {
+		removeDataDir(dataDir)
+		return
+	}
+	vars := map[string]string{
+		"TESTENV_WORKTREE": worktree,
+		"TESTENV_DIR":      dataDir,
+	}
+	for _, f := range cfg.Spawn.Files {
+		path := config.ExpandVars(f.Path, vars)
+		os.Remove(path)
+	}
+	if cfg.Spawn.LogsEnabled() && dataDir != "" {
+		os.Remove(filepath.Join(dataDir, "daemon.log"))
+	}
 }
 
 func randHex(nBytes int) string {
