@@ -77,10 +77,14 @@ export function CanvasPreview({
                 : 'rgba(59, 130, 246, 0.12)';
               const strokeColor = isSelected ? '#3b82f6' : '#64748b';
               const effectSuffix = input?.effect ? ` · ${input.effect.type}` : '';
+              const rotSuffix = slot.rotation ? ` ↻${slot.rotation}°` : '';
               const clipId = `clip-${slot.input.replace(/[^\w-]/g, '_')}`;
               const pad = labelSize * 0.5;
+              const rotation = slot.rotation ?? 0;
+              const cx = slot.x + slot.w / 2;
+              const cy = slot.y + slot.h / 2;
               return (
-                <g key={slot.input}>
+                <g key={slot.input} transform={rotation ? `rotate(${rotation} ${cx} ${cy})` : undefined}>
                   <clipPath id={clipId}>
                     <rect
                       x={slot.x + pad}
@@ -110,6 +114,7 @@ export function CanvasPreview({
                   >
                     {slotNumber.get(slot.input) ?? '?'}
                     {effectSuffix}
+                    {rotSuffix}
                   </text>
                 </g>
               );
