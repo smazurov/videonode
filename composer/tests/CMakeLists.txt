@@ -49,4 +49,8 @@ if(HAVE_PLACEBO AND HAVE_GBM)
     vn_add_test(jpeg_dec_dmabuf_visibility
         DEPS jpeg_dec_turbo nv12_buf csc_placebo egl_ctx gles_bundle placebo_bundle PkgConfig::TURBOJPEG
         LABELS capture)
+
+    vn_add_test(pl_compose_fd_leak
+        DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc
+        LABELS render)
 endif()

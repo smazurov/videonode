@@ -213,35 +213,42 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
         int src_y_pitch = slot.src_y_pitch > 0 ? slot.src_y_pitch : slot.src_w;
         int src_uv_pitch = slot.src_uv_pitch > 0 ? slot.src_uv_pitch : slot.src_w;
 
-        // Import source Y
+        // Import source Y — caller owns the dup'd fd; libplacebo does not
+        // close it on pl_tex_destroy.
+        int fd_y = dup(slot.src_y_fd);
         struct pl_tex_params tp_y = {};
         tp_y.w = slot.src_w;
         tp_y.h = slot.src_h;
         tp_y.format = fmt_r8;
         tp_y.sampleable = true;
         tp_y.import_handle = PL_HANDLE_DMA_BUF;
-        tp_y.shared_mem.handle.fd = dup(slot.src_y_fd);
+        tp_y.shared_mem.handle.fd = fd_y;
         tp_y.shared_mem.size = static_cast<size_t>(src_y_pitch) * slot.src_h;
         tp_y.shared_mem.drm_format_mod = src_mod;
         tp_y.shared_mem.stride_w = src_y_pitch;
         pl_tex tex_y = pl_tex_create(impl_->gpu, &tp_y);
-        if (!tex_y)
+        if (!tex_y) {
+            ::close(fd_y);
             continue;
+        }
 
         // Import source UV
+        int fd_uv = dup(slot.src_uv_fd);
         struct pl_tex_params tp_uv = {};
         tp_uv.w = slot.src_w / 2;
         tp_uv.h = slot.src_h / 2;
         tp_uv.format = fmt_rg8;
         tp_uv.sampleable = true;
         tp_uv.import_handle = PL_HANDLE_DMA_BUF;
-        tp_uv.shared_mem.handle.fd = dup(slot.src_uv_fd);
+        tp_uv.shared_mem.handle.fd = fd_uv;
         tp_uv.shared_mem.size = static_cast<size_t>(src_uv_pitch) * (slot.src_h / 2);
         tp_uv.shared_mem.drm_format_mod = src_mod;
         tp_uv.shared_mem.stride_w = src_uv_pitch;
         pl_tex tex_uv = pl_tex_create(impl_->gpu, &tp_uv);
         if (!tex_uv) {
             pl_tex_destroy(impl_->gpu, &tex_y);
+            ::close(fd_y);
+            ::close(fd_uv);
             continue;
         }
 
@@ -285,6 +292,8 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
 
         pl_tex_destroy(impl_->gpu, &tex_y);
         pl_tex_destroy(impl_->gpu, &tex_uv);
+        ::close(fd_y);
+        ::close(fd_uv);
     }
 
     return true;

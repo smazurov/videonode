@@ -50,7 +50,13 @@ struct PlaneImport {
     bool renderable;
 };
 
-pl_tex import_plane(const PlaneImport& p) {
+struct ImportedTex {
+    pl_tex tex = nullptr;
+    int fd = -1;
+};
+
+ImportedTex import_plane(const PlaneImport& p) {
+    int fd_dup = dup(p.fd);
     struct pl_tex_params tp = {};
     tp.w = p.w;
     tp.h = p.h;
@@ -58,12 +64,17 @@ pl_tex import_plane(const PlaneImport& p) {
     tp.sampleable = !p.renderable;
     tp.renderable = p.renderable;
     tp.import_handle = PL_HANDLE_DMA_BUF;
-    tp.shared_mem.handle.fd = dup(p.fd);
+    tp.shared_mem.handle.fd = fd_dup;
     tp.shared_mem.size = static_cast<size_t>(p.pitch) * p.h + p.offset;
     tp.shared_mem.offset = static_cast<size_t>(p.offset);
     tp.shared_mem.drm_format_mod = kModInvalid;
     tp.shared_mem.stride_w = p.pitch;
-    return pl_tex_create(p.gpu, &tp);
+    pl_tex tex = pl_tex_create(p.gpu, &tp);
+    if (!tex) {
+        ::close(fd_dup);
+        return {};
+    }
+    return {tex, fd_dup};
 }
 
 struct CscTextures {
@@ -234,67 +245,77 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
     if (!fmt_r8 || !fmt_rg8)
         return false;
 
-    pl_tex tex_src_y = import_plane({.gpu = s.gpu,
-                                     .fmt = fmt_r8,
-                                     .fd = src.fd,
-                                     .w = W,
-                                     .h = H,
-                                     .pitch = src_y_pitch,
-                                     .offset = 0,
-                                     .renderable = false});
-    if (!tex_src_y)
+    auto imp_src_y = import_plane({.gpu = s.gpu,
+                                   .fmt = fmt_r8,
+                                   .fd = src.fd,
+                                   .w = W,
+                                   .h = H,
+                                   .pitch = src_y_pitch,
+                                   .offset = 0,
+                                   .renderable = false});
+    if (!imp_src_y.tex)
         return false;
-    pl_tex tex_src_uv = import_plane({.gpu = s.gpu,
-                                      .fmt = fmt_rg8,
-                                      .fd = src_uv_actual_fd,
-                                      .w = src_uv_w,
-                                      .h = src_uv_h,
-                                      .pitch = src_uv_actual_pitch,
-                                      .offset = src_uv_actual_offset,
-                                      .renderable = false});
-    if (!tex_src_uv) {
-        pl_tex_destroy(s.gpu, &tex_src_y);
-        return false;
-    }
-    pl_tex tex_dst_y = import_plane({.gpu = s.gpu,
-                                     .fmt = fmt_r8,
-                                     .fd = dst.fd,
-                                     .w = W,
-                                     .h = H,
-                                     .pitch = dst_y_pitch,
-                                     .offset = 0,
-                                     .renderable = true});
-    if (!tex_dst_y) {
-        pl_tex_destroy(s.gpu, &tex_src_y);
-        pl_tex_destroy(s.gpu, &tex_src_uv);
+    auto imp_src_uv = import_plane({.gpu = s.gpu,
+                                    .fmt = fmt_rg8,
+                                    .fd = src_uv_actual_fd,
+                                    .w = src_uv_w,
+                                    .h = src_uv_h,
+                                    .pitch = src_uv_actual_pitch,
+                                    .offset = src_uv_actual_offset,
+                                    .renderable = false});
+    if (!imp_src_uv.tex) {
+        pl_tex_destroy(s.gpu, &imp_src_y.tex);
+        ::close(imp_src_y.fd);
         return false;
     }
-    pl_tex tex_dst_uv = import_plane({.gpu = s.gpu,
-                                      .fmt = fmt_rg8,
-                                      .fd = dst_uv_actual_fd,
-                                      .w = W / 2,
-                                      .h = H / 2,
-                                      .pitch = dst_uv_pitch,
-                                      .offset = dst_uv_actual_offset,
-                                      .renderable = true});
-    if (!tex_dst_uv) {
-        pl_tex_destroy(s.gpu, &tex_src_y);
-        pl_tex_destroy(s.gpu, &tex_src_uv);
-        pl_tex_destroy(s.gpu, &tex_dst_y);
+    auto imp_dst_y = import_plane({.gpu = s.gpu,
+                                   .fmt = fmt_r8,
+                                   .fd = dst.fd,
+                                   .w = W,
+                                   .h = H,
+                                   .pitch = dst_y_pitch,
+                                   .offset = 0,
+                                   .renderable = true});
+    if (!imp_dst_y.tex) {
+        pl_tex_destroy(s.gpu, &imp_src_y.tex);
+        pl_tex_destroy(s.gpu, &imp_src_uv.tex);
+        ::close(imp_src_y.fd);
+        ::close(imp_src_uv.fd);
+        return false;
+    }
+    auto imp_dst_uv = import_plane({.gpu = s.gpu,
+                                    .fmt = fmt_rg8,
+                                    .fd = dst_uv_actual_fd,
+                                    .w = W / 2,
+                                    .h = H / 2,
+                                    .pitch = dst_uv_pitch,
+                                    .offset = dst_uv_actual_offset,
+                                    .renderable = true});
+    if (!imp_dst_uv.tex) {
+        pl_tex_destroy(s.gpu, &imp_src_y.tex);
+        pl_tex_destroy(s.gpu, &imp_src_uv.tex);
+        pl_tex_destroy(s.gpu, &imp_dst_y.tex);
+        ::close(imp_src_y.fd);
+        ::close(imp_src_uv.fd);
+        ::close(imp_dst_y.fd);
         return false;
     }
 
     bool ok = render_csc(s.renderer, s.gpu,
-                         {.src_y = tex_src_y,
-                          .src_uv = tex_src_uv,
-                          .dst_y = tex_dst_y,
-                          .dst_uv = tex_dst_uv,
+                         {.src_y = imp_src_y.tex,
+                          .src_uv = imp_src_uv.tex,
+                          .dst_y = imp_dst_y.tex,
+                          .dst_uv = imp_dst_uv.tex,
                           .src_is_nv12 = src_is_nv12});
 
-    pl_tex_destroy(s.gpu, &tex_src_y);
-    pl_tex_destroy(s.gpu, &tex_src_uv);
-    pl_tex_destroy(s.gpu, &tex_dst_y);
-    pl_tex_destroy(s.gpu, &tex_dst_uv);
+    pl_tex_destroy(s.gpu, &imp_src_y.tex);
+    pl_tex_destroy(s.gpu, &imp_src_uv.tex);
+    pl_tex_destroy(s.gpu, &imp_dst_y.tex);
+    pl_tex_destroy(s.gpu, &imp_dst_uv.tex);
+    ::close(imp_src_y.fd);
+    ::close(imp_src_uv.fd);
+    ::close(imp_dst_y.fd);
+    ::close(imp_dst_uv.fd);
     return ok;
 }
 
