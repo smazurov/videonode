@@ -21,6 +21,7 @@ primary = true
 [spawn]
 build = "pnpm --prefix ui install --frozen-lockfile"
 command = "process-compose up -t=false backend frontend"
+logs = false
 health_url = "http://localhost:${TESTENV_PORT_HTTP}/api/health"
 health_timeout = "30s"
 health_auth = "testenv:testenv"
@@ -30,8 +31,7 @@ VIDEONODE_SERVER_PORT = ":${TESTENV_PORT_HTTP}"
 VIDEONODE_STREAMING_RTSP_PORT = ":${TESTENV_PORT_RTSP}"
 VIDEONODE_SRT_ADDR = ":${TESTENV_PORT_SRT}"
 VIDEONODE_SRT_ENABLED = "true"
-VIDEONODE_STREAMS_CONFIG_FILE = "${TESTENV_DIR}/streams.toml"
-VIDEONODE_RECORDING_DATA_DIR = "${TESTENV_DIR}/recording"
+VIDEONODE_STREAMS_CONFIG_FILE = "${TESTENV_WORKTREE}/streams.toml"
 VIDEONODE_AUTH_TYPE = "basic"
 VIDEONODE_AUTH_USERNAME = "testenv"
 VIDEONODE_AUTH_PASSWORD = "testenv"
@@ -41,7 +41,7 @@ VIDEONODE_METRICS_SSE_ENABLED = "true"
 VITE_DEV_PORT = "${TESTENV_PORT_VITE}"
 
 [[spawn.files]]
-path = "${TESTENV_DIR}/streams.toml"
+path = "${TESTENV_WORKTREE}/streams.toml"
 content = """
 version = 2
 
