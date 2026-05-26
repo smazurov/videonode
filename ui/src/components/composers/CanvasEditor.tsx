@@ -144,7 +144,7 @@ export function CanvasEditor({
       // because both can break the ratio.
       const aspectLock = CORNER_HANDLES.has(drag.handle) && !(e.ctrlKey || e.metaKey);
       let next = applyHandleDelta(drag.startSlot, drag.handle, dx, dy, canvas, aspectLock);
-      if (!aspectLock && snapToGrid && gridSize > 0) next = clampToCanvas(snapSlot(next, gridSize), canvas, drag.handle);
+      if (!aspectLock && snapToGrid && gridSize > 0) next = clampToCanvas(snapSlot(next, gridSize, drag.handle), canvas, drag.handle);
       if (aspectLock) {
         setGuides([]);
         updateSlot(drag.slotInput, () => next);
