@@ -353,3 +353,44 @@ func TestGetStatus_TakesNoWriteLock(t *testing.T) {
 		t.Fatal("GetStatus deadlocked — takes a write lock while read lock is held")
 	}
 }
+
+func TestPoolStart_CallbackReadsStatus(t *testing.T) {
+	done := make(chan struct{})
+	p := NewPool(&PoolOptions{
+		CommandProvider: func(_ string) (string, error) {
+			return `sh -c "trap 'exit 0' INT TERM; while :; do sleep 0.1; done"`, nil
+		},
+		OnStateChange: func(_ string, _, _ State, _ error) {
+			// This is the deadlock scenario: the callback fires while
+			// pool.mu is held by Start(). GetStatus tries RLock on the
+			// same mutex → deadlock because RWMutex is not reentrant.
+		},
+		Logger: poolTestLogger(),
+	})
+	defer p.StopAll()
+
+	// Replace the callback after construction so we can reference `p`.
+	pp := p.(*pool)
+	pp.opts.OnStateChange = func(id string, _, newState State, _ error) {
+		// Read status from inside the callback — this is exactly what
+		// Pipeline.onStateChange does (via Registry.Touch → loader →
+		// enrichStatus → pool.GetStatus).
+		info := p.GetStatus(id)
+		if newState == StateStarting && info == nil {
+			t.Error("GetStatus returned nil during StateStarting callback")
+		}
+		if newState == StateRunning {
+			close(done)
+		}
+	}
+
+	if err := p.Start("deadlock-test"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("deadlock: OnStateChange callback that calls GetStatus blocked pool.Start")
+	}
+}

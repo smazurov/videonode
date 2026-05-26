@@ -99,24 +99,31 @@ func NewPool(opts *PoolOptions) Pool {
 // Start starts a process by ID.
 func (p *pool) Start(id string) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	if proc, exists := p.processes[id]; exists {
 		if proc.state == StateRunning || proc.state == StateStarting {
+			p.mu.Unlock()
 			return fmt.Errorf("process %s already running", id)
 		}
 	}
 
 	command, err := p.opts.CommandProvider(id)
 	if err != nil {
+		p.mu.Unlock()
 		return fmt.Errorf("failed to generate command: %w", err)
 	}
 
-	return p.startProcess(id, command)
+	p.startProcess(id, command)
+	p.mu.Unlock()
+
+	p.notifyStateChange(id, StateIdle, StateStarting, nil)
+	return nil
 }
 
-// startProcess starts a process with the given command (must hold lock).
-func (p *pool) startProcess(id string, command string) error {
+// startProcess inserts a new managed process and spawns its run
+// goroutine. Caller must hold p.mu and must call notifyStateChange
+// after releasing the lock.
+func (p *pool) startProcess(id string, command string) {
 	ctx, cancel := context.WithCancel(p.ctx)
 
 	mp := &managedProcess{
@@ -135,14 +142,10 @@ func (p *pool) startProcess(id string, command string) error {
 
 	p.processes[id] = mp
 
-	p.notifyStateChange(id, StateIdle, StateStarting, nil)
-
 	p.wg.Go(func() {
 		defer close(mp.done)
 		p.runProcess(ctx, mp)
 	})
-
-	return nil
 }
 
 // runProcess runs the process and handles state transitions.
