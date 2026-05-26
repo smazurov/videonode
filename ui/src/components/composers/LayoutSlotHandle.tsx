@@ -1,15 +1,7 @@
 import { useCallback } from 'react';
 
-export type HandlePos =
-  | 'nw'
-  | 'n'
-  | 'ne'
-  | 'e'
-  | 'se'
-  | 's'
-  | 'sw'
-  | 'w'
-  | 'move';
+import type { HandlePos } from '../../lib/canvas-layout-math';
+export type { HandlePos };
 
 interface LayoutSlotHandleProps {
   position: HandlePos;
