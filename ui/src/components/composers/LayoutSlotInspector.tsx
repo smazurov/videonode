@@ -17,7 +17,6 @@ interface LayoutSlotInspectorProps {
   onBringToFront: () => void;
   onSendToBack: () => void;
   onDelete?: () => void;
-  saving?: boolean;
 }
 
 // Right-pane editor for the currently selected slot. Numeric inputs commit
@@ -33,7 +32,6 @@ export function LayoutSlotInspector({
   onBringToFront,
   onSendToBack,
   onDelete,
-  saving = false,
 }: Readonly<LayoutSlotInspectorProps>) {
   const [local, setLocal] = useState<LayoutSlot | null>(slot);
 
@@ -76,14 +74,12 @@ export function LayoutSlotInspector({
     <div className="rounded-md border border-border bg-surface p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-fg">Slot</h3>
-        {saving && <span className="text-xs text-fg-subtle">saving…</span>}
       </div>
 
       <Select
         label="Input"
         value={local.input}
         onChange={(e) => onChangeInputRef(e.target.value)}
-        disabled={saving}
       >
         {inputs.map((input) => (
           <option key={input.ref} value={input.ref}>
@@ -102,8 +98,7 @@ export function LayoutSlotInspector({
           max={canvas.w}
           onChange={(e) => onNumChange('x', e.target.value)}
           onBlur={() => onNumBlur('x')}
-          disabled={saving}
-        />
+/>
         <InputField
           label="Y"
           type="number"
@@ -112,8 +107,7 @@ export function LayoutSlotInspector({
           max={canvas.h}
           onChange={(e) => onNumChange('y', e.target.value)}
           onBlur={() => onNumBlur('y')}
-          disabled={saving}
-        />
+/>
         <InputField
           label="W"
           type="number"
@@ -122,8 +116,7 @@ export function LayoutSlotInspector({
           max={canvas.w}
           onChange={(e) => onNumChange('w', e.target.value)}
           onBlur={() => onNumBlur('w')}
-          disabled={saving}
-        />
+/>
         <InputField
           label="H"
           type="number"
@@ -132,8 +125,7 @@ export function LayoutSlotInspector({
           max={canvas.h}
           onChange={(e) => onNumChange('h', e.target.value)}
           onBlur={() => onNumBlur('h')}
-          disabled={saving}
-        />
+/>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -143,7 +135,7 @@ export function LayoutSlotInspector({
           theme="light"
           text="Send to back"
           onClick={onSendToBack}
-          disabled={saving || slotIndex === 0}
+          disabled={slotIndex === 0}
         />
         <Button
           type="button"
@@ -151,7 +143,7 @@ export function LayoutSlotInspector({
           theme="light"
           text="Bring to front"
           onClick={onBringToFront}
-          disabled={saving || slotIndex === layoutLength - 1}
+          disabled={slotIndex === layoutLength - 1}
         />
         {onDelete && (
           <Button
@@ -160,7 +152,6 @@ export function LayoutSlotInspector({
             theme="danger"
             text="Remove"
             onClick={onDelete}
-            disabled={saving}
           />
         )}
       </div>
