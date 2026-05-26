@@ -85,6 +85,8 @@ type ComposerStage struct {
 	BinaryPath string
 	DRMDevice  string
 	CanvasFPS  int
+	CanvasW    int
+	CanvasH    int
 	GrpcUds    string
 }
 
@@ -132,6 +134,10 @@ func (c *ComposerStage) Command() ([]string, []string, error) {
 		"--composer-id", c.ComposerID,
 		"--scm-out", c.SCMOutSocketPath(),
 		"--target-fps", strconv.Itoa(fps),
+	}
+	if c.CanvasW > 0 && c.CanvasH > 0 {
+		argv = append(argv, "--canvas_w", strconv.Itoa(c.CanvasW))
+		argv = append(argv, "--canvas_h", strconv.Itoa(c.CanvasH))
 	}
 	return argv, nil, nil
 }

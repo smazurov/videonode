@@ -341,11 +341,17 @@ func (p *Pipeline) ApplyComposer(c Composer) error {
 
 	p.composers.Put(c)
 
+	canvasW, canvasH := c.Canvas.W, c.Canvas.H
+	if canvasW <= 0 || canvasH <= 0 {
+		canvasW, canvasH = 1920, 1080
+	}
 	stage := &ComposerStage{
 		ComposerID: c.ID,
 		BinaryPath: p.cfg.VNComposerBin,
 		DRMDevice:  p.cfg.DRMDevice,
 		CanvasFPS:  canvasFPSOrDefault(c.Canvas.FPS),
+		CanvasW:    canvasW,
+		CanvasH:    canvasH,
 		GrpcUds:    GrpcSocketPathFor("composer", c.ID),
 	}
 	p.replaceStage(stage)
