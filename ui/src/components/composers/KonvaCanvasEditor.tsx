@@ -158,6 +158,12 @@ export function KonvaCanvasEditor({
         w = Math.max(MIN_SIZE, snapVal(w, gridSize));
         h = Math.max(MIN_SIZE, snapVal(h, gridSize));
       }
+      if (x < 0) { w += x; x = 0; }
+      if (y < 0) { h += y; y = 0; }
+      if (x + w > canvas.w) w = canvas.w - x;
+      if (y + h > canvas.h) h = canvas.h - y;
+      w = Math.max(MIN_SIZE, w);
+      h = Math.max(MIN_SIZE, h);
       node.x(x);
       node.y(y);
       node.width(w);
@@ -165,15 +171,21 @@ export function KonvaCanvasEditor({
       node.rotation(rotation);
       commitSlot(slot.input, { x, y, w, h, rotation });
     },
-    [commitSlot, gridSize, snapToGrid],
+    [canvas.h, canvas.w, commitSlot, gridSize, snapToGrid],
   );
 
-  const handleDragBound = useCallback(
-    (pos: Konva.Vector2d) => {
-      if (!snapToGrid || gridSize <= 0) return pos;
-      return { x: snapVal(pos.x, gridSize), y: snapVal(pos.y, gridSize) };
+  const makeDragBound = useCallback(
+    (slotW: number, slotH: number) => (pos: Konva.Vector2d) => {
+      let { x, y } = pos;
+      if (snapToGrid && gridSize > 0) {
+        x = snapVal(x, gridSize);
+        y = snapVal(y, gridSize);
+      }
+      x = Math.max(0, Math.min(canvas.w - slotW, x));
+      y = Math.max(0, Math.min(canvas.h - slotH, y));
+      return { x, y };
     },
-    [gridSize, snapToGrid],
+    [canvas.h, canvas.w, gridSize, snapToGrid],
   );
 
   const handleStageClick = useCallback(
@@ -326,7 +338,7 @@ export function KonvaCanvasEditor({
                     onDragMove={(e) => handleDragMove(slot, e)}
                     onDragEnd={(e) => handleDragEndWithGuides(slot, e)}
                     onTransformEnd={() => handleTransformEnd(slot)}
-                    dragBoundFunc={handleDragBound}
+                    dragBoundFunc={makeDragBound(slot.w, slot.h)}
                   >
                     <Rect
                       width={slot.w}
@@ -377,7 +389,7 @@ export function KonvaCanvasEditor({
                 ref={trRef}
                 rotationSnaps={[0, 90, 180, 270]}
                 rotationSnapTolerance={45}
-                keepRatio={false}
+                keepRatio={true}
                 flipEnabled={false}
                 boundBoxFunc={boundBoxFunc}
                 anchorCornerRadius={2}
