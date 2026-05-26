@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { Card } from '../Card';
 import { Checkbox } from '../Checkbox';
 import { InputField } from '../InputField';
-import { CanvasEditor } from './CanvasEditor';
+import { KonvaCanvasEditor } from './KonvaCanvasEditor';
 import { LayoutSlotInspector } from './LayoutSlotInspector';
 import type { ComposerData, LayoutSlot } from '../../lib/composer-types';
 import { useComposerStore } from '../../hooks/useComposerStore';
@@ -189,7 +189,7 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
               onChange={(e) => setShowRulers(e.target.checked)}
             />
           </div>
-          <CanvasEditor
+          <KonvaCanvasEditor
             canvas={composer.canvas}
             inputs={composer.inputs}
             layout={localLayout}
