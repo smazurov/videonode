@@ -200,7 +200,8 @@ bool setup_mjpeg_decoder_(CaptureSession& s, const Args& a, nv12_buf::Allocator&
 
 // Set up the RGA/GLES CSC output ring (NV12 buffers the CSC writes into).
 bool setup_rga_output_ring_(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator) {
-    for (int i = 0; i < a.buffers; ++i) {
+    int ring_depth = a.buffers + 1;
+    for (int i = 0; i < ring_depth; ++i) {
         nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
         if (!b.valid()) {
             s.cap.close();

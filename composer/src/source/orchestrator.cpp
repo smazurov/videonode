@@ -235,7 +235,8 @@ bool handle_dqbuf_(LoopState& st) {
     bool ok = false;
     jpeg_dec::DecodedNv12 decoded;
     if (st.cap.mode == DecodeMode::Rga) {
-        nv12_buf::Buffer& dst_buf = st.cap.out_ring[df.index % st.cap.out_ring.size()];
+        uint32_t ring_idx = st.cap.out_ring_write;
+        nv12_buf::Buffer& dst_buf = st.cap.out_ring[ring_idx];
         csc::ConvertParams src_p, dst_p;
         src_p.fd = st.cap.cap.buffers()[df.index].primary_dma_buf();
         src_p.fmt = st.cap.src_fmt;
@@ -249,6 +250,8 @@ bool handle_dqbuf_(LoopState& st) {
         dst_p.height = st.cap.height;
         dst_p.wstride = int(dst_buf.y_pitch);
         if (csc::convert(src_p, dst_p)) {
+            st.cap.out_ring_write =
+                (ring_idx + 1) % static_cast<uint32_t>(st.cap.out_ring.size());
             nv12_buf::stage_for_read(dst_buf);
             decoded.fd = (dst_buf.staged_y_fd >= 0) ? dst_buf.staged_y_fd : dst_buf.y_fd;
             decoded.plane1_fd = (dst_buf.staged_uv_fd >= 0) ? dst_buf.staged_uv_fd : dst_buf.uv_fd;

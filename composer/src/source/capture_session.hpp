@@ -30,6 +30,7 @@ struct CaptureSession {
     bool active = false;
     v4l2::Streamer cap;
     std::vector<nv12_buf::Buffer> out_ring;
+    uint32_t out_ring_write = 0;
     csc::PixelFormat src_fmt = csc::PixelFormat::Nv12;
     std::string src_fmt_name;
     int width = 0;
