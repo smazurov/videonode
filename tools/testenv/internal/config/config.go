@@ -119,6 +119,7 @@ func find(dir string) (string, error) {
 type V1 struct {
 	Version  int               `toml:"version"`
 	MaxSlots int               `toml:"max_slots"`
+	DataDir  string            `toml:"data_dir"`
 	Ports    map[string]Port   `toml:"ports"`
 	Spawn    SpawnV1           `toml:"spawn"`
 	Hooks    HooksV1           `toml:"hooks"`
@@ -136,13 +137,21 @@ type Port struct {
 }
 
 type SpawnV1 struct {
-	Build        string            `toml:"build"`
-	Command      string            `toml:"command"`
-	HealthURL    string            `toml:"health_url"`
-	HealthTimeout string           `toml:"health_timeout"`
-	HealthAuth   string            `toml:"health_auth"`
-	Env          map[string]string `toml:"env"`
-	Files        []SpawnFile       `toml:"files"`
+	Build         string            `toml:"build"`
+	Command       string            `toml:"command"`
+	Logs          *bool             `toml:"logs"`
+	HealthURL     string            `toml:"health_url"`
+	HealthTimeout string            `toml:"health_timeout"`
+	HealthAuth    string            `toml:"health_auth"`
+	Env           map[string]string `toml:"env"`
+	Files         []SpawnFile       `toml:"files"`
+}
+
+func (s *SpawnV1) LogsEnabled() bool {
+	if s.Logs == nil {
+		return true
+	}
+	return *s.Logs
 }
 
 type SpawnFile struct {
@@ -169,6 +178,9 @@ func loadV1(data []byte, path string) (*V1, error) {
 	c.Path = path
 	if c.MaxSlots == 0 {
 		c.MaxSlots = 9
+	}
+	if c.DataDir == "" {
+		c.DataDir = "build"
 	}
 	return &c, c.Validate()
 }
