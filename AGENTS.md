@@ -266,8 +266,17 @@ The API includes endpoints for:
 - **Run all python commands through uv**
 - **Don't be helpful** - do exactly what's asked, nothing more
 - **No attribution in commits** - never add Co-Authored-By, Signed-off-by, or similar trailers
-- **After making changes**, always run all three checks:
-  1. `go build ./...`
-  2. `go test ./...`
-  3. `golangci-lint run ./...`
+- **After making changes**, always run the relevant quality checks:
+  - Go (any `.go` change):
+    1. `go build ./...`
+    2. `go test ./...`
+    3. `golangci-lint run ./...`
+  - TypeScript (any `ui/` change):
+    1. `cd ui && pnpm typecheck`
+    2. `cd ui && pnpm lint`
+  - C++ (any `composer/` change, from `composer/`):
+    1. `cmake --build --preset dev`
+    2. `ctest --preset dev --output-on-failure`
+    3. `cmake --build build/dev --target lint`       # clang-format dry-run
+    4. `cmake --build build/dev --target tidy-diff`  # clang-tidy on changed lines vs origin/main
 # TEST — DELETE ME

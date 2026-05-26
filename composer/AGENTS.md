@@ -41,6 +41,18 @@ cmake --build build/dev --target tidy-diff  # clang-tidy on changed lines vs ori
 cmake --build build/dev --target tidy-all   # clang-tidy whole tree (slow)
 ```
 
+**After any composer/ change, the full quality sweep is:**
+
+1. `cmake --build --preset dev`
+2. `ctest --preset dev --output-on-failure`
+3. `cmake --build build/dev --target lint`       # clang-format must be clean
+4. `cmake --build build/dev --target tidy-diff`  # clang-tidy must be clean
+
+All four are gates — don't ship if any fails. `tidy-diff` enforces the
+checks listed in `composer/.clang-tidy` (nodiscard, span at syscall
+boundaries, owning-memory, function-size limits, etc.) on every line a
+PR touches.
+
 **When to run TSan:** any change to `scm_rights_*`, anything threaded in
 `process/`, anything touching shared fd state.
 
