@@ -35,6 +35,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <linux/dma-buf.h>
+#include <poll.h>
 #include <span>
 #include <string>
 #include <sys/ioctl.h>
@@ -329,48 +330,74 @@ int parse_args(int argc, char** argv, Args& a) {
 
 // run_frame_loop polls the source for new frames and writes them to stdout.
 // Returns 0 on clean shutdown, 1 on fatal error.
+void wait_for_frame(int notify_fd, int timeout_ms) {
+    if (notify_fd >= 0) {
+        pollfd pfd{.fd = notify_fd, .events = POLLIN, .revents = 0};
+        (void)::poll(&pfd, 1, timeout_ms);
+        if (pfd.revents & POLLIN) {
+            uint64_t val = 0;
+            (void)::read(notify_fd, &val, sizeof(val));
+        }
+    } else {
+        std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
+    }
+}
+
 int run_frame_loop(scm_rights_source::ScmRightsSource& src, const Args& a) {
     uint64_t last_idx = 0;
     bool announced = false;
     int announced_w = 0;
     int announced_h = 0;
     bool nv12_mode = true;
+    int nfd = src.notify_fd();
     auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(a.first_frame_timeout_s);
     while (g_running.load()) {
-        auto v = src.latest_frame();
-        if (v.fd < 0 || v.frame_idx == 0) {
+        auto owned = src.latest_frame();
+        if (owned.fd.get() < 0 || owned.frame_idx == 0) {
             if (std::chrono::steady_clock::now() > deadline) {
                 vn::log::fatal("videonode-sink: timeout waiting for first frame on %s",
                                a.socket_path.c_str());
                 return 1;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(a.poll_ms));
+            wait_for_frame(nfd, a.poll_ms);
             continue;
         }
-        if (v.frame_idx == last_idx) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(a.poll_ms));
+        if (owned.frame_idx == last_idx) {
+            wait_for_frame(nfd, a.poll_ms);
             continue;
         }
-        if (!announced || v.width != announced_w || v.height != announced_h) {
+        if (!announced || owned.width != announced_w || owned.height != announced_h) {
             if (announced) {
                 vn::log::warn("videonode-sink: dimensions changed %dx%d → %dx%d; downstream ffmpeg "
                               "likely needs restart",
-                              announced_w, announced_h, v.width, v.height);
+                              announced_w, announced_h, owned.width, owned.height);
             }
-            nv12_mode = is_nv12_format(v.format);
-            vn::log::info("videonode-sink: streaming raw %dx%d (%s fourcc=%s) from %s", v.width,
-                          v.height, nv12_mode ? "NV12" : "BGRA",
-                          v.format.empty() ? "NV12" : v.format.c_str(), a.socket_path.c_str());
+            nv12_mode = is_nv12_format(owned.format);
+            vn::log::info("videonode-sink: streaming raw %dx%d (%s fourcc=%s) from %s", owned.width,
+                          owned.height, nv12_mode ? "NV12" : "BGRA",
+                          owned.format.empty() ? "NV12" : owned.format.c_str(),
+                          a.socket_path.c_str());
             announced = true;
-            announced_w = v.width;
-            announced_h = v.height;
+            announced_w = owned.width;
+            announced_h = owned.height;
         }
         if (a.verbose) {
             vn::log::info("videonode-sink: frame_idx=%llu fd=%d",
-                          static_cast<unsigned long long>(v.frame_idx), v.fd);
+                          static_cast<unsigned long long>(owned.frame_idx), owned.fd.get());
         }
-        last_idx = v.frame_idx;
+        last_idx = owned.frame_idx;
+        scm_rights_source::FrameView v;
+        v.fd = owned.fd.get();
+        v.plane1_fd = owned.plane1_fd.get();
+        v.width = owned.width;
+        v.height = owned.height;
+        v.plane0_pitch = owned.plane0_pitch;
+        v.plane0_offset = owned.plane0_offset;
+        v.plane1_pitch = owned.plane1_pitch;
+        v.plane1_offset = owned.plane1_offset;
+        v.format = owned.format;
+        v.frame_idx = owned.frame_idx;
         bool ok = nv12_mode ? emit_frame_nv12_raw(v) : emit_frame_raw_bgra(v);
         if (!ok)
             break;

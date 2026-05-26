@@ -13,7 +13,10 @@
 
 #include <drm_fourcc.h>
 #include <gbm.h>
+#include <linux/memfd.h>
 #include <poll.h>
+#include <sys/mman.h>
+#include <sys/syscall.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -133,11 +136,16 @@ bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_
     return prod.broadcast(h, {canvas_fd});
 }
 
-// Build SourceSlots for the pl_compose render call from the current snapshot.
-std::vector<pl_compose::SourceSlot>
-build_render_slots_(const Snapshot& snap, const std::map<std::string, LiveSource>& live_sources) {
-    std::vector<pl_compose::SourceSlot> render_slots;
-    render_slots.reserve(snap.layout.size());
+struct RenderBatch {
+    std::vector<pl_compose::SourceSlot> slots;
+    std::vector<scm_rights_source::OwnedFrameView> owned_frames;
+};
+
+RenderBatch build_render_slots_(const Snapshot& snap,
+                                const std::map<std::string, LiveSource>& live_sources) {
+    RenderBatch batch;
+    batch.slots.reserve(snap.layout.size());
+    batch.owned_frames.reserve(snap.layout.size());
     for (const auto& rect : snap.layout) {
         auto bit = std::find_if(snap.slots.begin(), snap.slots.end(),
                                 [&](const SlotBinding& b) { return b.slot == rect.slot; });
@@ -147,14 +155,14 @@ build_render_slots_(const Snapshot& snap, const std::map<std::string, LiveSource
         if (lit == live_sources.end() || !lit->second.src)
             continue;
         auto fv = lit->second.src->latest_frame();
-        if (fv.fd < 0 || fv.frame_idx == 0)
+        if (fv.fd.get() < 0 || fv.frame_idx == 0)
             continue;
-        if (fv.plane1_fd < 0 || fv.width <= 0 || fv.height <= 0)
+        if (fv.plane1_fd.get() < 0 || fv.width <= 0 || fv.height <= 0)
             continue;
 
         pl_compose::SourceSlot s;
-        s.src_y_fd = fv.fd;
-        s.src_uv_fd = fv.plane1_fd;
+        s.src_y_fd = fv.fd.get();
+        s.src_uv_fd = fv.plane1_fd.get();
         s.src_w = fv.width;
         s.src_h = fv.height;
         s.src_y_pitch = fv.plane0_pitch ? int(fv.plane0_pitch) : fv.width;
@@ -170,9 +178,10 @@ build_render_slots_(const Snapshot& snap, const std::map<std::string, LiveSource
             if (ss.state != "placeholder" && ss.has_perspective)
                 std::memcpy(s.warp.m, ss.warp.data(), 9 * sizeof(float));
         }
-        render_slots.push_back(s);
+        batch.slots.push_back(s);
+        batch.owned_frames.push_back(std::move(fv));
     }
-    return render_slots;
+    return batch;
 }
 
 // Write canvas rows to stdout (stride-aware). Returns false on write failure.
@@ -210,18 +219,16 @@ void notify_composer_svc_(nativerpc::ComposerService* composer_svc, int canvas_d
     composer_svc->UpdateLatestCanvas(r);
 }
 
-// Mutable state for the pl_compose instance and its associated dma-buf fd.
 struct ComposeState {
     std::unique_ptr<pl_compose::PlCompose> compose;
     int w = 0;
     int h = 0;
-    int canvas_dmabuf_fd = -1;
 };
 
 // Initialize the lazy pl_compose on the first ready snapshot.
 // Returns false on failure (caller should skip the frame and retry).
-bool init_compose_(ComposeState& cs, scm_rights_producer::ScmRightsProducer* scm_out,
-                   std::atomic<bool>& running, const Snapshot& snap, RenderStats* stats) {
+bool init_compose_(ComposeState& cs, std::atomic<bool>& running, const Snapshot& snap,
+                   RenderStats* stats) {
     cs.compose = std::make_unique<pl_compose::PlCompose>();
     const char* drm_candidates[] = {"/dev/dri/renderD128", "/dev/dri/renderD129",
                                     "/dev/dri/renderD130"};
@@ -240,20 +247,16 @@ bool init_compose_(ComposeState& cs, scm_rights_producer::ScmRightsProducer* scm
     }
     cs.w = int(snap.canvas_w);
     cs.h = int(snap.canvas_h);
+    if (cs.compose->canvas_dmabuf_fd() < 0) {
+        vn::log::fatal("canvas_loop: canvas dma-buf fd invalid after init");
+        running.store(false);
+        return false;
+    }
     vn::log::info("canvas_loop: ready canvas %dx%d (%u fps)", cs.w, cs.h, snap.canvas_fps);
     if (stats) {
         stats->canvas_w.store(snap.canvas_w, std::memory_order_relaxed);
         stats->canvas_h.store(snap.canvas_h, std::memory_order_relaxed);
         stats->canvas_fps.store(snap.canvas_fps, std::memory_order_relaxed);
-    }
-    if (scm_out) {
-        std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
-        cs.canvas_dmabuf_fd = gbm_bo_get_fd(cs.compose->canvas_bo());
-        if (cs.canvas_dmabuf_fd < 0) {
-            vn::log::fatal("canvas_loop: gbm_bo_get_fd failed; cannot SCM-broadcast");
-            running.store(false);
-            return false;
-        }
     }
     return true;
 }
@@ -277,18 +280,97 @@ void prune_consumers_(scm_rights_producer::ScmRightsProducer& scm_out, int& prev
     next_consumer_prune = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 
-// Render one frame in SCM mode: broadcast dma-buf, notify composer service.
-bool render_scm_frame_(ComposeState& cs, scm_rights_producer::ScmRightsProducer& scm_out,
+// Pool of snapshot memfds that rotate with the canvas triple-buffer.
+// Consumers receive the fd via SCM_RIGHTS (kernel dups it). The pool
+// must be deep enough that a consumer finishes reading snapshot N before
+// the pool wraps and the producer overwrites N's pages. With 3 slots
+// and 30fps, each slot is reused every ~100ms — plenty of margin.
+struct SnapPool {
+    static constexpr int kPoolSize = 3;
+    struct Slot {
+        int fd = -1;
+        void* map = nullptr;
+        size_t size = 0;
+    };
+    Slot slots[kPoolSize] = {};
+    int next = 0;
+
+    Slot& advance() {
+        Slot& s = slots[next];
+        next = (next + 1) % kPoolSize;
+        return s;
+    }
+
+    bool ensure_slot(Slot& s, size_t needed) {
+        if (s.map && s.size == needed)
+            return true;
+        if (s.map)
+            ::munmap(s.map, s.size);
+        if (s.fd >= 0)
+            ::close(s.fd);
+        s.fd = static_cast<int>(
+            ::syscall(SYS_memfd_create, "canvas-snap", static_cast<unsigned int>(MFD_CLOEXEC)));
+        if (s.fd < 0)
+            return false;
+        if (::ftruncate(s.fd, static_cast<off_t>(needed)) < 0) {
+            ::close(s.fd);
+            s.fd = -1;
+            return false;
+        }
+        s.map = ::mmap(nullptr, needed, PROT_READ | PROT_WRITE, MAP_SHARED, s.fd, 0);
+        if (s.map == MAP_FAILED) {
+            s.map = nullptr;
+            ::close(s.fd);
+            s.fd = -1;
+            return false;
+        }
+        s.size = needed;
+        return true;
+    }
+
+    ~SnapPool() {
+        for (auto& s : slots) {
+            if (s.map)
+                ::munmap(s.map, s.size);
+            if (s.fd >= 0)
+                ::close(s.fd);
+        }
+    }
+};
+
+bool render_scm_frame_(ComposeState& cs, SnapPool& pool,
+                       scm_rights_producer::ScmRightsProducer& scm_out,
                        uint64_t broadcast_frame_idx, nativerpc::ComposerService* composer_svc) {
-    uint32_t stride = 0;
+    uint32_t stride = cs.compose->canvas_stride();
+    size_t frame_bytes = size_t(stride) * cs.h;
+
+    auto& snap = pool.advance();
+    if (!pool.ensure_slot(snap, frame_bytes))
+        return false;
+
     {
         std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
-        stride = gbm_bo_get_stride(cs.compose->canvas_bo());
+        uint32_t map_stride = 0;
+        void* map_handle = nullptr;
+        void* src = gbm_bo_map(cs.compose->canvas_bo(), 0, 0, cs.w, cs.h, GBM_BO_TRANSFER_READ,
+                               &map_stride, &map_handle);
+        if (src) {
+            if (map_stride == stride) {
+                std::memcpy(snap.map, src, frame_bytes);
+            } else {
+                auto* dst = static_cast<uint8_t*>(snap.map);
+                auto* s = static_cast<const uint8_t*>(src);
+                size_t row_bytes = size_t(cs.w) * 4;
+                for (int row = 0; row < cs.h; ++row)
+                    std::memcpy(dst + size_t(row) * stride, s + size_t(row) * map_stride, row_bytes);
+            }
+            gbm_bo_unmap(cs.compose->canvas_bo(), map_handle);
+        }
     }
-    (void)broadcast_canvas_(scm_out, cs.canvas_dmabuf_fd, cs.w, cs.h, stride, broadcast_frame_idx);
+
+    (void)broadcast_canvas_(scm_out, snap.fd, cs.w, cs.h, stride, broadcast_frame_idx);
     if (composer_svc)
-        notify_composer_svc_(composer_svc, cs.canvas_dmabuf_fd, cs.w, cs.h, stride,
-                             broadcast_frame_idx);
+        notify_composer_svc_(composer_svc, snap.fd, cs.w, cs.h, stride, broadcast_frame_idx);
     return true;
 }
 
@@ -351,6 +433,9 @@ struct LoopState {
     std::chrono::steady_clock::time_point next_consumer_prune;
     int prev_consumer_count = 0;
     std::chrono::steady_clock::time_point next_tick;
+    bool gpu_pending = false;
+    RenderBatch pending_batch;
+    SnapPool snap_pool;
 };
 
 std::chrono::nanoseconds fps_period_(int fps) {
@@ -395,7 +480,8 @@ bool handle_not_ready_(LoopState& ls, const Snapshot& snap, int target_fps, Rend
         if (!ls.cs.compose->render({}))
             return false;
         ls.cs.compose->finish();
-        render_scm_frame_(ls.cs, *ls.scm_out, ++ls.broadcast_frame_idx, composer_svc);
+        render_scm_frame_(ls.cs, ls.snap_pool, *ls.scm_out, ++ls.broadcast_frame_idx, composer_svc);
+        ls.cs.compose->swap();
     }
     count_frame_(ls, stats);
     int fps = snap.canvas_fps ? int(snap.canvas_fps) : target_fps;
@@ -425,25 +511,36 @@ bool ensure_compose_(LoopState& ls, std::atomic<bool>& running, const Snapshot& 
             warn_dims_changed_(ls.cs.w, ls.cs.h, snap.canvas_w, snap.canvas_h);
         return true;
     }
-    if (init_compose_(ls.cs, ls.scm_out, running, snap, stats))
+    if (init_compose_(ls.cs, running, snap, stats))
         return true;
     ls.next_tick += fps_period_(target_fps);
     return false;
 }
 
-// Render one frame (GL + output). Returns false on fatal render/write error.
-bool render_frame_(LoopState& ls, const Snapshot& snap,
-                   std::map<std::string, LiveSource>& live_sources,
-                   nativerpc::ComposerService* composer_svc) {
-    auto render_slots = build_render_slots_(snap, live_sources);
-    if (!ls.cs.compose->render(render_slots)) {
+// Submit GPU commands for one frame (non-blocking). Returns false on error.
+bool submit_frame_(LoopState& ls, const Snapshot& snap,
+                   std::map<std::string, LiveSource>& live_sources) {
+    ls.pending_batch = build_render_slots_(snap, live_sources);
+    if (!ls.cs.compose->render(ls.pending_batch.slots)) {
         vn::log::error("canvas_loop: render failed");
         return false;
     }
+    ls.gpu_pending = true;
+    return true;
+}
+
+// Wait for the GPU to finish the previous frame, broadcast it, and swap.
+bool complete_frame_(LoopState& ls, nativerpc::ComposerService* composer_svc) {
+    if (!ls.gpu_pending)
+        return true;
     ls.cs.compose->finish();
-    return ls.scm_out
-               ? render_scm_frame_(ls.cs, *ls.scm_out, ++ls.broadcast_frame_idx, composer_svc)
-               : render_stdout_frame_(ls.cs);
+    bool ok = ls.scm_out ? render_scm_frame_(ls.cs, ls.snap_pool, *ls.scm_out,
+                                             ++ls.broadcast_frame_idx, composer_svc)
+                         : render_stdout_frame_(ls.cs);
+    ls.cs.compose->swap();
+    ls.gpu_pending = false;
+    ls.pending_batch = {};
+    return ok;
 }
 
 } // namespace
@@ -468,10 +565,18 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
             std::chrono::steady_clock::now() - start > std::chrono::seconds(cfg.run_seconds))
             break;
 
+        // Complete the previous tick's GPU work (near-zero wait if the
+        // GPU finished during the sleep). This pipelines rendering: the
+        // GPU runs concurrently with sleep_until, so finish() returns
+        // immediately for workloads that complete within one tick period.
+        if (!complete_frame_(ls, cfg.composer_svc)) {
+            cfg.running.store(false);
+            break;
+        }
+
         std::this_thread::sleep_until(ls.next_tick);
         Snapshot snap = cfg.world.snapshot();
 
-        // Init compose as soon as canvas dims are known (before ready).
         if (snap.canvas_w > 0 && snap.canvas_h > 0) {
             if (!ensure_compose_(ls, cfg.running, snap, cfg.stats, cfg.target_fps))
                 continue;
@@ -487,7 +592,7 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
 
         reconcile_sources_(live_sources, snap.slots);
 
-        if (!render_frame_(ls, snap, live_sources, cfg.composer_svc)) {
+        if (!submit_frame_(ls, snap, live_sources)) {
             cfg.running.store(false);
             break;
         }
@@ -496,13 +601,14 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
         post_render_tick_(ls, cfg.stats, fps);
     }
 
+    // Flush any in-flight GPU work before shutdown.
+    (void)complete_frame_(ls, cfg.composer_svc);
+
     for (auto& [_, lsrc] : live_sources)
         if (lsrc.src)
             lsrc.src->stop();
     if (scm_out_owned)
         scm_out_owned->stop();
-    if (ls.cs.canvas_dmabuf_fd >= 0)
-        ::close(ls.cs.canvas_dmabuf_fd);
     return ls.frames_rendered;
 }
 

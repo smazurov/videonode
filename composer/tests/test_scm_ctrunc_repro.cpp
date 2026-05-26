@@ -49,8 +49,7 @@ TEST(ScmCtruncRepro, PasscredDoesNotBreakFdExtraction) {
 
     unique_fd fd1 = make_fd();
     unique_fd fd2 = make_fd();
-    ASSERT_TRUE(scm_socket::SendMessage(producer_fd.get(), make_header(1),
-                                        {fd1.get(), fd2.get()}));
+    ASSERT_TRUE(scm_socket::SendMessage(producer_fd.get(), make_header(1), {fd1.get(), fd2.get()}));
 
     dmabuf_header::Header rh;
     std::vector<int> rfds;
@@ -82,8 +81,7 @@ TEST(ScmCtruncRepro, TinyCmsgBufferCausesRealCtrunc) {
 
     unique_fd fd1 = make_fd();
     unique_fd fd2 = make_fd();
-    ASSERT_TRUE(scm_socket::SendMessage(sender.get(), make_header(42),
-                                        {fd1.get(), fd2.get()}));
+    ASSERT_TRUE(scm_socket::SendMessage(sender.get(), make_header(42), {fd1.get(), fd2.get()}));
 
     // 32-byte cmsg buffer: fits credentials but not credentials + rights.
     uint8_t data_buf[128];
@@ -113,8 +111,7 @@ TEST(ScmCtruncRepro, TinyCmsgBufferCausesRealCtrunc) {
     EXPECT_EQ(rights_entries, 0) << "SCM_RIGHTS should be truncated";
 
     // Adequate buffer: both entries visible, no truncation.
-    ASSERT_TRUE(scm_socket::SendMessage(sender.get(), make_header(43),
-                                        {fd1.get(), fd2.get()}));
+    ASSERT_TRUE(scm_socket::SendMessage(sender.get(), make_header(43), {fd1.get(), fd2.get()}));
 
     alignas(struct cmsghdr) uint8_t big_cmsg[256];
     msghdr m2{};

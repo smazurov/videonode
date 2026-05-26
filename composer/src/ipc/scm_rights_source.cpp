@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstring>
 #include <poll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
@@ -51,9 +52,12 @@ bool ScmRightsSource::init(const InitParams& p) {
         vn::log::error("scm_rights_source: socket_path is required");
         return false;
     }
+    notify_fd_ = unique_fd(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
+    if (!notify_fd_) {
+        vn::log::error("scm_rights_source: eventfd: %s", strerror(errno));
+        return false;
+    }
     if (params_.dial) {
-        // Dial mode: the producer (sidecar) listens; we connect. start()
-        // does the actual connect so init() stays non-blocking.
         return true;
     }
     // Listen mode (legacy): bind+listen in init(); accept is deferred to
@@ -209,12 +213,30 @@ void ScmRightsSource::thread_main_() {
         // FfmpegPipeSource's ring-buffer pattern at ring_size=2.
         prev_fds_.clear();
         prev_fds_ = std::move(retired);
+
+        if (notify_fd_) {
+            uint64_t one = 1;
+            (void)::write(notify_fd_.get(), &one, sizeof(one));
+        }
     }
 }
 
-FrameView ScmRightsSource::latest_frame() const {
+OwnedFrameView ScmRightsSource::latest_frame() const {
     std::lock_guard<std::mutex> g(latest_mu_);
-    return latest_;
+    OwnedFrameView out;
+    if (latest_.fd >= 0)
+        out.fd = unique_fd(::dup(latest_.fd));
+    if (latest_.plane1_fd >= 0)
+        out.plane1_fd = unique_fd(::dup(latest_.plane1_fd));
+    out.width = latest_.width;
+    out.height = latest_.height;
+    out.plane0_pitch = latest_.plane0_pitch;
+    out.plane0_offset = latest_.plane0_offset;
+    out.plane1_pitch = latest_.plane1_pitch;
+    out.plane1_offset = latest_.plane1_offset;
+    out.format = latest_.format;
+    out.frame_idx = latest_.frame_idx;
+    return out;
 }
 
 } // namespace scm_rights_source

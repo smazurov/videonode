@@ -35,26 +35,33 @@ namespace scm_rights_source {
 // FrameView is the snapshot a consumer reads from latest_frame(). Mirrors
 // ffmpeg_pipe_source::FrameView so the compose layer can substitute one
 // for the other.
+// Internal snapshot — raw fd ints borrowed from ScmRightsSource internals.
+// Not safe to use outside the mutex; kept for the IPC thread.
 struct FrameView {
-    // Primary plane fd — owned by ScmRightsSource. Consumers must finish
-    // using it before the next incoming message replaces the slot (Go
-    // sender's cadence). For tighter sync the consumer should dup().
     int fd = -1;
-
     int width = 0;
     int height = 0;
     uint32_t plane0_pitch = 0;
     uint32_t plane0_offset = 0;
-    uint32_t plane1_pitch = 0; // 0 when single-plane
+    uint32_t plane1_pitch = 0;
     uint32_t plane1_offset = 0;
-    int plane1_fd = -1; // -1 when single-plane; else second fd
-
-    // DRM fourcc string as carried over the wire ("NV12" / "NV24" / "NV16"
-    // / "BG24" for BGR888). main.cpp maps this to EGL_LINUX_DRM_FOURCC_EXT.
-    // Empty string defaults to NV12 for back-compat with senders that
-    // don't fill Format.
+    int plane1_fd = -1;
     std::string format;
+    uint64_t frame_idx = 0;
+};
 
+// Consumer-facing snapshot with owned (dup'd) fds. Safe to hold across
+// frame boundaries — the dma-buf stays alive as long as this struct lives.
+struct OwnedFrameView {
+    vn::base::unique_fd fd;
+    vn::base::unique_fd plane1_fd;
+    int width = 0;
+    int height = 0;
+    uint32_t plane0_pitch = 0;
+    uint32_t plane0_offset = 0;
+    uint32_t plane1_pitch = 0;
+    uint32_t plane1_offset = 0;
+    std::string format;
     uint64_t frame_idx = 0;
 };
 
@@ -88,8 +95,12 @@ class ScmRightsSource {
     ScmRightsSource(const ScmRightsSource&) = delete;
     ScmRightsSource& operator=(const ScmRightsSource&) = delete;
 
-    // Thread-safe snapshot.
-    FrameView latest_frame() const;
+    OwnedFrameView latest_frame() const;
+
+    // Returns an eventfd that becomes readable each time a new frame
+    // arrives. Consumers can poll() on this instead of busy-sleeping.
+    // Returns -1 if init() hasn't been called yet.
+    int notify_fd() const { return notify_fd_.get(); }
 
     bool running() const { return running_.load(); }
     int listen_fd() const { return listen_fd_.get(); }
@@ -105,6 +116,8 @@ class ScmRightsSource {
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
+
+    vn::base::unique_fd notify_fd_;
 
     mutable std::mutex latest_mu_;
     // FrameView's `fd`/`plane1_fd` borrow into latest_owned_fds_. Consumers

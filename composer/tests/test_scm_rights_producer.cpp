@@ -358,7 +358,7 @@ TEST(ScmRightsProducer, SourceDialModeConsumesProducer) {
                          std::chrono::milliseconds(500)));
     auto fv = src.latest_frame();
     EXPECT_EQ(uint64_t(123), fv.frame_idx);
-    EXPECT_TRUE(fv.fd >= 0);
+    EXPECT_TRUE(fv.fd.get() >= 0);
     EXPECT_EQ(std::string("NV12"), fv.format);
 
     src.stop();
