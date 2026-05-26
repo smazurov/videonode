@@ -208,10 +208,77 @@ describe('applyHandleDelta — edge clamping preserves opposite edge', () => {
   });
 });
 
+describe('snapSlot preserves fixed edges for resize handles', () => {
+  it('west handle: right edge stays fixed across drag range', () => {
+    const start = slot({ x: 100, w: 200 });
+    const rightEdge = start.x + start.w;
+    for (const dx of [-15, -20, -25, -30, -35]) {
+      const after = applyHandleDelta(start, 'w', dx, 0, canvas, false);
+      const snapped = snapSlot(after, 10, 'w');
+      expect(snapped.x + snapped.w).toBe(rightEdge);
+    }
+  });
+
+  it('north handle: bottom edge stays fixed across drag range', () => {
+    const start = slot({ x: 100, y: 100, w: 200, h: 200 });
+    const bottomEdge = start.y + start.h;
+    for (const dy of [-15, -20, -25, -30, -35]) {
+      const after = applyHandleDelta(start, 'n', 0, dy, canvas, false);
+      const snapped = snapSlot(after, 10, 'n');
+      expect(snapped.y + snapped.h).toBe(bottomEdge);
+    }
+  });
+
+  it('east handle: left edge stays fixed', () => {
+    const start = slot({ x: 100, w: 200 });
+    for (const dx of [13, 17, 23, 27]) {
+      const after = applyHandleDelta(start, 'e', dx, 0, canvas, false);
+      const snapped = snapSlot(after, 10, 'e');
+      expect(snapped.x).toBe(start.x);
+    }
+  });
+
+  it('south handle: top edge stays fixed', () => {
+    const start = slot({ x: 100, y: 100, w: 200, h: 200 });
+    for (const dy of [13, 17, 23, 27]) {
+      const after = applyHandleDelta(start, 's', 0, dy, canvas, false);
+      const snapped = snapSlot(after, 10, 's');
+      expect(snapped.y).toBe(start.y);
+    }
+  });
+
+  it('nw handle: bottom-right corner stays fixed', () => {
+    const start = slot({ x: 100, y: 100, w: 200, h: 200 });
+    const rightEdge = start.x + start.w;
+    const bottomEdge = start.y + start.h;
+    const after = applyHandleDelta(start, 'nw', -15, -15, canvas, false);
+    const snapped = snapSlot(after, 10, 'nw');
+    expect(snapped.x + snapped.w).toBe(rightEdge);
+    expect(snapped.y + snapped.h).toBe(bottomEdge);
+  });
+
+  it('se handle: top-left corner stays fixed', () => {
+    const start = slot({ x: 100, y: 100, w: 200, h: 200 });
+    const after = applyHandleDelta(start, 'se', 13, 17, canvas, false);
+    const snapped = snapSlot(after, 10, 'se');
+    expect(snapped.x).toBe(start.x);
+    expect(snapped.y).toBe(start.y);
+  });
+
+  it('move handle: snaps all four values independently (no fixed edge)', () => {
+    const s = slot({ x: 103, y: 97, w: 198, h: 205 });
+    const snapped = snapSlot(s, 10, 'move');
+    expect(snapped.x).toBe(100);
+    expect(snapped.y).toBe(100);
+    expect(snapped.w).toBe(200);
+    expect(snapped.h).toBe(210);
+  });
+});
+
 describe('snapSlot + clampToCanvas interaction', () => {
   it('snap pushes slot past right edge, clamp constrains w not x', () => {
     const s = slot({ x: 100, w: 395 });
-    const snapped = snapSlot(s, 10);
+    const snapped = snapSlot(s, 10, 'e');
     expect(snapped.w).toBe(400);
     const clamped = clampToCanvas(snapped, canvas, 'e');
     expect(clamped.x).toBe(100);
@@ -220,7 +287,7 @@ describe('snapSlot + clampToCanvas interaction', () => {
 
   it('snap pushes x negative, clamp constrains w not position', () => {
     const s = slot({ x: 3, w: 297 });
-    const snapped = snapSlot(s, 10);
+    const snapped = snapSlot(s, 10, 'w');
     expect(snapped.x).toBe(0);
     const clamped = clampToCanvas(snapped, canvas, 'w');
     expect(clamped.x).toBe(0);

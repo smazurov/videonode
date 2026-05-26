@@ -156,15 +156,22 @@ export function snap(value: number, grid: number): number {
   return Math.round(value / grid) * grid;
 }
 
-export function snapSlot(slot: LayoutSlot, grid: number): LayoutSlot {
-  const { x, y, w, h } = slot;
-  return {
-    ...slot,
-    x: snap(x, grid),
-    y: snap(y, grid),
-    w: snap(w, grid),
-    h: snap(h, grid),
-  };
+export function snapSlot(slot: LayoutSlot, grid: number, handle: HandlePos = 'move'): LayoutSlot {
+  if (handle === 'move') {
+    return { ...slot, x: snap(slot.x, grid), y: snap(slot.y, grid), w: snap(slot.w, grid), h: snap(slot.h, grid) };
+  }
+  const anchorsRight = handle === 'w' || handle === 'nw' || handle === 'sw';
+  const anchorsBottom = handle === 'n' || handle === 'nw' || handle === 'ne';
+  const anchorsLeft = handle === 'e' || handle === 'ne' || handle === 'se';
+  const anchorsTop = handle === 's' || handle === 'sw' || handle === 'se';
+  let { x, y, w, h } = slot;
+  if (anchorsRight) { const right = x + w; x = snap(x, grid); w = right - x; }
+  else if (anchorsLeft) { w = snap(x + w, grid) - x; }
+  else { x = snap(x, grid); w = snap(w, grid); }
+  if (anchorsBottom) { const bottom = y + h; y = snap(y, grid); h = bottom - y; }
+  else if (anchorsTop) { h = snap(y + h, grid) - y; }
+  else { y = snap(y, grid); h = snap(h, grid); }
+  return { ...slot, x, y, w, h };
 }
 
 export function clampToCanvas(slot: LayoutSlot, canvas: CanvasDims, handle: HandlePos): LayoutSlot {
