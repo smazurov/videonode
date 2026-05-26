@@ -80,7 +80,7 @@ TEST(ScmRightsSource, EndToEndSinglePlane) {
 
     // Wait for the receiver thread to consume the message and update latest_.
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    scm_rights_source::FrameView v;
+    scm_rights_source::OwnedFrameView v;
     while (std::chrono::steady_clock::now() < deadline) {
         v = src.latest_frame();
         if (v.frame_idx > 0)
@@ -92,11 +92,11 @@ TEST(ScmRightsSource, EndToEndSinglePlane) {
     EXPECT_EQ(v.height, 1080);
     EXPECT_EQ(v.plane0_pitch, 1920u);
     EXPECT_EQ(v.plane0_offset, 0u);
-    EXPECT_TRUE(v.fd >= 0);
+    EXPECT_TRUE(v.fd.get() >= 0);
 
     // Sanity: the received fd is a valid dup of the daemon's tempfile.
     uint8_t b = 0;
-    EXPECT_TRUE(::pread(v.fd, &b, 1, 0) == 1);
+    EXPECT_TRUE(::pread(v.fd.get(), &b, 1, 0) == 1);
     EXPECT_EQ(b, uint8_t(0xAB));
 
     daemon.join();
