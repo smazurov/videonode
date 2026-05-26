@@ -230,7 +230,7 @@ func (s *streamService) EncoderStatus(streamID string) models.ProcessStatus {
 // persisted entity: sources first, then composers, then streams.
 // Skips entities that are already running (or starting) from concurrent
 // CRUD to avoid unnecessary restarts.
-func (s *streamService) StartPipeline(_ context.Context) (bool, error) {
+func (s *streamService) StartPipeline(ctx context.Context) (bool, error) {
 	if s.psw == nil {
 		return false, nil
 	}
@@ -238,37 +238,62 @@ func (s *streamService) StartPipeline(_ context.Context) (bool, error) {
 	if err := s.psw.SetPipeline(streams.PipelineConfig{Enabled: true}); err != nil {
 		return false, fmt.Errorf("persist pipeline state: %w", err)
 	}
+	if s.pipe == nil {
+		return !wasEnabled, nil
+	}
+
+	sources := s.store.ListSourceEntities()
+	composers := s.store.ListComposerEntities()
+	pstreams := s.store.ListPipelineStreams()
+	s.logger.Info("StartPipeline: starting",
+		"sources", len(sources), "composers", len(composers), "streams", len(pstreams))
+
 	var errs []error
-	if s.pipe != nil {
-		pool := s.pipe.Pool()
-		for _, src := range s.store.ListSourceEntities() {
-			if pool.GetStatus(pipeline.SourcePoolKey(src.ID)).State != process.StateIdle {
-				continue
-			}
-			if err := s.pipe.ApplySource(src); err != nil {
-				s.logger.Error("StartPipeline: ApplySource failed", "source_id", src.ID, "error", err)
-				errs = append(errs, fmt.Errorf("source %s: %w", src.ID, err))
-			}
+	pool := s.pipe.Pool()
+
+	for _, src := range sources {
+		if ctx.Err() != nil {
+			errs = append(errs, ctx.Err())
+			break
 		}
-		for _, c := range s.store.ListComposerEntities() {
-			if pool.GetStatus(pipeline.ComposerPoolKey(c.ID)).State != process.StateIdle {
-				continue
-			}
-			if err := s.pipe.ApplyComposer(c); err != nil {
-				s.logger.Error("StartPipeline: ApplyComposer failed", "composer_id", c.ID, "error", err)
-				errs = append(errs, fmt.Errorf("composer %s: %w", c.ID, err))
-			}
+		if pool.GetStatus(pipeline.SourcePoolKey(src.ID)).State != process.StateIdle {
+			continue
 		}
-		for _, st := range s.store.ListPipelineStreams() {
-			if pool.GetStatus(pipeline.EncoderIDFor(st.ID)).State != process.StateIdle {
-				continue
-			}
-			if err := s.pipe.ApplyStream(st); err != nil {
-				s.logger.Error("StartPipeline: ApplyStream failed", "stream_id", st.ID, "error", err)
-				errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
-			}
+		if err := s.pipe.ApplySource(src); err != nil {
+			s.logger.Error("StartPipeline: ApplySource failed", "source_id", src.ID, "error", err)
+			errs = append(errs, fmt.Errorf("source %s: %w", src.ID, err))
 		}
 	}
+
+	for _, c := range composers {
+		if ctx.Err() != nil {
+			errs = append(errs, ctx.Err())
+			break
+		}
+		if pool.GetStatus(pipeline.ComposerPoolKey(c.ID)).State != process.StateIdle {
+			continue
+		}
+		if err := s.pipe.ApplyComposer(c); err != nil {
+			s.logger.Error("StartPipeline: ApplyComposer failed", "composer_id", c.ID, "error", err)
+			errs = append(errs, fmt.Errorf("composer %s: %w", c.ID, err))
+		}
+	}
+
+	for _, st := range pstreams {
+		if ctx.Err() != nil {
+			errs = append(errs, ctx.Err())
+			break
+		}
+		if pool.GetStatus(pipeline.EncoderIDFor(st.ID)).State != process.StateIdle {
+			continue
+		}
+		if err := s.pipe.ApplyStream(st); err != nil {
+			s.logger.Error("StartPipeline: ApplyStream failed", "stream_id", st.ID, "error", err)
+			errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
+		}
+	}
+
+	s.logger.Info("StartPipeline: complete")
 	return !wasEnabled, errors.Join(errs...)
 }
 
