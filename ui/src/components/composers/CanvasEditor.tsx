@@ -192,7 +192,13 @@ function snapSlot(slot: LayoutSlot, grid: number): LayoutSlot {
   };
 }
 
-function clampToCanvas(slot: LayoutSlot, canvas: CanvasDims): LayoutSlot {
+function clampToCanvas(slot: LayoutSlot, canvas: CanvasDims, handle: HandlePos): LayoutSlot {
+  return handle === 'move'
+    ? clampMove(slot, canvas)
+    : clampResize(slot, canvas);
+}
+
+function clampMove(slot: LayoutSlot, canvas: CanvasDims): LayoutSlot {
   let { x, y } = slot;
   const { w, h } = slot;
   if (x < 0) x = 0;
@@ -200,6 +206,15 @@ function clampToCanvas(slot: LayoutSlot, canvas: CanvasDims): LayoutSlot {
   if (x + w > canvas.w) x = canvas.w - w;
   if (y + h > canvas.h) y = canvas.h - h;
   return { ...slot, x, y };
+}
+
+function clampResize(slot: LayoutSlot, canvas: CanvasDims): LayoutSlot {
+  let { x, y, w, h } = slot;
+  if (x < 0) { w += x; x = 0; }
+  if (y < 0) { h += y; y = 0; }
+  if (x + w > canvas.w) w = canvas.w - x;
+  if (y + h > canvas.h) h = canvas.h - y;
+  return { ...slot, x, y, w, h };
 }
 
 interface AlignmentGuide {
@@ -366,7 +381,7 @@ export function CanvasEditor({
       // because both can break the ratio.
       const aspectLock = CORNER_HANDLES.has(drag.handle) && !(e.ctrlKey || e.metaKey);
       let next = applyHandleDelta(drag.startSlot, drag.handle, dx, dy, canvas, aspectLock);
-      if (!aspectLock && snapToGrid && gridSize > 0) next = clampToCanvas(snapSlot(next, gridSize), canvas);
+      if (!aspectLock && snapToGrid && gridSize > 0) next = clampToCanvas(snapSlot(next, gridSize), canvas, drag.handle);
       if (aspectLock) {
         setGuides([]);
         updateSlot(drag.slotInput, () => next);
@@ -376,7 +391,7 @@ export function CanvasEditor({
       const candidates = buildAlignmentCandidates(canvas, next, others);
       const aligned = applyAlignment(next, candidates);
       setGuides(aligned.guides);
-      updateSlot(drag.slotInput, () => clampToCanvas(aligned.slot, canvas));
+      updateSlot(drag.slotInput, () => clampToCanvas(aligned.slot, canvas, drag.handle));
     },
     [canvas, gridSize, scale, snapToGrid, updateSlot],
   );
