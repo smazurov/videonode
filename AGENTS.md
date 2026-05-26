@@ -279,4 +279,3 @@ The API includes endpoints for:
     2. `ctest --preset dev --output-on-failure`
     3. `cmake --build build/dev --target lint`       # clang-format dry-run
     4. `cmake --build build/dev --target tidy-diff`  # clang-tidy on changed lines vs origin/main
-# TEST — DELETE ME
