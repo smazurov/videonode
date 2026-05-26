@@ -48,7 +48,9 @@ type SRTConsumer struct {
 	closed bool
 	mu     sync.Mutex
 
-	bytesSent int64
+	connectedAt time.Time
+	bytesSent   int64
+	lastRTTMs   float64
 
 	// Stats tracking for delta calculation
 	lastRetransmits uint64
@@ -58,13 +60,14 @@ type SRTConsumer struct {
 // NewSRTConsumer creates a new SRT consumer for the given stream.
 func NewSRTConsumer(stream *Stream, consumerID string, srtConn srt.Conn, logger *slog.Logger) (*SRTConsumer, error) {
 	c := &SRTConsumer{
-		conn:       srtConn,
-		srtConn:    srtConn,
-		streamID:   stream.ID(),
-		consumerID: consumerID,
-		logger:     logger,
-		trackMap:   make(map[*description.Media]*mpegts.Track),
-		done:       make(chan struct{}),
+		conn:        srtConn,
+		srtConn:     srtConn,
+		streamID:    stream.ID(),
+		consumerID:  consumerID,
+		logger:      logger,
+		trackMap:    make(map[*description.Media]*mpegts.Track),
+		done:        make(chan struct{}),
+		connectedAt: time.Now(),
 	}
 
 	// Create MPEG-TS tracks for each media in the stream
@@ -324,11 +327,13 @@ func (c *SRTConsumer) writeOpus(track *mpegts.Track, pts int64, packets [][]byte
 }
 
 // recordMetrics records bytes sent and frames written for metrics.
+// All callers hold c.mu.
 func (c *SRTConsumer) recordMetrics(data [][]byte, codec string) {
 	var bytes int
 	for _, d := range data {
 		bytes += len(d)
 	}
+	c.bytesSent += int64(bytes)
 	IncrementSRTPacketsSent(c.streamID, bytes)
 	IncrementSRTFramesWritten(c.streamID, codec)
 }
@@ -381,6 +386,7 @@ func (c *SRTConsumer) startStatsCollection() {
 
 				// Update counters with deltas
 				c.mu.Lock()
+				c.lastRTTMs = stats.Instantaneous.MsRTT
 				retransDelta := stats.Accumulated.PktRetrans - c.lastRetransmits
 				droppedDelta := stats.Accumulated.PktSendDrop - c.lastDropped
 				c.lastRetransmits = stats.Accumulated.PktRetrans
@@ -398,4 +404,16 @@ func (c *SRTConsumer) startStatsCollection() {
 			}
 		}
 	}()
+}
+
+// Info returns a point-in-time view for the consumer SSE event.
+func (c *SRTConsumer) Info() SRTClientInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return SRTClientInfo{
+		ID:             c.consumerID,
+		ConnectedSince: c.connectedAt.UTC().Format(time.RFC3339),
+		BytesSent:      c.bytesSent,
+		RTTMs:          c.lastRTTMs,
+	}
 }

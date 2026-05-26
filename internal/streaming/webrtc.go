@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
@@ -39,6 +40,8 @@ type webrtcPeer struct {
 	peerID       string
 	tracks       map[*description.Media]*pion.TrackLocalStaticRTP
 	h264Encoders map[*description.Media]*rtph264.Encoder
+	connectedAt  time.Time
+	bytesSent    atomic.Int64
 }
 
 // NewWebRTCManager creates a new WebRTC manager.
@@ -100,6 +103,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 		peerID:       peerID,
 		tracks:       make(map[*description.Media]*pion.TrackLocalStaticRTP),
 		h264Encoders: make(map[*description.Media]*rtph264.Encoder),
+		connectedAt:  time.Now(),
 	}
 
 	// Add tracks for each media in the stream
@@ -218,6 +222,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 					pkt.Timestamp = rtpTimestamp
 					size := pkt.MarshalSize()
 					IncrementPacketsSent(streamID, size)
+					peer.bytesSent.Add(int64(size))
 					_ = currentTrack.WriteRTP(pkt)
 				}
 				return nil
@@ -227,6 +232,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 			peer.reader.OnRTP(currentMedia, func(pkt *rtp.Packet) {
 				size := pkt.MarshalSize()
 				IncrementPacketsSent(streamID, size)
+				peer.bytesSent.Add(int64(size))
 				_ = currentTrack.WriteRTP(pkt)
 			})
 		}
@@ -386,6 +392,46 @@ func (m *WebRTCManager) StreamPeerCount(streamID string) int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.streamPeers[streamID])
+}
+
+// StreamPeerInfo returns per-peer details for a stream's WebRTC consumers.
+func (m *WebRTCManager) StreamPeerInfo(streamID string) []WebRTCClientInfo {
+	m.mu.RLock()
+	peerIDs := m.streamPeers[streamID]
+	if len(peerIDs) == 0 {
+		m.mu.RUnlock()
+		return nil
+	}
+	peers := make([]*webrtcPeer, 0, len(peerIDs))
+	for pid := range peerIDs {
+		if p, ok := m.peers[pid]; ok {
+			peers = append(peers, p)
+		}
+	}
+	m.mu.RUnlock()
+
+	out := make([]WebRTCClientInfo, len(peers))
+	for i, p := range peers {
+		out[i] = WebRTCClientInfo{
+			ID:             p.peerID,
+			ConnectedSince: p.connectedAt.UTC().Format(time.RFC3339),
+			BytesSent:      p.bytesSent.Load(),
+			JitterMs:       PeerJitterMs(p.peerID),
+		}
+	}
+	return out
+}
+
+// DisconnectPeer disconnects a single WebRTC peer by ID. Returns false if not found.
+func (m *WebRTCManager) DisconnectPeer(peerID string) bool {
+	m.mu.RLock()
+	peer, ok := m.peers[peerID]
+	m.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	m.closePeer(peerID, peer.streamID, "api_disconnect")
+	return true
 }
 
 // CloseStreamConsumers closes all WebRTC peers for a given stream.

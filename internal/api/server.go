@@ -157,6 +157,7 @@ type Options struct {
 		Patterns() []string
 	}
 	WebRTCManager     *streaming.WebRTCManager // WebRTC signaling manager
+	SRTServer         *streaming.SRTServer     // SRT consumer server (optional)
 	StreamProvider    streaming.StreamProvider // Stream access for WebRTC
 	SnapshotCache     *snapshots.Cache         // In-memory JPEG cache for snapshot/preview endpoints
 	ControlServer     *pipelinectl.Manager     // Optional control plane for native sidecars
@@ -557,9 +558,9 @@ func (s *Server) registerRoutes() {
 	// Update endpoints (if update service is available)
 	s.registerUpdateRoutes()
 
-	// WebRTC signaling endpoints (if WebRTC manager is available)
+	// Streaming consumer endpoints (WebRTC signaling + disconnect)
 	if s.options.WebRTCManager != nil {
-		streaming.RegisterWebRTCAPI(s.api, s.options.WebRTCManager)
+		streaming.RegisterStreamingAPI(s.api, s.options.WebRTCManager, s.options.SRTServer)
 	}
 
 	// Snapshot/preview endpoints (in-memory JPEG cache + multipart MJPEG)
