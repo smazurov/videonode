@@ -53,4 +53,22 @@ if(HAVE_PLACEBO AND HAVE_GBM)
     vn_add_test(pl_compose_fd_leak
         DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc
         LABELS render)
+
+    vn_add_test(canvas_tearing
+        DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc Threads::Threads
+        LABELS render)
+
+    vn_add_test(nv12_ring_overwrite
+        DEPS gbm_alloc
+        LABELS render)
+
+    vn_add_test(pipeline_tearing
+        DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc nv12_buf
+             scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
+        LABELS render)
+
 endif()
+
+vn_add_test(fd_lifetime
+    DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
+    LABELS ipc)
