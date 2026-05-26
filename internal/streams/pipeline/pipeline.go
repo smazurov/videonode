@@ -465,6 +465,7 @@ func (p *Pipeline) pushComposerConfig(c Composer, udsPath string) {
 			slots = append(slots, pipelinectl.LayoutSlotEntry{
 				Slot: slotNameFor(idx),
 				X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
+				Rotation: int32(l.Rotation),
 			})
 		}
 	} else if len(c.Inputs) > 0 {
@@ -543,6 +544,7 @@ func (p *Pipeline) UpdateComposerLayout(id string, layout []LayoutSlot) error {
 		slots = append(slots, pipelinectl.LayoutSlotEntry{
 			Slot: slotNameFor(idx),
 			X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
+			Rotation: int32(l.Rotation),
 		})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

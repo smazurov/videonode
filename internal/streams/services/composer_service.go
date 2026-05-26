@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -406,6 +407,14 @@ func validateComposerLayout(c pipeline.Composer) error {
 				Message: "layout slot references unknown input: " + slot.Input,
 			}
 		}
+		switch slot.Rotation {
+		case 0, 90, 180, 270:
+		default:
+			return &api.ComposerError{
+				Code:    api.ComposerErrInvalid,
+				Message: fmt.Sprintf("layout slot rotation must be 0, 90, 180, or 270; got %d", slot.Rotation),
+			}
+		}
 	}
 	return nil
 }
@@ -435,7 +444,7 @@ func apiLayoutToEntity(layout []models.LayoutSlotData) []pipeline.LayoutSlot {
 	}
 	out := make([]pipeline.LayoutSlot, len(layout))
 	for i, l := range layout {
-		out[i] = pipeline.LayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H}
+		out[i] = pipeline.LayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation}
 	}
 	return out
 }
@@ -462,7 +471,7 @@ func composerToAPI(c pipeline.Composer) models.ComposerData {
 	}
 	out.Layout = make([]models.LayoutSlotData, len(c.Layout))
 	for i, l := range c.Layout {
-		out.Layout[i] = models.LayoutSlotData{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H}
+		out.Layout[i] = models.LayoutSlotData{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation}
 	}
 	return out
 }

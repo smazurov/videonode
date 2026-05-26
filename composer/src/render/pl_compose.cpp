@@ -262,6 +262,20 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
         src_frame.planes[1].shift_y = -1;
         pl_frame_set_chroma_location(&src_frame, PL_CHROMA_LEFT);
 
+        switch (slot.rotation) {
+        case 90:
+            src_frame.rotation = PL_ROTATION_90;
+            break;
+        case 180:
+            src_frame.rotation = PL_ROTATION_180;
+            break;
+        case 270:
+            src_frame.rotation = PL_ROTATION_270;
+            break;
+        default:
+            break;
+        }
+
         struct pl_frame dst_frame = {};
         dst_frame.num_planes = 1;
         dst_frame.planes[0].texture = impl_->canvas_tex;

@@ -433,10 +433,12 @@ type LayoutSlot struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Slot  string                 `protobuf:"bytes,1,opt,name=slot,proto3" json:"slot,omitempty"`
 	// canvas pixel coordinates; x/y may be negative (clipped off-canvas).
-	X             int32 `protobuf:"varint,2,opt,name=x,proto3" json:"x,omitempty"`
-	Y             int32 `protobuf:"varint,3,opt,name=y,proto3" json:"y,omitempty"`
-	W             int32 `protobuf:"varint,4,opt,name=w,proto3" json:"w,omitempty"`
-	H             int32 `protobuf:"varint,5,opt,name=h,proto3" json:"h,omitempty"`
+	X int32 `protobuf:"varint,2,opt,name=x,proto3" json:"x,omitempty"`
+	Y int32 `protobuf:"varint,3,opt,name=y,proto3" json:"y,omitempty"`
+	W int32 `protobuf:"varint,4,opt,name=w,proto3" json:"w,omitempty"`
+	H int32 `protobuf:"varint,5,opt,name=h,proto3" json:"h,omitempty"`
+	// Clockwise rotation in degrees: 0, 90, 180, 270. Default 0.
+	Rotation      int32 `protobuf:"varint,6,opt,name=rotation,proto3" json:"rotation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -502,6 +504,13 @@ func (x *LayoutSlot) GetW() int32 {
 func (x *LayoutSlot) GetH() int32 {
 	if x != nil {
 		return x.H
+	}
+	return 0
+}
+
+func (x *LayoutSlot) GetRotation() int32 {
+	if x != nil {
+		return x.Rotation
 	}
 	return 0
 }
@@ -806,14 +815,15 @@ const file_control_composer_proto_rawDesc = "" +
 	"\x06height\x18\x05 \x01(\rR\x06height\x12\x10\n" +
 	"\x03fps\x18\x06 \x01(\rR\x03fps\"(\n" +
 	"\x12ClearSourceRequest\x12\x12\n" +
-	"\x04slot\x18\x01 \x01(\tR\x04slot\"X\n" +
+	"\x04slot\x18\x01 \x01(\tR\x04slot\"t\n" +
 	"\n" +
 	"LayoutSlot\x12\x12\n" +
 	"\x04slot\x18\x01 \x01(\tR\x04slot\x12\f\n" +
 	"\x01x\x18\x02 \x01(\x05R\x01x\x12\f\n" +
 	"\x01y\x18\x03 \x01(\x05R\x01y\x12\f\n" +
 	"\x01w\x18\x04 \x01(\x05R\x01w\x12\f\n" +
-	"\x01h\x18\x05 \x01(\x05R\x01h\"G\n" +
+	"\x01h\x18\x05 \x01(\x05R\x01h\x12\x1a\n" +
+	"\brotation\x18\x06 \x01(\x05R\brotation\"G\n" +
 	"\x10SetLayoutRequest\x123\n" +
 	"\x05slots\x18\x01 \x03(\v2\x1d.videonode.control.LayoutSlotR\x05slots\"q\n" +
 	"\x17PerspectiveEffectParams\x12\x18\n" +

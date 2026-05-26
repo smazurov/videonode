@@ -163,6 +163,7 @@ build_render_slots_(const Snapshot& snap, const std::map<std::string, LiveSource
         s.y = rect.y;
         s.w = rect.w;
         s.h = rect.h;
+        s.rotation = rect.rotation;
         auto sit = snap.source_states.find(bit->source_id);
         if (sit != snap.source_states.end()) {
             const auto& ss = sit->second;
