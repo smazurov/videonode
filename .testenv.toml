@@ -13,6 +13,10 @@ step = 10
 base = 6001
 step = 10
 
+[ports.pc]
+base = 9080
+step = 1
+
 [ports.vite]
 base = 5173
 step = 10
@@ -39,6 +43,7 @@ VIDEONODE_UPDATE_ENABLED = "false"
 VIDEONODE_FEATURES_LED_CONTROL = "false"
 VIDEONODE_METRICS_SSE_ENABLED = "true"
 VITE_DEV_PORT = "${TESTENV_PORT_VITE}"
+PC_PORT_NUM = "${TESTENV_PORT_PC}"
 
 [[spawn.files]]
 path = "${TESTENV_WORKTREE}/streams.toml"

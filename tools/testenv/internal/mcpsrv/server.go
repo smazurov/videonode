@@ -191,6 +191,9 @@ func sessionOrEnv(s string) string {
 	if s != "" {
 		return s
 	}
+	if v := os.Getenv("CLAUDE_CODE_SESSION_ID"); v != "" {
+		return v
+	}
 	return os.Getenv("CLAUDE_SESSION_ID")
 }
 
