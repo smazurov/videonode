@@ -9,7 +9,6 @@ interface CanvasPreviewProps {
   /** Render order: index 0 = back, last = front. */
   zOrder?: readonly string[];
   hideCaption?: boolean;
-  loading?: boolean;
 }
 
 // Pure read-only SVG renderer for a composer canvas. Editors layer interaction
@@ -22,7 +21,6 @@ export function CanvasPreview({
   className = '',
   zOrder,
   hideCaption = false,
-  loading = false,
 }: Readonly<CanvasPreviewProps>) {
   const aspectRatio = canvas.w / Math.max(1, canvas.h);
 
@@ -31,6 +29,8 @@ export function CanvasPreview({
   for (const input of inputs) {
     inputByRef.set(input.ref, input);
   }
+
+  const slotNumber = new Map(layout.map((s, i) => [s.input, i + 1]));
 
   // Resolve z-order: explicit override, else layout array order.
   const orderedSlots: LayoutSlot[] = (() => {
@@ -56,7 +56,7 @@ export function CanvasPreview({
       >
         {layout.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center text-fg-subtle text-sm">
-            {loading ? 'Loading layout…' : 'No layout slots'}
+            No layout slots
           </div>
         ) : (
           <svg
@@ -77,8 +77,18 @@ export function CanvasPreview({
                 : 'rgba(59, 130, 246, 0.12)';
               const strokeColor = isSelected ? '#3b82f6' : '#64748b';
               const effectSuffix = input?.effect ? ` · ${input.effect.type}` : '';
+              const clipId = `clip-${slot.input.replace(/[^\w-]/g, '_')}`;
+              const pad = labelSize * 0.5;
               return (
                 <g key={slot.input}>
+                  <clipPath id={clipId}>
+                    <rect
+                      x={slot.x + pad}
+                      y={slot.y}
+                      width={slot.w - pad * 2}
+                      height={slot.h}
+                    />
+                  </clipPath>
                   <rect
                     x={slot.x}
                     y={slot.y}
@@ -96,19 +106,15 @@ export function CanvasPreview({
                     fill="#ffffff"
                     fontSize={labelSize}
                     fontFamily="monospace"
+                    clipPath={`url(#${clipId})`}
                   >
-                    {slot.input}
+                    {slotNumber.get(slot.input) ?? '?'}
                     {effectSuffix}
                   </text>
                 </g>
               );
             })}
           </svg>
-        )}
-        {loading && layout.length > 0 && (
-          <div className="absolute top-2 right-2 text-xs text-fg-subtle bg-surface-sunken/80 px-2 py-1 rounded">
-            saving…
-          </div>
         )}
       </div>
       {!hideCaption && (
