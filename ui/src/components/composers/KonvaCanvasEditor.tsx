@@ -268,12 +268,19 @@ export function KonvaCanvasEditor({
 
   const boundBoxFunc = useCallback(
     (oldBox: Box, newBox: Box) => {
-      if (Math.abs(newBox.width) < MIN_SIZE || Math.abs(newBox.height) < MIN_SIZE) {
+      const minW = MIN_SIZE * scale;
+      const minH = MIN_SIZE * scale;
+      if (Math.abs(newBox.width) < minW || Math.abs(newBox.height) < minH) {
+        return oldBox;
+      }
+      const maxW = canvas.w * scale;
+      const maxH = canvas.h * scale;
+      if (newBox.x < 0 || newBox.y < 0 || newBox.x + newBox.width > maxW || newBox.y + newBox.height > maxH) {
         return oldBox;
       }
       return newBox;
     },
-    [],
+    [canvas.h, canvas.w, scale],
   );
 
   if (stageW <= 0) {
