@@ -2,6 +2,7 @@
 
 #include "src/common/log_levels.hpp"
 #include "src/render/egl_ctx.hpp"
+#include "src/render/gbm_alloc.hpp"
 
 #include <EGL/egl.h>
 #include <drm_fourcc.h>
@@ -45,15 +46,17 @@ struct PlCompose::Impl {
     pl_gpu gpu = nullptr;
     pl_renderer renderer = nullptr;
     pl_dispatch dispatch = nullptr;
-    pl_tex canvas_tex = nullptr;
+    pl_tex canvas_tex[kBufCount] = {};
     bool using_vulkan = false;
 };
 
 PlCompose::~PlCompose() {
     if (!impl_)
         return;
-    if (impl_->canvas_tex)
-        pl_tex_destroy(impl_->gpu, &impl_->canvas_tex);
+    for (auto& tex : impl_->canvas_tex) {
+        if (tex)
+            pl_tex_destroy(impl_->gpu, &tex);
+    }
     if (impl_->dispatch)
         pl_dispatch_destroy(&impl_->dispatch);
     if (impl_->renderer)
@@ -66,10 +69,12 @@ PlCompose::~PlCompose() {
         pl_opengl_destroy(&impl_->gl);
     if (impl_->logger)
         pl_log_destroy(&impl_->logger);
-    if (canvas_bo_)
-        gbm_bo_destroy(canvas_bo_);
-    if (canvas_fd_ >= 0)
-        ::close(canvas_fd_);
+    for (int i = 0; i < kBufCount; ++i) {
+        if (canvas_bo_[i])
+            gbm_bo_destroy(canvas_bo_[i]);
+        if (canvas_fd_[i] >= 0)
+            ::close(canvas_fd_[i]);
+    }
     delete impl_;
 }
 
@@ -122,7 +127,6 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
         if (!impl_->gl) {
             vn::log::error("pl_compose: both Vulkan and OpenGL backends failed");
             delete impl_;
-            delete impl_;
             impl_ = nullptr;
             return false;
         }
@@ -139,21 +143,7 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
         return false;
     }
 
-    // Allocate canvas via GBM (ARGB8888)
-    canvas_bo_ = gbm_bo_create(impl_->ctx.gbm(), canvas_w, canvas_h, GBM_FORMAT_ARGB8888,
-                               GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
-    if (!canvas_bo_) {
-        vn::log::error("pl_compose: gbm_bo_create canvas %dx%d", canvas_w, canvas_h);
-        delete impl_;
-        impl_ = nullptr;
-        return false;
-    }
-    canvas_fd_ = gbm_bo_get_fd(canvas_bo_);
-    canvas_stride_ = gbm_bo_get_stride(canvas_bo_);
-    canvas_w_ = canvas_w;
-    canvas_h_ = canvas_h;
-
-    // Import canvas as renderable pl_tex
+    // Allocate double-buffered canvas via GBM (ARGB8888).
     pl_fmt fmt_bgra = pl_find_named_fmt(impl_->gpu, "bgra8");
     if (!fmt_bgra)
         fmt_bgra = pl_find_named_fmt(impl_->gpu, "rgba8");
@@ -164,26 +154,44 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
         return false;
     }
 
-    struct pl_tex_params tp = {};
-    tp.w = canvas_w;
-    tp.h = canvas_h;
-    tp.format = fmt_bgra;
-    tp.renderable = true;
-    tp.import_handle = PL_HANDLE_DMA_BUF;
-    tp.shared_mem.handle.fd = dup(canvas_fd_);
-    tp.shared_mem.size = static_cast<size_t>(canvas_stride_) * canvas_h;
-    tp.shared_mem.drm_format_mod =
-        normalize_mod(gbm_bo_get_modifier(canvas_bo_), impl_->using_vulkan);
-    tp.shared_mem.stride_w = static_cast<int>(canvas_stride_);
-    impl_->canvas_tex = pl_tex_create(impl_->gpu, &tp);
-    if (!impl_->canvas_tex) {
-        vn::log::error("pl_compose: canvas pl_tex_create failed");
-        delete impl_;
-        impl_ = nullptr;
-        return false;
+    canvas_w_ = canvas_w;
+    canvas_h_ = canvas_h;
+    for (int i = 0; i < kBufCount; ++i) {
+        canvas_bo_[i] = gbm_bo_create(impl_->ctx.gbm(), canvas_w, canvas_h, GBM_FORMAT_ARGB8888,
+                                      GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
+        if (!canvas_bo_[i]) {
+            vn::log::error("pl_compose: gbm_bo_create canvas[%d] %dx%d", i, canvas_w, canvas_h);
+            delete impl_;
+            impl_ = nullptr;
+            return false;
+        }
+        canvas_fd_[i] = gbm_bo_get_fd(canvas_bo_[i]);
+        if (i == 0) {
+            canvas_stride_ = gbm_bo_get_stride(canvas_bo_[i]);
+        }
+
+        struct pl_tex_params tp = {};
+        tp.w = canvas_w;
+        tp.h = canvas_h;
+        tp.format = fmt_bgra;
+        tp.renderable = true;
+        tp.import_handle = PL_HANDLE_DMA_BUF;
+        tp.shared_mem.handle.fd = dup(canvas_fd_[i]);
+        tp.shared_mem.size = static_cast<size_t>(canvas_stride_) * canvas_h;
+        tp.shared_mem.drm_format_mod =
+            normalize_mod(gbm_bo_get_modifier(canvas_bo_[i]), impl_->using_vulkan);
+        tp.shared_mem.stride_w = static_cast<int>(canvas_stride_);
+        impl_->canvas_tex[i] = pl_tex_create(impl_->gpu, &tp);
+        if (!impl_->canvas_tex[i]) {
+            vn::log::error("pl_compose: canvas pl_tex_create[%d] failed", i);
+            delete impl_;
+            impl_ = nullptr;
+            return false;
+        }
     }
 
-    vn::log::info("pl_compose: ready %dx%d (stride=%u)", canvas_w, canvas_h, canvas_stride_);
+    vn::log::info("pl_compose: ready %dx%d (stride=%u, double-buffered)", canvas_w, canvas_h,
+                  canvas_stride_);
     return true;
 }
 
@@ -195,8 +203,20 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
     if (!impl_)
         return false;
 
-    // Clear canvas to black
-    pl_tex_clear(impl_->gpu, impl_->canvas_tex, (float[4]){0, 0, 0, 1});
+    // CPU-clear the canvas to black via gbm_bo_map + memset. None of
+    // libplacebo's GPU clear paths (blit_dst, storable, null-image render)
+    // work reliably on all drivers with imported linear dma-buf textures.
+    {
+        std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
+        uint32_t stride = 0;
+        void* map_handle = nullptr;
+        void* ptr = gbm_bo_map(canvas_bo_[back_], 0, 0, canvas_w_, canvas_h_, GBM_BO_TRANSFER_WRITE,
+                               &stride, &map_handle);
+        if (ptr) {
+            std::memset(ptr, 0, size_t(stride) * canvas_h_);
+            gbm_bo_unmap(canvas_bo_[back_], map_handle);
+        }
+    }
 
     const uint64_t src_mod = normalize_mod(kModInvalid, impl_->using_vulkan);
     pl_fmt fmt_r8 = pl_find_named_fmt(impl_->gpu, "r8");
@@ -285,7 +305,7 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
 
         struct pl_frame dst_frame = {};
         dst_frame.num_planes = 1;
-        dst_frame.planes[0].texture = impl_->canvas_tex;
+        dst_frame.planes[0].texture = impl_->canvas_tex[back_];
         dst_frame.planes[0].components = 4;
         dst_frame.planes[0].component_mapping[0] = 0;
         dst_frame.planes[0].component_mapping[1] = 1;
@@ -301,6 +321,7 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
 
         struct pl_render_params params = pl_render_fast_params;
         params.skip_anti_aliasing = true;
+        params.border = PL_CLEAR_SKIP;
         // TODO: per-source warp via pl_shader_custom when warp != identity
         pl_render_image(impl_->renderer, &src_frame, &dst_frame, &params);
 
@@ -316,6 +337,10 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
 void PlCompose::finish() {
     if (impl_)
         pl_gpu_finish(impl_->gpu);
+}
+
+void PlCompose::swap() {
+    back_ = (back_ + 1) % kBufCount;
 }
 
 } // namespace pl_compose

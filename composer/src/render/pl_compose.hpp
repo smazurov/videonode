@@ -48,12 +48,13 @@ class PlCompose {
 
     [[nodiscard]] bool render(const std::vector<SourceSlot>& slots);
     void finish();
+    void swap();
 
-    [[nodiscard]] int canvas_dmabuf_fd() const { return canvas_fd_; }
+    [[nodiscard]] int canvas_dmabuf_fd() const { return canvas_fd_[back_]; }
     [[nodiscard]] int canvas_w() const { return canvas_w_; }
     [[nodiscard]] int canvas_h() const { return canvas_h_; }
     [[nodiscard]] uint32_t canvas_stride() const { return canvas_stride_; }
-    [[nodiscard]] gbm_bo* canvas_bo() const { return canvas_bo_; }
+    [[nodiscard]] gbm_bo* canvas_bo() const { return canvas_bo_[back_]; }
     [[nodiscard]] gbm_device* gbm() const;
 
   private:
@@ -62,8 +63,10 @@ class PlCompose {
     int canvas_w_ = 0;
     int canvas_h_ = 0;
     uint32_t canvas_stride_ = 0;
-    gbm_bo* canvas_bo_ = nullptr;
-    int canvas_fd_ = -1;
+    static constexpr int kBufCount = 3;
+    int back_ = 0;
+    gbm_bo* canvas_bo_[kBufCount] = {};
+    int canvas_fd_[kBufCount] = {-1, -1, -1};
 };
 
 } // namespace pl_compose
