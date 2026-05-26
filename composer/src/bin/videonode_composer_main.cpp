@@ -20,6 +20,7 @@
 
 #include "src/common/flags_compat.hpp"
 #include "src/common/log_levels.hpp"
+#include "src/common/raise_fd_limit.hpp"
 #include "src/common/signal.hpp"
 #include "src/render/canvas_loop.hpp"
 #include "src/render/composer_service.hpp"
@@ -70,6 +71,8 @@ std::atomic<bool> g_running{true};
 } // namespace
 
 int main(int argc, char** argv) {
+    vn::raise_fd_limit();
+
     // Same hand-rolled --version dance as the other binaries: absl doesn't
     // own --version, and supervisors grep for the legacy spelling.
     const std::span<char*> args(argv, static_cast<size_t>(argc));

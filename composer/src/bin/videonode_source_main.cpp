@@ -2,6 +2,7 @@
 // source::Run. Body lives in src/source/orchestrator.cpp.
 
 #include "src/common/flags_compat.hpp"
+#include "src/common/raise_fd_limit.hpp"
 #include "src/common/signal.hpp"
 #include "src/source/orchestrator.hpp"
 #include "src/source/orchestrator_flags.hpp"
@@ -24,6 +25,8 @@ std::atomic<bool> g_running{true};
 } // namespace
 
 int main(int argc, char** argv) {
+    vn::raise_fd_limit();
+
     // stderr defaults to block-buffered when redirected to a file (which
     // the supervisor does: `>log 2>&1`). Force line-buffered so each log
     // line is visible to `tail -f` immediately instead of waiting for a

@@ -22,6 +22,7 @@
 // the downstream ffmpeg invocation accordingly.
 
 #include "src/common/log_levels.hpp"
+#include "src/common/raise_fd_limit.hpp"
 #include "src/common/signal.hpp"
 #include "src/ipc/scm_rights_source.hpp"
 #include "version.hpp"
@@ -380,6 +381,8 @@ int run_frame_loop(scm_rights_source::ScmRightsSource& src, const Args& a) {
 } // namespace
 
 int main(int argc, char** argv) {
+    vn::raise_fd_limit();
+
     Args a;
     int parse_result = parse_args(argc, argv, a);
     if (parse_result != 0)
