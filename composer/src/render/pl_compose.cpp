@@ -169,6 +169,7 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
     tp.h = canvas_h;
     tp.format = fmt_bgra;
     tp.renderable = true;
+    tp.blit_dst = true;
     tp.import_handle = PL_HANDLE_DMA_BUF;
     tp.shared_mem.handle.fd = dup(canvas_fd_);
     tp.shared_mem.size = static_cast<size_t>(canvas_stride_) * canvas_h;
