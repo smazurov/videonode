@@ -31,7 +31,6 @@ interface CanvasEditorProps {
   gridSize?: number;
   snapToGrid?: boolean;
   showRulers?: boolean;
-  saving?: boolean;
 }
 
 interface DragState {
@@ -78,6 +77,43 @@ function lockCornerAspect(
     default:
       return { x: sx, y: sy, w, h };
   }
+}
+
+function applyMinSize(
+  x: number, y: number, w: number, h: number,
+  start: LayoutSlot, handle: HandlePos, aspectLock: boolean,
+): { x: number; y: number; w: number; h: number } {
+  if (w >= 16 && h >= 16) return { x, y, w, h };
+  const isCornerLock = aspectLock && CORNER_HANDLES.has(handle);
+  if (!isCornerLock) return { x, y, w: Math.max(16, w), h: Math.max(16, h) };
+  const aspect = start.w / Math.max(1, start.h);
+  if (w < 16) { w = 16; h = w / aspect; }
+  if (h < 16) { h = 16; w = h * aspect; }
+  const anchorsLeft = handle === 'nw' || handle === 'sw';
+  const anchorsTop = handle === 'nw' || handle === 'ne';
+  return {
+    x: anchorsLeft ? start.x + start.w - w : x,
+    y: anchorsTop ? start.y + start.h - h : y,
+    w, h,
+  };
+}
+
+function applyCanvasBounds(
+  x: number, y: number, w: number, h: number,
+  canvas: CanvasDims, handle: HandlePos,
+): { x: number; y: number; w: number; h: number } {
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  const { w: cw, h: ch } = canvas;
+  if (x + w > cw) {
+    if (handle === 'move') x = cw - w;
+    else w = cw - x;
+  }
+  if (y + h > ch) {
+    if (handle === 'move') y = ch - h;
+    else h = ch - y;
+  }
+  return { x, y, w, h };
 }
 
 function applyHandleDelta(
@@ -136,19 +172,8 @@ function applyHandleDelta(
   if (aspectLock && CORNER_HANDLES.has(handle)) {
     ({ x, y, w, h } = lockCornerAspect(start, handle, dx, dy, w, h));
   }
-  if (w < 16) w = 16;
-  if (h < 16) h = 16;
-  if (x < 0) x = 0;
-  if (y < 0) y = 0;
-  const { w: cw, h: ch } = canvas;
-  if (x + w > cw) {
-    if (handle === 'move') x = cw - w;
-    else w = cw - x;
-  }
-  if (y + h > ch) {
-    if (handle === 'move') y = ch - h;
-    else h = ch - y;
-  }
+  ({ x, y, w, h } = applyMinSize(x, y, w, h, start, handle, aspectLock));
+  ({ x, y, w, h } = applyCanvasBounds(x, y, w, h, canvas, handle));
   return { ...start, x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
 }
 
@@ -165,6 +190,16 @@ function snapSlot(slot: LayoutSlot, grid: number): LayoutSlot {
     w: snap(w, grid),
     h: snap(h, grid),
   };
+}
+
+function clampToCanvas(slot: LayoutSlot, canvas: CanvasDims): LayoutSlot {
+  let { x, y } = slot;
+  const { w, h } = slot;
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  if (x + w > canvas.w) x = canvas.w - w;
+  if (y + h > canvas.h) y = canvas.h - h;
+  return { ...slot, x, y };
 }
 
 interface AlignmentGuide {
@@ -252,7 +287,6 @@ export function CanvasEditor({
   gridSize = 10,
   snapToGrid = true,
   showRulers = true,
-  saving = false,
 }: Readonly<CanvasEditorProps>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -274,9 +308,11 @@ export function CanvasEditor({
     return () => ro.disconnect();
   }, []);
 
+  const borderPx = 4; // border-2 = 2px each side
+  const contentW = Math.max(1, displayW - borderPx);
   const aspect = canvas.w / Math.max(1, canvas.h);
-  const displayH = displayW / aspect;
-  const scale = displayW / Math.max(1, canvas.w);
+  const contentH = contentW / aspect;
+  const scale = contentW / Math.max(1, canvas.w);
 
   // Stable accessor — handlers want the current layout without retriggering.
   const layoutRef = useRef(layout);
@@ -330,7 +366,7 @@ export function CanvasEditor({
       // because both can break the ratio.
       const aspectLock = CORNER_HANDLES.has(drag.handle) && !(e.ctrlKey || e.metaKey);
       let next = applyHandleDelta(drag.startSlot, drag.handle, dx, dy, canvas, aspectLock);
-      if (!aspectLock && snapToGrid && gridSize > 0) next = snapSlot(next, gridSize);
+      if (!aspectLock && snapToGrid && gridSize > 0) next = clampToCanvas(snapSlot(next, gridSize), canvas);
       if (aspectLock) {
         setGuides([]);
         updateSlot(drag.slotInput, () => next);
@@ -340,7 +376,7 @@ export function CanvasEditor({
       const candidates = buildAlignmentCandidates(canvas, next, others);
       const aligned = applyAlignment(next, candidates);
       setGuides(aligned.guides);
-      updateSlot(drag.slotInput, () => aligned.slot);
+      updateSlot(drag.slotInput, () => clampToCanvas(aligned.slot, canvas));
     },
     [canvas, gridSize, scale, snapToGrid, updateSlot],
   );
@@ -386,39 +422,48 @@ export function CanvasEditor({
           return;
       }
       e.preventDefault();
-      updateSlot(selectedInput, (s) => ({
-        ...s,
-        x: Math.max(0, Math.min(canvas.w - s.w, s.x + dx)),
-        y: Math.max(0, Math.min(canvas.h - s.h, s.y + dy)),
-      }));
+      updateSlot(selectedInput, (s) => {
+        let nx = s.x + dx;
+        let ny = s.y + dy;
+        if (snapToGrid && gridSize > 0) {
+          nx = snap(nx, gridSize);
+          ny = snap(ny, gridSize);
+        }
+        return {
+          ...s,
+          x: Math.max(0, Math.min(canvas.w - s.w, nx)),
+          y: Math.max(0, Math.min(canvas.h - s.h, ny)),
+        };
+      });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canvas.h, canvas.w, selectedInput, updateSlot]);
+  }, [canvas.h, canvas.w, gridSize, selectedInput, snapToGrid, updateSlot]);
 
   // Slot rectangles in screen-px for handle overlays.
+  const handleOffset = borderPx / 2;
   const screenRects = useMemo(
     () =>
       layout.map((slot) => ({
         slot,
-        left: slot.x * scale,
-        top: slot.y * scale,
+        left: slot.x * scale + handleOffset,
+        top: slot.y * scale + handleOffset,
         width: slot.w * scale,
         height: slot.h * scale,
       })),
-    [layout, scale],
+    [layout, scale, handleOffset],
   );
 
   return (
-    <div ref={containerRef} className="select-none">
-      {showRulers && displayW > 0 && (
-        <div className="flex items-start pl-5">
-          <CanvasRuler size={canvas.w} displaySize={displayW} orientation="horizontal" />
+    <div ref={containerRef} className="select-none min-w-0 overflow-hidden">
+      {showRulers && contentW > 1 && (
+        <div className="flex items-start" style={{ paddingLeft: 20 + handleOffset }}>
+          <CanvasRuler size={canvas.w} displaySize={contentW} orientation="horizontal" />
         </div>
       )}
       <div className="flex items-start">
-        {showRulers && displayH > 0 && (
-          <CanvasRuler size={canvas.h} displaySize={displayH} orientation="vertical" />
+        {showRulers && contentH > 1 && (
+          <CanvasRuler size={canvas.h} displaySize={contentH} orientation="vertical" />
         )}
         <div
           ref={surfaceRef}
@@ -435,11 +480,10 @@ export function CanvasEditor({
             inputs={inputs}
             layout={layout}
             selectedInput={selectedInput}
-            loading={saving}
             hideCaption
           />
           {/* Handle overlay: one absolute box per slot in screen-px. */}
-          <div className="absolute inset-0">
+          {displayW > 0 && <div className="absolute inset-0">
             {screenRects.map(({ slot, left, top, width, height }) => {
               const isSelected = selectedInput === slot.input;
               return (
@@ -464,13 +508,14 @@ export function CanvasEditor({
                 </div>
               );
             })}
-          </div>
+          </div>}
           {/* Alignment guides — drawn over the canvas in screen-px. */}
-          {guides.length > 0 && displayW > 0 && (
+          {guides.length > 0 && contentW > 1 && (
             <svg
-              className="absolute inset-0 pointer-events-none"
-              width={displayW}
-              height={displayH}
+              className="absolute pointer-events-none"
+              style={{ left: handleOffset, top: handleOffset }}
+              width={contentW}
+              height={contentH}
             >
               {guides.map((g, i) => {
                 if (g.axis === 'x') {
@@ -481,7 +526,7 @@ export function CanvasEditor({
                       x1={x}
                       y1={0}
                       x2={x}
-                      y2={displayH}
+                      y2={contentH}
                       stroke="#22c55e"
                       strokeWidth={1}
                       strokeDasharray="4 3"
@@ -494,7 +539,7 @@ export function CanvasEditor({
                     key={`g-${i}`}
                     x1={0}
                     y1={y}
-                    x2={displayW}
+                    x2={contentW}
                     y2={y}
                     stroke="#22c55e"
                     strokeWidth={1}
