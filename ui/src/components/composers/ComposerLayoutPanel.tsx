@@ -33,10 +33,17 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
   const persistedRef = useRef<LayoutSlot[]>(composer.layout);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<LayoutSlot[] | null>(null);
+  const saveGenRef = useRef(0);
+  const saveInFlightRef = useRef(false);
 
   // Reseed local state when the upstream composer changes from
   // somewhere other than this editor (SSE event, another tab).
+  // Skip when a save is in-flight — that update is our own echo.
   useEffect(() => {
+    if (saveInFlightRef.current) {
+      persistedRef.current = composer.layout;
+      return;
+    }
     persistedRef.current = composer.layout;
     setLocalLayout(composer.layout);
     if (composer.layout.length > 0 && !selectedInput) {
@@ -51,15 +58,24 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
   const runSave = useCallback(async () => {
     const toSave = pendingRef.current;
     if (!toSave) return;
+    const gen = ++saveGenRef.current;
     setSaving(true);
+    saveInFlightRef.current = true;
     try {
       await updateComposerLayout(composer.composer_id, toSave);
-      persistedRef.current = toSave;
+      if (saveGenRef.current === gen) {
+        persistedRef.current = toSave;
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Save failed');
-      rollback();
+      if (saveGenRef.current === gen) {
+        toast.error(error instanceof Error ? error.message : 'Save failed');
+        rollback();
+      }
     } finally {
-      setSaving(false);
+      if (saveGenRef.current === gen) {
+        setSaving(false);
+        saveInFlightRef.current = false;
+      }
     }
   }, [composer.composer_id, rollback, updateComposerLayout]);
 
@@ -136,15 +152,14 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
     <Card padding="none">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <h2 className="text-sm font-semibold text-fg">Layout</h2>
-        {saving ? (
-          <span className="text-xs text-fg-subtle">saving…</span>
-        ) : (
-          <span className="text-xs text-fg-muted">{localLayout.length} slot{localLayout.length === 1 ? '' : 's'}</span>
-        )}
+        {saving
+          ? <span className="text-xs text-fg-subtle">saving…</span>
+          : <span className="text-xs text-fg-muted">{localLayout.length} slot{localLayout.length === 1 ? '' : 's'}</span>
+        }
       </div>
 
-      <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[1fr_320px]">
-        <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-4 text-xs text-fg-muted">
             <Checkbox
               label="Snap to grid"
@@ -184,7 +199,6 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
             gridSize={gridSize}
             snapToGrid={snapToGrid}
             showRulers={showRulers}
-            saving={saving}
           />
         </div>
         <div className="space-y-3">
@@ -198,7 +212,6 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
             onChangeInputRef={onChangeInputRef}
             onBringToFront={onBringToFront}
             onSendToBack={onSendToBack}
-            saving={saving}
           />
           {localLayout.length > 0 && (
             <div className="rounded-md border border-border bg-surface p-3">
@@ -206,18 +219,19 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
                 Slots
               </h4>
               <ul className="space-y-1">
-                {localLayout.map((slot) => (
+                {localLayout.map((slot, i) => (
                   <li key={slot.input}>
                     <button
                       type="button"
                       onClick={() => setSelectedInput(slot.input)}
-                      className={`w-full rounded-sm px-2 py-1 text-left font-mono text-xs ${
+                      title={slot.input}
+                      className={`w-full truncate rounded-sm px-2 py-1 text-left font-mono text-xs ${
                         slot.input === selectedInput
                           ? 'bg-accent-soft text-accent-soft-fg'
                           : 'text-fg-muted hover:bg-surface-muted'
                       }`}
                     >
-                      {slot.input}
+                      {i + 1}. {slot.input}
                     </button>
                   </li>
                 ))}

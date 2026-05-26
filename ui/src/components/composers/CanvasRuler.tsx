@@ -19,6 +19,7 @@ export function CanvasRuler({
   const scale = displaySize / Math.max(1, size);
   const ticks: number[] = [];
   for (let v = 0; v <= size; v += step) ticks.push(v);
+  if (size % step !== 0) ticks.push(size);
 
   if (orientation === 'horizontal') {
     return (
@@ -31,10 +32,18 @@ export function CanvasRuler({
         <rect width={displaySize} height={16} fill="transparent" />
         {ticks.map((v) => {
           const x = v * scale;
+          const nearEnd = x > displaySize - 30;
           return (
             <g key={v}>
               <line x1={x} y1={10} x2={x} y2={16} stroke="currentColor" strokeWidth={1} />
-              <text x={x + 2} y={9} fontSize={9} fill="currentColor" fontFamily="monospace">
+              <text
+                x={nearEnd ? x - 2 : x + 2}
+                y={9}
+                fontSize={9}
+                fill="currentColor"
+                fontFamily="monospace"
+                textAnchor={nearEnd ? 'end' : 'start'}
+              >
                 {v}
               </text>
             </g>
@@ -54,10 +63,11 @@ export function CanvasRuler({
       <rect width={20} height={displaySize} fill="transparent" />
       {ticks.map((v) => {
         const y = v * scale;
+        const nearEnd = y > displaySize - 12;
         return (
           <g key={v}>
             <line x1={14} y1={y} x2={20} y2={y} stroke="currentColor" strokeWidth={1} />
-            <text x={2} y={y + 8} fontSize={9} fill="currentColor" fontFamily="monospace">
+            <text x={2} y={nearEnd ? y - 2 : y + 8} fontSize={9} fill="currentColor" fontFamily="monospace">
               {v}
             </text>
           </g>
