@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - run: git fetch --force --tags
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -42,7 +43,10 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm build
       - name: Create tag (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
-        run: git tag "v${{ inputs.version }}"
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
       - name: Install chglog
         run: go install github.com/goreleaser/chglog/cmd/chglog@latest
       - uses: goreleaser/goreleaser-action@v7
@@ -52,7 +56,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: v${{ inputs.version || '' }}
 
   build-native:
     runs-on: ubuntu-24.04-arm
