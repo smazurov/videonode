@@ -13,6 +13,7 @@ import (
 	"github.com/pion/interceptor/pkg/twcc"
 	"github.com/pion/rtcp"
 	pion "github.com/pion/webrtc/v4"
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // NACKBufferSize is the number of packets to buffer for NACK retransmission.
@@ -71,7 +72,7 @@ func NewWebRTCAPI(streamID, peerID string) (*pion.API, error) {
 func generateICEPassword() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		slog.Error("Failed to generate random bytes for ICE password", "error", err)
+		slog.Error("Failed to generate random bytes for ICE password", logging.KeyError, err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }

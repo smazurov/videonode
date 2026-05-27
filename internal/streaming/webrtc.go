@@ -69,7 +69,7 @@ func (m *WebRTCManager) generatePeerID() string {
 	// Fallback
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
-		m.logger.Error("Failed to generate random bytes for peer ID", "error", err)
+		m.logger.Error("Failed to generate random bytes for peer ID", logging.KeyError, err)
 	}
 	return petname.Generate(2, "-") + "-" + hex.EncodeToString(b)
 }
@@ -113,7 +113,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 		for _, forma := range medi.Formats {
 			track, trackErr := m.createTrack(forma, audioIdx)
 			if trackErr != nil {
-				m.logger.Warn("Failed to create track", "stream_id", streamID, "error", trackErr)
+				m.logger.Warn("Failed to create track", logging.KeyStreamID, streamID, logging.KeyError, trackErr)
 				continue
 			}
 			if track == nil {
@@ -125,7 +125,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 
 			sender, addErr := pc.AddTrack(track)
 			if addErr != nil {
-				m.logger.Warn("Failed to add track", "stream_id", streamID, "error", addErr)
+				m.logger.Warn("Failed to add track", logging.KeyStreamID, streamID, logging.KeyError, addErr)
 				continue
 			}
 
@@ -138,7 +138,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 					PayloadMaxSize: 1188, // 1200 - 12 (RTP header)
 				}
 				if err := encoder.Init(); err != nil {
-					m.logger.Warn("Failed to init H264 encoder", "stream_id", streamID, "error", err)
+					m.logger.Warn("Failed to init H264 encoder", logging.KeyStreamID, streamID, logging.KeyError, err)
 					continue
 				}
 				peer.h264Encoders[medi] = encoder
@@ -249,7 +249,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 	m.mu.Unlock()
 
 	SetActivePeers(streamID, streamPeerCount)
-	m.logger.Info("WebRTC client connected", "stream_id", streamID, "peer_id", peerID, "stream_peers", streamPeerCount)
+	m.logger.Info("WebRTC client connected", logging.KeyStreamID, streamID, logging.KeyPeerID, peerID, logging.KeyStreamPeers, streamPeerCount)
 
 	// Handle connection state changes
 	pc.OnConnectionStateChange(func(state pion.PeerConnectionState) {
@@ -283,7 +283,7 @@ func (m *WebRTCManager) createTrack(forma format.Format, audioIdx int) (*pion.Tr
 			// Strip constraint flags (byte 2) to match browser capabilities
 			profileLevelID := fmt.Sprintf("%02x00%02x", profileIdc, levelIdc)
 			fmtp += ";profile-level-id=" + profileLevelID
-			m.logger.Info("H264 track created", "profile_idc", profileIdc, "level_idc", levelIdc, "fmtp", fmtp)
+			m.logger.Info("H264 track created", logging.KeyProfileIDC, profileIdc, logging.KeyLevelIDC, levelIdc, logging.KeyFMTP, fmtp)
 		} else {
 			// Fallback to baseline profile
 			fmtp += ";profile-level-id=42001f"
@@ -355,7 +355,7 @@ func (m *WebRTCManager) closePeer(peerID, streamID, reason string) {
 
 	SetActivePeers(streamID, remainingPeers)
 	DeletePeerMetrics(streamID, peerID)
-	m.logger.Info("WebRTC client disconnected", "stream_id", streamID, "peer_id", peerID, "reason", reason, "stream_peers", remainingPeers)
+	m.logger.Info("WebRTC client disconnected", logging.KeyStreamID, streamID, logging.KeyPeerID, peerID, logging.KeyReason, reason, logging.KeyStreamPeers, remainingPeers)
 }
 
 // Stop closes all peer connections.
@@ -440,7 +440,7 @@ func (m *WebRTCManager) CloseStreamConsumers(streamID string) {
 	peerIDs, exists := m.streamPeers[streamID]
 	if !exists || len(peerIDs) == 0 {
 		m.mu.Unlock()
-		m.logger.Debug("No WebRTC consumers to close", "stream_id", streamID)
+		m.logger.Debug("No WebRTC consumers to close", logging.KeyStreamID, streamID)
 		return
 	}
 
@@ -450,7 +450,7 @@ func (m *WebRTCManager) CloseStreamConsumers(streamID string) {
 	}
 	m.mu.Unlock()
 
-	m.logger.Info("Closing WebRTC consumers for stream restart", "stream_id", streamID, "peer_count", len(toClose))
+	m.logger.Info("Closing WebRTC consumers for stream restart", logging.KeyStreamID, streamID, logging.KeyStreamPeers, len(toClose))
 
 	for _, peerID := range toClose {
 		m.closePeer(peerID, streamID, "stream_restart")

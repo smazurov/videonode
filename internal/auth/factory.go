@@ -17,7 +17,7 @@ func New(cfg Config, logger logging.Logger) Authenticator {
 			return NewBasic(cfg.Username, cfg.Password)
 		}
 		if logger != nil {
-			logger.Info("Using Linux authentication", "service_user", auth.ServiceUser())
+			logger.Info("Using Linux authentication", logging.KeyServiceUser, auth.ServiceUser())
 		}
 		return auth
 
@@ -29,7 +29,7 @@ func New(cfg Config, logger logging.Logger) Authenticator {
 
 	default:
 		if logger != nil {
-			logger.Warn("Unknown auth type, falling back to basic", "type", cfg.Type)
+			logger.Warn("Unknown auth type, falling back to basic", logging.KeyType, cfg.Type)
 		}
 		return NewBasic(cfg.Username, cfg.Password)
 	}

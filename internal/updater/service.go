@@ -47,7 +47,7 @@ func NewService(opts *Options) (Service, error) {
 	// Check write permission first
 	canWrite, reason := checkWritePermission()
 	if !canWrite {
-		logger.Warn("Update service disabled", "reason", reason)
+		logger.Warn("Update service disabled", logging.KeyReason, reason)
 		return &service{
 			enabled:        false,
 			disabledReason: reason,
@@ -77,7 +77,7 @@ func NewService(opts *Options) (Service, error) {
 	// Create backup manager
 	backupMgr, err := newBackupManager(logger)
 	if err != nil {
-		logger.Warn("Failed to create backup manager", "error", err)
+		logger.Warn("Failed to create backup manager", logging.KeyError, err)
 	}
 
 	svc := &service{
@@ -244,7 +244,7 @@ func (s *service) ApplyUpdate(ctx context.Context) error {
 
 	s.transitionTo(StateRestarting)
 	s.logger.Info("Update applied successfully, triggering restart",
-		"version", release.Version())
+		logging.KeyVersion, release.Version())
 
 	// Trigger restart after short delay to allow response to be sent
 	go func() {
@@ -318,7 +318,7 @@ func (s *service) transitionTo(newState State, validFromStates ...State) bool {
 		return false
 	}
 
-	s.logger.Debug("State transition", "from", s.state, "to", newState)
+	s.logger.Debug("State transition", logging.KeyFrom, s.state, logging.KeyTo, newState)
 	s.state = newState
 	s.lastError = nil
 	return true
@@ -344,7 +344,7 @@ func (s *service) attemptRollback() {
 	}
 
 	if err := s.backupManager.restore(); err != nil {
-		s.logger.Error("Failed to restore backup", "error", err)
+		s.logger.Error("Failed to restore backup", logging.KeyError, err)
 		return
 	}
 
@@ -359,13 +359,13 @@ func (s *service) triggerRestart() {
 
 	proc, err := os.FindProcess(os.Getpid())
 	if err != nil {
-		s.logger.Error("Failed to find own process", "error", err)
+		s.logger.Error("Failed to find own process", logging.KeyError, err)
 		return
 	}
 
 	s.logger.Info("Sending SIGTERM to trigger restart")
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		s.logger.Error("Failed to send SIGTERM", "error", err)
+		s.logger.Error("Failed to send SIGTERM", logging.KeyError, err)
 	}
 }
 
@@ -421,7 +421,7 @@ func (s *service) ApplyDevBuild(ctx context.Context) error {
 	url := fmt.Sprintf("https://github.com/%s/releases/download/dev/%s",
 		s.repositorySlug, assetName)
 
-	s.logger.Info("Downloading dev build", "url", url)
+	s.logger.Info("Downloading dev build", logging.KeyURL, url)
 
 	// Download and apply using go-selfupdate
 	if err := selfupdate.UpdateTo(ctx, url, assetName, exe); err != nil {

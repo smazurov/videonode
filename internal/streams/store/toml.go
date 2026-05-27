@@ -9,6 +9,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/types"
 )
@@ -165,9 +166,9 @@ func (s *tomlStore) Load() error {
 		return fmt.Errorf("failed to persist migrated config: %w", err)
 	}
 	slog.Info("streams.toml migrated to v2",
-		"sources", len(s.config.Sources),
-		"composers", len(s.config.Composers),
-		"streams", len(s.config.Streams),
+		logging.KeySources, len(s.config.Sources),
+		logging.KeyComposers, len(s.config.Composers),
+		logging.KeyStreams, len(s.config.Streams),
 	)
 	return nil
 }

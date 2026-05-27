@@ -92,8 +92,8 @@ func previewHandler(cache *Cache, kind Kind) http.HandlerFunc {
 		defer handle.Close()
 
 		logger := logging.GetLogger("snapshots")
-		logger.Debug("preview opened", "kind", string(kind), "id", id, "fps", fps)
-		defer logger.Debug("preview closed", "kind", string(kind), "id", id)
+		logger.Debug("preview opened", logging.KeyKind, string(kind), logging.KeyEntityID, id, logging.KeyFPS, fps)
+		defer logger.Debug("preview closed", logging.KeyKind, string(kind), logging.KeyEntityID, id)
 
 		var lastIdx uint64
 		for {

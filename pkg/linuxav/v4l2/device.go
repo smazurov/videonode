@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"unsafe"
+
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // FindDevices finds all V4L2 video capture devices on the system.
@@ -25,7 +27,7 @@ func FindDevices() ([]DeviceInfo, error) {
 
 	devices := make([]DeviceInfo, 0, len(entries))
 
-	logger := slog.With("component", "linuxav")
+	logger := slog.With(logging.KeyComponent, "linuxav")
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -36,13 +38,13 @@ func FindDevices() ([]DeviceInfo, error) {
 
 		fd, openErr := open(devicePath)
 		if openErr != nil {
-			logger.Warn("failed to open video device", "path", devicePath, "error", openErr)
+			logger.Warn("failed to open video device", logging.KeyPath, devicePath, logging.KeyError, openErr)
 			continue
 		}
 
 		capability := v4l2Capability{}
 		if err := ioctl(fd, vidiocQuerycap, unsafe.Pointer(&capability)); err != nil {
-			logger.Warn("failed to query device capabilities", "path", devicePath, "error", err)
+			logger.Warn("failed to query device capabilities", logging.KeyPath, devicePath, logging.KeyError, err)
 			_ = closefd(fd)
 			continue
 		}

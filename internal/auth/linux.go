@@ -33,7 +33,7 @@ func (a *LinuxAuthenticator) Authenticate(username, password string) Result {
 	if username != a.serviceUser {
 		if a.logger != nil {
 			a.logger.Debug("Linux auth rejected: username mismatch",
-				"provided", username, "expected", a.serviceUser)
+				logging.KeyProvided, username, logging.KeyExpected, a.serviceUser)
 		}
 		return Result{Valid: false, Username: username}
 	}
@@ -42,14 +42,14 @@ func (a *LinuxAuthenticator) Authenticate(username, password string) Result {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		if a.logger != nil {
-			a.logger.Error("Failed to create stdin pipe for unix_chkpwd", "error", err)
+			a.logger.Error("Failed to create stdin pipe for unix_chkpwd", logging.KeyError, err)
 		}
 		return Result{Valid: false, Username: username, Error: err}
 	}
 
 	if err := cmd.Start(); err != nil {
 		if a.logger != nil {
-			a.logger.Error("Failed to start unix_chkpwd", "error", err)
+			a.logger.Error("Failed to start unix_chkpwd", logging.KeyError, err)
 		}
 		return Result{Valid: false, Username: username, Error: err}
 	}
@@ -65,7 +65,7 @@ func (a *LinuxAuthenticator) Authenticate(username, password string) Result {
 		// Don't log exit status 7 (invalid password) as an error, it's expected
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() != 7 {
-			a.logger.Debug("unix_chkpwd returned error", "error", err)
+			a.logger.Debug("unix_chkpwd returned error", logging.KeyError, err)
 		}
 	}
 

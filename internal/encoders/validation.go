@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/types"
 )
 
@@ -61,7 +62,7 @@ type VerboseLogger struct {
 // NewVerboseLogger creates a verbose logger that outputs via slog.
 func NewVerboseLogger() *VerboseLogger {
 	return &VerboseLogger{
-		logger: slog.With("component", "encoder_validation"),
+		logger: slog.With(logging.KeyComponent, "encoder_validation"),
 	}
 }
 
@@ -243,8 +244,8 @@ func (v *Validator) RunValidateCommand(quiet bool) error {
 func RunValidateCommandWithOptions(provider types.ValidationProvider, quiet bool) {
 	v := NewValidator(provider)
 	if err := v.RunValidateCommand(quiet); err != nil {
-		logger := slog.With("component", "encoder_validation")
-		logger.Error("Validation command failed", "error", err)
+		logger := slog.With(logging.KeyComponent, "encoder_validation")
+		logger.Error("Validation command failed", logging.KeyError, err)
 		panic(err)
 	}
 }

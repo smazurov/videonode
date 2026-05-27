@@ -51,9 +51,9 @@ func (n *NativePipelineConfig) Resolve(logger logging.Logger) *NativePipelineCon
 
 	if logger != nil {
 		logger.Info("Native pipeline resolved",
-			"source", n.V4L2Source, "source_ok", n.Available.V4L2Source,
-			"sink", n.VNSink, "sink_ok", n.Available.VNSink,
-			"composer", n.Composer, "composer_ok", n.Available.Composer)
+			logging.KeySourceBin, n.V4L2Source, logging.KeySourceOK, n.Available.V4L2Source,
+			logging.KeySinkBin, n.VNSink, logging.KeySinkOK, n.Available.VNSink,
+			logging.KeyComposerBin, n.Composer, logging.KeyComposerOK, n.Available.Composer)
 	}
 	return n
 }

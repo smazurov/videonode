@@ -92,7 +92,7 @@ func (t *fpsTracker) reset() {
 // NewFFmpegCollector creates a new FFmpeg collector.
 func NewFFmpegCollector(socketPath, streamID string) *FFmpegCollector {
 	return &FFmpegCollector{
-		logger:     logging.GetLogger("streams").With("stream_id", streamID),
+		logger:     logging.GetLogger("streams").With(logging.KeyStreamID, streamID),
 		socketPath: socketPath,
 		streamID:   streamID,
 	}
@@ -128,15 +128,15 @@ func (f *FFmpegCollector) Stop() error {
 }
 
 func (f *FFmpegCollector) startSocketListener() {
-	f.logger.Info("Starting socket listener", "socket", f.socketPath)
+	f.logger.Info("Starting socket listener", logging.KeySocket, f.socketPath)
 
 	if err := os.Remove(f.socketPath); err != nil && !os.IsNotExist(err) {
-		f.logger.Warn("Failed to clean up old socket file", "error", err)
+		f.logger.Warn("Failed to clean up old socket file", logging.KeyError, err)
 	}
 
 	listener, err := net.Listen("unix", f.socketPath)
 	if err != nil {
-		f.logger.Error("Failed to create Unix socket listener", "error", err)
+		f.logger.Error("Failed to create Unix socket listener", logging.KeyError, err)
 		return
 	}
 
@@ -170,7 +170,7 @@ func (f *FFmpegCollector) startSocketListener() {
 				if strings.Contains(acceptErr.Error(), "use of closed network connection") {
 					return
 				}
-				f.logger.Warn("Error accepting connection", "error", acceptErr)
+				f.logger.Warn("Error accepting connection", logging.KeyError, acceptErr)
 				continue
 			}
 		}

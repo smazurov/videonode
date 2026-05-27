@@ -57,8 +57,8 @@ func (m *Manager) handleEvent(event events.StreamStateChangedEvent) {
 	m.streamStatesMux.Unlock()
 
 	m.logger.Debug("Stream state changed",
-		"stream_id", streamID,
-		"enabled", enabled)
+		logging.KeyStreamID, streamID,
+		logging.KeyEnabled, enabled)
 
 	// Update system LED based on aggregate state
 	m.updateSystemLED()
@@ -73,7 +73,7 @@ func (m *Manager) updateSystemLED() {
 	if len(m.streamStates) == 0 {
 		// No streams, use blinking pattern
 		if err := m.controller.Set("system", true, "blink"); err != nil {
-			m.logger.Warn("Failed to set system LED to blink", "error", err)
+			m.logger.Warn("Failed to set system LED to blink", logging.KeyError, err)
 		}
 		return
 	}
@@ -91,13 +91,13 @@ func (m *Manager) updateSystemLED() {
 	if allEnabled {
 		// All streams enabled - solid LED
 		if err := m.controller.Set("system", true, "solid"); err != nil {
-			m.logger.Warn("Failed to set system LED to solid", "error", err)
+			m.logger.Warn("Failed to set system LED to solid", logging.KeyError, err)
 		}
 		m.logger.Debug("All streams enabled, system LED set to solid")
 	} else {
 		// Some streams disabled - blinking LED
 		if err := m.controller.Set("system", true, "blink"); err != nil {
-			m.logger.Warn("Failed to set system LED to blink", "error", err)
+			m.logger.Warn("Failed to set system LED to blink", logging.KeyError, err)
 		}
 		m.logger.Debug("Not all streams enabled, system LED set to blink")
 	}

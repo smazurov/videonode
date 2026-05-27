@@ -13,7 +13,7 @@ func MakeDeviceResolver(logger logging.Logger) func(string) string {
 	return func(deviceID string) string {
 		devicePath, err := devices.ResolveDevicePath(deviceID)
 		if err != nil {
-			logger.Warn("Device resolution failed", "device_id", deviceID, "error", err)
+			logger.Warn("Device resolution failed", logging.KeyDeviceID, deviceID, logging.KeyError, err)
 			return ""
 		}
 		return devicePath

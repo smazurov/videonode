@@ -216,12 +216,12 @@ func (p *Pipeline) registerAndConfigureSource(s Source, udsPath string) {
 		FPS:    s.Format.FPS,
 	}); err != nil {
 		p.logger.Warn("registerAndConfigureSource: initial SetFormat failed",
-			append(tag, "error", err)...)
+			append(tag, logging.KeyError, err)...)
 		return
 	}
 	p.logger.Info("source initial format pushed",
 		append(tag, "fourcc", s.Format.FourCC,
-			"w", s.Format.Width, "h", s.Format.Height, "fps", s.Format.FPS)...)
+			"width", s.Format.Width, "height", s.Format.Height, "fps", s.Format.FPS)...)
 }
 
 // UpdateSourceFormat hot-applies a new V4L2 capture format to an already-
@@ -289,7 +289,7 @@ func (p *Pipeline) StopSource(id string) error {
 	}
 	poolID := SourcePoolKey(id)
 	if err := p.pool.Stop(poolID); err != nil {
-		p.logger.Warn("StopSource: pool.Stop failed", "id", poolID, "error", err)
+		p.logger.Warn("StopSource: pool.Stop failed", logging.KeyPoolID, poolID, logging.KeyError, err)
 	}
 	p.mu.Lock()
 	delete(p.stages, poolID)
@@ -315,7 +315,7 @@ func (p *Pipeline) DeleteSource(id string) error {
 	}
 	poolID := SourcePoolKey(id)
 	if err := p.pool.Stop(poolID); err != nil {
-		p.logger.Warn("DeleteSource: pool.Stop failed", "id", poolID, "error", err)
+		p.logger.Warn("DeleteSource: pool.Stop failed", logging.KeyPoolID, poolID, logging.KeyError, err)
 	}
 	p.mu.Lock()
 	delete(p.stages, poolID)
@@ -408,7 +408,7 @@ func (p *Pipeline) pushComposerConfig(c Composer, udsPath string) {
 		defer cancel()
 		if err := fn(ctx); err != nil {
 			p.logger.Warn("pushComposerConfig: rpc failed",
-				append(append([]any{}, tag...), "method", name, "error", err)...)
+				append(append([]any{}, tag...), "method", name, logging.KeyError, err)...)
 			return false
 		}
 		return true
@@ -626,7 +626,7 @@ func (p *Pipeline) StopComposer(id string) error {
 	}
 	poolID := ComposerPoolKey(id)
 	if err := p.pool.Stop(poolID); err != nil {
-		p.logger.Warn("StopComposer: pool.Stop failed", "id", poolID, "error", err)
+		p.logger.Warn("StopComposer: pool.Stop failed", logging.KeyPoolID, poolID, logging.KeyError, err)
 	}
 	p.mu.Lock()
 	delete(p.stages, poolID)
@@ -650,7 +650,7 @@ func (p *Pipeline) DeleteComposer(id string) error {
 	}
 	poolID := ComposerPoolKey(id)
 	if err := p.pool.Stop(poolID); err != nil {
-		p.logger.Warn("DeleteComposer: pool.Stop failed", "id", poolID, "error", err)
+		p.logger.Warn("DeleteComposer: pool.Stop failed", logging.KeyPoolID, poolID, logging.KeyError, err)
 	}
 	p.mu.Lock()
 	delete(p.stages, poolID)
@@ -703,7 +703,7 @@ func (p *Pipeline) DeleteStream(id string) error {
 	p.stopCollector(id)
 	poolID := EncoderIDFor(id)
 	if err := p.pool.Stop(poolID); err != nil {
-		p.logger.Warn("DeleteStream: pool.Stop failed", "id", poolID, "error", err)
+		p.logger.Warn("DeleteStream: pool.Stop failed", logging.KeyPoolID, poolID, logging.KeyError, err)
 	}
 	p.mu.Lock()
 	delete(p.stages, poolID)
@@ -751,9 +751,9 @@ func (p *Pipeline) resolveEncoder(codec string, video FrameSource) EncoderResolu
 		res, err := p.cfg.EncoderResolver(codec, inputPixFmt)
 		if err != nil {
 			p.logger.Warn("EncoderResolver failed, using software fallback",
-				"codec", codec, "input_pix_fmt", inputPixFmt, "error", err)
+				logging.KeyCodec, codec, logging.KeyInputPixFmt, inputPixFmt, logging.KeyError, err)
 		} else {
-			p.logger.Info("Resolved encoder", "codec", codec, "encoder", res.EncoderName)
+			p.logger.Info("Resolved encoder", logging.KeyCodec, codec, logging.KeyEncoder, res.EncoderName)
 			return res
 		}
 	}
@@ -933,13 +933,13 @@ func (p *Pipeline) ensureCollector(streamID string) {
 		return
 	}
 	if err := p.ensureUdsDir(); err != nil {
-		p.logger.Warn("ensureCollector: mkdir failed", "stream_id", streamID, "error", err)
+		p.logger.Warn("ensureCollector: mkdir failed", logging.KeyStreamID, streamID, logging.KeyError, err)
 		return
 	}
 	sockPath := ProgressSocketPathFor(streamID)
 	c := collectors.NewFFmpegCollector(sockPath, streamID)
 	if err := c.Start(context.Background()); err != nil {
-		p.logger.Warn("ensureCollector: start failed", "stream_id", streamID, "error", err)
+		p.logger.Warn("ensureCollector: start failed", logging.KeyStreamID, streamID, logging.KeyError, err)
 		return
 	}
 	p.mu.Lock()

@@ -17,9 +17,9 @@ func newNoop(logger logging.Logger) *noop {
 // Set logs the request but performs no actual LED control.
 func (n *noop) Set(ledType string, enabled bool, pattern string) error {
 	n.logger.Debug("LED control not available (no-op)",
-		"led_type", ledType,
-		"enabled", enabled,
-		"pattern", pattern)
+		logging.KeyLEDType, ledType,
+		logging.KeyEnabled, enabled,
+		logging.KeyPattern, pattern)
 	return nil
 }
 

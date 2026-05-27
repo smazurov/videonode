@@ -66,14 +66,14 @@ func (m *backupManager) loadBackupInfo() {
 
 	var info backupInfo
 	if err := json.Unmarshal(data, &info); err != nil {
-		m.logger.Warn("Failed to parse backup info", "error", err)
+		m.logger.Warn("Failed to parse backup info", logging.KeyError, err)
 		return
 	}
 
 	// Verify backup file exists
 	backupPath := filepath.Join(m.backupDir, backupFilename)
 	if _, statErr := os.Stat(backupPath); statErr != nil {
-		m.logger.Warn("Backup file missing", "path", backupPath)
+		m.logger.Warn("Backup file missing", logging.KeyPath, backupPath)
 		return
 	}
 
@@ -81,7 +81,7 @@ func (m *backupManager) loadBackupInfo() {
 	m.info = &info
 	m.mu.Unlock()
 
-	m.logger.Info("Loaded backup info", "version", info.Version)
+	m.logger.Info("Loaded backup info", logging.KeyVersion, info.Version)
 }
 
 func (m *backupManager) createBackup() error {
@@ -130,7 +130,7 @@ func (m *backupManager) createBackup() error {
 	m.info = &info
 	m.mu.Unlock()
 
-	m.logger.Info("Backup created", "version", info.Version, "path", backupPath)
+	m.logger.Info("Backup created", logging.KeyVersion, info.Version, logging.KeyPath, backupPath)
 	return nil
 }
 
@@ -163,7 +163,7 @@ func (m *backupManager) restore() error {
 		return fmt.Errorf("failed to restore backup: %w", copyErr)
 	}
 
-	m.logger.Info("Backup restored", "version", info.Version)
+	m.logger.Info("Backup restored", logging.KeyVersion, info.Version)
 	return nil
 }
 

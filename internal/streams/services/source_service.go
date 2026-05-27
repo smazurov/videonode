@@ -110,7 +110,7 @@ func (s *sourceService) Create(_ context.Context, src api.Source) (*api.Source, 
 			if err := s.pipe.ApplySource(entity); err != nil {
 				if rmErr := s.store.RemoveSourceEntity(src.ID); rmErr != nil {
 					s.logger.Error("Create: rollback after ApplySource failure also failed",
-						"source_id", src.ID, "apply_error", err, "rollback_error", rmErr)
+						logging.KeySourceID, src.ID, logging.KeyApplyError, err, logging.KeyRollbackError, rmErr)
 				}
 				return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
 			}
@@ -173,14 +173,14 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 				applied = true
 			} else {
 				s.logger.Warn("Update: hot-apply SetFormat failed; falling back to restart",
-					"source_id", id, "error", err)
+					logging.KeySourceID, id, logging.KeyError, err)
 			}
 		}
 		if !applied {
 			if err := s.pipe.ApplySource(src); err != nil {
 				if restoreErr := s.store.UpdateSourceEntity(id, prev); restoreErr != nil {
 					s.logger.Error("Update: rollback after ApplySource failure also failed",
-						"source_id", id, "apply_error", err, "rollback_error", restoreErr)
+						logging.KeySourceID, id, logging.KeyApplyError, err, logging.KeyRollbackError, restoreErr)
 				}
 				return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
 			}
@@ -223,7 +223,7 @@ func (s *sourceService) Delete(_ context.Context, id string) error {
 
 	if s.pipe != nil {
 		if err := s.pipe.DeleteSource(id); err != nil {
-			s.logger.Warn("Delete: DeleteSource failed", "source_id", id, "error", err)
+			s.logger.Warn("Delete: DeleteSource failed", logging.KeySourceID, id, logging.KeyError, err)
 		}
 	}
 	if err := s.store.RemoveSourceEntity(id); err != nil {

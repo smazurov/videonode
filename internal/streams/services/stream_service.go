@@ -106,7 +106,7 @@ func (s *streamService) Create(_ context.Context, in pipeline.Stream) (*pipeline
 			// Roll back so persisted state matches what the pipeline accepts.
 			if rmErr := s.store.RemovePipelineStream(entity.ID); rmErr != nil {
 				s.logger.Error("Create: rollback after ApplyStream failure also failed",
-					"stream_id", entity.ID, "apply_error", err, "rollback_error", rmErr)
+					logging.KeyStreamID, entity.ID, logging.KeyApplyError, err, logging.KeyRollbackError, rmErr)
 			}
 			return nil, &api.StreamInvalidError{Message: "pipeline rejected stream: " + err.Error()}
 		}
@@ -153,7 +153,7 @@ func (s *streamService) Update(_ context.Context, id string, patch func(*pipelin
 		if err := s.pipe.ApplyStream(next); err != nil {
 			if restoreErr := s.store.UpdatePipelineStream(id, prev); restoreErr != nil {
 				s.logger.Error("Update: rollback after ApplyStream failure also failed",
-					"stream_id", id, "apply_error", err, "rollback_error", restoreErr)
+					logging.KeyStreamID, id, logging.KeyApplyError, err, logging.KeyRollbackError, restoreErr)
 			}
 			return nil, &api.StreamInvalidError{Message: "pipeline rejected stream: " + err.Error()}
 		}
@@ -172,7 +172,7 @@ func (s *streamService) Delete(_ context.Context, id string) error {
 
 	if s.pipe != nil {
 		if err := s.pipe.DeleteStream(id); err != nil {
-			s.logger.Warn("Delete: DeleteStream failed", "stream_id", id, "error", err)
+			s.logger.Warn("Delete: DeleteStream failed", logging.KeyStreamID, id, logging.KeyError, err)
 		}
 	}
 	if err := s.store.RemovePipelineStream(id); err != nil {
@@ -246,7 +246,7 @@ func (s *streamService) StartPipeline(ctx context.Context) (bool, error) {
 	composers := s.store.ListComposerEntities()
 	pstreams := s.store.ListPipelineStreams()
 	s.logger.Info("StartPipeline: starting",
-		"sources", len(sources), "composers", len(composers), "streams", len(pstreams))
+		logging.KeySources, len(sources), logging.KeyComposers, len(composers), logging.KeyStreams, len(pstreams))
 
 	var errs []error
 	pool := s.pipe.Pool()
@@ -260,7 +260,7 @@ func (s *streamService) StartPipeline(ctx context.Context) (bool, error) {
 			continue
 		}
 		if err := s.pipe.ApplySource(src); err != nil {
-			s.logger.Error("StartPipeline: ApplySource failed", "source_id", src.ID, "error", err)
+			s.logger.Error("StartPipeline: ApplySource failed", logging.KeySourceID, src.ID, logging.KeyError, err)
 			errs = append(errs, fmt.Errorf("source %s: %w", src.ID, err))
 		}
 	}
@@ -274,7 +274,7 @@ func (s *streamService) StartPipeline(ctx context.Context) (bool, error) {
 			continue
 		}
 		if err := s.pipe.ApplyComposer(c); err != nil {
-			s.logger.Error("StartPipeline: ApplyComposer failed", "composer_id", c.ID, "error", err)
+			s.logger.Error("StartPipeline: ApplyComposer failed", logging.KeyComposerID, c.ID, logging.KeyError, err)
 			errs = append(errs, fmt.Errorf("composer %s: %w", c.ID, err))
 		}
 	}
@@ -288,7 +288,7 @@ func (s *streamService) StartPipeline(ctx context.Context) (bool, error) {
 			continue
 		}
 		if err := s.pipe.ApplyStream(st); err != nil {
-			s.logger.Error("StartPipeline: ApplyStream failed", "stream_id", st.ID, "error", err)
+			s.logger.Error("StartPipeline: ApplyStream failed", logging.KeyStreamID, st.ID, logging.KeyError, err)
 			errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
 		}
 	}
@@ -312,19 +312,19 @@ func (s *streamService) StopPipeline(_ context.Context) (bool, error) {
 	if s.pipe != nil {
 		for _, st := range s.store.ListPipelineStreams() {
 			if err := s.pipe.StopEncoder(st.ID); err != nil {
-				s.logger.Error("StopPipeline: StopEncoder failed", "stream_id", st.ID, "error", err)
+				s.logger.Error("StopPipeline: StopEncoder failed", logging.KeyStreamID, st.ID, logging.KeyError, err)
 				errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
 			}
 		}
 		for _, c := range s.store.ListComposerEntities() {
 			if err := s.pipe.StopComposer(c.ID); err != nil {
-				s.logger.Error("StopPipeline: StopComposer failed", "composer_id", c.ID, "error", err)
+				s.logger.Error("StopPipeline: StopComposer failed", logging.KeyComposerID, c.ID, logging.KeyError, err)
 				errs = append(errs, fmt.Errorf("composer %s: %w", c.ID, err))
 			}
 		}
 		for _, src := range s.store.ListSourceEntities() {
 			if err := s.pipe.StopSource(src.ID); err != nil {
-				s.logger.Error("StopPipeline: StopSource failed", "source_id", src.ID, "error", err)
+				s.logger.Error("StopPipeline: StopSource failed", logging.KeySourceID, src.ID, logging.KeyError, err)
 				errs = append(errs, fmt.Errorf("source %s: %w", src.ID, err))
 			}
 		}

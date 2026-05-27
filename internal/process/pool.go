@@ -168,14 +168,14 @@ func (p *pool) runProcess(ctx context.Context, mp *managedProcess) {
 		// Process exited on its own - always unexpected
 		mp.state = StateError
 		mp.lastError = fmt.Errorf("process exited with code %d", exitCode)
-		p.logger.Error("Process exited unexpectedly", "id", mp.id, "exit_code", exitCode)
+		p.logger.Error("Process exited unexpectedly", logging.KeyPoolID, mp.id, logging.KeyExitCode, exitCode)
 	}
 	newState := mp.state
 	lastErr := mp.lastError
 	p.mu.Unlock()
 
 	p.notifyStateChange(mp.id, oldState, newState, lastErr)
-	p.logger.Info("Process stopped", "id", mp.id, "exit_code", exitCode)
+	p.logger.Info("Process stopped", logging.KeyPoolID, mp.id, logging.KeyExitCode, exitCode)
 }
 
 // Stop gracefully stops a process by ID.
@@ -197,7 +197,7 @@ func (p *pool) Stop(id string) error {
 	p.mu.Unlock()
 
 	p.notifyStateChange(id, oldState, StateStopping, nil)
-	p.logger.Info("Stopping process", "id", id)
+	p.logger.Info("Stopping process", logging.KeyPoolID, id)
 
 	mp.cancel()
 	mp.proc.Shutdown()
@@ -205,7 +205,7 @@ func (p *pool) Stop(id string) error {
 	select {
 	case <-mp.done:
 	case <-time.After(10 * time.Second):
-		p.logger.Warn("Timeout waiting for process to stop", "id", id)
+		p.logger.Warn("Timeout waiting for process to stop", logging.KeyPoolID, id)
 	}
 
 	p.mu.Lock()
@@ -217,7 +217,7 @@ func (p *pool) Stop(id string) error {
 
 // Restart stops and restarts a process.
 func (p *pool) Restart(id string) error {
-	p.logger.Info("Restarting process", "id", id)
+	p.logger.Info("Restarting process", logging.KeyPoolID, id)
 	if err := p.Stop(id); err != nil {
 		return fmt.Errorf("failed to stop process: %w", err)
 	}

@@ -234,7 +234,7 @@ func (m *Manager) RegisterSource(ctx context.Context, deviceID, udsPath string) 
 
 	m.mu.Lock()
 	if old, ok := m.sources[deviceID]; ok {
-		m.logger.Warn("pipelinectl: evicting prior source", "device_id", deviceID)
+		m.logger.Warn("pipelinectl: evicting prior source", logging.KeyDeviceID, deviceID)
 		m.mu.Unlock()
 		m.closeConn(old)
 		m.mu.Lock()
@@ -245,9 +245,9 @@ func (m *Manager) RegisterSource(ctx context.Context, deviceID, udsPath string) 
 	// Open the long-lived StreamStatus and pump into m.statusCh.
 	go m.runStatusStream(streamCtx, c)
 
-	m.logger.Info("pipelinectl: source registered",
-		"device_id", deviceID, "pid", info.GetPid(),
-		"version", info.GetVersion(), "uds", udsPath)
+	m.logger.Debug("pipelinectl: source registered",
+		logging.KeyDeviceID, deviceID, logging.KeyPID, info.GetPid(),
+		logging.KeyVersion, info.GetVersion(), logging.KeyUDS, udsPath)
 	return nil
 }
 
@@ -281,7 +281,7 @@ func (m *Manager) RegisterComposer(ctx context.Context, composerID, udsPath stri
 
 	m.mu.Lock()
 	if old, ok := m.composers[composerID]; ok {
-		m.logger.Warn("pipelinectl: evicting prior composer", "composer_id", composerID)
+		m.logger.Warn("pipelinectl: evicting prior composer", logging.KeyComposerID, composerID)
 		m.mu.Unlock()
 		m.closeConn(old)
 		m.mu.Lock()
@@ -289,9 +289,9 @@ func (m *Manager) RegisterComposer(ctx context.Context, composerID, udsPath stri
 	m.composers[composerID] = c
 	m.mu.Unlock()
 
-	m.logger.Info("pipelinectl: composer registered",
-		"composer_id", composerID, "pid", info.GetPid(),
-		"version", info.GetVersion(), "uds", udsPath)
+	m.logger.Debug("pipelinectl: composer registered",
+		logging.KeyComposerID, composerID, logging.KeyPID, info.GetPid(),
+		logging.KeyVersion, info.GetVersion(), logging.KeyUDS, udsPath)
 	return nil
 }
 
@@ -357,7 +357,7 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 		}
 		if time.Since(lastGood) > StaleStreamTimeout {
 			m.logger.Warn("pipelinectl: source unresponsive — evicting",
-				"device_id", c.id, "stale_for", time.Since(lastGood))
+				logging.KeyDeviceID, c.id, logging.KeyStaleFor, time.Since(lastGood))
 			// Schedule the Unregister from a fresh goroutine so we don't
 			// deadlock on closeConn waiting for our own streamDone close.
 			go m.Unregister(c.id)
@@ -369,7 +369,7 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 				return
 			}
 			m.logger.Warn("pipelinectl: StreamStatus failed; will retry",
-				"device_id", c.id, "error", err, "backoff", backoff)
+				logging.KeyDeviceID, c.id, logging.KeyError, err, logging.KeyBackoff, backoff)
 			select {
 			case <-ctx.Done():
 				return
@@ -392,7 +392,7 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 			if err != nil {
 				if ctx.Err() == nil {
 					m.logger.Warn("pipelinectl: StreamStatus recv error",
-						"device_id", c.id, "error", err)
+						logging.KeyDeviceID, c.id, logging.KeyError, err)
 				}
 				break
 			}
@@ -414,7 +414,7 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 			case m.statusCh <- params:
 			default:
 				m.logger.Warn("pipelinectl: status fan-out buffer full",
-					"device_id", c.id)
+					logging.KeyDeviceID, c.id)
 			}
 		}
 	}

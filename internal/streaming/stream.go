@@ -70,7 +70,7 @@ func (s *Stream) AddReader(r *Reader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.readers[r] = struct{}{}
-	s.logger.Debug("Reader added to stream", "stream_id", s.id, "reader_count", len(s.readers))
+	s.logger.Debug("Reader added to stream", logging.KeyStreamID, s.id, logging.KeyReaderCount, len(s.readers))
 }
 
 // RemoveReader removes a reader.
@@ -82,7 +82,7 @@ func (s *Stream) RemoveReader(r *Reader) {
 	newCount := len(s.readers)
 	s.mu.Unlock()
 
-	s.logger.Debug("Reader removed from stream", "stream_id", s.id, "reader_count", newCount)
+	s.logger.Debug("Reader removed from stream", logging.KeyStreamID, s.id, logging.KeyReaderCount, newCount)
 
 	if count > 0 && newCount == 0 && cb != nil {
 		go cb(s.id)

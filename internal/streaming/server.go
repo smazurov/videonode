@@ -104,7 +104,7 @@ func (s *Server) EnsureStreamReady(streamID string, timeout time.Duration) *Stre
 
 	if ensure != nil {
 		if err := ensure(streamID); err != nil {
-			s.logger.Warn("EnsureStream hook failed", "stream_id", streamID, "error", err)
+			s.logger.Warn("EnsureStream hook failed", logging.KeyStreamID, streamID, logging.KeyError, err)
 			return nil
 		}
 	}
@@ -176,7 +176,7 @@ func (s *Server) Start(addr string) error {
 		return err
 	}
 
-	s.logger.Info("RTSP server started", "addr", addr)
+	s.logger.Info("RTSP server started", logging.KeyAddr, addr)
 	return nil
 }
 
@@ -241,17 +241,17 @@ func (s *Server) ListStreams() []string {
 
 // OnConnOpen is called when a connection is opened.
 func (s *Server) OnConnOpen(ctx *gortsplib.ServerHandlerOnConnOpenCtx) {
-	s.logger.Debug("RTSP connection opened", "remote", ctx.Conn.NetConn().RemoteAddr())
+	s.logger.Debug("RTSP connection opened", logging.KeyRemote, ctx.Conn.NetConn().RemoteAddr())
 }
 
 // OnConnClose is called when a connection is closed.
 func (s *Server) OnConnClose(ctx *gortsplib.ServerHandlerOnConnCloseCtx) {
-	s.logger.Debug("RTSP connection closed", "remote", ctx.Conn.NetConn().RemoteAddr())
+	s.logger.Debug("RTSP connection closed", logging.KeyRemote, ctx.Conn.NetConn().RemoteAddr())
 }
 
 // OnSessionOpen is called when a session is opened.
 func (s *Server) OnSessionOpen(ctx *gortsplib.ServerHandlerOnSessionOpenCtx) {
-	s.logger.Debug("RTSP session opened", "remote", ctx.Conn.NetConn().RemoteAddr())
+	s.logger.Debug("RTSP session opened", logging.KeyRemote, ctx.Conn.NetConn().RemoteAddr())
 }
 
 // OnSessionClose is called when a session is closed.
@@ -306,7 +306,7 @@ func (s *Server) OnAnnounce(ctx *gortsplib.ServerHandlerOnAnnounceCtx) (*base.Re
 
 	// Close existing stream if any
 	if existing := s.streams[streamID]; existing != nil {
-		s.logger.Info("Replacing existing producer", "stream_id", streamID)
+		s.logger.Info("Replacing existing producer", logging.KeyStreamID, streamID)
 		existing.CloseAllReaders()
 		callback = s.onProducerReplaced
 	}
@@ -330,7 +330,7 @@ func (s *Server) OnAnnounce(ctx *gortsplib.ServerHandlerOnAnnounceCtx) (*base.Re
 	if err := ss.Initialize(); err != nil {
 		delete(s.streams, streamID)
 		s.mu.Unlock()
-		s.logger.Error("Failed to initialize server stream", "error", err)
+		s.logger.Error("Failed to initialize server stream", logging.KeyError, err)
 		return &base.Response{StatusCode: base.StatusInternalServerError}, err
 	}
 	s.serverStreams[streamID] = ss
@@ -347,7 +347,7 @@ func (s *Server) OnAnnounce(ctx *gortsplib.ServerHandlerOnAnnounceCtx) (*base.Re
 		go s.onProducerConnected(streamID)
 	}
 
-	s.logger.Info("RTSP producer connected", "stream_id", streamID, "remote", ctx.Conn.NetConn().RemoteAddr())
+	s.logger.Info("RTSP producer connected", logging.KeyStreamID, streamID, logging.KeyRemote, ctx.Conn.NetConn().RemoteAddr())
 
 	return &base.Response{StatusCode: base.StatusOK}, nil
 }
@@ -408,7 +408,7 @@ func (s *Server) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.Respon
 		}
 	}
 
-	s.logger.Info("RTSP recording started", "stream_id", streamID)
+	s.logger.Info("RTSP recording started", logging.KeyStreamID, streamID)
 	return &base.Response{StatusCode: base.StatusOK}, nil
 }
 
@@ -416,7 +416,7 @@ func (s *Server) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.Respon
 func setupH264Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma *format.H264, logger logging.Logger) {
 	dec, err := forma.CreateDecoder()
 	if err != nil {
-		logger.Error("Failed to create H264 decoder", "error", err)
+		logger.Error("Failed to create H264 decoder", logging.KeyError, err)
 		return
 	}
 
@@ -427,7 +427,7 @@ func setupH264Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, s
 		// Feed RTSP playback consumers with raw RTP
 		if ss != nil {
 			if err := ss.WritePacketRTP(medi, pkt); err != nil {
-				logger.Debug("RTSP relay write error", "error", err)
+				logger.Debug("RTSP relay write error", logging.KeyError, err)
 			}
 		}
 
@@ -440,7 +440,7 @@ func setupH264Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, s
 		if err != nil {
 			if !errors.Is(err, rtph264.ErrNonStartingPacketAndNoPrevious) &&
 				!errors.Is(err, rtph264.ErrMorePacketsNeeded) {
-				logger.Debug("H264 decode error", "error", err)
+				logger.Debug("H264 decode error", logging.KeyError, err)
 			}
 			return
 		}
@@ -458,7 +458,7 @@ func setupH264Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, s
 
 		dts, err := dtsExtractor.Extract(au, pts)
 		if err != nil {
-			logger.Debug("DTS extraction error", "error", err)
+			logger.Debug("DTS extraction error", logging.KeyError, err)
 			return
 		}
 
@@ -474,14 +474,14 @@ func setupH264Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, s
 func setupH265Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma *format.H265, logger logging.Logger) {
 	dec, err := forma.CreateDecoder()
 	if err != nil {
-		logger.Error("Failed to create H265 decoder", "error", err)
+		logger.Error("Failed to create H265 decoder", logging.KeyError, err)
 		return
 	}
 
 	ctx.Session.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
 		if ss != nil {
 			if err := ss.WritePacketRTP(medi, pkt); err != nil {
-				logger.Debug("RTSP relay write error", "error", err)
+				logger.Debug("RTSP relay write error", logging.KeyError, err)
 			}
 		}
 
@@ -506,7 +506,7 @@ func setupGenericHandler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream
 	ctx.Session.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
 		if ss != nil {
 			if err := ss.WritePacketRTP(medi, pkt); err != nil {
-				logger.Debug("RTSP relay write error", "error", err)
+				logger.Debug("RTSP relay write error", logging.KeyError, err)
 			}
 		}
 
@@ -553,24 +553,24 @@ func (s *Server) removeStream(streamID string) {
 		go callback(streamID)
 	}
 
-	s.logger.Info("RTSP producer disconnected", "stream_id", streamID)
+	s.logger.Info("RTSP producer disconnected", logging.KeyStreamID, streamID)
 }
 
 // OnPacketsLost handles packet loss notifications.
 func (s *Server) OnPacketsLost(ctx *gortsplib.ServerHandlerOnPacketsLostCtx) {
-	s.logger.Debug("RTSP packets lost", "count", ctx.Lost)
+	s.logger.Debug("RTSP packets lost", logging.KeyPacketsLost, ctx.Lost)
 }
 
 // OnDecodeError handles decode errors.
 func (s *Server) OnDecodeError(ctx *gortsplib.ServerHandlerOnDecodeErrorCtx) {
 	if !errors.Is(ctx.Error, net.ErrClosed) {
-		s.logger.Debug("RTSP decode error", "error", ctx.Error)
+		s.logger.Debug("RTSP decode error", logging.KeyError, ctx.Error)
 	}
 }
 
 // OnStreamWriteError handles stream write errors.
 func (s *Server) OnStreamWriteError(ctx *gortsplib.ServerHandlerOnStreamWriteErrorCtx) {
-	s.logger.Debug("RTSP stream write error", "error", ctx.Error)
+	s.logger.Debug("RTSP stream write error", logging.KeyError, ctx.Error)
 }
 
 // CloseStreamConsumers closes all consumers for a specific stream.

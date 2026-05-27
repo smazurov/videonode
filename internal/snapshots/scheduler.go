@@ -110,8 +110,8 @@ func (c *Cache) unsubscribe(kind Kind, id string, set *subscriberSet, sub *subsc
 // fans the latest Entry out to every subscriber via a non-blocking send.
 func (c *Cache) runScheduler(kind Kind, id string, set *subscriberSet, gen uint64) {
 	logger := logging.GetLogger("snapshots")
-	logger.Debug("Scheduler starting", "kind", string(kind), "id", id, "gen", gen)
-	defer logger.Debug("Scheduler exiting", "kind", string(kind), "id", id, "gen", gen)
+	logger.Debug("Scheduler starting", logging.KeyKind, string(kind), logging.KeyEntityID, id, logging.KeyGen, gen)
+	defer logger.Debug("Scheduler exiting", logging.KeyKind, string(kind), logging.KeyEntityID, id, logging.KeyGen, gen)
 
 	for {
 		fps := set.peakFPS()
@@ -127,7 +127,7 @@ func (c *Cache) runScheduler(kind Kind, id string, set *subscriberSet, gen uint6
 		entry, err := c.Refresh(ctx, kind, id)
 		cancel()
 		if err != nil {
-			logger.Debug("Scheduler refresh failed", "kind", string(kind), "id", id, "error", err)
+			logger.Debug("Scheduler refresh failed", logging.KeyKind, string(kind), logging.KeyEntityID, id, logging.KeyError, err)
 			// Fall through to the wait; next tick will retry.
 		} else {
 			set.broadcast(entry)

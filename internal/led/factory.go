@@ -15,7 +15,7 @@ func New(logger logging.Logger) Controller {
 	boardModel := detectBoard()
 
 	if logger != nil {
-		logger.Info("Detecting board for LED control", "board_model", boardModel)
+		logger.Info("Detecting board for LED control", logging.KeyBoardModel, boardModel)
 	}
 
 	// Detect board type and return appropriate controller
@@ -48,7 +48,7 @@ func New(logger logging.Logger) Controller {
 
 	default:
 		if logger != nil {
-			logger.Info("No LED support detected, using no-op controller", "board_model", boardModel)
+			logger.Info("No LED support detected, using no-op controller", logging.KeyBoardModel, boardModel)
 		}
 		return newNoop(logger)
 	}

@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sort"
 	"time"
+
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // V2 types stub the canonical shapes from B1 (pipeline.Source / Composer /
@@ -57,11 +59,11 @@ type V2ComposerInput struct {
 
 // V2LayoutSlot positions one input on the canvas, addressed by ref.
 type V2LayoutSlot struct {
-	Input           string `toml:"input" json:"input"`
-	X               int    `toml:"x" json:"x"`
-	Y               int    `toml:"y" json:"y"`
-	W               int    `toml:"w" json:"w"`
-	H               int    `toml:"h" json:"h"`
+	Input           string  `toml:"input" json:"input"`
+	X               int     `toml:"x" json:"x"`
+	Y               int     `toml:"y" json:"y"`
+	W               int     `toml:"w" json:"w"`
+	H               int     `toml:"h" json:"h"`
 	Rotation        int     `toml:"rotation,omitempty" json:"rotation,omitempty"`
 	AspectRatioMode string  `toml:"aspect_ratio_mode,omitempty" json:"aspect_ratio_mode,omitempty"`
 	CropX           float64 `toml:"crop_x,omitempty" json:"crop_x,omitempty"`
@@ -202,8 +204,8 @@ func migrateV1Streams(v1 []v1RawStream) (migrationResult, error) {
 				}
 			}
 			slog.Warn("v1→v2 migration: stream-level test_mode overrides input devices; sources will use test pattern",
-				"stream_id", s.ID,
-				"dropped_devices", devs,
+				logging.KeyStreamID, s.ID,
+				logging.KeyDroppedDevices, devs,
 			)
 		}
 
@@ -361,11 +363,11 @@ func synthesizeComposer(s v1RawStream, inputIDToSrcID map[string]string, _ []str
 		ref := "source:" + inputIDToSrcID[in.ID]
 		if firstInput, dup := seenRefs[ref]; dup {
 			slog.Warn("v1→v2 migration: dropping duplicate composer input (same source referenced twice)",
-				"stream_id", s.ID,
-				"composer_id", comp.ID,
-				"ref", ref,
-				"first_input", firstInput,
-				"duplicate_input", in.ID,
+				logging.KeyStreamID, s.ID,
+				logging.KeyComposerID, comp.ID,
+				logging.KeyRef, ref,
+				logging.KeyFirstInput, firstInput,
+				logging.KeyDuplicateInput, in.ID,
 			)
 			continue
 		}

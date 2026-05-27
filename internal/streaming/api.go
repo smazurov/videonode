@@ -77,7 +77,8 @@ func RegisterStreamingAPI(api huma.API, webrtcManager *WebRTCManager, srtServer 
 		StreamID string `path:"stream_id" doc:"Stream identifier"`
 		Protocol string `path:"protocol" enum:"webrtc,srt" doc:"Consumer protocol"`
 		ClientID string `path:"client_id" doc:"Client identifier (peer name or consumer ID)"`
-	}) (*struct{}, error) {
+	},
+	) (*struct{}, error) {
 		var found bool
 		switch input.Protocol {
 		case "webrtc":

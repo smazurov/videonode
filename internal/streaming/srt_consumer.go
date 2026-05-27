@@ -9,6 +9,7 @@ import (
 	"time"
 
 	srt "github.com/datarhei/gosrt"
+	"github.com/smazurov/videonode/internal/logging"
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
@@ -84,9 +85,9 @@ func NewSRTConsumer(stream *Stream, consumerID string, srtConn srt.Conn, logger 
 					c.h264SPS = h264Forma.SPS
 					c.h264PPS = h264Forma.PPS
 					c.logger.Debug("SRT consumer got H264 params",
-						"stream_id", c.streamID,
-						"sps_len", len(c.h264SPS),
-						"pps_len", len(c.h264PPS))
+						logging.KeyStreamID, c.streamID,
+						logging.KeySPSLen, len(c.h264SPS),
+						logging.KeyPPSLen, len(c.h264PPS))
 				}
 			}
 		}
@@ -208,7 +209,7 @@ func (c *SRTConsumer) writeH264(track *mpegts.Track, pts, dts int64, au [][]byte
 			return nil // Skip P/B frames before first IDR
 		}
 		c.firstH264IDR = true
-		c.logger.Debug("SRT consumer received first IDR", "stream_id", c.streamID)
+		c.logger.Debug("SRT consumer received first IDR", logging.KeyStreamID, c.streamID)
 	}
 
 	// Prepend SPS/PPS before IDR frames
@@ -238,7 +239,7 @@ func (c *SRTConsumer) writeH264(track *mpegts.Track, pts, dts int64, au [][]byte
 			}
 			newAU = append(newAU, au...)
 			au = newAU
-			c.logger.Debug("SRT consumer prepended SPS/PPS", "stream_id", c.streamID)
+			c.logger.Debug("SRT consumer prepended SPS/PPS", logging.KeyStreamID, c.streamID)
 		}
 	}
 
@@ -354,7 +355,7 @@ func (c *SRTConsumer) Stop() error {
 
 	// Close the connection
 	if err := c.conn.Close(); err != nil {
-		c.logger.Debug("SRT conn close error", "stream_id", c.streamID, "error", err)
+		c.logger.Debug("SRT conn close error", logging.KeyStreamID, c.streamID, logging.KeyError, err)
 	}
 
 	return nil

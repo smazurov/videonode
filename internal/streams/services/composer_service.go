@@ -128,7 +128,7 @@ func (s *composerService) CreateComposer(_ context.Context, data models.Composer
 			if err := s.pipe.ApplyComposer(entity); err != nil {
 				if rmErr := s.store.RemoveComposerEntity(entity.ID); rmErr != nil {
 					s.logger.Error("CreateComposer: rollback after ApplyComposer failure also failed",
-						"composer_id", entity.ID, "apply_error", err, "rollback_error", rmErr)
+						logging.KeyComposerID, entity.ID, logging.KeyApplyError, err, logging.KeyRollbackError, rmErr)
 				}
 				return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
 			}
@@ -201,7 +201,7 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 		if applyErr != nil {
 			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
 				s.logger.Error("UpdateComposer: rollback after pipeline failure also failed",
-					"composer_id", id, "apply_error", applyErr, "rollback_error", restoreErr)
+					logging.KeyComposerID, id, logging.KeyApplyError, applyErr, logging.KeyRollbackError, restoreErr)
 			}
 			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + applyErr.Error()}
 		}
@@ -239,7 +239,7 @@ func (s *composerService) DeleteComposer(_ context.Context, id string) error {
 
 	if s.pipe != nil {
 		if err := s.pipe.DeleteComposer(id); err != nil {
-			s.logger.Warn("DeleteComposer: DeleteComposer failed", "composer_id", id, "error", err)
+			s.logger.Warn("DeleteComposer: DeleteComposer failed", logging.KeyComposerID, id, logging.KeyError, err)
 		}
 	}
 	if err := s.store.RemoveComposerEntity(id); err != nil {
@@ -272,7 +272,7 @@ func (s *composerService) ReplaceLayout(_ context.Context, id string, layout []m
 		if err := s.pipe.UpdateComposerLayout(id, c.Layout); err != nil {
 			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
 				s.logger.Error("ReplaceLayout: rollback after UpdateComposerLayout failure also failed",
-					"composer_id", id, "apply_error", err, "rollback_error", restoreErr)
+					logging.KeyComposerID, id, logging.KeyApplyError, err, logging.KeyRollbackError, restoreErr)
 			}
 			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
 		}
@@ -329,7 +329,7 @@ func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effe
 		if err := s.pipe.UpdateComposerEffect(id, ref, applied); err != nil {
 			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
 				s.logger.Error("SetInputEffect: rollback after UpdateComposerEffect failure also failed",
-					"composer_id", id, "apply_error", err, "rollback_error", restoreErr)
+					logging.KeyComposerID, id, logging.KeyApplyError, err, logging.KeyRollbackError, restoreErr)
 			}
 			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
 		}

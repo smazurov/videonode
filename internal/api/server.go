@@ -465,8 +465,8 @@ func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceIn
 
 // Start starts the API server on the specified address and begins device monitoring.
 func (s *Server) Start(addr string) error {
-	s.logger.Info("Starting VideoNode API server", "addr", addr)
-	s.logger.Info("OpenAPI documentation available", "url", "http://"+addr+"/docs")
+	s.logger.Info("Starting VideoNode API server", logging.KeyAddr, addr)
+	s.logger.Info("OpenAPI documentation available", logging.KeyURL, "http://"+addr+"/docs")
 
 	// Start device monitoring. v2 sources/composers/streams have their own
 	// lifecycle decoupled from hotplug; the daemon's hotplug-driven device
@@ -475,7 +475,7 @@ func (s *Server) Start(addr string) error {
 	s.deviceDetector = devices.NewDetector()
 	s.deviceDetector.SetEventBus(s.eventBus)
 	if err := s.deviceDetector.StartMonitoring(context.Background(), s); err != nil {
-		s.logger.Warn("Failed to start device monitoring", "error", err)
+		s.logger.Warn("Failed to start device monitoring", logging.KeyError, err)
 	}
 
 	// Create HTTP server with proper shutdown support

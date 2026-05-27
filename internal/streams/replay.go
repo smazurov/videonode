@@ -33,7 +33,7 @@ func ReplayV2Entities(store EntityStore, pipe *pipeline.Pipeline, pipelineEnable
 			err = pipe.RegisterSource(src)
 		}
 		if err != nil {
-			logger.Warn("ReplayV2Entities: source replay failed", "source_id", src.ID, "error", err)
+			logger.Warn("ReplayV2Entities: source replay failed", logging.KeySourceID, src.ID, logging.KeyError, err)
 			errs = append(errs, fmt.Errorf("source %s: %w", src.ID, err))
 		}
 	}
@@ -47,7 +47,7 @@ func ReplayV2Entities(store EntityStore, pipe *pipeline.Pipeline, pipelineEnable
 			err = pipe.RegisterComposer(c)
 		}
 		if err != nil {
-			logger.Warn("ReplayV2Entities: composer replay failed", "composer_id", c.ID, "error", err)
+			logger.Warn("ReplayV2Entities: composer replay failed", logging.KeyComposerID, c.ID, logging.KeyError, err)
 			errs = append(errs, fmt.Errorf("composer %s: %w", c.ID, err))
 		}
 	}
@@ -57,7 +57,7 @@ func ReplayV2Entities(store EntityStore, pipe *pipeline.Pipeline, pipelineEnable
 	if pipelineEnabled {
 		for _, st := range v2streams {
 			if err := pipe.ApplyStream(st); err != nil {
-				logger.Warn("ReplayV2Entities: ApplyStream failed", "stream_id", st.ID, "error", err)
+				logger.Warn("ReplayV2Entities: ApplyStream failed", logging.KeyStreamID, st.ID, logging.KeyError, err)
 				errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
 				continue
 			}
@@ -66,11 +66,11 @@ func ReplayV2Entities(store EntityStore, pipe *pipeline.Pipeline, pipelineEnable
 	}
 
 	logger.Info("Replayed v2 entities",
-		"sources", len(sources),
-		"composers", len(composers),
-		"streams_persisted", len(v2streams),
-		"streams_applied", appliedStreams,
-		"pipeline_enabled", pipelineEnabled)
+		logging.KeySources, len(sources),
+		logging.KeyComposers, len(composers),
+		logging.KeyStreamsPersisted, len(v2streams),
+		logging.KeyStreamsApplied, appliedStreams,
+		logging.KeyPipelineEnabled, pipelineEnabled)
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)

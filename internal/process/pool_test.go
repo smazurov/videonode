@@ -2,7 +2,6 @@ package process
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"sync"
 	"testing"
@@ -10,7 +9,7 @@ import (
 )
 
 func poolTestLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 func TestPoolStartStop(t *testing.T) {

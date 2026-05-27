@@ -136,7 +136,7 @@ func (p *Pool) Start(ctx context.Context) error {
 		seen[id] = struct{}{}
 
 		if err := p.cfg.Pipeline.EnsurePersistentSource(id); err != nil {
-			p.logger.Error("devicepool: spawn failed", "device_id", id, "error", err)
+			p.logger.Error("devicepool: spawn failed", logging.KeyDeviceID, id, logging.KeyError, err)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -145,7 +145,7 @@ func (p *Pool) Start(ctx context.Context) error {
 		p.mu.Lock()
 		p.managed[id] = struct{}{}
 		p.mu.Unlock()
-		p.logger.Info("devicepool: persistent source spawned", "device_id", id)
+		p.logger.Info("devicepool: persistent source spawned", logging.KeyDeviceID, id)
 
 		// Async path resolve + SetDevice. Holds no locks across the
 		// SetDevice round-trip; per-device retries are independent.
@@ -181,11 +181,11 @@ func (p *Pool) initialAssign(ctx context.Context, deviceID string) {
 			continue
 		}
 		p.logger.Info("devicepool: initial device assigned",
-			"device_id", deviceID, "path", path)
+			logging.KeyDeviceID, deviceID, logging.KeyPath, path)
 		return
 	}
 	p.logger.Warn("devicepool: initial SetDevice gave up",
-		"device_id", deviceID, "budget", p.cfg.DialRetryBudget)
+		logging.KeyDeviceID, deviceID)
 }
 
 // Stop unpins and shuts down every managed source. Called from the
@@ -234,14 +234,14 @@ func (p *Pool) OnDeviceEvent(deviceID, devicePath string) {
 	defer cancel()
 	if err := p.setDevice(ctx, deviceID, devicePath); err != nil {
 		p.logger.Warn("devicepool: SetDevice on hotplug failed",
-			"device_id", deviceID, "path", devicePath, "error", err)
+			logging.KeyDeviceID, deviceID, logging.KeyPath, devicePath, logging.KeyError, err)
 		return
 	}
 	if devicePath == "" {
-		p.logger.Info("devicepool: device detached", "device_id", deviceID)
+		p.logger.Info("devicepool: device detached", logging.KeyDeviceID, deviceID)
 	} else {
 		p.logger.Info("devicepool: device attached",
-			"device_id", deviceID, "path", devicePath)
+			logging.KeyDeviceID, deviceID, logging.KeyPath, devicePath)
 	}
 }
 

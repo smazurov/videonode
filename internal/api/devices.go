@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/devices"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
@@ -212,14 +213,14 @@ func GetDeviceCapabilities(devicePath string) (models.DeviceCapabilitiesData, er
 		_, formatErr := V4L2ToFFmpegFormat(format.PixelFormat)
 		if formatErr != nil {
 			// Skip unsupported formats instead of failing completely
-			logger := slog.With("component", "devices_api")
-			logger.Warn("Skipping unsupported format", "error", formatErr)
+			logger := slog.With(logging.KeyComponent, "devices_api")
+			logger.Warn("Skipping unsupported format", logging.KeyError, formatErr)
 			continue
 		}
 		videoFormat, ok := models.PixelFormatToVideoFormat(format.PixelFormat)
 		if !ok {
-			logger := slog.With("component", "devices_api")
-			logger.Warn("Unknown pixel format code", "pixel_format", format.PixelFormat)
+			logger := slog.With(logging.KeyComponent, "devices_api")
+			logger.Warn("Unknown pixel format code", logging.KeyPixelFmt, format.PixelFormat)
 			continue
 		}
 		formats = append(formats, models.FormatInfo{

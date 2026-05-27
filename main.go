@@ -121,7 +121,7 @@ func main() {
 
 		// Load configuration with proper precedence: CLI > env > config file
 		if err := config.LoadConfig(opts, cli.Root()); err != nil {
-			slog.Warn("Failed to load config", "error", err)
+			slog.Warn("Failed to load config", logging.KeyError, err)
 		}
 
 		// Initialize logging system from config file
@@ -135,7 +135,7 @@ func main() {
 		if _, statErr := os.Stat("/proc/mpp_service/load"); statErr == nil {
 			mppCollector = collectors.NewMPPCollector()
 			if err := mppCollector.Start(context.Background()); err != nil {
-				logger.Warn("Failed to start MPP collector", "error", err)
+				logger.Warn("Failed to start MPP collector", logging.KeyError, err)
 			}
 		}
 
@@ -191,7 +191,7 @@ func main() {
 
 		// Close WebRTC and SRT consumers when stream producer is replaced (enables client reconnection)
 		streamingServer.SetOnProducerReplaced(func(streamID string) {
-			streamingLogger.Info("Producer replaced, closing consumers", "stream_id", streamID)
+			streamingLogger.Info("Producer replaced, closing consumers", logging.KeyStreamID, streamID)
 			webrtcManager.CloseStreamConsumers(streamID)
 			if srtServer != nil {
 				srtServer.CloseStreamConsumers(streamID)
@@ -239,7 +239,7 @@ func main() {
 			ctlServer = pipelinectl.New(nil)
 			if err := ctlServer.Start(context.Background()); err != nil {
 				logger.Warn("control plane disabled (start failed)",
-					"error", err)
+					logging.KeyError, err)
 				ctlServer = nil
 			}
 			// The StatusFeed pump goroutine is started AFTER
@@ -330,7 +330,7 @@ func main() {
 
 		// Load persisted entities + validation/pipeline-switch data once.
 		if err := streamStore.Load(); err != nil {
-			logger.Warn("Failed to load streams.toml", "error", err)
+			logger.Warn("Failed to load streams.toml", logging.KeyError, err)
 		}
 
 		// All three v2 services share the same EntityStore + pipeline.
@@ -366,7 +366,7 @@ func main() {
 		// resolution) but no processes are spawned.
 		if entityStore != nil {
 			if err := streams.ReplayV2Entities(entityStore, nativePipeline, streamStore.GetPipeline().Enabled); err != nil {
-				logger.Warn("Failed to replay v2 entities", "error", err)
+				logger.Warn("Failed to replay v2 entities", logging.KeyError, err)
 			}
 		}
 
@@ -378,11 +378,11 @@ func main() {
 				Prerelease: opts.UpdatePrerelease,
 			})
 			if err != nil {
-				logger.Warn("Failed to initialize update service", "error", err)
+				logger.Warn("Failed to initialize update service", logging.KeyError, err)
 			} else {
 				updateService = svc
 				if !svc.IsEnabled() {
-					logger.Warn("Update service disabled", "reason", svc.DisabledReason())
+					logger.Warn("Update service disabled", logging.KeyReason, svc.DisabledReason())
 				}
 			}
 		}
@@ -434,7 +434,7 @@ func main() {
 		// new entity into the registry). The error message names the
 		// missing call so future contributors don't have to grep.
 		if err := eventRegistry.SelfCheck(context.Background(), server); err != nil {
-			logger.Error("entity registry self-check failed", "error", err)
+			logger.Error("entity registry self-check failed", logging.KeyError, err)
 			os.Exit(1)
 		}
 
@@ -446,14 +446,14 @@ func main() {
 		hooks.OnStart(func() {
 			// Start RTSP streaming server first (must be ready for FFmpeg)
 			if err := streamingServer.Start(opts.StreamingRTSPPort); err != nil {
-				logger.Error("Failed to start RTSP server", "error", err)
+				logger.Error("Failed to start RTSP server", logging.KeyError, err)
 				os.Exit(1)
 			}
 
 			// Start SRT server if enabled
 			if srtServer != nil {
 				if startErr := srtServer.Start(); startErr != nil {
-					logger.Error("Failed to start SRT server", "error", startErr)
+					logger.Error("Failed to start SRT server", logging.KeyError, startErr)
 					os.Exit(1)
 				}
 			}
@@ -516,9 +516,9 @@ func main() {
 				ledManager.Start()
 			}
 
-			logger.Info("Starting HTTP server", "port", opts.Port)
+			logger.Info("Starting HTTP server", logging.KeyPort, opts.Port)
 			if err := server.Start(opts.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				logger.Error("Failed to start HTTP server", "error", err)
+				logger.Error("Failed to start HTTP server", logging.KeyError, err)
 				os.Exit(1)
 			}
 		})
@@ -526,7 +526,7 @@ func main() {
 		hooks.OnStop(func() {
 			logger.Info("Shutting down server")
 			if err := server.Stop(); err != nil {
-				logger.Error("Error stopping HTTP server", "error", err)
+				logger.Error("Error stopping HTTP server", logging.KeyError, err)
 			}
 
 			// Tear down the native control plane FIRST: cancels in-flight
@@ -537,7 +537,7 @@ func main() {
 			// socket until the 30s StaleStreamTimeout evicts it.
 			if ctlServer != nil {
 				if err := ctlServer.Stop(); err != nil {
-					logger.Error("Error stopping control manager", "error", err)
+					logger.Error("Error stopping control manager", logging.KeyError, err)
 				}
 			}
 
@@ -547,7 +547,7 @@ func main() {
 
 			// Stop streaming server after FFmpeg processes
 			if err := streamingServer.Stop(); err != nil {
-				logger.Error("Error stopping RTSP server", "error", err)
+				logger.Error("Error stopping RTSP server", logging.KeyError, err)
 			}
 
 			// Stop WebRTC peers
