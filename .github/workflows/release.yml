@@ -90,7 +90,7 @@ jobs:
           GOARCH=arm64 VERSION=$VERSION \
             nfpm package --packager deb --target dist/
       - name: Lint .deb
-        run: lintian --no-tag-display-limit dist/*.deb
+        run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary dist/*.deb
       - name: Attach .deb to GitHub Release
         run: |
           # Wait for the release to be created by the Build workflow
