@@ -6,11 +6,47 @@ VideoNode automatically detects connected capture devices, validates available h
 
 ## Installation
 
+### APT (Debian/Ubuntu arm64 — recommended for RK3588 SBCs)
+
+```bash
+# Add the repository
+curl -fsSL https://smazurov.github.io/videonode/gpg.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/videonode.gpg
+echo "deb [arch=arm64 signed-by=/usr/share/keyrings/videonode.gpg] https://smazurov.github.io/videonode stable main" \
+  | sudo tee /etc/apt/sources.list.d/videonode.list
+
+# Install
+sudo apt update
+sudo apt install videonode
+```
+
+The `.deb` package includes the Go daemon, native C++ pipeline binaries
+(`videonode-source`, `videonode-sink`, `videonode-composer`), and a
+systemd service. It expects the Rockchip hardware stack (ffmpeg with
+rkmpp, librga, librockchip-mpp) to be installed separately via
+[videonode-sbc-config](https://github.com/smazurov/videonode-sbc-config) —
+the installer warns if these are missing.
+
+### Script install (any Linux)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/smazurov/videonode/main/install.sh | bash
 ```
 
-This downloads the latest release, installs to `~/.local/bin`, sets up config in `~/.config/videonode`, and configures a systemd user service.
+This downloads the latest release tarball, installs to `~/.local/bin`, sets up config in `~/.config/videonode`, and configures a systemd user service. Does not include the native C++ pipeline.
+
+### Uninstall (script install)
+
+If migrating from a script install to the `.deb` package, first remove the
+per-user installation:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/smazurov/videonode/main/uninstall.sh | bash
+```
+
+This stops the user service, removes binaries from `~/.local/bin`, and
+cleans up the systemd unit. Config files in `~/.config/videonode/` are
+preserved — migrate them to `/etc/videonode/` after installing the `.deb`.
 
 ## Quick Start (from source)
 

@@ -1,22 +1,16 @@
 #!/usr/bin/env bash
-# build-fedora-rpm.sh — local equivalent of the CI RPM job. Builds
-# Release, runs tests, packs RPM. For hand-rolling release artifacts when
-# CI is offline.
+# build-fedora-rpm.sh — builds Release, runs tests, installs to
+# ~/.local/bin (the default prefix). For local dev on Fedora.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if ! command -v rpmbuild >/dev/null; then
-    echo "build-fedora-rpm.sh: rpmbuild not found; dnf install rpm-build" >&2
-    exit 1
-fi
-
 cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ctest --test-dir build --output-on-failure
-(cd build && cpack -G RPM)
+cmake --install build
 
 echo
-echo "=== artifact ==="
-ls -1 build/*.rpm
+echo "=== installed ==="
+ls -l ~/.local/bin/videonode-{source,sink,composer} 2>/dev/null || echo "(check CMAKE_INSTALL_PREFIX)"
