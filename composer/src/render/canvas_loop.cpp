@@ -164,6 +164,36 @@ build_render_slots_(const Snapshot& snap, const std::map<std::string, LiveSource
         s.w = rect.w;
         s.h = rect.h;
         s.rotation = rect.rotation;
+
+        if (rect.aspect_ratio_mode != 0 && fv.width > 0 && fv.height > 0 && rect.w > 0 && rect.h > 0) {
+            auto src_ar = static_cast<float>(fv.width) / static_cast<float>(fv.height);
+            auto slot_ar = static_cast<float>(rect.w) / static_cast<float>(rect.h);
+            if (rect.aspect_ratio_mode == 1) {
+                // Fit: letterbox/pillarbox — shrink destination to match source AR
+                if (src_ar > slot_ar) {
+                    auto new_h = static_cast<int>(static_cast<float>(rect.w) / src_ar);
+                    s.y += (rect.h - new_h) / 2;
+                    s.h = new_h;
+                } else {
+                    auto new_w = static_cast<int>(static_cast<float>(rect.h) * src_ar);
+                    s.x += (rect.w - new_w) / 2;
+                    s.w = new_w;
+                }
+            } else if (rect.aspect_ratio_mode == 2) {
+                // Crop: fill slot, clip excess via source crop
+                if (src_ar > slot_ar) {
+                    auto visible_frac = slot_ar / src_ar;
+                    auto offset = (1.0F - visible_frac) / 2.0F;
+                    s.src_crop_x0 = offset;
+                    s.src_crop_x1 = 1.0F - offset;
+                } else {
+                    auto visible_frac = src_ar / slot_ar;
+                    auto offset = (1.0F - visible_frac) / 2.0F;
+                    s.src_crop_y0 = offset;
+                    s.src_crop_y1 = 1.0F - offset;
+                }
+            }
+        }
         auto sit = snap.source_states.find(bit->source_id);
         if (sit != snap.source_states.end()) {
             const auto& ss = sit->second;

@@ -465,7 +465,11 @@ func (p *Pipeline) pushComposerConfig(c Composer, udsPath string) {
 			slots = append(slots, pipelinectl.LayoutSlotEntry{
 				Slot: slotNameFor(idx),
 				X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
-				Rotation: int32(l.Rotation),
+				Rotation:        int32(l.Rotation),
+				AspectRatioMode: aspectRatioModeToInt(l.AspectRatioMode),
+				CropX:           float32(l.CropX),
+				CropY:           float32(l.CropY),
+				CropScale:       float32(l.CropScale),
 			})
 		}
 	} else if len(c.Inputs) > 0 {
@@ -508,6 +512,17 @@ func (p *Pipeline) pushComposerConfig(c Composer, udsPath string) {
 
 // slotNameFor returns the alphabetic slot label used by the composer
 // control plane ("a"..."z"; "slotN" past 26 for safety).
+func aspectRatioModeToInt(s string) int32 {
+	switch s {
+	case "fit":
+		return 1
+	case "crop":
+		return 2
+	default:
+		return 0
+	}
+}
+
 func slotNameFor(i int) string {
 	if i < 0 || i > 25 {
 		return fmt.Sprintf("slot%d", i)
@@ -544,7 +559,11 @@ func (p *Pipeline) UpdateComposerLayout(id string, layout []LayoutSlot) error {
 		slots = append(slots, pipelinectl.LayoutSlotEntry{
 			Slot: slotNameFor(idx),
 			X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
-			Rotation: int32(l.Rotation),
+			Rotation:        int32(l.Rotation),
+			AspectRatioMode: aspectRatioModeToInt(l.AspectRatioMode),
+			CropX:           float32(l.CropX),
+			CropY:           float32(l.CropY),
+			CropScale:       float32(l.CropScale),
 		})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

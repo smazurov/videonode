@@ -139,6 +139,8 @@ bool World::apply_set_layout(const composer_rpc::SetLayoutRequest& r,
             return fail(err, kInvalidParams, "set_layout: w/h exceed 16384");
         if (ls.rotation != 0 && ls.rotation != 90 && ls.rotation != 180 && ls.rotation != 270)
             return fail(err, kInvalidParams, "set_layout: rotation must be 0, 90, 180, or 270");
+        if (ls.aspect_ratio_mode < 0 || ls.aspect_ratio_mode > 2)
+            return fail(err, kInvalidParams, "set_layout: aspect_ratio_mode must be 0, 1, or 2");
     }
     std::lock_guard<std::mutex> g(mu_);
     layout_.clear();
@@ -150,6 +152,10 @@ bool World::apply_set_layout(const composer_rpc::SetLayoutRequest& r,
         rect.w = ls.w;
         rect.h = ls.h;
         rect.rotation = ls.rotation;
+        rect.aspect_ratio_mode = ls.aspect_ratio_mode;
+        rect.crop_x = ls.crop_x;
+        rect.crop_y = ls.crop_y;
+        rect.crop_scale = ls.crop_scale;
         layout_[ls.slot] = std::move(rect);
     }
     return true;

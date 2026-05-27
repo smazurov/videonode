@@ -84,6 +84,10 @@ struct LayoutRect {
     int32_t w = 0;
     int32_t h = 0;
     int32_t rotation = 0; // 0, 90, 180, 270 clockwise degrees
+    int32_t aspect_ratio_mode = 0; // 0=stretch, 1=fit, 2=crop
+    float crop_x = 0.0f;     // 0-1 normalized horizontal crop offset (0.5 = centered)
+    float crop_y = 0.0f;     // 0-1 normalized vertical crop offset (0.5 = centered)
+    float crop_scale = 1.0f; // >= 1.0, source overfill factor
 };
 
 // Snapshot is what the render loop gets per frame. Cheap value-copy of

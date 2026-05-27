@@ -28,8 +28,8 @@ mkdir -p internal/streams/pipelinectl/pb
 
 PATH="$BIN_DIR:$PATH" protoc \
   -I proto \
-  --go_out=. --go_opt=module=github.com/smazurov/videonode \
-  --go-grpc_out=. --go-grpc_opt=module=github.com/smazurov/videonode \
+  --go_out="$ROOT" --go_opt=module=github.com/smazurov/videonode \
+  --go-grpc_out="$ROOT" --go-grpc_opt=module=github.com/smazurov/videonode \
   proto/control/common.proto \
   proto/control/source.proto \
   proto/control/composer.proto

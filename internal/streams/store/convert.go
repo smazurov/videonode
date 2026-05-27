@@ -75,7 +75,7 @@ func composerFromV2(v V2Composer) streams.Composer {
 	if len(v.Layout) > 0 {
 		c.Layout = make([]streams.ComposerLayoutSlot, len(v.Layout))
 		for i, l := range v.Layout {
-			c.Layout[i] = streams.ComposerLayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation}
+			c.Layout[i] = streams.ComposerLayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation, AspectRatioMode: l.AspectRatioMode, CropX: l.CropX, CropY: l.CropY, CropScale: l.CropScale}
 		}
 	}
 	return c
@@ -106,7 +106,7 @@ func composerToV2(c streams.Composer) V2Composer {
 	if len(c.Layout) > 0 {
 		v.Layout = make([]V2LayoutSlot, len(c.Layout))
 		for i, l := range c.Layout {
-			v.Layout[i] = V2LayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation}
+			v.Layout[i] = V2LayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation, AspectRatioMode: l.AspectRatioMode, CropX: l.CropX, CropY: l.CropY, CropScale: l.CropScale}
 		}
 	}
 	return v
