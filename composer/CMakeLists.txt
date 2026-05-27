@@ -77,10 +77,6 @@ if(BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-# ───────────────────────────────────────────────── packaging
-# Builds deb + rpm when dpkg-deb / rpmbuild are available. Always builds
-# a .tar.gz. Run `cpack` after `cmake --build`.
-include(Packaging)
 
 message(STATUS "")
 message(STATUS "videonode-native ${PROJECT_VERSION} configured.")
@@ -94,5 +90,4 @@ message(STATUS "  ctest --test-dir ${CMAKE_BINARY_DIR}")
 message(STATUS "  cmake --install ${CMAKE_BINARY_DIR}            # to ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "  cmake --build ${CMAKE_BINARY_DIR} --target lint    # clang-format check")
 message(STATUS "  cmake --build ${CMAKE_BINARY_DIR} --target format  # clang-format rewrite")
-message(STATUS "  cpack --config ${CMAKE_BINARY_DIR}/CPackConfig.cmake  # deb/rpm/tgz")
 message(STATUS "")

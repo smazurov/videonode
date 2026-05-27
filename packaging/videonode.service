@@ -1,0 +1,18 @@
+[Unit]
+Description=VideoNode streaming server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=videonode
+Group=video
+WorkingDirectory=/etc/videonode
+ExecStartPre=-/usr/bin/videonode validate-encoders --quiet
+ExecStart=/usr/bin/videonode -c /etc/videonode/config.toml
+Restart=on-failure
+RestartSec=5
+SupplementaryGroups=video render
+
+[Install]
+WantedBy=multi-user.target

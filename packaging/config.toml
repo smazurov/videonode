@@ -1,0 +1,33 @@
+[server]
+port = ":8090"
+
+[streams]
+config_file = "streams.toml"
+
+[streaming]
+rtsp_port = ":8554"
+
+[metrics]
+sse_enabled = true
+
+[update]
+enabled = true
+prerelease = false
+
+[preview]
+max_fps = 10
+
+[auth]
+type = "linux"
+
+[native_pipeline]
+source = "/usr/bin/videonode-source"
+sink = "/usr/bin/videonode-sink"
+composer = "/usr/bin/videonode-composer"
+
+[features]
+led_control_enabled = false
+
+[logging]
+level = "info"
+format = "text"

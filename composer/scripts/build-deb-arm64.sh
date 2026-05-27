@@ -4,8 +4,8 @@
 # GH Actions via the `container:` directive). Installs deps and drives
 # cmake for the requested MODE.
 #
-# MODE=release-deb (default)  Release build → ctest → cpack -G DEB
-#                              Artifact: composer/$BUILD_DIR/*.deb
+# MODE=release-nfpm (default) Release build → ctest → cmake --install to staging → strip
+#                              Artifact: composer/$BUILD_DIR/staging/bin/videonode-*
 # MODE=dev                    cmake --preset dev → build → ctest
 # MODE=dev-asan               cmake --preset dev-asan → build → ctest (ASan/UBSan)
 # MODE=lint                   cmake --preset dev → build lint + tidy-diff
@@ -13,14 +13,14 @@
 #
 # Env:
 #   MODE=…                    See above.
-#   BUILD_DIR=build/deb-arm64  (release-deb only)
+#   BUILD_DIR=build/deb-arm64  (release-nfpm only)
 set -euo pipefail
 
-MODE="${MODE:-release-deb}"
+MODE="${MODE:-release-nfpm}"
 BUILD_DIR="${BUILD_DIR:-build/deb-arm64}"
 
 case "$MODE" in
-    release-deb|dev|dev-asan|lint) ;;
+    release-nfpm|dev|dev-asan|lint) ;;
     *) echo "build-deb-arm64.sh: unknown MODE='$MODE'" >&2; exit 2 ;;
 esac
 
@@ -30,9 +30,8 @@ if [[ $EUID -ne 0 ]] && [[ -z "$SUDO" ]] && command -v sudo >/dev/null; then
 fi
 
 case "$MODE" in
-    release-deb) extra_pkgs=(dpkg-dev) ;;
-    lint)        extra_pkgs=(clang-format clang-tidy) ;;
-    *)           extra_pkgs=() ;;
+    lint) extra_pkgs=(clang-format clang-tidy) ;;
+    *)    extra_pkgs=() ;;
 esac
 
 $SUDO apt-get update -qq
@@ -54,11 +53,12 @@ git config --global --add safe.directory "$ROOT"
 
 cd "$ROOT/composer"
 case "$MODE" in
-    release-deb)
+    release-nfpm)
         cmake -B "$BUILD_DIR" -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
         cmake --build "$BUILD_DIR"
         ctest --test-dir "$BUILD_DIR" --output-on-failure
-        (cd "$BUILD_DIR" && cpack -G DEB)
+        cmake --install "$BUILD_DIR" --prefix "$BUILD_DIR/staging"
+        find "$BUILD_DIR/staging/bin" -type f -executable -exec strip {} +
         ;;
     dev)
         cmake --preset dev
