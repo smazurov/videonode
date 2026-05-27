@@ -74,7 +74,7 @@ func TestModuleLevelActualOutput(t *testing.T) {
 
 	// Create a custom handler that writes to our buffer
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
-	logger := slog.New(handler).With("module", "test")
+	logger := slog.New(handler).With(KeyModule, "test")
 
 	// Log at different levels
 	logger.Debug("debug message")
@@ -130,10 +130,10 @@ func TestDebugLogsActuallyWritten(t *testing.T) {
 
 	// Create handler with debug level
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
-	logger := slog.New(handler).With("module", "webrtc")
+	logger := slog.New(handler).With(KeyModule, "webrtc")
 
 	// Write debug log
-	logger.Debug("test debug message", "key", "value")
+	logger.Debug("test debug message", KeyName, "value")
 
 	output := buf.String()
 	if !strings.Contains(output, "test debug message") {
@@ -152,7 +152,7 @@ func TestMultiHandlerDebugOutput(t *testing.T) {
 	infoHandler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 
 	multi := NewMultiHandler(debugHandler, infoHandler)
-	logger := slog.New(multi).With("module", "test")
+	logger := slog.New(multi).With(KeyModule, "test")
 
 	// Write debug log - should appear once (from debugHandler)
 	logger.Debug("debug only message")

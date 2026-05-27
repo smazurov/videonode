@@ -27,6 +27,7 @@ linters:
     - usestdlibvars
     - unconvert
     - tparallel
+    - sloglint
     - wastedassign
     - whitespace
   settings:
@@ -134,6 +135,9 @@ linters:
             - - skipPackageNameChecks: true
         - name: unused-parameter
           severity: warning
+    sloglint:
+      no-raw-keys: true
+      key-naming-case: snake
 
 formatters:
   enable:
