@@ -1,49 +1,31 @@
-name: Release DEB
+name: Release
 
 on:
-  workflow_run:
-    workflows: ["Build"]
-    types: [completed]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 4.0.0-rc1). Omit the v prefix.'
+        required: true
+        type: string
+
+env:
+  VERSION: ${{ inputs.version || github.ref_name }}
 
 concurrency:
-  group: release-deb-${{ github.event.workflow_run.head_branch }}
+  group: release-${{ inputs.version || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  build-native:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
-    runs-on: ubuntu-24.04-arm
-    container: arm64v8/debian:trixie
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-      - name: Build + stage C++ binaries
-        run: composer/scripts/build-deb-arm64.sh
-        env:
-          MODE: release-nfpm
-      - uses: actions/upload-artifact@v7
-        with:
-          name: native-arm64
-          path: composer/build/deb-arm64/staging/bin/
-
-  build-go:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
+  goreleaser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
@@ -58,45 +40,60 @@ jobs:
       - name: Build UI
         working-directory: ui
         run: pnpm install --frozen-lockfile && pnpm build
-      - name: Build arm64 binary
-        env:
-          TAG: ${{ github.event.workflow_run.head_branch }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
+      - name: Create tag (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
-            -tags ui_embed \
-            -ldflags "-s -w \
-              -X github.com/smazurov/videonode/internal/version.Version=${TAG#v} \
-              -X github.com/smazurov/videonode/internal/version.GitCommit=${SHA::7} \
-              -X github.com/smazurov/videonode/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-              -X github.com/smazurov/videonode/internal/version.BuildID=${RUN_ID}" \
-            -o dist/videonode .
+          git tag "v${{ inputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: v${{ inputs.version || '' }}
       - uses: actions/upload-artifact@v7
         with:
           name: go-arm64
-          path: dist/videonode
+          path: dist/videonode_linux_arm64/videonode
+
+  build-native:
+    runs-on: ubuntu-24.04-arm
+    container: arm64v8/debian:trixie
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build + stage C++ binaries
+        run: composer/scripts/build-deb-arm64.sh
+        env:
+          MODE: release-nfpm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-arm64
+          path: composer/build/deb-arm64/staging/bin/
 
   package-deb:
-    needs: [build-native, build-go]
+    needs: [goreleaser, build-native]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - uses: actions/download-artifact@v8
         with:
-          name: native-arm64
+          name: go-arm64
           path: dist/
       - uses: actions/download-artifact@v8
         with:
-          name: go-arm64
+          name: native-arm64
           path: dist/
       - name: Install nfpm + lintian
         run: |
@@ -104,21 +101,20 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y lintian
       - name: Build .deb
-        env:
-          TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           chmod +x dist/videonode dist/videonode-source dist/videonode-sink dist/videonode-composer
           gzip -9n -c packaging/changelog > dist/changelog.gz
-          VERSION=${TAG#v}
-          GOARCH=arm64 VERSION=$VERSION \
+          VER="${VERSION#v}"
+          GOARCH=arm64 VERSION=$VER \
             nfpm package --packager deb --target dist/
       - name: Lint .deb
         run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary dist/*.deb
       - name: Attach .deb to GitHub Release
+        run: |
+          TAG="v${VERSION#v}"
+          gh release upload "$TAG" dist/*.deb --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.workflow_run.head_branch }}
-        run: gh release upload "$TAG" dist/*.deb --clobber
       - uses: actions/upload-artifact@v7
         with:
           name: deb
@@ -136,8 +132,6 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/configure-pages@v6
       - uses: actions/download-artifact@v8
         with:
