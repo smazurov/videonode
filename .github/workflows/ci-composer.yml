@@ -2,7 +2,6 @@ name: composer-ci
 
 on:
   push:
-    branches: [main]
     paths:
       - 'composer/**'
       - '.github/workflows/ci-composer.yml'
