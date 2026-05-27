@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { TrashIcon } from '@heroicons/react/24/outline';
 
 import { Button } from '../Button';
 import { InputField } from '../InputField';
 import { Select } from '../Select';
-import type { CanvasDims, ComposerInput, LayoutSlot } from '../../lib/composer-types';
+import type { AspectRatioMode, CanvasDims, ComposerInput, LayoutSlot } from '../../lib/composer-types';
 
 interface LayoutSlotInspectorProps {
   slot: LayoutSlot | null;
@@ -33,14 +34,11 @@ export function LayoutSlotInspector({
   onSendToBack,
   onDelete,
 }: Readonly<LayoutSlotInspectorProps>) {
-  const [local, setLocal] = useState<LayoutSlot | null>(slot);
+  // Track in-progress edits only while an input is focused.
+  // When not editing, values come directly from the slot prop (zero-delay sync).
+  const [editing, setEditing] = useState<Record<string, string>>({});
 
-  // Sync local state when the selection changes or upstream layout updates.
-  useEffect(() => {
-    setLocal(slot);
-  }, [slot]);
-
-  if (!slot || !local) {
+  if (!slot) {
     return (
       <div className="rounded-md border border-border bg-surface p-4 text-sm text-fg-subtle">
         Select a slot to edit its placement.
@@ -48,26 +46,29 @@ export function LayoutSlotInspector({
     );
   }
 
-  const commit = (next: LayoutSlot) => {
-    setLocal(next);
-    onChange(next);
+  type NumKey = 'x' | 'y' | 'w' | 'h';
+
+  const numVal = (key: NumKey) =>
+    key in editing ? editing[key]! : String(slot[key]);
+
+  const clampNum = (key: NumKey, v: number) => {
+    if (key === 'w') return Math.max(1, Math.min(canvas.w, v));
+    if (key === 'h') return Math.max(1, Math.min(canvas.h, v));
+    if (key === 'x') return Math.max(0, Math.min(canvas.w - slot.w, v));
+    return Math.max(0, Math.min(canvas.h - slot.h, v));
   };
 
-  const onNumChange = (key: 'x' | 'y' | 'w' | 'h', raw: string) => {
-    const num = Number.parseInt(raw, 10);
-    if (Number.isNaN(num)) return;
-    const next = { ...local, [key]: num };
-    setLocal(next);
+  const onNumFocus = (key: string) =>
+    setEditing((e) => ({ ...e, [key]: String(slot[key as keyof LayoutSlot]) }));
+
+  const onNumChange = (key: NumKey, raw: string) => {
+    setEditing((e) => ({ ...e, [key]: raw }));
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isNaN(parsed)) onChange({ ...slot, [key]: clampNum(key, parsed) });
   };
 
-  const onNumBlur = (key: 'x' | 'y' | 'w' | 'h') => {
-    let v = local[key];
-    if (key === 'w') v = Math.max(1, Math.min(canvas.w, v));
-    else if (key === 'h') v = Math.max(1, Math.min(canvas.h, v));
-    else if (key === 'x') v = Math.max(0, Math.min(canvas.w - local.w, v));
-    else if (key === 'y') v = Math.max(0, Math.min(canvas.h - local.h, v));
-    const next = { ...local, [key]: v };
-    commit(next);
+  const onNumBlur = (key: NumKey) => {
+    setEditing((e) => { const r = { ...e }; delete r[key]; return r; });
   };
 
   return (
@@ -78,7 +79,7 @@ export function LayoutSlotInspector({
 
       <Select
         label="Input"
-        value={local.input}
+        value={slot.input}
         onChange={(e) => onChangeInputRef(e.target.value)}
       >
         {inputs.map((input) => (
@@ -93,47 +94,50 @@ export function LayoutSlotInspector({
         <InputField
           label="X"
           type="number"
-          value={local.x}
+          value={numVal('x')}
           min={0}
           max={canvas.w}
+          onFocus={() => onNumFocus('x')}
           onChange={(e) => onNumChange('x', e.target.value)}
           onBlur={() => onNumBlur('x')}
-/>
+        />
         <InputField
           label="Y"
           type="number"
-          value={local.y}
+          value={numVal('y')}
           min={0}
           max={canvas.h}
+          onFocus={() => onNumFocus('y')}
           onChange={(e) => onNumChange('y', e.target.value)}
           onBlur={() => onNumBlur('y')}
-/>
+        />
         <InputField
           label="W"
           type="number"
-          value={local.w}
+          value={numVal('w')}
           min={1}
           max={canvas.w}
+          onFocus={() => onNumFocus('w')}
           onChange={(e) => onNumChange('w', e.target.value)}
           onBlur={() => onNumBlur('w')}
-/>
+        />
         <InputField
           label="H"
           type="number"
-          value={local.h}
+          value={numVal('h')}
           min={1}
           max={canvas.h}
+          onFocus={() => onNumFocus('h')}
           onChange={(e) => onNumChange('h', e.target.value)}
           onBlur={() => onNumBlur('h')}
-/>
+        />
       </div>
 
       <Select
         label="Rotation"
-        value={String(local.rotation ?? 0)}
+        value={String(slot.rotation ?? 0)}
         onChange={(e) => {
-          const next = { ...local, rotation: Number.parseInt(e.target.value, 10) };
-          commit(next);
+          onChange({ ...slot, rotation: Number.parseInt(e.target.value, 10) });
         }}
       >
         <option value="0">0</option>
@@ -141,6 +145,51 @@ export function LayoutSlotInspector({
         <option value="180">180</option>
         <option value="270">270</option>
       </Select>
+
+      <Select
+        label="Aspect Ratio"
+        value={slot.aspect_ratio_mode ?? 'stretch'}
+        onChange={(e) => {
+          onChange({ ...slot, aspect_ratio_mode: e.target.value as AspectRatioMode });
+        }}
+      >
+        <option value="stretch">Stretch</option>
+        <option value="fit">Fit (letterbox)</option>
+        <option value="crop">Crop (fill)</option>
+      </Select>
+
+      {slot.aspect_ratio_mode === 'crop' && (
+        <div className="grid grid-cols-2 gap-3">
+          <InputField
+            label="Crop X"
+            type="number"
+            value={'crop_x' in editing ? editing.crop_x! : String(Math.round((slot.crop_x ?? 0.5) * 100))}
+            min={0}
+            max={100}
+            onFocus={() => setEditing((e) => ({ ...e, crop_x: String(Math.round((slot.crop_x ?? 0.5) * 100)) }))}
+            onChange={(e) => {
+              setEditing((ed) => ({ ...ed, crop_x: e.target.value }));
+              const v = Number.parseInt(e.target.value, 10);
+              if (!Number.isNaN(v)) onChange({ ...slot, crop_x: Math.max(0, Math.min(100, v)) / 100 });
+            }}
+            onBlur={() => setEditing((e) => { const r = { ...e }; delete r.crop_x; return r; })}
+          />
+          <InputField
+            label="Crop Y"
+            type="number"
+            value={'crop_y' in editing ? editing.crop_y! : String(Math.round((slot.crop_y ?? 0.5) * 100))}
+            min={0}
+            max={100}
+            onFocus={() => setEditing((e) => ({ ...e, crop_y: String(Math.round((slot.crop_y ?? 0.5) * 100)) }))}
+            onChange={(e) => {
+              setEditing((ed) => ({ ...ed, crop_y: e.target.value }));
+              const v = Number.parseInt(e.target.value, 10);
+              if (!Number.isNaN(v)) onChange({ ...slot, crop_y: Math.max(0, Math.min(100, v)) / 100 });
+            }}
+            onBlur={() => setEditing((e) => { const r = { ...e }; delete r.crop_y; return r; })}
+          />
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Button
@@ -160,13 +209,15 @@ export function LayoutSlotInspector({
           disabled={slotIndex === layoutLength - 1}
         />
         {onDelete && (
-          <Button
+          <button
             type="button"
-            size="SM"
-            theme="danger"
-            text="Remove"
             onClick={onDelete}
-          />
+            data-testid="remove-slot"
+            title="Remove slot"
+            className="rounded-sm p-1.5 text-danger hover:bg-danger/10"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
         )}
       </div>
     </div>

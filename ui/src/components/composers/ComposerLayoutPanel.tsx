@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useShallow } from 'zustand/shallow';
 
 import { Card } from '../Card';
 import { Checkbox } from '../Checkbox';
@@ -8,6 +9,7 @@ import { KonvaCanvasEditor } from './KonvaCanvasEditor';
 import { LayoutSlotInspector } from './LayoutSlotInspector';
 import type { ComposerData, LayoutSlot } from '../../lib/composer-types';
 import { useComposerStore } from '../../hooks/useComposerStore';
+import { useLayoutEditorStore } from '../../hooks/useLayoutEditorStore';
 
 interface ComposerLayoutPanelProps {
   composer: ComposerData;
@@ -15,45 +17,44 @@ interface ComposerLayoutPanelProps {
 
 const SAVE_DEBOUNCE_MS = 250;
 
-// Interactive composer layout editor. Drag-resizable slots write through
-// useComposerStore.updateComposerLayout with a 250ms debounce; the
-// optimistic local copy rolls back when the PATCH rejects.
 export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelProps>) {
   const updateComposerLayout = useComposerStore((s) => s.updateComposerLayout);
-
-  const [localLayout, setLocalLayout] = useState<LayoutSlot[]>(composer.layout);
-  const [selectedInput, setSelectedInput] = useState<string | null>(
-    composer.layout[0]?.input ?? null,
+  const store = useLayoutEditorStore;
+  const { layout, selectedInput } = store(
+    useShallow((s) => ({ layout: s.layout, selectedInput: s.selectedInput })),
   );
+  const { setCanvas, setLayout, select, resetHistory } = store(
+    useShallow((s) => ({ setCanvas: s.setCanvas, setLayout: s.setLayout, select: s.select, resetHistory: s.resetHistory })),
+  );
+
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [gridSize, setGridSize] = useState(10);
   const [showRulers, setShowRulers] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const persistedRef = useRef<LayoutSlot[]>(composer.layout);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<LayoutSlot[] | null>(null);
   const saveGenRef = useRef(0);
   const saveInFlightRef = useRef(false);
+  const persistedJsonRef = useRef(JSON.stringify(composer.layout));
 
-  // Reseed local state when the upstream composer changes from
-  // somewhere other than this editor (SSE event, another tab).
-  // Skip when a save is in-flight — that update is our own echo.
+  // Sync store from composer data (init + upstream reseed)
   useEffect(() => {
     if (saveInFlightRef.current) {
-      persistedRef.current = composer.layout;
+      persistedJsonRef.current = JSON.stringify(composer.layout);
       return;
     }
-    persistedRef.current = composer.layout;
-    setLocalLayout(composer.layout);
-    if (composer.layout.length > 0 && !selectedInput) {
-      setSelectedInput(composer.layout[0]?.input ?? null);
+    persistedJsonRef.current = JSON.stringify(composer.layout);
+    setCanvas(composer.canvas);
+    resetHistory(composer.layout);
+    if (composer.layout.length > 0) {
+      select(composer.layout[0]?.input ?? null);
     }
-  }, [composer.layout, selectedInput]);
+  }, [composer.composer_id, composer.canvas, composer.layout, resetHistory, setCanvas, select]);
 
   const rollback = useCallback(() => {
-    setLocalLayout(persistedRef.current);
-  }, []);
+    resetHistory(JSON.parse(persistedJsonRef.current) as LayoutSlot[]);
+  }, [resetHistory]);
 
   const runSave = useCallback(async () => {
     const toSave = pendingRef.current;
@@ -64,7 +65,7 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
     try {
       await updateComposerLayout(composer.composer_id, toSave);
       if (saveGenRef.current === gen) {
-        persistedRef.current = toSave;
+        persistedJsonRef.current = JSON.stringify(toSave);
       }
     } catch (error) {
       if (saveGenRef.current === gen) {
@@ -80,13 +81,25 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
   }, [composer.composer_id, rollback, updateComposerLayout]);
 
   const scheduleSave = useCallback(
-    (layout: LayoutSlot[]) => {
-      pendingRef.current = layout;
+    (l: LayoutSlot[]) => {
+      pendingRef.current = l;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => void runSave(), SAVE_DEBOUNCE_MS);
     },
     [runSave],
   );
+
+  // Subscribe to store layout changes for debounced save.
+  // Skip when layout content matches persisted (init, reseed, save echo).
+  useEffect(() => {
+    return useLayoutEditorStore.subscribe(
+      (s) => s.layout,
+      (next) => {
+        if (JSON.stringify(next) === persistedJsonRef.current) return;
+        scheduleSave(next);
+      },
+    );
+  }, [scheduleSave]);
 
   useEffect(() => {
     return () => {
@@ -94,68 +107,56 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
     };
   }, []);
 
-  const handleLayoutChange = useCallback(
-    (next: LayoutSlot[]) => {
-      setLocalLayout(next);
-      scheduleSave(next);
-    },
-    [scheduleSave],
-  );
-
   const selectedSlot = useMemo(() => {
     if (!selectedInput) return null;
-    return localLayout.find((s) => s.input === selectedInput) ?? null;
-  }, [localLayout, selectedInput]);
+    return layout.find((s) => s.input === selectedInput) ?? null;
+  }, [layout, selectedInput]);
 
   const selectedSlotIndex = useMemo(() => {
     if (!selectedInput) return -1;
-    return localLayout.findIndex((s) => s.input === selectedInput);
-  }, [localLayout, selectedInput]);
+    return layout.findIndex((s) => s.input === selectedInput);
+  }, [layout, selectedInput]);
 
   const onChangeSlot = useCallback(
     (next: LayoutSlot) => {
-      const nextLayout = localLayout.map((s) => (s.input === next.input ? next : s));
-      handleLayoutChange(nextLayout);
+      setLayout(layout.map((s) => (s.input === next.input ? next : s)));
     },
-    [handleLayoutChange, localLayout],
+    [layout, setLayout],
   );
 
   const onChangeInputRef = useCallback(
     (nextRef: string) => {
       if (!selectedInput) return;
-      const nextLayout = localLayout.map((s) =>
-        s.input === selectedInput ? { ...s, input: nextRef } : s,
-      );
-      setSelectedInput(nextRef);
-      handleLayoutChange(nextLayout);
+      setLayout(layout.map((s) => s.input === selectedInput ? { ...s, input: nextRef } : s));
+      select(nextRef);
     },
-    [handleLayoutChange, localLayout, selectedInput],
+    [layout, selectedInput, select, setLayout],
   );
 
   const onBringToFront = useCallback(() => {
     if (selectedSlotIndex < 0) return;
-    const next = [...localLayout];
+    const next = [...layout];
     const [moved] = next.splice(selectedSlotIndex, 1);
     if (moved) next.push(moved);
-    handleLayoutChange(next);
-  }, [handleLayoutChange, localLayout, selectedSlotIndex]);
+    setLayout(next);
+  }, [layout, selectedSlotIndex, setLayout]);
 
   const onSendToBack = useCallback(() => {
     if (selectedSlotIndex < 0) return;
-    const next = [...localLayout];
+    const next = [...layout];
     const [moved] = next.splice(selectedSlotIndex, 1);
     if (moved) next.unshift(moved);
-    handleLayoutChange(next);
-  }, [handleLayoutChange, localLayout, selectedSlotIndex]);
+    setLayout(next);
+  }, [layout, selectedSlotIndex, setLayout]);
 
   return (
     <Card padding="none">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <h2 className="text-sm font-semibold text-fg">Layout</h2>
-        {saving
-          ? <span className="text-xs text-fg-subtle">saving…</span>
-          : <span className="text-xs text-fg-muted">{localLayout.length} slot{localLayout.length === 1 ? '' : 's'}</span>
-        }
+        <span className="text-xs text-fg-muted">
+          {saving && <span className="mr-2 text-fg-subtle">saving… ·</span>}
+          {layout.length} slot{layout.length === 1 ? '' : 's'}
+        </span>
       </div>
 
       <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -190,12 +191,7 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
             />
           </div>
           <KonvaCanvasEditor
-            canvas={composer.canvas}
             inputs={composer.inputs}
-            layout={localLayout}
-            selectedInput={selectedInput}
-            onSelect={setSelectedInput}
-            onLayoutChange={handleLayoutChange}
             gridSize={gridSize}
             snapToGrid={snapToGrid}
             showRulers={showRulers}
@@ -207,23 +203,23 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
             canvas={composer.canvas}
             inputs={composer.inputs}
             slotIndex={selectedSlotIndex}
-            layoutLength={localLayout.length}
+            layoutLength={layout.length}
             onChange={onChangeSlot}
             onChangeInputRef={onChangeInputRef}
             onBringToFront={onBringToFront}
             onSendToBack={onSendToBack}
           />
-          {localLayout.length > 0 && (
+          {layout.length > 0 && (
             <div className="rounded-md border border-border bg-surface p-3">
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
                 Slots
               </h4>
               <ul className="space-y-1">
-                {localLayout.map((slot, i) => (
+                {layout.map((slot, i) => (
                   <li key={slot.input}>
                     <button
                       type="button"
-                      onClick={() => setSelectedInput(slot.input)}
+                      onClick={() => select(slot.input)}
                       title={slot.input}
                       className={`w-full truncate rounded-sm px-2 py-1 text-left font-mono text-xs ${
                         slot.input === selectedInput
