@@ -15,12 +15,12 @@ jobs:
     container: arm64v8/debian:trixie
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Build + stage C++ binaries
         run: composer/scripts/build-deb-arm64.sh
         env:
           MODE: release-nfpm
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: native-arm64
           path: composer/build/deb-arm64/staging/bin/
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: actions/setup-go@v6
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: latest
       - name: Build UI
@@ -55,7 +55,7 @@ jobs:
               -X github.com/smazurov/videonode/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
               -X github.com/smazurov/videonode/internal/version.BuildID=${GITHUB_RUN_ID}" \
             -o dist/videonode .
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: go-arm64
           path: dist/videonode
@@ -65,15 +65,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: native-arm64
           path: dist/
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: go-arm64
           path: dist/
@@ -104,7 +104,7 @@ jobs:
           gh release upload "${GITHUB_REF_NAME}" dist/*.deb --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: deb
           path: dist/*.deb
@@ -117,9 +117,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/configure-pages@v4
-      - uses: actions/download-artifact@v6
+      - uses: actions/checkout@v6
+      - uses: actions/configure-pages@v6
+      - uses: actions/download-artifact@v8
         with:
           name: deb
           path: dist/
@@ -131,8 +131,8 @@ jobs:
           codename: stable
           architectures: arm64
           import-from-repo-url: https://smazurov.github.io/videonode
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ steps.apt-repo.outputs.dir }}
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

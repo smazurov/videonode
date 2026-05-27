@@ -20,7 +20,7 @@ jobs:
     container: arm64v8/debian:trixie
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Build + test (dev preset)
         env:
           MODE: dev
@@ -31,7 +31,7 @@ jobs:
     container: arm64v8/debian:trixie
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Build + test (dev-asan preset)
         env:
           MODE: dev-asan
@@ -42,7 +42,7 @@ jobs:
     container: arm64v8/debian:trixie
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: clang-format + clang-tidy-diff
