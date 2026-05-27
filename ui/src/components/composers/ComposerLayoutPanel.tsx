@@ -6,10 +6,12 @@ import { Card } from '../Card';
 import { Checkbox } from '../Checkbox';
 import { InputField } from '../InputField';
 import { KonvaCanvasEditor } from './KonvaCanvasEditor';
+import type { SourceDims } from './KonvaCanvasEditor';
 import { LayoutSlotInspector } from './LayoutSlotInspector';
 import type { ComposerData, LayoutSlot } from '../../lib/composer-types';
 import { useComposerStore } from '../../hooks/useComposerStore';
 import { useLayoutEditorStore } from '../../hooks/useLayoutEditorStore';
+import { useSourceStore } from '../../hooks/useSourceStore';
 
 interface ComposerLayoutPanelProps {
   composer: ComposerData;
@@ -26,6 +28,21 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
   const { setCanvas, setLayout, select, resetHistory } = store(
     useShallow((s) => ({ setCanvas: s.setCanvas, setLayout: s.setLayout, select: s.select, resetHistory: s.resetHistory })),
   );
+
+  const sourcesById = useSourceStore((s) => s.sourcesById);
+  const sourceDims = useMemo(() => {
+    const m = new Map<string, SourceDims>();
+    for (const inp of composer.inputs) {
+      const id = inp.ref.replace(/^source:/, '');
+      const src = sourcesById[id];
+      const live = src?.latest_status?.format;
+      const cfg = src?.format;
+      const w = live?.w ?? cfg?.width;
+      const h = live?.h ?? cfg?.height;
+      if (w && h) m.set(inp.ref, { w, h });
+    }
+    return m;
+  }, [composer.inputs, sourcesById]);
 
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [gridSize, setGridSize] = useState(10);
@@ -192,6 +209,7 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
           </div>
           <KonvaCanvasEditor
             inputs={composer.inputs}
+            sourceDims={sourceDims}
             gridSize={gridSize}
             snapToGrid={snapToGrid}
             showRulers={showRulers}
