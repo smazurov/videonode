@@ -189,18 +189,17 @@ RenderBatch build_render_slots_(const Snapshot& snap,
                     s.w = new_w;
                 }
             } else if (rect.aspect_ratio_mode == 2) {
-                // Crop: fill slot, clip excess via source crop
-                if (src_ar > slot_ar) {
-                    auto visible_frac = slot_ar / src_ar;
-                    auto offset = (1.0F - visible_frac) / 2.0F;
-                    s.src_crop_x0 = offset;
-                    s.src_crop_x1 = 1.0F - offset;
-                } else {
-                    auto visible_frac = src_ar / slot_ar;
-                    auto offset = (1.0F - visible_frac) / 2.0F;
-                    s.src_crop_y0 = offset;
-                    s.src_crop_y1 = 1.0F - offset;
+                // Crop: fill slot, position crop window via crop_x/crop_y/crop_scale
+                auto vis_w = std::min(1.0F, slot_ar / src_ar);
+                auto vis_h = std::min(1.0F, src_ar / slot_ar);
+                if (rect.crop_scale > 1.0F) {
+                    vis_w = std::min(1.0F, vis_w / rect.crop_scale);
+                    vis_h = std::min(1.0F, vis_h / rect.crop_scale);
                 }
+                s.src_crop_x0 = rect.crop_x * (1.0F - vis_w);
+                s.src_crop_x1 = s.src_crop_x0 + vis_w;
+                s.src_crop_y0 = rect.crop_y * (1.0F - vis_h);
+                s.src_crop_y1 = s.src_crop_y0 + vis_h;
             }
         }
         auto sit = snap.source_states.find(bit->source_id);

@@ -75,7 +75,7 @@ function computeCropPanOffset(
   slot: LayoutSlot, sd: SourceDims,
 ) {
   const fillScale = Math.max(slot.w / sd.w, slot.h / sd.h);
-  const s = Math.max(1, slot.crop_scale ?? 1);
+  const s = Math.max(1, slot.crop?.scale ?? 1);
   const scaledW = sd.w * fillScale * s;
   const scaledH = sd.h * fillScale * s;
   const exW = Math.max(1, scaledW - slot.w);
@@ -179,7 +179,7 @@ export function KonvaCanvasEditor({
   const handleDragStart = useCallback(
     (slot: LayoutSlot, e: Konva.KonvaEventObject<DragEvent>) => {
       cropPanRef.current = shiftRef.current && slot.aspect_ratio_mode === 'crop'
-        ? { startX: e.target.x(), startY: e.target.y(), cropX: slot.crop_x ?? 0.5, cropY: slot.crop_y ?? 0.5 }
+        ? { startX: e.target.x(), startY: e.target.y(), cropX: slot.crop?.x ?? 0.5, cropY: slot.crop?.y ?? 0.5 }
         : null;
     },
     [],
@@ -239,8 +239,11 @@ export function KonvaCanvasEditor({
       if (cropPanRef.current) {
         if (liveCrop?.input === slot.input) {
           commitSlot(slot.input, {
-            crop_x: Math.round(liveCrop.cx * 100) / 100,
-            crop_y: Math.round(liveCrop.cy * 100) / 100,
+            crop: {
+              ...slot.crop ?? { x: 0.5, y: 0.5, scale: 1 },
+              x: Math.round(liveCrop.cx * 100) / 100,
+              y: Math.round(liveCrop.cy * 100) / 100,
+            },
           });
         }
         cropPanRef.current = null;
@@ -296,8 +299,12 @@ export function KonvaCanvasEditor({
 
       const updates: Partial<LayoutSlot> = { x: vis.x, y: vis.y, w, h, rotation };
       if (slot.aspect_ratio_mode === 'crop') {
-        if (w !== slot.w) updates.crop_x = vis.x > slot.x + 5 ? 1 : 0;
-        if (h !== slot.h) updates.crop_y = vis.y > slot.y + 5 ? 1 : 0;
+        const base = slot.crop ?? { x: 0.5, y: 0.5, scale: 1 };
+        let cx = base.x;
+        let cy = base.y;
+        if (w !== slot.w) cx = vis.x > slot.x + 5 ? 1 : 0;
+        if (h !== slot.h) cy = vis.y > slot.y + 5 ? 1 : 0;
+        updates.crop = { ...base, x: cx, y: cy };
       }
       commitSlot(slot.input, updates);
     },
@@ -332,9 +339,11 @@ export function KonvaCanvasEditor({
         srcRect.width(preview.w); srcRect.height(preview.h);
       }
       commitSlot(slot.input, {
-        crop_scale: Math.round(newScale * 100) / 100,
-        crop_x: Math.round(cx * 100) / 100,
-        crop_y: Math.round(cy * 100) / 100,
+        crop: {
+          x: Math.round(cx * 100) / 100,
+          y: Math.round(cy * 100) / 100,
+          scale: Math.round(newScale * 100) / 100,
+        },
       });
     },
     [commitSlot, sourceDims],
@@ -461,7 +470,7 @@ export function KonvaCanvasEditor({
                 const override = liveCrop?.input === slot.input ? liveCrop : null;
                 const arPreview = sd
                   ? computeArPreview(slot.w, slot.h, sd.w, sd.h, arMode,
-                      override?.cx ?? slot.crop_x, override?.cy ?? slot.crop_y, slot.crop_scale)
+                      override?.cx ?? slot.crop?.x, override?.cy ?? slot.crop?.y, slot.crop?.scale)
                   : null;
                 const isCrop = Boolean(arPreview && arMode === 'crop');
 

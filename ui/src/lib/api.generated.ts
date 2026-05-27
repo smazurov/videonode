@@ -345,7 +345,7 @@ export interface paths {
         };
         /**
          * Get Pipeline State
-         * @description Return the daemon-wide pipeline master switch state. When false, no stream processes are running.
+         * @description Return the daemon-wide pipeline master switch state. When false, no pipeline processes are running.
          */
         get: operations["get-pipeline-state"];
         put?: never;
@@ -367,7 +367,7 @@ export interface paths {
         put?: never;
         /**
          * Start Pipeline
-         * @description Flip the daemon-wide pipeline master switch on and start every configured stream.
+         * @description Flip the daemon-wide pipeline master switch on and start every configured source, composer, and stream.
          */
         post: operations["start-pipeline"];
         delete?: never;
@@ -555,6 +555,26 @@ export interface paths {
          */
         post: operations["restart-stream"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/streams/{stream_id}/{protocol}/consumers/{client_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect consumer
+         * @description Disconnect a WebRTC peer or SRT consumer by protocol and client ID
+         */
+        delete: operations["disconnect-consumer"];
         options?: never;
         head?: never;
         patch?: never;
@@ -901,6 +921,10 @@ export interface components {
             layout: components["schemas"]["LayoutSlotData"][] | null;
         };
         ComposerLayoutSlot: {
+            /** @description How to scale source into slot (stretch, fit, crop) */
+            aspect_ratio_mode?: string;
+            /** @description Crop positioning (only meaningful when aspect_ratio_mode=crop) */
+            crop?: components["schemas"]["CropConfigData"];
             /**
              * Format: int64
              * @description Slot height in canvas pixels
@@ -908,6 +932,11 @@ export interface components {
             h: number;
             /** @description Matches ComposerInputPayload.Ref */
             input: string;
+            /**
+             * Format: int64
+             * @description Clockwise rotation in degrees (0, 90, 180, 270)
+             */
+            rotation?: number;
             /**
              * Format: int64
              * @description Slot width in canvas pixels
@@ -975,6 +1004,23 @@ export interface components {
             composer_id: string;
             /** @description RFC3339 server time */
             timestamp: string;
+        };
+        CropConfigData: {
+            /**
+             * Format: double
+             * @description Source overfill factor (>= 1.0, 1.0 = minimum fill)
+             */
+            scale: number;
+            /**
+             * Format: double
+             * @description Normalized horizontal crop offset (0-1, 0.5 = centered)
+             */
+            x: number;
+            /**
+             * Format: double
+             * @description Normalized vertical crop offset (0-1, 0.5 = centered)
+             */
+            y: number;
         };
         DeviceCapabilitiesData: {
             /**
@@ -1201,13 +1247,6 @@ export interface components {
              */
             codec?: string;
             /**
-             * @description Backend encoder name override
-             * @example h264_rkmpp
-             */
-            encoder_name?: string;
-            /** @description Extra ffmpeg global args required by the encoder backend */
-            global_args?: string[] | null;
-            /**
              * Format: int64
              * @description Keyframe interval
              * @example 120
@@ -1223,8 +1262,6 @@ export interface components {
              * @example cbr
              */
             rate_control?: string;
-            /** @description Encoder-specific video filter chain */
-            video_filters?: string;
         };
         EncoderData: {
             /**
@@ -1348,7 +1385,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yv12" | "rgb24" | "nv12" | "mjpeg" | "bgr24" | "nv24" | "nv16" | "yuyv422" | "h264" | "yu12";
+            format_name: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "yu12" | "nv16";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1399,6 +1436,14 @@ export interface components {
         };
         LayoutSlotData: {
             /**
+             * @description How to scale source into slot (stretch, fit, crop)
+             * @example stretch
+             * @enum {string}
+             */
+            aspect_ratio_mode?: "stretch" | "fit" | "crop";
+            /** @description Crop positioning (only meaningful when aspect_ratio_mode=crop) */
+            crop?: components["schemas"]["CropConfigData"];
+            /**
              * Format: int64
              * @description Slot height in canvas pixels
              * @example 1080
@@ -1409,6 +1454,12 @@ export interface components {
              * @example source:hdmi-slides
              */
             input: string;
+            /**
+             * Format: int64
+             * @description Clockwise rotation in degrees (0, 90, 180, 270)
+             * @example 0
+             */
+            rotation?: number;
             /**
              * Format: int64
              * @description Slot width in canvas pixels
@@ -1711,7 +1762,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "nv12" | "mjpeg" | "bgr24" | "nv24" | "nv16" | "yuyv422" | "h264" | "yu12" | "yv12" | "rgb24";
+            format_name: "nv24" | "yu12" | "nv16" | "yuyv422" | "nv12" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -2803,7 +2854,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "h264" | "yu12" | "yv12" | "rgb24" | "nv12" | "mjpeg" | "bgr24" | "nv24" | "nv16" | "yuyv422";
+                format_name?: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "yu12" | "nv16";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2869,7 +2920,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "h264" | "yu12" | "yv12" | "rgb24" | "nv12" | "mjpeg" | "bgr24" | "nv24" | "nv16";
+                format_name?: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "yu12" | "nv16";
             };
             header?: never;
             path: {
@@ -4210,6 +4261,67 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "disconnect-consumer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stream identifier */
+                stream_id: string;
+                /** @description Consumer protocol */
+                protocol: "webrtc" | "srt";
+                /** @description Client identifier (peer name or consumer ID) */
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

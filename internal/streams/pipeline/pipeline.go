@@ -462,15 +462,18 @@ func (p *Pipeline) pushComposerConfig(c Composer, udsPath string) {
 					append(tag, "input", l.Input)...)
 				continue
 			}
-			slots = append(slots, pipelinectl.LayoutSlotEntry{
+			entry := pipelinectl.LayoutSlotEntry{
 				Slot: slotNameFor(idx),
 				X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
 				Rotation:        int32(l.Rotation),
 				AspectRatioMode: aspectRatioModeToInt(l.AspectRatioMode),
-				CropX:           float32(l.CropX),
-				CropY:           float32(l.CropY),
-				CropScale:       float32(l.CropScale),
-			})
+			}
+			if l.Crop != nil {
+				entry.CropX = float32(l.Crop.X)
+				entry.CropY = float32(l.Crop.Y)
+				entry.CropScale = float32(l.Crop.Scale)
+			}
+			slots = append(slots, entry)
 		}
 	} else if len(c.Inputs) > 0 {
 		slots = append(slots, pipelinectl.LayoutSlotEntry{
@@ -556,15 +559,18 @@ func (p *Pipeline) UpdateComposerLayout(id string, layout []LayoutSlot) error {
 		if !ok {
 			return fmt.Errorf("pipeline: layout references unknown input %q", l.Input)
 		}
-		slots = append(slots, pipelinectl.LayoutSlotEntry{
+		entry := pipelinectl.LayoutSlotEntry{
 			Slot: slotNameFor(idx),
 			X:    int32(l.X), Y: int32(l.Y), W: int32(l.W), H: int32(l.H),
 			Rotation:        int32(l.Rotation),
 			AspectRatioMode: aspectRatioModeToInt(l.AspectRatioMode),
-			CropX:           float32(l.CropX),
-			CropY:           float32(l.CropY),
-			CropScale:       float32(l.CropScale),
-		})
+		}
+		if l.Crop != nil {
+			entry.CropX = float32(l.Crop.X)
+			entry.CropY = float32(l.Crop.Y)
+			entry.CropScale = float32(l.Crop.Scale)
+		}
+		slots = append(slots, entry)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

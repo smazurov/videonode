@@ -248,16 +248,14 @@ type ComposerEffect struct {
 
 // ComposerLayoutSlot describes one slot's geometry on the canvas.
 type ComposerLayoutSlot struct {
-	Input           string  `json:"input" doc:"Matches ComposerInputPayload.Ref"`
-	X               int     `json:"x" doc:"Slot X in canvas pixels"`
-	Y               int     `json:"y" doc:"Slot Y in canvas pixels"`
-	W               int     `json:"w" doc:"Slot width in canvas pixels"`
-	H               int     `json:"h" doc:"Slot height in canvas pixels"`
-	Rotation        int     `json:"rotation,omitempty" doc:"Clockwise rotation in degrees (0, 90, 180, 270)"`
-	AspectRatioMode string  `json:"aspect_ratio_mode,omitempty" doc:"How to scale source into slot (stretch, fit, crop)"`
-	CropX           float64 `json:"crop_x,omitempty" doc:"Normalized horizontal crop offset (0-1, 0.5 = centered)"`
-	CropY           float64 `json:"crop_y,omitempty" doc:"Normalized vertical crop offset (0-1, 0.5 = centered)"`
-	CropScale       float64 `json:"crop_scale,omitempty" doc:"Source overfill factor (>= 1.0, 1.0 = minimum fill)"`
+	Input           string                 `json:"input" doc:"Matches ComposerInputPayload.Ref"`
+	X               int                    `json:"x" doc:"Slot X in canvas pixels"`
+	Y               int                    `json:"y" doc:"Slot Y in canvas pixels"`
+	W               int                    `json:"w" doc:"Slot width in canvas pixels"`
+	H               int                    `json:"h" doc:"Slot height in canvas pixels"`
+	Rotation        int                    `json:"rotation,omitempty" doc:"Clockwise rotation in degrees (0, 90, 180, 270)"`
+	AspectRatioMode string                 `json:"aspect_ratio_mode,omitempty" doc:"How to scale source into slot (stretch, fit, crop)"`
+	Crop            *models.CropConfigData `json:"crop,omitempty" doc:"Crop positioning (only meaningful when aspect_ratio_mode=crop)"`
 }
 
 // ComposerCreatedEvent fires when a composer is added.

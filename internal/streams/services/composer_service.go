@@ -367,11 +367,26 @@ func layoutEqual(a, b []pipeline.LayoutSlot) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if a[i].Input != b[i].Input || a[i].X != b[i].X || a[i].Y != b[i].Y ||
+			a[i].W != b[i].W || a[i].H != b[i].H || a[i].Rotation != b[i].Rotation ||
+			a[i].AspectRatioMode != b[i].AspectRatioMode {
+			return false
+		}
+		if !cropConfigEqual(a[i].Crop, b[i].Crop) {
 			return false
 		}
 	}
 	return true
+}
+
+func cropConfigEqual(a, b *pipeline.CropConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.X == b.X && a.Y == b.Y && a.Scale == b.Scale
 }
 
 func validateComposerCreate(data models.ComposerCreateRequestData) error {
@@ -452,7 +467,11 @@ func apiLayoutToEntity(layout []models.LayoutSlotData) []pipeline.LayoutSlot {
 	}
 	out := make([]pipeline.LayoutSlot, len(layout))
 	for i, l := range layout {
-		out[i] = pipeline.LayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation, AspectRatioMode: l.AspectRatioMode, CropX: l.CropX, CropY: l.CropY, CropScale: l.CropScale}
+		slot := pipeline.LayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation, AspectRatioMode: l.AspectRatioMode}
+		if l.Crop != nil {
+			slot.Crop = &pipeline.CropConfig{X: l.Crop.X, Y: l.Crop.Y, Scale: l.Crop.Scale}
+		}
+		out[i] = slot
 	}
 	return out
 }
@@ -479,7 +498,11 @@ func composerToAPI(c pipeline.Composer) models.ComposerData {
 	}
 	out.Layout = make([]models.LayoutSlotData, len(c.Layout))
 	for i, l := range c.Layout {
-		out.Layout[i] = models.LayoutSlotData{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation, AspectRatioMode: l.AspectRatioMode, CropX: l.CropX, CropY: l.CropY, CropScale: l.CropScale}
+		slot := models.LayoutSlotData{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation, AspectRatioMode: l.AspectRatioMode}
+		if l.Crop != nil {
+			slot.Crop = &models.CropConfigData{X: l.Crop.X, Y: l.Crop.Y, Scale: l.Crop.Scale}
+		}
+		out.Layout[i] = slot
 	}
 	return out
 }

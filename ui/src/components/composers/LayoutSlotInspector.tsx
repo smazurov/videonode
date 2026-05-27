@@ -163,28 +163,28 @@ export function LayoutSlotInspector({
           <InputField
             label="Crop X"
             type="number"
-            value={'crop_x' in editing ? editing.crop_x! : String(Math.round((slot.crop_x ?? 0.5) * 100))}
+            value={'crop_x' in editing ? editing.crop_x! : String(Math.round((slot.crop?.x ?? 0.5) * 100))}
             min={0}
             max={100}
-            onFocus={() => setEditing((e) => ({ ...e, crop_x: String(Math.round((slot.crop_x ?? 0.5) * 100)) }))}
+            onFocus={() => setEditing((e) => ({ ...e, crop_x: String(Math.round((slot.crop?.x ?? 0.5) * 100)) }))}
             onChange={(e) => {
               setEditing((ed) => ({ ...ed, crop_x: e.target.value }));
               const v = Number.parseInt(e.target.value, 10);
-              if (!Number.isNaN(v)) onChange({ ...slot, crop_x: Math.max(0, Math.min(100, v)) / 100 });
+              if (!Number.isNaN(v)) onChange({ ...slot, crop: { ...slot.crop ?? { x: 0.5, y: 0.5, scale: 1 }, x: Math.max(0, Math.min(100, v)) / 100 } });
             }}
             onBlur={() => setEditing((e) => { const r = { ...e }; delete r.crop_x; return r; })}
           />
           <InputField
             label="Crop Y"
             type="number"
-            value={'crop_y' in editing ? editing.crop_y! : String(Math.round((slot.crop_y ?? 0.5) * 100))}
+            value={'crop_y' in editing ? editing.crop_y! : String(Math.round((slot.crop?.y ?? 0.5) * 100))}
             min={0}
             max={100}
-            onFocus={() => setEditing((e) => ({ ...e, crop_y: String(Math.round((slot.crop_y ?? 0.5) * 100)) }))}
+            onFocus={() => setEditing((e) => ({ ...e, crop_y: String(Math.round((slot.crop?.y ?? 0.5) * 100)) }))}
             onChange={(e) => {
               setEditing((ed) => ({ ...ed, crop_y: e.target.value }));
               const v = Number.parseInt(e.target.value, 10);
-              if (!Number.isNaN(v)) onChange({ ...slot, crop_y: Math.max(0, Math.min(100, v)) / 100 });
+              if (!Number.isNaN(v)) onChange({ ...slot, crop: { ...slot.crop ?? { x: 0.5, y: 0.5, scale: 1 }, y: Math.max(0, Math.min(100, v)) / 100 } });
             }}
             onBlur={() => setEditing((e) => { const r = { ...e }; delete r.crop_y; return r; })}
           />

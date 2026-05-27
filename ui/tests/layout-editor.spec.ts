@@ -358,7 +358,7 @@ test.describe('layout editor canvas', () => {
 
     const beforeDrag = await getLayoutState(page);
     const before = beforeDrag.find((s) => s.input === 'source:cam-4')!;
-    const cropYBefore = before.crop_y ?? 0.5;
+    const cropYBefore = before.crop?.y ?? 0.5;
 
     // Shift+drag inside the slot to pan the source
     const slotCenter = canvasToScreen(geo, before.x + before.w / 2, before.y + before.h / 2);
@@ -374,8 +374,8 @@ test.describe('layout editor canvas', () => {
 
     const afterDrag = await getLayoutState(page);
     const after = afterDrag.find((s) => s.input === 'source:cam-4')!;
-    // crop_y should have changed from the drag
-    expect(after.crop_y).not.toBe(cropYBefore);
+    // crop.y should have changed from the drag
+    expect(after.crop?.y).not.toBe(cropYBefore);
     // Slot position should NOT have changed (shift+drag pans source, not slot)
     expect(after.x).toBe(before.x);
     expect(after.y).toBe(before.y);
@@ -598,7 +598,7 @@ test.describe('layout editor canvas', () => {
     expect(slotAfterLeft.x).toBeGreaterThan(slotBefore.x);
     expect(slotAfterLeft.w).toBeLessThan(slotBefore.w);
     expect(slotAfterLeft.h).toBe(slotBefore.h);
-    expect(slotAfterLeft.crop_x).toBe(1);
+    expect(slotAfterLeft.crop?.x).toBe(1);
 
     // Other slots unchanged
     expect(afterLeft.find((s) => s.input === 'source:cam-2')!.x).toBe(s2Before.x);
@@ -629,8 +629,8 @@ test.describe('layout editor canvas', () => {
     const slotAfterRight = afterRight.find((s) => s.input === 'source:cam-1')!;
     expect(slotAfterRight.x).toBe(slotBefore.x);
     expect(slotAfterRight.w).toBeLessThan(slotBefore.w);
-    // Right edge drag: source pinned to LEFT (crop_x=0), crop band on right
-    expect(slotAfterRight.crop_x).toBe(0);
+    // Right edge drag: source pinned to LEFT (crop.x=0), crop band on right
+    expect(slotAfterRight.crop?.x).toBe(0);
 
     // --- Undo, then top edge drag downward ---
     await page.click('[data-testid="undo"]');
@@ -659,7 +659,7 @@ test.describe('layout editor canvas', () => {
     expect(slotAfterTop.y).toBeGreaterThan(slotBefore.y);
     expect(slotAfterTop.h).toBeLessThan(slotBefore.h);
     expect(slotAfterTop.w).toBe(slotBefore.w);
-    expect(slotAfterTop.crop_y).toBe(1);
+    expect(slotAfterTop.crop?.y).toBe(1);
   });
 
   test('undo button works', async ({ page }) => {

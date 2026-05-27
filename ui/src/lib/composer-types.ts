@@ -35,6 +35,12 @@ export interface ComposerInput {
 
 export type AspectRatioMode = 'stretch' | 'fit' | 'crop';
 
+export interface CropConfig {
+  x: number;
+  y: number;
+  scale: number;
+}
+
 export interface LayoutSlot {
   input: string; // matches ComposerInput.ref
   x: number;
@@ -43,9 +49,7 @@ export interface LayoutSlot {
   h: number;
   rotation?: number; // 0, 90, 180, 270 clockwise degrees
   aspect_ratio_mode?: AspectRatioMode;
-  crop_x?: number; // 0-1 normalized horizontal crop offset (0.5 = centered)
-  crop_y?: number; // 0-1 normalized vertical crop offset (0.5 = centered)
-  crop_scale?: number; // >= 1.0, how much the source overfills the output (1.0 = minimum fill)
+  crop?: CropConfig;
 }
 
 export interface Composer {
