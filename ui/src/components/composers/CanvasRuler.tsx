@@ -18,8 +18,13 @@ export function CanvasRuler({
 }: Readonly<CanvasRulerProps>) {
   const scale = displaySize / Math.max(1, size);
   const ticks: number[] = [];
-  for (let v = 0; v <= size; v += step) ticks.push(v);
-  if (size % step !== 0) ticks.push(size);
+  const remainder = size % step;
+  const skipLast = remainder > 0 && remainder < step * 0.6;
+  for (let v = 0; v <= size; v += step) {
+    if (skipLast && v + step > size && v !== 0) continue;
+    ticks.push(v);
+  }
+  if (remainder !== 0) ticks.push(size);
 
   if (orientation === 'horizontal') {
     return (
@@ -55,19 +60,18 @@ export function CanvasRuler({
 
   return (
     <svg
-      width={20}
+      width={28}
       height={displaySize}
       className="block text-fg-subtle"
       aria-hidden="true"
     >
-      <rect width={20} height={displaySize} fill="transparent" />
       {ticks.map((v) => {
         const y = v * scale;
         const nearEnd = y > displaySize - 12;
         return (
           <g key={v}>
-            <line x1={14} y1={y} x2={20} y2={y} stroke="currentColor" strokeWidth={1} />
-            <text x={2} y={nearEnd ? y - 2 : y + 8} fontSize={9} fill="currentColor" fontFamily="monospace">
+            <line x1={22} y1={y} x2={28} y2={y} stroke="currentColor" strokeWidth={1} />
+            <text x={20} y={nearEnd ? y - 2 : y + 9} fontSize={9} fill="currentColor" fontFamily="monospace" textAnchor="end">
               {v}
             </text>
           </g>

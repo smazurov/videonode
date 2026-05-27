@@ -415,6 +415,14 @@ func validateComposerLayout(c pipeline.Composer) error {
 				Message: fmt.Sprintf("layout slot rotation must be 0, 90, 180, or 270; got %d", slot.Rotation),
 			}
 		}
+		switch slot.AspectRatioMode {
+		case "", "stretch", "fit", "crop":
+		default:
+			return &api.ComposerError{
+				Code:    api.ComposerErrInvalid,
+				Message: fmt.Sprintf("layout slot aspect_ratio_mode must be stretch, fit, or crop; got %q", slot.AspectRatioMode),
+			}
+		}
 	}
 	return nil
 }
@@ -444,7 +452,7 @@ func apiLayoutToEntity(layout []models.LayoutSlotData) []pipeline.LayoutSlot {
 	}
 	out := make([]pipeline.LayoutSlot, len(layout))
 	for i, l := range layout {
-		out[i] = pipeline.LayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation}
+		out[i] = pipeline.LayoutSlot{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation, AspectRatioMode: l.AspectRatioMode, CropX: l.CropX, CropY: l.CropY, CropScale: l.CropScale}
 	}
 	return out
 }
@@ -471,7 +479,7 @@ func composerToAPI(c pipeline.Composer) models.ComposerData {
 	}
 	out.Layout = make([]models.LayoutSlotData, len(c.Layout))
 	for i, l := range c.Layout {
-		out.Layout[i] = models.LayoutSlotData{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation}
+		out.Layout[i] = models.LayoutSlotData{Input: l.Input, X: l.X, Y: l.Y, W: l.W, H: l.H, Rotation: l.Rotation, AspectRatioMode: l.AspectRatioMode, CropX: l.CropX, CropY: l.CropY, CropScale: l.CropScale}
 	}
 	return out
 }

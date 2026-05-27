@@ -89,6 +89,10 @@ grpc::Status ComposerService::SetLayout(grpc::ServerContext* /*ctx*/,
         ls.w = s.w();
         ls.h = s.h();
         ls.rotation = s.rotation();
+        ls.aspect_ratio_mode = s.aspect_ratio_mode();
+        ls.crop_x = s.crop_x();
+        ls.crop_y = s.crop_y();
+        ls.crop_scale = s.crop_scale();
         r.slots.push_back(std::move(ls));
     }
     composer_rpc::ParseError e;

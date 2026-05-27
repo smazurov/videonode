@@ -120,6 +120,15 @@ message LayoutSlot {
   int32 h = 5;
   // Clockwise rotation in degrees: 0, 90, 180, 270. Default 0.
   int32 rotation = 6;
+  // 0 = stretch (fill slot, ignore AR), 1 = fit (letterbox/pillarbox),
+  // 2 = crop (fill slot, clip excess). Default 0.
+  int32 aspect_ratio_mode = 7;
+  // Normalized horizontal crop offset (0-1, 0.5 = centered).
+  float crop_x = 8;
+  // Normalized vertical crop offset (0-1, 0.5 = centered).
+  float crop_y = 9;
+  // Source overfill factor (>= 1.0, 1.0 = minimum fill).
+  float crop_scale = 10;
 }
 
 message SetLayoutRequest {

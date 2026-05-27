@@ -289,6 +289,12 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
         src_frame.planes[1].shift_y = -1;
         pl_frame_set_chroma_location(&src_frame, PL_CHROMA_LEFT);
 
+        // Apply source crop (used by crop aspect-ratio mode)
+        src_frame.crop.x0 = slot.src_crop_x0 * static_cast<float>(slot.src_w);
+        src_frame.crop.y0 = slot.src_crop_y0 * static_cast<float>(slot.src_h);
+        src_frame.crop.x1 = slot.src_crop_x1 * static_cast<float>(slot.src_w);
+        src_frame.crop.y1 = slot.src_crop_y1 * static_cast<float>(slot.src_h);
+
         switch (slot.rotation) {
         case 90:
             src_frame.rotation = PL_ROTATION_90;

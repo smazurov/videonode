@@ -50,12 +50,16 @@ type ComposerInput struct {
 // LayoutSlot positions one input on the canvas. Input is the matching
 // ComposerInput.Ref (by name, not positional).
 type LayoutSlot struct {
-	Input    string `toml:"input" json:"input"`
-	X        int    `toml:"x" json:"x"`
-	Y        int    `toml:"y" json:"y"`
-	W        int    `toml:"w" json:"w"`
-	H        int    `toml:"h" json:"h"`
-	Rotation int    `toml:"rotation,omitempty" json:"rotation,omitempty"`
+	Input           string `toml:"input" json:"input"`
+	X               int    `toml:"x" json:"x"`
+	Y               int    `toml:"y" json:"y"`
+	W               int    `toml:"w" json:"w"`
+	H               int    `toml:"h" json:"h"`
+	Rotation        int     `toml:"rotation,omitempty" json:"rotation,omitempty"`
+	AspectRatioMode string  `toml:"aspect_ratio_mode,omitempty" json:"aspect_ratio_mode,omitempty"`
+	CropX           float64 `toml:"crop_x,omitempty" json:"crop_x,omitempty"`
+	CropY           float64 `toml:"crop_y,omitempty" json:"crop_y,omitempty"`
+	CropScale       float64 `toml:"crop_scale,omitempty" json:"crop_scale,omitempty"`
 }
 
 // Effect is a per-input transformation applied by the composer. Today

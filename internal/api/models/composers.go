@@ -33,12 +33,16 @@ type ComposerInputData struct {
 // LayoutSlotData places a composer input on the canvas. The Input field
 // matches a ComposerInputData.Ref by name (not positional index).
 type LayoutSlotData struct {
-	Input    string `json:"input" example:"source:hdmi-slides" doc:"Input ref this slot draws (matches inputs[].ref)"`
-	X        int    `json:"x" example:"0" doc:"Slot top-left X in canvas pixels"`
-	Y        int    `json:"y" example:"0" doc:"Slot top-left Y in canvas pixels"`
-	W        int    `json:"w" example:"1920" doc:"Slot width in canvas pixels"`
-	H        int    `json:"h" example:"1080" doc:"Slot height in canvas pixels"`
-	Rotation int    `json:"rotation,omitempty" example:"0" doc:"Clockwise rotation in degrees (0, 90, 180, 270)"`
+	Input           string `json:"input" example:"source:hdmi-slides" doc:"Input ref this slot draws (matches inputs[].ref)"`
+	X               int    `json:"x" example:"0" doc:"Slot top-left X in canvas pixels"`
+	Y               int    `json:"y" example:"0" doc:"Slot top-left Y in canvas pixels"`
+	W               int    `json:"w" example:"1920" doc:"Slot width in canvas pixels"`
+	H               int    `json:"h" example:"1080" doc:"Slot height in canvas pixels"`
+	Rotation        int     `json:"rotation,omitempty" example:"0" doc:"Clockwise rotation in degrees (0, 90, 180, 270)"`
+	AspectRatioMode string  `json:"aspect_ratio_mode,omitempty" example:"stretch" enum:"stretch,fit,crop" doc:"How to scale source into slot (stretch, fit, crop)"`
+	CropX           float64 `json:"crop_x,omitempty" doc:"Normalized horizontal crop offset (0-1, 0.5 = centered)"`
+	CropY           float64 `json:"crop_y,omitempty" doc:"Normalized vertical crop offset (0-1, 0.5 = centered)"`
+	CropScale       float64 `json:"crop_scale,omitempty" doc:"Source overfill factor (>= 1.0, 1.0 = minimum fill)"`
 }
 
 // ComposerData is the full wire shape for a composer entity.
