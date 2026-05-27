@@ -1,21 +1,28 @@
 name: Release DEB
 
 on:
-  push:
-    tags: ['v*']
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
 
-permissions:
-  contents: write
-  pages: write
-  id-token: write
+concurrency:
+  group: release-deb-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
 
 jobs:
   build-native:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-24.04-arm
     container: arm64v8/debian:trixie
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - name: Build + stage C++ binaries
         run: composer/scripts/build-deb-arm64.sh
         env:
@@ -26,11 +33,17 @@ jobs:
           path: composer/build/deb-arm64/staging/bin/
 
   build-go:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
@@ -41,19 +54,23 @@ jobs:
           node-version: 22
       - uses: pnpm/action-setup@v6
         with:
-          version: latest
+          package_json_file: ui/package.json
       - name: Build UI
         working-directory: ui
         run: pnpm install --frozen-lockfile && pnpm build
       - name: Build arm64 binary
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
             -tags ui_embed \
             -ldflags "-s -w \
-              -X github.com/smazurov/videonode/internal/version.Version=${GITHUB_REF_NAME#v} \
-              -X github.com/smazurov/videonode/internal/version.GitCommit=$(git rev-parse --short HEAD) \
+              -X github.com/smazurov/videonode/internal/version.Version=${TAG#v} \
+              -X github.com/smazurov/videonode/internal/version.GitCommit=${SHA::7} \
               -X github.com/smazurov/videonode/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-              -X github.com/smazurov/videonode/internal/version.BuildID=${GITHUB_RUN_ID}" \
+              -X github.com/smazurov/videonode/internal/version.BuildID=${RUN_ID}" \
             -o dist/videonode .
       - uses: actions/upload-artifact@v7
         with:
@@ -64,8 +81,12 @@ jobs:
     needs: [build-native, build-go]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -79,31 +100,25 @@ jobs:
           path: dist/
       - name: Install nfpm + lintian
         run: |
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3
           sudo apt-get update -qq
           sudo apt-get install -y lintian
       - name: Build .deb
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
-          chmod +x dist/*
+          chmod +x dist/videonode dist/videonode-source dist/videonode-sink dist/videonode-composer
           gzip -9n -c packaging/changelog > dist/changelog.gz
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${TAG#v}
           GOARCH=arm64 VERSION=$VERSION \
             nfpm package --packager deb --target dist/
       - name: Lint .deb
         run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary dist/*.deb
       - name: Attach .deb to GitHub Release
-        run: |
-          # Wait for the release to be created by the Build workflow
-          for i in $(seq 1 30); do
-            if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-              break
-            fi
-            echo "Waiting for release ${GITHUB_REF_NAME}... (attempt $i/30)"
-            sleep 10
-          done
-          gh release upload "${GITHUB_REF_NAME}" dist/*.deb --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+        run: gh release upload "$TAG" dist/*.deb --clobber
       - uses: actions/upload-artifact@v7
         with:
           name: deb
@@ -113,11 +128,16 @@ jobs:
     needs: [package-deb]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/configure-pages@v6
       - uses: actions/download-artifact@v8
         with:

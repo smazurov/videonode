@@ -2,6 +2,7 @@ name: composer-ci
 
 on:
   push:
+    branches: [main]
     paths:
       - 'composer/**'
       - '.github/workflows/ci-composer.yml'
@@ -9,6 +10,10 @@ on:
     paths:
       - 'composer/**'
       - '.github/workflows/ci-composer.yml'
+
+concurrency:
+  group: composer-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 # Every job runs inside arm64v8/debian:trixie and invokes
 # composer/scripts/build-deb-arm64.sh — exactly the script the local

@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-ui-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ui:
     name: Lint, Typecheck
