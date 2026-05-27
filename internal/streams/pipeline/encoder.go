@@ -146,7 +146,7 @@ func pipeInputFor(fs FrameSource) *ffmpeg.PipeInput {
 
 // LogParser delegates to ffmpeg.ParseLogLevel — ffmpeg's `[level] msg`
 // format also matches vn-sink's vn::log output.
-func (e *EncoderStage) LogParser() process.LogParser { return ffmpeg.ParseLogLevel }
+func (e *EncoderStage) LogParser() process.LogParser { return ffmpeg.ParseLogLine }
 
 // LogAttrs tags every encoder log line with the stream id + pool-key.
 func (e *EncoderStage) LogAttrs() []slog.Attr {

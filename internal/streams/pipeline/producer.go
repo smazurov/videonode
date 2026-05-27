@@ -78,7 +78,7 @@ func (p *ProducerStage) Command() ([]string, []string, error) {
 
 // LogParser uses the ffmpeg parser — videonode-source emits the same
 // `[level] msg` format via vn::log helpers.
-func (p *ProducerStage) LogParser() process.LogParser { return ffmpeg.ParseLogLevel }
+func (p *ProducerStage) LogParser() process.LogParser { return ffmpeg.ParseLogLine }
 
 // LogAttrs tags producer logs with the source id + pool-key instance.
 func (p *ProducerStage) LogAttrs() []slog.Attr {

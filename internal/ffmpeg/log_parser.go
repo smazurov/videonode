@@ -1,6 +1,13 @@
 package ffmpeg
 
-import "strings"
+import (
+	"log/slog"
+	"strings"
+	"sync"
+
+	"github.com/go-logfmt/logfmt"
+	"github.com/smazurov/videonode/internal/logging"
+)
 
 // ParseLogLevel extracts the level from "[level] msg" or "[component] [level] msg" ffmpeg output.
 // Also recognizes the glog/absl-style "LEVEL: msg" prefix that libraries like
@@ -65,6 +72,42 @@ func parseGlogPrefix(line string) (level, msg string, ok bool) {
 		return "info", line[colon+2:], true
 	}
 	return "", "", false
+}
+
+// ParseLogLine extends ParseLogLevel to extract structured key=value
+// pairs from C++ log lines. The C++ binaries emit:
+//
+//	[info] human message\tkey=val key2=val2
+//
+// The tab separates the human-readable message from the machine-readable
+// attributes. Lines without a tab parse identically to ParseLogLevel.
+func ParseLogLine(line string) (level, msg string, attrs []slog.Attr) {
+	level, remainder := ParseLogLevel(line)
+	before, after, hasTab := strings.Cut(remainder, "\t")
+	msg = before
+	if !hasTab || after == "" {
+		return level, msg, nil
+	}
+	d := logfmt.NewDecoder(strings.NewReader(after))
+	if d.ScanRecord() {
+		for d.ScanKeyval() {
+			k := string(d.Key())
+			v := string(d.Value())
+			if _, ok := logging.AllowedKeys[k]; !ok {
+				warnUnknownKey(k)
+			}
+			attrs = append(attrs, slog.String(k, v))
+		}
+	}
+	return level, msg, attrs
+}
+
+var unknownKeyWarned sync.Map
+
+func warnUnknownKey(key string) {
+	if _, loaded := unknownKeyWarned.LoadOrStore(key, struct{}{}); !loaded {
+		slog.Warn("C++ log line used unknown structured key", logging.KeyName, key)
+	}
 }
 
 func isLogLevel(s string) bool {

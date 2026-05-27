@@ -50,11 +50,11 @@ type ComposerInput struct {
 // LayoutSlot positions one input on the canvas. Input is the matching
 // ComposerInput.Ref (by name, not positional).
 type LayoutSlot struct {
-	Input           string `toml:"input" json:"input"`
-	X               int    `toml:"x" json:"x"`
-	Y               int    `toml:"y" json:"y"`
-	W               int    `toml:"w" json:"w"`
-	H               int    `toml:"h" json:"h"`
+	Input           string  `toml:"input" json:"input"`
+	X               int     `toml:"x" json:"x"`
+	Y               int     `toml:"y" json:"y"`
+	W               int     `toml:"w" json:"w"`
+	H               int     `toml:"h" json:"h"`
 	Rotation        int     `toml:"rotation,omitempty" json:"rotation,omitempty"`
 	AspectRatioMode string  `toml:"aspect_ratio_mode,omitempty" json:"aspect_ratio_mode,omitempty"`
 	CropX           float64 `toml:"crop_x,omitempty" json:"crop_x,omitempty"`
@@ -149,7 +149,7 @@ func (c *ComposerStage) Command() ([]string, []string, error) {
 
 // LogParser uses the ffmpeg parser — composer emits the same
 // `[level] msg` format via vn::log helpers.
-func (c *ComposerStage) LogParser() process.LogParser { return ffmpeg.ParseLogLevel }
+func (c *ComposerStage) LogParser() process.LogParser { return ffmpeg.ParseLogLine }
 
 // LogAttrs tags composer logs with the composer id + pool-key instance.
 func (c *ComposerStage) LogAttrs() []slog.Attr {

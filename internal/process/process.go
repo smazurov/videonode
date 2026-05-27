@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -23,8 +24,8 @@ type OutputHandler interface {
 	HandleLine(source, line string)
 }
 
-// LogParser extracts (level, msg) from a process output line.
-type LogParser func(line string) (level, msg string)
+// LogParser extracts (level, msg, attrs) from a process output line.
+type LogParser func(line string) (level, msg string, attrs []slog.Attr)
 
 type exitReason int
 
@@ -127,7 +128,7 @@ type runningProcess struct {
 func (p *Process) startProcess(command string) (*runningProcess, error) {
 	args, err := parseCommand(command)
 	if err != nil {
-		p.logger.Error("Failed to parse command", "error", err)
+		p.logger.Error("Failed to parse command", logging.KeyError, err)
 		return nil, err
 	}
 
@@ -149,18 +150,18 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 
 	stdout, err := p.cmd.StdoutPipe()
 	if err != nil {
-		p.logger.Error("Failed to create stdout pipe", "error", err)
+		p.logger.Error("Failed to create stdout pipe", logging.KeyError, err)
 		return nil, err
 	}
 
 	stderr, err := p.cmd.StderrPipe()
 	if err != nil {
-		p.logger.Error("Failed to create stderr pipe", "error", err)
+		p.logger.Error("Failed to create stderr pipe", logging.KeyError, err)
 		return nil, err
 	}
 
 	if err := p.cmd.Start(); err != nil {
-		p.logger.Error("Failed to start process", "error", err, "command", command)
+		p.logger.Error("Failed to start process", logging.KeyError, err, logging.KeyCommand, command)
 		return nil, err
 	}
 
@@ -172,7 +173,7 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 	}
 	p.visionPipeWrites = nil
 
-	p.logger.Info("Process started", "id", p.id, "pid", p.cmd.Process.Pid, "command", command)
+	p.logger.Info("Process started", logging.KeyPoolID, p.id, logging.KeyPID, p.cmd.Process.Pid, logging.KeyCommand, command)
 
 	outputDone := make(chan struct{}, 2)
 	go func() {
@@ -214,7 +215,7 @@ func exitCodeFromError(err error) int {
 func (p *Process) handleProcessExit(processErr error) int {
 	exitCode := exitCodeFromError(processErr)
 	if processErr != nil && exitCode == 1 {
-		p.logger.Error("Process exited with error", "error", processErr)
+		p.logger.Error("Process exited with error", logging.KeyError, processErr)
 	}
 	return exitCode
 }
@@ -237,12 +238,12 @@ func (p *Process) Run() int {
 		p.sendStopSignal()
 		return p.waitForExit(rp.processDone, p.gracefulTimeout)
 	case sig := <-sigChan:
-		p.logger.Info("Received shutdown signal", "signal", sig.String())
+		p.logger.Info("Received shutdown signal", logging.KeySignal, sig.String())
 		p.sendStopSignal()
 		return p.waitForExit(rp.processDone, p.gracefulTimeout)
 	case processErr := <-rp.processDone:
 		exitCode := p.handleProcessExit(processErr)
-		p.logger.Info("Process exited", "exit_code", exitCode)
+		p.logger.Info("Process exited", logging.KeyExitCode, exitCode)
 		return exitCode
 	}
 }
@@ -258,14 +259,14 @@ func (p *Process) RunWithRestart() int {
 
 		switch reason {
 		case exitReasonShutdown:
-			p.logger.Info("Shutdown complete", "exit_code", exitCode)
+			p.logger.Info("Shutdown complete", logging.KeyExitCode, exitCode)
 			return exitCode
 		case exitReasonRestart:
 			p.logger.Info("Restarting process")
 			continue
 		case exitReasonProcessExit:
 			// Don't restart unexpected exits; let the parent decide.
-			p.logger.Info("Process exited unexpectedly", "exit_code", exitCode)
+			p.logger.Info("Process exited unexpectedly", logging.KeyExitCode, exitCode)
 			return exitCode
 		}
 	}
@@ -290,7 +291,7 @@ func (p *Process) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 		return p.waitForExit(rp.processDone, p.gracefulTimeout), exitReasonShutdown
 
 	case sig := <-sigChan:
-		p.logger.Info("Received shutdown signal", "signal", sig.String())
+		p.logger.Info("Received shutdown signal", logging.KeySignal, sig.String())
 		p.sendStopSignal()
 		return p.waitForExit(rp.processDone, p.gracefulTimeout), exitReasonShutdown
 
@@ -304,7 +305,7 @@ func (p *Process) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 
 	case processErr := <-rp.processDone:
 		exitCode := p.handleProcessExit(processErr)
-		p.logger.Info("Process exited", "exit_code", exitCode)
+		p.logger.Info("Process exited", logging.KeyExitCode, exitCode)
 		return exitCode, exitReasonProcessExit
 	}
 }
@@ -320,9 +321,9 @@ func (p *Process) sendStopSignal() {
 		return
 	}
 	pid := p.cmd.Process.Pid
-	p.logger.Info("Sending SIGINT to process group", "pid", pid)
+	p.logger.Info("Sending SIGINT to process group", logging.KeyPID, pid)
 	if err := syscall.Kill(-pid, syscall.SIGINT); err != nil {
-		p.logger.Warn("Failed to send SIGINT to group", "error", err)
+		p.logger.Warn("Failed to send SIGINT to group", logging.KeyError, err)
 	}
 }
 
@@ -332,12 +333,12 @@ func (p *Process) waitForExit(processDone <-chan error, timeout time.Duration) i
 	case err := <-processDone:
 		return exitCodeFromError(err)
 	case <-time.After(timeout):
-		p.logger.Warn("Graceful shutdown timeout, forcing kill", "timeout", timeout)
+		p.logger.Warn("Graceful shutdown timeout, forcing kill", logging.KeyTimeout, timeout)
 		if p.cmd.Process != nil {
 			// Kill the whole process group; see sendStopSignal for why.
 			if err := syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL); err != nil {
 				if !errors.Is(err, syscall.ESRCH) {
-					p.logger.Error("Failed to kill process group", "error", err)
+					p.logger.Error("Failed to kill process group", logging.KeyError, err)
 				}
 			}
 		}
@@ -367,24 +368,30 @@ func (p *Process) streamOutput(reader io.Reader, source string) {
 		}
 
 		level, msg := "info", line
+		var attrs []slog.Attr
 		if p.logParser != nil {
-			level, msg = p.logParser(line)
+			level, msg, attrs = p.logParser(line)
+		}
+
+		args := make([]any, len(attrs))
+		for i, a := range attrs {
+			args[i] = a
 		}
 
 		switch level {
 		case "fatal", "error":
-			logger.Error(msg)
+			logger.Error(msg, args...)
 		case "warning":
-			logger.Warn(msg)
+			logger.Warn(msg, args...)
 		case "debug", "trace":
-			logger.Debug(msg)
+			logger.Debug(msg, args...)
 		default:
-			logger.Info(msg)
+			logger.Info(msg, args...)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		p.logger.Warn("Error reading output", "source", source, "error", err)
+		p.logger.Warn("Error reading output", logging.KeyPipe, source, logging.KeyError, err)
 	}
 }
 
