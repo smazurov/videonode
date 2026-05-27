@@ -139,7 +139,6 @@ bool init() {
     for (const char* d : candidates) {
         if (s.ctx.init(d)) {
             opened = true;
-            vn::log::info("csc_placebo: EGL on %s", d);
             break;
         }
     }
@@ -180,7 +179,6 @@ bool init() {
     }
 
     s.ready = true;
-    vn::log::info("csc_placebo: ready (GLSL %d)", s.gpu->glsl.version);
     return true;
 }
 

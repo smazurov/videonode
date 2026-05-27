@@ -49,8 +49,6 @@ bool TurboJpegDec::init(int width, int height, std::vector<Slot> ring) {
     height_ = height;
     ring_ = std::move(ring);
     next_ = 0;
-    vn::log::info("jpeg_dec_turbo: %dx%d, %zu slots, slot[0] y_pitch=%u uv_pitch=%u", width_,
-                  height_, ring_.size(), ring_[0].y_pitch, ring_[0].uv_pitch);
     // Chroma scratch is sized lazily on the first decode() — its size
     // depends on the JPEG's subsampling, which we don't know yet.
     u_scratch_.clear();

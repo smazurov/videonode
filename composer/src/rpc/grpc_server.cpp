@@ -52,7 +52,6 @@ bool GrpcServer::Start(const std::string& uds_path, const std::vector<grpc::Serv
         server_->Wait();
         running_.store(false);
     });
-    vn::log::info("grpc_server: listening on unix:%s", uds_path.c_str());
     return true;
 }
 

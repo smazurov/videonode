@@ -2,6 +2,7 @@
 
 #include "src/source/capture_session.hpp"
 
+#include "src/common/log_keys.hpp"
 #include "src/common/log_levels.hpp"
 
 #include "src/capture/jpeg_dec_turbo.hpp"
@@ -268,12 +269,15 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
             return false;
     }
     s.active = true;
-    fprintf(
-        stderr,
-        "videonode-source: capture ready — %dx%d %s, %d v4l2 buffers (multiplanar=%d, mode=%s)\n",
-        s.width, s.height, s.src_fmt_name.c_str(), int(s.cap.buffers().size()),
-        int(s.cap.multiplanar()),
-        s.mode == DecodeMode::Mjpeg ? (s.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg") : "rga");
+    char w_s[16], h_s[16], buf_s[16];
+    std::snprintf(w_s, sizeof(w_s), "%d", s.width);
+    std::snprintf(h_s, sizeof(h_s), "%d", s.height);
+    std::snprintf(buf_s, sizeof(buf_s), "%d", int(s.cap.buffers().size()));
+    const char* mode =
+        s.mode == DecodeMode::Mjpeg ? (s.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg") : "rga";
+    vn::log::info_s("videonode-source: capture ready",
+                    {vn::key::width, w_s, vn::key::height, h_s, vn::key::fourcc,
+                     s.src_fmt_name.c_str(), vn::key::buffers, buf_s, vn::key::mode, mode});
     return true;
 }
 

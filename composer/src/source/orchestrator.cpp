@@ -15,6 +15,7 @@
 
 #include "control/common.pb.h"
 #include "src/capture/source_probe.hpp"
+#include "src/common/log_keys.hpp"
 #include "src/common/log_levels.hpp"
 #include "src/render/nv12_buf.hpp"
 #include "src/render/placeholder_painter.hpp"
@@ -250,8 +251,7 @@ bool handle_dqbuf_(LoopState& st) {
         dst_p.height = st.cap.height;
         dst_p.wstride = int(dst_buf.y_pitch);
         if (csc::convert(src_p, dst_p)) {
-            st.cap.out_ring_write =
-                (ring_idx + 1) % static_cast<uint32_t>(st.cap.out_ring.size());
+            st.cap.out_ring_write = (ring_idx + 1) % static_cast<uint32_t>(st.cap.out_ring.size());
             nv12_buf::stage_for_read(dst_buf);
             decoded.fd = (dst_buf.staged_y_fd >= 0) ? dst_buf.staged_y_fd : dst_buf.y_fd;
             decoded.plane1_fd = (dst_buf.staged_uv_fd >= 0) ? dst_buf.staged_uv_fd : dst_buf.uv_fd;
@@ -465,8 +465,8 @@ bool start_grpc_(const Args& a, nativerpc::SourceService& grpc_svc, nativerpc::G
         grpc_enabled = false;
         return false;
     }
-    vn::log::info("videonode-source: grpc server listening on %s (id=%s)", a.grpc_listen.c_str(),
-                  a.device_id.c_str());
+    vn::log::debug("videonode-source: grpc server listening on %s (id=%s)", a.grpc_listen.c_str(),
+                   a.device_id.c_str());
     return true;
 }
 
@@ -485,9 +485,12 @@ void populate_gctx_(nativerpc::SourceContext& gctx, std::atomic<bool>& running, 
 
 // Shut down gRPC, prod, cap, and the placeholder ring.
 void shutdown_(LoopState& st, nativerpc::GrpcServer& grpc_srv, PlaceholderRing& ph) {
-    vn::log::info("videonode-source: shutting down (real=%llu placeholder=%llu)",
-                  static_cast<unsigned long long>(st.real_frame_idx),
-                  static_cast<unsigned long long>(ph.tick_idx));
+    char real_s[24], ph_s[24];
+    std::snprintf(real_s, sizeof(real_s), "%llu",
+                  static_cast<unsigned long long>(st.real_frame_idx));
+    std::snprintf(ph_s, sizeof(ph_s), "%llu", static_cast<unsigned long long>(ph.tick_idx));
+    vn::log::info_s("videonode-source: shutting down",
+                    {vn::key::real, real_s, vn::key::placeholder, ph_s});
     if (st.grpc_enabled) {
         st.grpc_svc.StopStreams();
         grpc_srv.Shutdown();
@@ -518,8 +521,6 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         vn::log::fatal("videonode-source: failed to allocate placeholder ring");
         return 1;
     }
-    vn::log::info("videonode-source: placeholder %dx%d ready", a.placeholder_w, a.placeholder_h);
-
     scm_rights_producer::ScmRightsProducer prod;
     scm_rights_producer::InitParams pp;
     pp.socket_path = a.out_socket;
@@ -598,7 +599,8 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         source_probe::Health h = probe.health();
         bool health_changed = (h != st.prev_health);
         if (health_changed) {
-            vn::log::info("videonode-source: state -> %s", source_probe::status_text(h));
+            vn::log::info_s("videonode-source: state change",
+                            {vn::key::state, source_probe::status_text(h)});
             st.prev_health = h;
         }
 

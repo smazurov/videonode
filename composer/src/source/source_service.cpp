@@ -1,6 +1,7 @@
 #include "src/source/source_service.hpp"
 
 #include "src/capture/source_probe.hpp"
+#include "src/common/log_keys.hpp"
 #include "src/common/log_levels.hpp"
 #include "src/source/args.hpp"
 #include "src/source/capture_session.hpp" // for v4l2_pix_fmt_
@@ -68,8 +69,8 @@ grpc::Status SourceService::SetFormat(grpc::ServerContext* /*ctx*/,
             const bool fps_match = req->fps() == 0 || af.fps == 0 || af.fps == req->fps();
             if (af.fourcc == req->fourcc() && af.w == req->w() && af.h == req->h() && fps_match) {
                 resp->set_applied(false);
-                vn::log::info("videonode-source: set_format no-op (already running: %s %ux%u@%u)",
-                              af.fourcc.c_str(), af.w, af.h, af.fps);
+                vn::log::debug("videonode-source: set_format no-op (already running: %s %ux%u@%u)",
+                               af.fourcc.c_str(), af.w, af.h, af.fps);
                 return grpc::Status::OK;
             }
         }
@@ -87,8 +88,13 @@ grpc::Status SourceService::SetFormat(grpc::ServerContext* /*ctx*/,
         }
     }
     resp->set_applied(true);
-    vn::log::info("videonode-source: set_format via gRPC: %s %ux%u@%u", req->fourcc().c_str(),
-                  req->w(), req->h(), req->fps());
+    char sw[16], sh[16], sf[16];
+    std::snprintf(sw, sizeof(sw), "%u", req->w());
+    std::snprintf(sh, sizeof(sh), "%u", req->h());
+    std::snprintf(sf, sizeof(sf), "%u", req->fps());
+    vn::log::info_s("videonode-source: set_format via gRPC",
+                    {vn::key::fourcc, req->fourcc().c_str(), vn::key::width, sw, vn::key::height,
+                     sh, vn::key::fps, sf});
     return grpc::Status::OK;
 }
 

@@ -53,8 +53,6 @@ bool SourceProbe::attach() {
         // webcams reject the subscribe and that's expected.
         if (!subscribed)
             vn::log::error("v4l2_capture: VIDIOC_SUBSCRIBE_EVENT: %s", strerror(subscribe_errno));
-    } else {
-        vn::log::info("source_probe: device has no DV timings, using DQBUF-only health");
     }
     return true;
 }

@@ -1,5 +1,6 @@
 #include "src/ipc/scm_rights_producer.hpp"
 
+#include "src/common/log_keys.hpp"
 #include "src/common/log_levels.hpp"
 #include "src/common/unique_fd.hpp"
 #include "src/ipc/scm_socket.hpp"
@@ -46,8 +47,6 @@ bool ScmRightsProducer::init(const InitParams& p) {
                        strerror(errno));
         return false;
     }
-    vn::log::info("scm_rights_producer: listening on %s (max_consumers=%d)",
-                  params_.socket_path.c_str(), params_.max_consumers);
     return true;
 }
 
@@ -126,8 +125,11 @@ void ScmRightsProducer::accept_loop_() {
         }
         int cfd_raw = cfd.get();
         consumers_.push_back(Consumer{.fd = std::move(cfd), .frames_sent = 0, .frames_dropped = 0});
-        vn::log::info("scm_rights_producer: consumer connected (fd=%d, total=%zu)", cfd_raw,
-                      consumers_.size());
+        char fd_s[16], tot_s[16];
+        std::snprintf(fd_s, sizeof(fd_s), "%d", cfd_raw);
+        std::snprintf(tot_s, sizeof(tot_s), "%zu", consumers_.size());
+        vn::log::info_s("scm_rights_producer: consumer connected",
+                        {vn::key::fd, fd_s, vn::key::total, tot_s});
     }
 }
 
@@ -155,8 +157,10 @@ bool ScmRightsProducer::broadcast(const dmabuf_header::Header& header,
             continue;
         }
         // EPIPE / ECONNRESET / EBADF — consumer is gone. Evict.
-        vn::log::info("scm_rights_producer: consumer fd=%d gone (%s); evicting", c.fd.get(),
-                      strerror(errno));
+        char efd_s[16];
+        std::snprintf(efd_s, sizeof(efd_s), "%d", c.fd.get());
+        vn::log::info_s("scm_rights_producer: consumer gone, evicting",
+                        {vn::key::fd, efd_s, vn::key::reason, strerror(errno)});
         evicted_.push_back(ConsumerStats{.fd = c.fd.get(),
                                          .frames_sent = c.frames_sent,
                                          .frames_dropped = c.frames_dropped,
@@ -190,7 +194,10 @@ int ScmRightsProducer::prune_dead_consumers() {
     for (size_t i = 0; i < pfds.size(); ++i) {
         if (pfds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) {
             auto& c = consumers_[i];
-            vn::log::info("scm_rights_producer: consumer fd=%d gone (prune); evicting", c.fd.get());
+            char pfd_s[16];
+            std::snprintf(pfd_s, sizeof(pfd_s), "%d", c.fd.get());
+            vn::log::info_s("scm_rights_producer: consumer gone, evicting",
+                            {vn::key::fd, pfd_s, vn::key::reason, "prune"});
             evicted_.push_back(ConsumerStats{.fd = c.fd.get(),
                                              .frames_sent = c.frames_sent,
                                              .frames_dropped = c.frames_dropped,
