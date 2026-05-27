@@ -58,8 +58,7 @@ contents:
   - src: ./packaging/copyright
     dst: /usr/share/doc/videonode/copyright
 
-  - src: ./dist/changelog.gz
-    dst: /usr/share/doc/videonode/changelog.gz
+changelog: ./changelog.yml
 
 scripts:
   postinstall: ./packaging/postinst.sh

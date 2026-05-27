@@ -1,0 +1,23 @@
+- semver: 4.0.0-rc1
+  date: 2026-05-27T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: c57d69e
+      note: "feat(packaging): unified .deb via nfpm + GitHub Pages APT repo"
+    - commit: 72c5d66
+      note: "refactor(packaging): replace CPack with nfpm"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 3.1.0
+  date: 2026-05-18T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 676bf30
+      note: "feat: v3.1.0 release"
+  deb:
+    urgency: low
+    distributions:
+      - stable

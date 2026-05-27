@@ -42,10 +42,9 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm build
       - name: Create tag (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
-        run: |
-          git tag "v${{ inputs.version }}"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: git tag "v${{ inputs.version }}"
+      - name: Install chglog
+        run: go install github.com/goreleaser/chglog/cmd/chglog@latest
       - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
@@ -54,10 +53,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: v${{ inputs.version || '' }}
-      - uses: actions/upload-artifact@v7
-        with:
-          name: go-arm64
-          path: dist/videonode_linux_arm64/videonode
 
   build-native:
     runs-on: ubuntu-24.04-arm
@@ -79,22 +74,41 @@ jobs:
   package-deb:
     needs: [goreleaser, build-native]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@v8
+          cache: true
+      - uses: actions/setup-node@v6
         with:
-          name: go-arm64
-          path: dist/
+          node-version: 22
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: ui/package.json
+      - name: Build UI
+        working-directory: ui
+        run: pnpm install --frozen-lockfile && pnpm build
       - uses: actions/download-artifact@v8
         with:
           name: native-arm64
           path: dist/
+      - name: Build arm64 Go binary
+        run: |
+          VER="${VERSION#v}"
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
+            -tags ui_embed \
+            -ldflags "-s -w \
+              -X github.com/smazurov/videonode/internal/version.Version=${VER} \
+              -X github.com/smazurov/videonode/internal/version.GitCommit=$(git rev-parse --short HEAD) \
+              -X github.com/smazurov/videonode/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+              -X github.com/smazurov/videonode/internal/version.BuildID=${GITHUB_RUN_ID}" \
+            -o dist/videonode .
       - name: Install nfpm + lintian
         run: |
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3
@@ -103,7 +117,6 @@ jobs:
       - name: Build .deb
         run: |
           chmod +x dist/videonode dist/videonode-source dist/videonode-sink dist/videonode-composer
-          gzip -9n -c packaging/changelog > dist/changelog.gz
           VER="${VERSION#v}"
           GOARCH=arm64 VERSION=$VER \
             nfpm package --packager deb --target dist/
