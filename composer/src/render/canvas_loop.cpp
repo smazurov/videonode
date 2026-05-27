@@ -173,7 +173,8 @@ RenderBatch build_render_slots_(const Snapshot& snap,
         s.h = rect.h;
         s.rotation = rect.rotation;
 
-        if (rect.aspect_ratio_mode != 0 && fv.width > 0 && fv.height > 0 && rect.w > 0 && rect.h > 0) {
+        if (rect.aspect_ratio_mode != 0 && fv.width > 0 && fv.height > 0 && rect.w > 0 &&
+            rect.h > 0) {
             auto src_ar = static_cast<float>(fv.width) / static_cast<float>(fv.height);
             auto slot_ar = static_cast<float>(rect.w) / static_cast<float>(rect.h);
             if (rect.aspect_ratio_mode == 1) {
@@ -392,7 +393,8 @@ bool render_scm_frame_(ComposeState& cs, SnapPool& pool,
                 auto* s = static_cast<const uint8_t*>(src);
                 size_t row_bytes = size_t(cs.w) * 4;
                 for (int row = 0; row < cs.h; ++row)
-                    std::memcpy(dst + size_t(row) * stride, s + size_t(row) * map_stride, row_bytes);
+                    std::memcpy(dst + size_t(row) * stride, s + size_t(row) * map_stride,
+                                row_bytes);
             }
             gbm_bo_unmap(cs.compose->canvas_bo(), map_handle);
         }
