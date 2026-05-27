@@ -50,12 +50,18 @@ endif()
 # repo root is on the include path.
 include_directories(${CMAKE_SOURCE_DIR})
 
-# Generated single-source-of-truth version header. Every binary that wants
-# --version pulls in <version.hpp> from the build tree.
-configure_file(
-    ${CMAKE_SOURCE_DIR}/src/version.hpp.in
-    ${CMAKE_BINARY_DIR}/generated/version.hpp
-    @ONLY)
+# Build-time version header. Runs git-describe on every build; falls back
+# to PROJECT_VERSION when git is unavailable. Writes version.hpp only when
+# the content changes to avoid needless recompilation.
+add_custom_target(vn_version ALL
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_BINARY_DIR}
+        -DPROJECT_NAME=${PROJECT_NAME}
+        -P ${CMAKE_SOURCE_DIR}/cmake/GenerateVersion.cmake
+    BYPRODUCTS ${CMAKE_BINARY_DIR}/generated/version.hpp
+    COMMENT "Stamping version.hpp"
+    VERBATIM)
 include_directories(${CMAKE_BINARY_DIR}/generated)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")

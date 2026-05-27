@@ -56,6 +56,7 @@ function(vn_add_executable name)
     endif()
 
     add_executable(${name} ${ARG_SOURCES})
+    add_dependencies(${name} vn_version)
     if(ARG_DEPS)
         target_link_libraries(${name} PRIVATE ${ARG_DEPS})
     endif()
