@@ -9,71 +9,128 @@ import {
 import { Stage, Layer, Rect, Text, Line, Transformer, Group } from 'react-konva';
 import type Konva from 'konva';
 import type { Box } from 'konva/lib/shapes/Transformer';
+import { useShallow } from 'zustand/shallow';
 
 import { CanvasRuler } from './CanvasRuler';
-import type {
-  CanvasDims,
-  ComposerInput,
-  LayoutSlot,
-} from '../../lib/composer-types';
+import {
+  clamp,
+  computeArPreview,
+  konvaToVisual,
+  snapVal,
+  visualDims,
+  visualToKonva,
+} from './layout-math';
+import type { ComposerInput, LayoutSlot } from '../../lib/composer-types';
+import { useLayoutEditorStore } from '../../hooks/useLayoutEditorStore';
 
-interface KonvaCanvasEditorProps {
-  canvas: CanvasDims;
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface SourceDims { w: number; h: number }
+
+interface Props {
   inputs: readonly ComposerInput[];
-  layout: readonly LayoutSlot[];
-  selectedInput: string | null;
-  onSelect: (input: string | null) => void;
-  onLayoutChange: (next: LayoutSlot[]) => void;
+  sourceDims?: ReadonlyMap<string, SourceDims>;
   gridSize?: number;
   snapToGrid?: boolean;
   showRulers?: boolean;
+  showGrid?: boolean;
 }
+
+interface GhostBox { x: number; y: number; w: number; h: number }
+interface CropPan { startX: number; startY: number; cropX: number; cropY: number }
 
 const MIN_SIZE = 16;
-const ALIGN_THRESHOLD = 6;
+const ANCHORS_ALL = [
+  'top-left', 'top-center', 'top-right',
+  'middle-left', 'middle-right',
+  'bottom-left', 'bottom-center', 'bottom-right',
+] as const;
+const ANCHORS_CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
 
-function snapVal(v: number, grid: number): number {
-  return Math.round(v / grid) * grid;
-}
+// ---------------------------------------------------------------------------
+// Helpers (pure, pulled out to reduce handler complexity)
+// ---------------------------------------------------------------------------
 
-interface Guide {
-  orientation: 'V' | 'H';
-  pos: number;
-}
-
-function findAlignmentSnap(
-  pos: number, size: number, candidates: number[],
-): { snappedPos: number; guidePos: number } | null {
-  for (const c of candidates) {
-    if (Math.abs(pos - c) <= ALIGN_THRESHOLD) return { snappedPos: c, guidePos: c };
-    if (Math.abs(pos + size - c) <= ALIGN_THRESHOLD) return { snappedPos: c - size, guidePos: c };
-    if (Math.abs(pos + size / 2 - c) <= ALIGN_THRESHOLD) return { snappedPos: c - size / 2, guidePos: c };
+function computeNormalDragResult(
+  node: Konva.Node, slot: LayoutSlot,
+  canvasW: number, canvasH: number,
+  doSnap: boolean, gridSize: number,
+) {
+  const rot = slot.rotation ?? 0;
+  const { vw, vh } = visualDims(slot.w, slot.h, rot);
+  const vis = konvaToVisual(node.x(), node.y(), slot.w, slot.h, rot);
+  if (doSnap && gridSize > 0) {
+    vis.x = snapVal(vis.x, gridSize);
+    vis.y = snapVal(vis.y, gridSize);
   }
-  return null;
+  vis.x = clamp(Math.round(vis.x), 0, canvasW - vw);
+  vis.y = clamp(Math.round(vis.y), 0, canvasH - vh);
+  return { vis, kPos: visualToKonva(vis.x, vis.y, slot.w, slot.h, rot) };
 }
+
+function computeCropPanOffset(
+  dx: number, dy: number, start: CropPan,
+  slot: LayoutSlot, sd: SourceDims,
+) {
+  const fillScale = Math.max(slot.w / sd.w, slot.h / sd.h);
+  const s = Math.max(1, slot.crop_scale ?? 1);
+  const scaledW = sd.w * fillScale * s;
+  const scaledH = sd.h * fillScale * s;
+  const exW = Math.max(1, scaledW - slot.w);
+  const exH = Math.max(1, scaledH - slot.h);
+  return {
+    cx: clamp(start.cropX - dx / exW, 0, 1),
+    cy: clamp(start.cropY - dy / exH, 0, 1),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export function KonvaCanvasEditor({
-  canvas,
-  inputs,
-  layout,
-  selectedInput,
-  onSelect,
-  onLayoutChange,
-  gridSize = 10,
-  snapToGrid = true,
-  showRulers = true,
-}: Readonly<KonvaCanvasEditorProps>) {
+  inputs, sourceDims, gridSize = 10, snapToGrid = true, showRulers = true, showGrid = false,
+}: Readonly<Props>) {
+  // Store
+  const { canvas, layout, selectedInput } = useLayoutEditorStore(
+    useShallow((s) => ({ canvas: s.canvas, layout: s.layout, selectedInput: s.selectedInput })),
+  );
+  const { commitSlot, select: onSelect } = useLayoutEditorStore(
+    useShallow((s) => ({ commitSlot: s.commitSlot, select: s.select })),
+  );
+
+  // Container
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerW, setContainerW] = useState(0);
+
+  // Konva refs
   const trRef = useRef<Konva.Transformer>(null);
-  const shapeRefs = useRef<Map<string, Konva.Rect>>(new Map());
   const layerRef = useRef<Konva.Layer>(null);
+  const outputRects = useRef<Map<string, Konva.Rect>>(new Map());
+  const slotGroups = useRef<Map<string, Konva.Group>>(new Map());
+  const cropSrcRects = useRef<Map<string, Konva.Rect>>(new Map());
 
-  const layoutRef = useRef(layout);
+  // Shift key (ref = synchronous, state = re-render for Transformer switch)
+  const shiftRef = useRef(false);
+  const [shiftHeld, setShiftHeld] = useState(false);
   useEffect(() => {
-    layoutRef.current = layout;
-  }, [layout]);
+    const d = (e: KeyboardEvent) => { if (e.key === 'Shift') { shiftRef.current = true; setShiftHeld(true); } };
+    const u = (e: KeyboardEvent) => { if (e.key === 'Shift') { shiftRef.current = false; setShiftHeld(false); } };
+    window.addEventListener('keydown', d);
+    window.addEventListener('keyup', u);
+    return () => { window.removeEventListener('keydown', d); window.removeEventListener('keyup', u); };
+  }, []);
 
+  // Crop pan drag state
+  const cropPanRef = useRef<CropPan | null>(null);
+  const [liveCrop, setLiveCrop] = useState<{ input: string; cx: number; cy: number } | null>(null);
+
+  // Ghost box
+  const [ghostBox, setGhostBox] = useState<GhostBox | null>(null);
+
+  // Container resize observer
   useLayoutEffect(() => {
     if (!containerRef.current) return;
     const el = containerRef.current;
@@ -83,11 +140,12 @@ export function KonvaCanvasEditor({
     return () => ro.disconnect();
   }, []);
 
-  const aspect = canvas.w / Math.max(1, canvas.h);
+  // Derived measurements
   const stageW = containerW;
-  const stageH = containerW / aspect;
+  const stageH = containerW / Math.max(1, canvas.w / Math.max(1, canvas.h));
   const scale = containerW / Math.max(1, canvas.w);
 
+  // Lookup maps
   const inputByRef = useMemo(() => {
     const m = new Map<string, ComposerInput>();
     for (const inp of inputs) m.set(inp.ref, inp);
@@ -99,316 +157,405 @@ export function KonvaCanvasEditor({
     [layout],
   );
 
-  // Attach transformer to selected node
+  // ---------------------------------------------------------------------------
+  // Transformer attachment
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     if (!trRef.current) return;
-    if (!selectedInput) {
-      trRef.current.nodes([]);
-      return;
-    }
-    const node = shapeRefs.current.get(selectedInput);
-    if (node) {
-      trRef.current.nodes([node]);
-    } else {
-      trRef.current.nodes([]);
-    }
-  }, [selectedInput, layout]);
+    if (!selectedInput) { trRef.current.nodes([]); return; }
+    const slot = layout.find((s) => s.input === selectedInput);
+    const useSrc = shiftHeld && slot?.aspect_ratio_mode === 'crop';
+    const node = useSrc
+      ? cropSrcRects.current.get(selectedInput)
+      : outputRects.current.get(selectedInput);
+    trRef.current.nodes(node ? [node] : []);
+  }, [selectedInput, layout, shiftHeld]);
 
-  const commitSlot = useCallback(
-    (input: string, updates: Partial<LayoutSlot>) => {
-      const next = layoutRef.current.map((s) =>
-        s.input === input ? { ...s, ...updates } : s,
-      );
-      onLayoutChange(next);
-    },
-    [onLayoutChange],
-  );
+  // ---------------------------------------------------------------------------
+  // Drag handlers
+  // ---------------------------------------------------------------------------
 
-  const handleDragEnd = useCallback(
+  const handleDragStart = useCallback(
     (slot: LayoutSlot, e: Konva.KonvaEventObject<DragEvent>) => {
-      let x = e.target.x();
-      let y = e.target.y();
-      if (snapToGrid && gridSize > 0) {
-        x = snapVal(x, gridSize);
-        y = snapVal(y, gridSize);
-        e.target.x(x);
-        e.target.y(y);
-      }
-      commitSlot(slot.input, { x: Math.round(x), y: Math.round(y) });
+      cropPanRef.current = shiftRef.current && slot.aspect_ratio_mode === 'crop'
+        ? { startX: e.target.x(), startY: e.target.y(), cropX: slot.crop_x ?? 0.5, cropY: slot.crop_y ?? 0.5 }
+        : null;
     },
-    [commitSlot, gridSize, snapToGrid],
+    [],
   );
 
-  const handleTransformEnd = useCallback(
-    (slot: LayoutSlot) => {
-      const node = shapeRefs.current.get(slot.input);
-      if (!node) return;
-      const scaleX = node.scaleX();
-      const scaleY = node.scaleY();
-      node.scaleX(1);
-      node.scaleY(1);
-      let w = Math.max(MIN_SIZE, Math.round(node.width() * scaleX));
-      let h = Math.max(MIN_SIZE, Math.round(node.height() * scaleY));
-      let x = Math.round(node.x());
-      let y = Math.round(node.y());
-      const rotation = Math.round(node.rotation() / 90) * 90;
-      if (snapToGrid && gridSize > 0) {
-        x = snapVal(x, gridSize);
-        y = snapVal(y, gridSize);
-        w = Math.max(MIN_SIZE, snapVal(w, gridSize));
-        h = Math.max(MIN_SIZE, snapVal(h, gridSize));
-      }
-      if (x < 0) { w += x; x = 0; }
-      if (y < 0) { h += y; y = 0; }
-      if (x + w > canvas.w) w = canvas.w - x;
-      if (y + h > canvas.h) h = canvas.h - y;
-      w = Math.max(MIN_SIZE, w);
-      h = Math.max(MIN_SIZE, h);
-      node.x(x);
-      node.y(y);
-      node.width(w);
-      node.height(h);
-      node.rotation(rotation);
-      commitSlot(slot.input, { x, y, w, h, rotation });
+  const doCropPanMove = useCallback(
+    (slot: LayoutSlot, node: Konva.Node) => {
+      const start = cropPanRef.current!;
+      const dx = node.x() - start.startX;
+      const dy = node.y() - start.startY;
+      node.x(start.startX);
+      node.y(start.startY);
+      const sd = sourceDims?.get(slot.input);
+      if (!sd) return;
+      const { cx, cy } = computeCropPanOffset(dx, dy, start, slot, sd);
+      setLiveCrop({ input: slot.input, cx, cy });
     },
-    [canvas.h, canvas.w, commitSlot, gridSize, snapToGrid],
+    [sourceDims],
   );
 
-  const makeDragBound = useCallback(
-    (slotW: number, slotH: number) => (pos: Konva.Vector2d) => {
-      let { x, y } = pos;
+  const doNormalDragMove = useCallback(
+    (slot: LayoutSlot, node: Konva.Node) => {
+      const rot = slot.rotation ?? 0;
+      const { vw, vh } = visualDims(slot.w, slot.h, rot);
+      const vis = konvaToVisual(node.x(), node.y(), slot.w, slot.h, rot);
+
+      const kPos = visualToKonva(vis.x, vis.y, slot.w, slot.h, rot);
+      node.x(kPos.x);
+      node.y(kPos.y);
+
+      let gx = vis.x, gy = vis.y;
       if (snapToGrid && gridSize > 0) {
-        x = snapVal(x, gridSize);
-        y = snapVal(y, gridSize);
+        gx = snapVal(gx, gridSize);
+        gy = snapVal(gy, gridSize);
       }
-      x = Math.max(0, Math.min(canvas.w - slotW, x));
-      y = Math.max(0, Math.min(canvas.h - slotH, y));
-      return { x, y };
+      setGhostBox({
+        x: clamp(Math.round(gx), 0, canvas.w - vw),
+        y: clamp(Math.round(gy), 0, canvas.h - vh),
+        w: vw, h: vh,
+      });
     },
     [canvas.h, canvas.w, gridSize, snapToGrid],
   );
 
-  const handleStageClick = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (e.target.getParent() == null) {
-        onSelect(null);
+  const handleDragMove = useCallback(
+    (slot: LayoutSlot, e: Konva.KonvaEventObject<DragEvent>) => {
+      if (cropPanRef.current) doCropPanMove(slot, e.target);
+      else doNormalDragMove(slot, e.target);
+    },
+    [doCropPanMove, doNormalDragMove],
+  );
+
+  const handleDragEnd = useCallback(
+    (slot: LayoutSlot, e: Konva.KonvaEventObject<DragEvent>) => {
+      setGhostBox(null);
+
+      if (cropPanRef.current) {
+        if (liveCrop?.input === slot.input) {
+          commitSlot(slot.input, {
+            crop_x: Math.round(liveCrop.cx * 100) / 100,
+            crop_y: Math.round(liveCrop.cy * 100) / 100,
+          });
+        }
+        cropPanRef.current = null;
+        setLiveCrop(null);
+        return;
       }
+
+      const { vis, kPos } = computeNormalDragResult(
+        e.target, slot, canvas.w, canvas.h, snapToGrid, gridSize,
+      );
+      e.target.x(kPos.x);
+      e.target.y(kPos.y);
+      commitSlot(slot.input, { x: vis.x, y: vis.y });
+    },
+    [canvas.h, canvas.w, commitSlot, gridSize, liveCrop, snapToGrid],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Transform handlers
+  // ---------------------------------------------------------------------------
+
+  const handleOutputTransformEnd = useCallback(
+    (slot: LayoutSlot) => {
+      const rect = outputRects.current.get(slot.input);
+      const group = slotGroups.current.get(slot.input);
+      if (!rect || !group) return;
+
+      const sx = rect.scaleX(), sy = rect.scaleY();
+      rect.scaleX(1); rect.scaleY(1);
+
+      let w = Math.max(MIN_SIZE, Math.round(rect.width() * sx));
+      let h = Math.max(MIN_SIZE, Math.round(rect.height() * sy));
+      const rotation = Math.round(group.rotation() / 90) * 90;
+      const doSnap = snapToGrid && gridSize > 0;
+      if (doSnap) {
+        w = Math.max(MIN_SIZE, snapVal(w, gridSize));
+        h = Math.max(MIN_SIZE, snapVal(h, gridSize));
+      }
+
+      const offX = rect.x(), offY = rect.y();
+      rect.x(0); rect.y(0);
+
+      const { vw, vh } = visualDims(w, h, rotation);
+      const vis = konvaToVisual(group.x() + offX, group.y() + offY, w, h, rotation);
+      if (doSnap) { vis.x = snapVal(vis.x, gridSize); vis.y = snapVal(vis.y, gridSize); }
+      vis.x = clamp(Math.round(vis.x), 0, canvas.w - vw);
+      vis.y = clamp(Math.round(vis.y), 0, canvas.h - vh);
+
+      const kPos = visualToKonva(vis.x, vis.y, w, h, rotation);
+      group.x(kPos.x); group.y(kPos.y);
+      rect.width(w); rect.height(h);
+      group.rotation(rotation);
+
+      const updates: Partial<LayoutSlot> = { x: vis.x, y: vis.y, w, h, rotation };
+      if (slot.aspect_ratio_mode === 'crop') {
+        if (w !== slot.w) updates.crop_x = vis.x > slot.x + 5 ? 1 : 0;
+        if (h !== slot.h) updates.crop_y = vis.y > slot.y + 5 ? 1 : 0;
+      }
+      commitSlot(slot.input, updates);
+    },
+    [canvas.h, canvas.w, commitSlot, gridSize, snapToGrid],
+  );
+
+  const handleCropSrcTransformEnd = useCallback(
+    (slot: LayoutSlot) => {
+      const srcRect = cropSrcRects.current.get(slot.input);
+      const sd = sourceDims?.get(slot.input);
+      if (!srcRect || !sd) return;
+
+      const t = srcRect.scaleX();
+      srcRect.scaleX(1); srcRect.scaleY(1);
+
+      const srcAr = sd.w / sd.h;
+      const rawW = srcRect.width() * t;
+      const w1 = Math.max(slot.w, rawW);
+      const h1 = w1 / srcAr;
+      const fw = h1 >= slot.h ? w1 : slot.h * srcAr;
+      const fh = fw / srcAr;
+
+      const cx = fw > slot.w ? clamp(-srcRect.x() / (fw - slot.w), 0, 1) : 0.5;
+      const cy = fh > slot.h ? clamp(-srcRect.y() / (fh - slot.h), 0, 1) : 0.5;
+
+      const fillScale = Math.max(slot.w / sd.w, slot.h / sd.h);
+      const newScale = Math.max(1, fw / (sd.w * fillScale));
+
+      const preview = computeArPreview(slot.w, slot.h, sd.w, sd.h, 'crop', cx, cy, newScale);
+      if (preview) {
+        srcRect.x(preview.x); srcRect.y(preview.y);
+        srcRect.width(preview.w); srcRect.height(preview.h);
+      }
+      commitSlot(slot.input, {
+        crop_scale: Math.round(newScale * 100) / 100,
+        crop_x: Math.round(cx * 100) / 100,
+        crop_y: Math.round(cy * 100) / 100,
+      });
+    },
+    [commitSlot, sourceDims],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Stage deselect + keyboard nudge
+  // ---------------------------------------------------------------------------
+
+  const handleStageInteract = useMemo(
+    () => (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+      if (!e.target.getParent()) onSelect(null);
     },
     [onSelect],
   );
 
-  // Keyboard nudge
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!selectedInput) return;
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      const step = e.shiftKey ? 10 : 1;
-      const gridStep = snapToGrid && gridSize > 0 ? gridSize : step;
-      let dx = 0;
-      let dy = 0;
+      const baseStep = e.shiftKey ? 10 : 1;
+      const step = snapToGrid && gridSize > 0 ? gridSize : baseStep;
+      let dx = 0, dy = 0;
       switch (e.key) {
-        case 'ArrowLeft':
-          dx = -gridStep;
-          break;
-        case 'ArrowRight':
-          dx = gridStep;
-          break;
-        case 'ArrowUp':
-          dy = -gridStep;
-          break;
-        case 'ArrowDown':
-          dy = gridStep;
-          break;
-        default:
-          return;
+        case 'ArrowLeft': dx = -step; break;
+        case 'ArrowRight': dx = step; break;
+        case 'ArrowUp': dy = -step; break;
+        case 'ArrowDown': dy = step; break;
+        default: return;
       }
       e.preventDefault();
-      const slot = layoutRef.current.find((s) => s.input === selectedInput);
+      const slot = useLayoutEditorStore.getState().layout.find((s) => s.input === selectedInput);
       if (!slot) return;
+      const { vw, vh } = visualDims(slot.w, slot.h, slot.rotation ?? 0);
       commitSlot(selectedInput, {
-        x: Math.max(0, Math.min(canvas.w - slot.w, slot.x + dx)),
-        y: Math.max(0, Math.min(canvas.h - slot.h, slot.y + dy)),
+        x: clamp(slot.x + dx, 0, canvas.w - vw),
+        y: clamp(slot.y + dy, 0, canvas.h - vh),
       });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [canvas.h, canvas.w, commitSlot, gridSize, selectedInput, snapToGrid]);
 
-  // Alignment guides state
-  const [guides, setGuides] = useState<Guide[]>([]);
-
-  const handleDragMove = useCallback(
-    (slot: LayoutSlot, e: Konva.KonvaEventObject<DragEvent>) => {
-      const node = e.target;
-      const newGuides: Guide[] = [];
-      const vCands = [0, canvas.w / 2, canvas.w];
-      const hCands = [0, canvas.h / 2, canvas.h];
-      for (const other of layoutRef.current) {
-        if (other.input === slot.input) continue;
-        vCands.push(other.x, other.x + other.w, other.x + other.w / 2);
-        hCands.push(other.y, other.y + other.h, other.y + other.h / 2);
-      }
-      const vSnap = findAlignmentSnap(node.x(), node.width(), vCands);
-      if (vSnap) { node.x(vSnap.snappedPos); newGuides.push({ orientation: 'V', pos: vSnap.guidePos }); }
-      const hSnap = findAlignmentSnap(node.y(), node.height(), hCands);
-      if (hSnap) { node.y(hSnap.snappedPos); newGuides.push({ orientation: 'H', pos: hSnap.guidePos }); }
-      setGuides(newGuides);
-    },
-    [canvas.h, canvas.w],
-  );
-
-  const handleDragEndWithGuides = useCallback(
-    (slot: LayoutSlot, e: Konva.KonvaEventObject<DragEvent>) => {
-      setGuides([]);
-      handleDragEnd(slot, e);
-    },
-    [handleDragEnd],
-  );
+  // ---------------------------------------------------------------------------
+  // boundBoxFunc
+  // ---------------------------------------------------------------------------
 
   const boundBoxFunc = useCallback(
     (oldBox: Box, newBox: Box) => {
-      const minW = MIN_SIZE * scale;
-      const minH = MIN_SIZE * scale;
-      if (Math.abs(newBox.width) < minW || Math.abs(newBox.height) < minH) {
-        return oldBox;
-      }
-      const maxW = canvas.w * scale;
-      const maxH = canvas.h * scale;
-      const clamped = { ...newBox };
-      if (clamped.width > maxW) clamped.width = maxW;
-      if (clamped.height > maxH) clamped.height = maxH;
-      if (clamped.x < 0) { clamped.width += clamped.x; clamped.x = 0; }
-      if (clamped.y < 0) { clamped.height += clamped.y; clamped.y = 0; }
-      if (clamped.x + clamped.width > maxW) clamped.width = maxW - clamped.x;
-      if (clamped.y + clamped.height > maxH) clamped.height = maxH - clamped.y;
-      if (clamped.width < minW || clamped.height < minH) return oldBox;
-      return clamped;
+      const minW = MIN_SIZE * scale, minH = MIN_SIZE * scale;
+      if (Math.abs(newBox.width) < minW || Math.abs(newBox.height) < minH) return oldBox;
+      const maxW = canvas.w * scale, maxH = canvas.h * scale;
+      const c = { ...newBox };
+      if (c.x < 0) { c.width += c.x; c.x = 0; }
+      if (c.y < 0) { c.height += c.y; c.y = 0; }
+      if (c.x + c.width > maxW) c.width = maxW - c.x;
+      if (c.y + c.height > maxH) c.height = maxH - c.y;
+      if (c.width < minW || c.height < minH) return oldBox;
+      return c;
     },
     [canvas.h, canvas.w, scale],
   );
 
-  if (stageW <= 0) {
-    return <div ref={containerRef} className="min-w-0" />;
-  }
+  // ---------------------------------------------------------------------------
+  // Grid lines
+  // ---------------------------------------------------------------------------
+
+  const gridLines = useMemo(() => {
+    if (!showGrid || gridSize <= 0) return [];
+    const out: number[][] = [];
+    for (let x = gridSize; x < canvas.w; x += gridSize) out.push([x, 0, x, canvas.h]);
+    for (let y = gridSize; y < canvas.h; y += gridSize) out.push([0, y, canvas.w, y]);
+    return out;
+  }, [canvas.h, canvas.w, gridSize, showGrid]);
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  if (stageW <= 0) return <div ref={containerRef} className="min-w-0" />;
 
   return (
-    <div className="select-none min-w-0">
+    <div className="select-none min-w-0 overflow-hidden">
       {showRulers && stageW > 0 && (
-        <div className="flex items-start pl-5">
+        <div className="flex items-start pl-7">
           <CanvasRuler size={canvas.w} displaySize={stageW} orientation="horizontal" />
         </div>
       )}
-      <div className="flex items-start">
+      <div className="flex items-start min-w-0">
         {showRulers && stageH > 0 && (
           <CanvasRuler size={canvas.h} displaySize={stageH} orientation="vertical" />
         )}
-        <div ref={containerRef} className="flex-1 min-w-0">
-          <Stage
-            width={stageW}
-            height={stageH}
-            scaleX={scale}
-            scaleY={scale}
-            onClick={handleStageClick}
-            onTap={handleStageClick as never}
-          >
+        <div ref={containerRef} className="flex-1 min-w-0 ml-px">
+          <Stage width={stageW} height={stageH} scaleX={scale} scaleY={scale}
+            onClick={handleStageInteract} onTap={handleStageInteract}>
             <Layer ref={layerRef}>
-              {/* Canvas background */}
-              <Rect
-                x={0}
-                y={0}
-                width={canvas.w}
-                height={canvas.h}
-                fill="#0f172a"
-                stroke="#334155"
-                strokeWidth={2}
-                listening={false}
-              />
-              {/* Slot rectangles */}
+              {/* Background */}
+              <Rect x={0} y={0} width={canvas.w} height={canvas.h}
+                fill="#0f172a" stroke="#334155" strokeWidth={2} listening={false} />
+
+              {/* Grid */}
+              {gridLines.map((pts, i) => (
+                <Line key={`gl${i}`} points={pts}
+                  stroke="rgba(255,255,255,0.06)" strokeWidth={1} listening={false} />
+              ))}
+
+              {/* Ghost */}
+              {ghostBox && (
+                <Rect x={ghostBox.x} y={ghostBox.y} width={ghostBox.w} height={ghostBox.h}
+                  fill="rgba(59,130,246,0.06)" stroke="rgba(59,130,246,0.4)"
+                  strokeWidth={2} dash={[8, 4]} listening={false} />
+              )}
+
+              {/* Slots */}
               {layout.map((slot) => {
                 const isSelected = selectedInput === slot.input;
-                const num = slotNumber.get(slot.input) ?? '?';
+                const rot = slot.rotation ?? 0;
+                const kPos = visualToKonva(slot.x, slot.y, slot.w, slot.h, rot);
+                const sd = sourceDims?.get(slot.input);
+                const arMode = slot.aspect_ratio_mode;
                 const inp = inputByRef.get(slot.input);
-                const effectSuffix = inp?.effect ? ` · ${inp.effect.type}` : '';
-                const rotSuffix = slot.rotation ? ` ↻${slot.rotation}°` : '';
-                const labelSize = Math.max(14, Math.min(slot.w, slot.h) / 10);
+
+                const override = liveCrop?.input === slot.input ? liveCrop : null;
+                const arPreview = sd
+                  ? computeArPreview(slot.w, slot.h, sd.w, sd.h, arMode,
+                      override?.cx ?? slot.crop_x, override?.cy ?? slot.crop_y, slot.crop_scale)
+                  : null;
+                const isCrop = Boolean(arPreview && arMode === 'crop');
+
+                const num = slotNumber.get(slot.input) ?? '?';
+                const eff = inp?.effect ? ` · ${inp.effect.type}` : '';
+                const rotL = rot ? ` ↻${rot}°` : '';
+                let arL = '';
+                if (arMode === 'fit') arL = ' [fit]';
+                else if (arMode === 'crop') arL = ' [crop]';
+                const fontSize = Math.max(14, Math.min(slot.w, slot.h) / 10);
+
+                // Crop overlay elements (rendered behind output rect, inside same Group)
+                let cropOverlay: React.ReactNode = null;
+                if (isCrop && arPreview) {
+                  const { x: sx, y: sy, w: sw, h: sh } = arPreview;
+                  const topH = Math.max(0, -sy);
+                  const botStart = slot.h - sy;
+                  const botH = Math.max(0, sh - botStart);
+                  const midTop = Math.max(0, -sy);
+                  const midH = Math.min(sh, slot.h - sy) - midTop;
+                  const leftW = Math.max(0, -sx);
+                  const rightStart = slot.w - sx;
+                  const rightW = Math.max(0, sw - rightStart);
+
+                  cropOverlay = (
+                    <Group key={`crop-${slot.input}`}>
+                      <Rect
+                        ref={(n: Konva.Rect | null) => {
+                          if (n) cropSrcRects.current.set(slot.input, n);
+                          else cropSrcRects.current.delete(slot.input);
+                        }}
+                        x={sx} y={sy} width={sw} height={sh}
+                        fill="transparent"
+                        stroke="rgba(34,197,94,0.6)" strokeWidth={4} dash={[8, 4]}
+                        onTransformEnd={() => handleCropSrcTransformEnd(slot)}
+                      />
+                      {topH > 0 && <Rect x={sx} y={sy} width={sw} height={topH} fill="rgba(139,0,0,0.45)" />}
+                      {botH > 0 && <Rect x={sx} y={sy + botStart} width={sw} height={botH} fill="rgba(139,0,0,0.45)" />}
+                      {leftW > 0 && midH > 0 && <Rect x={sx} y={sy + midTop} width={leftW} height={midH} fill="rgba(139,0,0,0.45)" />}
+                      {rightW > 0 && midH > 0 && <Rect x={sx + rightStart} y={sy + midTop} width={rightW} height={midH} fill="rgba(139,0,0,0.45)" />}
+                    </Group>
+                  );
+                }
+
                 return (
-                  <Group
-                    key={slot.input}
-                    x={slot.x}
-                    y={slot.y}
-                    width={slot.w}
-                    height={slot.h}
-                    rotation={slot.rotation ?? 0}
+                  <Group key={slot.input}
+                    x={kPos.x} y={kPos.y} width={slot.w} height={slot.h} rotation={rot}
                     draggable
-                    ref={(node: Konva.Group | null) => {
-                      if (node) shapeRefs.current.set(slot.input, node as unknown as Konva.Rect);
-                      else shapeRefs.current.delete(slot.input);
+                    ref={(n: Konva.Group | null) => {
+                      if (n) slotGroups.current.set(slot.input, n);
+                      else slotGroups.current.delete(slot.input);
                     }}
                     onClick={() => onSelect(slot.input)}
                     onTap={() => onSelect(slot.input)}
+                    onDragStart={(e) => handleDragStart(slot, e)}
                     onDragMove={(e) => handleDragMove(slot, e)}
-                    onDragEnd={(e) => handleDragEndWithGuides(slot, e)}
-                    onTransformEnd={() => handleTransformEnd(slot)}
-                    dragBoundFunc={makeDragBound(slot.w, slot.h)}
+                    onDragEnd={(e) => handleDragEnd(slot, e)}
                   >
+                    {cropOverlay}
                     <Rect
-                      width={slot.w}
-                      height={slot.h}
-                      fill={isSelected ? 'rgba(59, 130, 246, 0.30)' : 'rgba(59, 130, 246, 0.12)'}
-                      stroke={isSelected ? '#3b82f6' : '#64748b'}
-                      strokeWidth={isSelected ? 4 : 2}
+                      ref={(n: Konva.Rect | null) => {
+                        if (n) outputRects.current.set(slot.input, n);
+                        else outputRects.current.delete(slot.input);
+                      }}
+                      width={slot.w} height={slot.h}
+                      fill={isSelected ? 'rgba(239,68,68,0.18)' : 'rgba(59,130,246,0.12)'}
+                      stroke={isSelected ? '#ef4444' : '#64748b'}
+                      strokeWidth={isSelected ? 3 : 2}
+                      onTransformEnd={() => handleOutputTransformEnd(slot)}
                     />
-                    <Text
-                      text={`${num}${effectSuffix}${rotSuffix}`}
-                      x={0}
-                      y={0}
-                      width={slot.w}
-                      height={slot.h}
-                      align="center"
-                      verticalAlign="middle"
-                      fill="#ffffff"
-                      fontSize={labelSize}
-                      fontFamily="monospace"
-                    />
+                    {arPreview && !isCrop && (
+                      <Rect x={arPreview.x} y={arPreview.y} width={arPreview.w} height={arPreview.h}
+                        fill="rgba(34,197,94,0.10)" stroke="rgba(34,197,94,0.5)"
+                        strokeWidth={2} dash={[6, 3]} listening={false} />
+                    )}
+                    <Text text={`${num}${eff}${rotL}${arL}`}
+                      x={0} y={0} width={slot.w} height={slot.h}
+                      align="center" verticalAlign="middle"
+                      fill="#ffffff" fontSize={fontSize} fontFamily="monospace" />
                   </Group>
                 );
               })}
-              {/* Alignment guides */}
-              {guides.map((g, i) =>
-                g.orientation === 'V' ? (
-                  <Line
-                    key={`g-${i}`}
-                    points={[g.pos, 0, g.pos, canvas.h]}
-                    stroke="#22c55e"
-                    strokeWidth={1}
-                    dash={[4, 3]}
-                    listening={false}
-                  />
-                ) : (
-                  <Line
-                    key={`g-${i}`}
-                    points={[0, g.pos, canvas.w, g.pos]}
-                    stroke="#22c55e"
-                    strokeWidth={1}
-                    dash={[4, 3]}
-                    listening={false}
-                  />
-                ),
-              )}
+
               {/* Transformer */}
-              <Transformer
-                ref={trRef}
-                rotationSnaps={[0, 90, 180, 270]}
-                rotationSnapTolerance={45}
+              <Transformer ref={trRef}
+                rotationSnaps={[0, 90, 180, 270]} rotationSnapTolerance={45}
                 keepRatio={true}
+                shiftBehavior="none"
+                enabledAnchors={shiftHeld ? [...ANCHORS_CORNERS] : [...ANCHORS_ALL]}
                 flipEnabled={false}
                 boundBoxFunc={boundBoxFunc}
-                anchorCornerRadius={2}
-                anchorStroke="#3b82f6"
-                anchorFill="#ffffff"
-                borderStroke="#3b82f6"
-                borderStrokeWidth={2}
+                anchorSize={10} anchorCornerRadius={2}
+                anchorStroke={shiftHeld ? '#22c55e' : '#3b82f6'} anchorFill="#ffffff"
+                borderStroke={shiftHeld ? '#22c55e' : '#3b82f6'} borderStrokeWidth={2}
               />
             </Layer>
           </Stage>

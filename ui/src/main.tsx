@@ -25,6 +25,7 @@ const StreamDetail = lazy(() => import("./routes/stream-detail"));
 const EditStream = lazy(() => import("./routes/edit-stream"));
 
 const Logs = lazy(() => import("./routes/logs"));
+const TestLayoutEditor = lazy(() => import("./routes/test-layout-editor"));
 
 const router = createBrowserRouter([
   {
@@ -35,6 +36,11 @@ const router = createBrowserRouter([
   {
     path: "/video",
     element: <VideoRoute />,
+    errorElement: <ErrorBoundary />,
+  },
+  {
+    path: "/test/layout-editor",
+    element: <TestLayoutEditor />,
     errorElement: <ErrorBoundary />,
   },
   {
