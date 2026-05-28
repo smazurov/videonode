@@ -923,8 +923,21 @@ export interface components {
         ComposerLayoutSlot: {
             /** @description How to scale source into slot (stretch, fit, crop) */
             aspect_ratio_mode?: string;
-            /** @description Crop positioning (only meaningful when aspect_ratio_mode=crop) */
-            crop?: components["schemas"]["CropConfigData"];
+            /**
+             * Format: double
+             * @description Source overfill factor (>= 1.0, 1.0 = minimum fill)
+             */
+            crop_scale?: number;
+            /**
+             * Format: double
+             * @description Normalized horizontal crop offset (0-1, 0.5 = centered)
+             */
+            crop_x?: number;
+            /**
+             * Format: double
+             * @description Normalized vertical crop offset (0-1, 0.5 = centered)
+             */
+            crop_y?: number;
             /**
              * Format: int64
              * @description Slot height in canvas pixels
@@ -1004,23 +1017,6 @@ export interface components {
             composer_id: string;
             /** @description RFC3339 server time */
             timestamp: string;
-        };
-        CropConfigData: {
-            /**
-             * Format: double
-             * @description Source overfill factor (>= 1.0, 1.0 = minimum fill)
-             */
-            scale: number;
-            /**
-             * Format: double
-             * @description Normalized horizontal crop offset (0-1, 0.5 = centered)
-             */
-            x: number;
-            /**
-             * Format: double
-             * @description Normalized vertical crop offset (0-1, 0.5 = centered)
-             */
-            y: number;
         };
         DeviceCapabilitiesData: {
             /**
@@ -1385,7 +1381,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "yu12" | "nv16";
+            format_name: "nv12" | "h264" | "yu12" | "bgr24" | "rgb24" | "mjpeg" | "yv12" | "nv24" | "nv16" | "yuyv422";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -1441,8 +1437,21 @@ export interface components {
              * @enum {string}
              */
             aspect_ratio_mode?: "stretch" | "fit" | "crop";
-            /** @description Crop positioning (only meaningful when aspect_ratio_mode=crop) */
-            crop?: components["schemas"]["CropConfigData"];
+            /**
+             * Format: double
+             * @description Source overfill factor (>= 1.0, 1.0 = minimum fill)
+             */
+            crop_scale?: number;
+            /**
+             * Format: double
+             * @description Normalized horizontal crop offset (0-1, 0.5 = centered)
+             */
+            crop_x?: number;
+            /**
+             * Format: double
+             * @description Normalized vertical crop offset (0-1, 0.5 = centered)
+             */
+            crop_y?: number;
             /**
              * Format: int64
              * @description Slot height in canvas pixels
@@ -1762,7 +1771,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "nv24" | "yu12" | "nv16" | "yuyv422" | "nv12" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24";
+            format_name: "yv12" | "nv24" | "nv16" | "yuyv422" | "nv12" | "h264" | "yu12" | "bgr24" | "rgb24" | "mjpeg";
             /**
              * Format: int32
              * @description Capture framerate; 0 = driver default
@@ -2854,7 +2863,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "yu12" | "nv16";
+                format_name?: "nv24" | "nv16" | "yuyv422" | "nv12" | "h264" | "yu12" | "bgr24" | "rgb24" | "mjpeg" | "yv12";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -2920,7 +2929,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yuyv422" | "nv12" | "h264" | "mjpeg" | "yv12" | "bgr24" | "rgb24" | "nv24" | "yu12" | "nv16";
+                format_name?: "nv12" | "h264" | "yu12" | "bgr24" | "rgb24" | "mjpeg" | "yv12" | "nv24" | "nv16" | "yuyv422";
             };
             header?: never;
             path: {
