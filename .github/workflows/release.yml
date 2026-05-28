@@ -108,7 +108,8 @@ jobs:
           GOARCH=${{ matrix.arch }} VERSION=$VER \
             nfpm package --packager ${{ matrix.format }} --target dist/
       - name: Lint
-        run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary dist/*.${{ matrix.format }}
+        # latest-changelog-entry-without-new-date: we cut multiple releases per day.
+        run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary,latest-changelog-entry-without-new-date dist/*.${{ matrix.format }}
       - uses: actions/upload-artifact@v7
         with:
           name: pkg-${{ matrix.arch }}-${{ matrix.format }}
