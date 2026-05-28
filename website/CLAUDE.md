@@ -4,15 +4,11 @@ This is the **VitePress** docs site for VideoNode, published at <https://mazurov
 
 If you're an LLM agent writing or editing pages here, follow the rules below verbatim. Skipping them produces docs that get reverted.
 
-## Quick commands
+## Local preview
 
 ```bash
 pnpm dev      # localhost:5174/videonode/  — hot reload
-pnpm build    # produces docs/.vitepress/dist/
-pnpm preview  # serves the built site
 ```
-
-UI dev server runs on `:5173`; VitePress is pinned to `:5174` to avoid collision.
 
 ## Diátaxis mode per page — never mix
 
@@ -139,7 +135,7 @@ The sidebar is **explicit** in `docs/.vitepress/config.ts`. **When you add a new
 ### Links
 
 - Path-style without extension: `[the API](../reference/rest-api)`, not `(...rest-api.md)`.
-- The build fails on dead links — CI catches them at PR time.
+- Dead links fail CI — fix or remove the link before merging.
 
 ### Code groups (multi-tab snippets)
 
