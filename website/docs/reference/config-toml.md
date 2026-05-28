@@ -29,10 +29,6 @@ led_control_enabled = false
 [preview]
 max_fps = 10
 
-[update]
-enabled    = true
-prerelease = false
-
 [vision]
 default_fps = 10
 
@@ -117,13 +113,6 @@ The mapping is `VIDEONODE_<ENV_TAG>`, where the env tag corresponds to the secti
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `max_fps` | int | `10` | Upper bound on the frame rate served by `preview.mjpg` snapshot streams. Per-request `?fps` is clamped to `[1, max_fps]`. |
-
-## `[update]`
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | bool | `true` | Enable the self-update functionality. |
-| `prerelease` | bool | `false` | Include pre-release versions when checking for updates. |
 
 ## `[vision]`
 

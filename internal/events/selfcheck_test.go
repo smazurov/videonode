@@ -94,7 +94,6 @@ func TestSelfCheck_SkipsNonEntityRoutes(t *testing.T) {
 		{Method: "POST", Path: "/api/devices/scan"},
 		{Method: "DELETE", Path: "/api/events/something"},
 		{Method: "POST", Path: "/api/pipeline/restart"},
-		{Method: "PATCH", Path: "/api/update/apply"},
 	}}
 
 	if err := reg.SelfCheck(context.Background(), probe); err != nil {

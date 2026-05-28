@@ -100,7 +100,6 @@ func looksLikeEntityCRUD(method, path string) bool {
 		"/api/events", "/api/logs", "/api/health", "/api/metrics",
 		"/api/docs", "/api/openapi", "/api/devices", "/api/pipeline",
 		"/api/processes", "/api/webrtc", "/api/recordings", "/api/encoders",
-		"/api/update",
 	}
 	for _, s := range skip {
 		if strings.HasPrefix(path, s) {

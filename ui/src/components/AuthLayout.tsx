@@ -3,7 +3,6 @@ import SimpleNavbar from "./SimpleNavbar";
 import Container from "./Container";
 import Fieldset from "./Fieldset";
 import GridBackground from "./GridBackground";
-import { useVersion } from "../hooks/useVersion";
 
 interface AuthLayoutProps {
   title: string;
@@ -19,7 +18,6 @@ export default function AuthLayout({
   showNavbar = true,
 }: Readonly<AuthLayoutProps>) {
   const [sq] = useSearchParams();
-  const { version: versionInfo } = useVersion();
 
   // Get returnTo parameter for potential future use
   const returnTo = sq.get("returnTo");
@@ -59,12 +57,6 @@ export default function AuthLayout({
         {/* Version footer */}
         <div className="pb-4 text-center">
           <div className="text-xs text-fg-subtle font-mono">
-            {versionInfo && (
-              <>
-                <span>API: {versionInfo.version} • {versionInfo.build_date}</span>
-                <span className="mx-2">|</span>
-              </>
-            )}
             <span>UI: {typeof __VIDEONODE_UI_VERSION__ !== 'undefined' ? __VIDEONODE_UI_VERSION__ : 'dev'}</span>
           </div>
         </div>

@@ -19,12 +19,6 @@ rtsp_port = ":8554"
 # Enable SSE (Server-Sent Events) exporter
 sse_enabled = true
 
-[update]
-# Enable self-update functionality
-enabled = true
-# Include prereleases in updates
-prerelease = false
-
 [preview]
 # Maximum fps for source/composer preview.mjpg streams. Per-request ?fps
 # is clamped to [1, max_fps]. Default per-request fps is 1.

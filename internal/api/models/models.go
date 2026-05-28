@@ -197,22 +197,6 @@ type OptionsResponse struct {
 	Body OptionsData
 }
 
-// VersionData contains build and version information about the application.
-type VersionData struct {
-	Version   string `json:"version" example:"dev" doc:"Application version"`
-	GitCommit string `json:"git_commit" example:"abc1234" doc:"Git commit SHA"`
-	BuildDate string `json:"build_date" example:"2024-12-15 14:30" doc:"Build timestamp"`
-	BuildID   string `json:"build_id" example:"a1b2c3d4" doc:"Unique build identifier"`
-	GoVersion string `json:"go_version" example:"go1.21.0" doc:"Go compiler version"`
-	Compiler  string `json:"compiler" example:"gc" doc:"Compiler used"`
-	Platform  string `json:"platform" example:"linux/amd64" doc:"Platform"`
-}
-
-// VersionResponse wraps VersionData for API responses.
-type VersionResponse struct {
-	Body VersionData
-}
-
 // FFmpegCommandData contains the FFmpeg command for a specific stream.
 type FFmpegCommandData struct {
 	StreamID string `json:"stream_id" example:"stream-001" doc:"Stream identifier"`

@@ -18,7 +18,6 @@ import (
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 	"github.com/smazurov/videonode/internal/types"
-	"github.com/smazurov/videonode/internal/updater"
 	"github.com/smazurov/videonode/ui"
 )
 
@@ -163,7 +162,6 @@ type Options struct {
 	EventBus           *events.Bus              // Event bus for in-process events
 	EventRegistry      *events.Registry         // Entity registry; constructed in main.go alongside EventBus
 	PrometheusHandler  http.Handler             // Optional Prometheus metrics handler
-	UpdateService      updater.Service          // Optional self-update service
 	LEDController      interface {              // Optional LED controller
 		Set(ledType string, enabled bool, pattern string) error
 		Available() []string
@@ -567,9 +565,6 @@ func (s *Server) registerRoutes() {
 
 	// LED endpoints (if LED controller is available)
 	s.registerLEDRoutes()
-
-	// Update endpoints (if update service is available)
-	s.registerUpdateRoutes()
 
 	// Streaming consumer endpoints (WebRTC signaling + disconnect)
 	if s.options.WebRTCManager != nil {

@@ -10,10 +10,6 @@ rtsp_port = ":8554"
 [metrics]
 sse_enabled = true
 
-[update]
-enabled = true
-prerelease = false
-
 [preview]
 max_fps = 10
 

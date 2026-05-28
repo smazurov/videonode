@@ -30,7 +30,6 @@ import (
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 	"github.com/smazurov/videonode/internal/streams/services"
 	"github.com/smazurov/videonode/internal/streams/store"
-	"github.com/smazurov/videonode/internal/updater"
 )
 
 // subcommandNames is the central registry of subcommand names. Add each
@@ -88,10 +87,6 @@ type Options struct {
 
 	// Snapshot preview settings
 	PreviewMaxFPS int `help:"Max fps for snapshot preview streams" default:"10" toml:"preview.max_fps" env:"PREVIEW_MAX_FPS"`
-
-	// Update settings
-	UpdateEnabled    bool `help:"Enable self-update functionality" default:"true" toml:"update.enabled" env:"UPDATE_ENABLED"`
-	UpdatePrerelease bool `help:"Include prereleases in updates" default:"false" toml:"update.prerelease" env:"UPDATE_PRERELEASE"`
 
 	// Vision settings
 	VisionDefaultFPS int `help:"Default FPS for vision raw-frame pipes" default:"10" toml:"vision.default_fps" env:"VISION_DEFAULT_FPS"`
@@ -370,23 +365,6 @@ func main() {
 			}
 		}
 
-		// Initialize update service if enabled
-		var updateService updater.Service
-		if opts.UpdateEnabled {
-			svc, err := updater.NewService(&updater.Options{
-				Repository: "smazurov/videonode",
-				Prerelease: opts.UpdatePrerelease,
-			})
-			if err != nil {
-				logger.Warn("Failed to initialize update service", logging.KeyError, err)
-			} else {
-				updateService = svc
-				if !svc.IsEnabled() {
-					logger.Warn("Update service disabled", logging.KeyReason, svc.DisabledReason())
-				}
-			}
-		}
-
 		// Create authenticator
 		authenticator := auth.New(auth.Config{
 			Type:     opts.AuthType,
@@ -413,7 +391,6 @@ func main() {
 			StreamProvider:     streamingServer,
 			SnapshotCache:      snapshotCache,
 			PrometheusHandler:  promhttp.Handler(), // Prometheus metrics via promauto
-			UpdateService:      updateService,
 			ControlServer:      ctlServer,
 			ProcessesProvider:  nativePipeline,
 			StreamingRTSPPort:  opts.StreamingRTSPPort,
@@ -566,11 +543,6 @@ func main() {
 			}
 			if mppCollector != nil {
 				_ = mppCollector.Stop()
-			}
-
-			// Exit with non-zero code if restart was requested (systemd will restart)
-			if updateService != nil && updateService.IsRestartPending() {
-				os.Exit(3)
 			}
 		})
 	})

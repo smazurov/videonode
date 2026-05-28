@@ -15,7 +15,6 @@ type EncoderData = components["schemas"]["EncoderData"];
 import { useDeviceStore } from "../hooks/useDeviceStore";
 import { useStreamStore } from "../hooks/useStreamStore";
 import { useSSEManager } from "../hooks/useSSEManager";
-import { useVersion } from "../hooks/useVersion";
 import { cn } from "../utils";
 
 interface InfoBarProps {
@@ -122,8 +121,7 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
   const devices = useDeviceStore((state) => state.devices);
   const streamsById = useStreamStore((state) => state.streamsById);
   const streams = useMemo(() => Object.values(streamsById), [streamsById]);
-  const { version: versionInfo } = useVersion();
-  
+
   // Debug: Log when devices change
   useEffect(() => {
     console.log('InfoBar: Devices updated, count:', devices.length);
@@ -263,7 +261,6 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
                     }
                   })()}
                   status={connectionStatus}
-                  {...(versionInfo?.version && { subtitle: `v${versionInfo.version}` })}
                 />
               </div>
             </Tooltip.Trigger>
@@ -272,21 +269,13 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
                 className="z-50 px-3 py-2 text-xs bg-fg text-fg-inverse rounded-md shadow-lg"
                 sideOffset={5}
               >
-                {versionInfo && (
-                  <div className="space-y-1 font-mono">
-                    <div>
-                      <span className="text-fg-subtle">API:</span> {versionInfo.version} • {versionInfo.build_date}
-                    </div>
-                    <div>
-                      <span className="text-fg-subtle">UI:&nbsp;</span> {
-                        typeof __VIDEONODE_UI_VERSION__ !== 'undefined' ? __VIDEONODE_UI_VERSION__ : 'dev'
-                      }
-                    </div>
+                <div className="space-y-1 font-mono">
+                  <div>
+                    <span className="text-fg-subtle">UI:&nbsp;</span> {
+                      typeof __VIDEONODE_UI_VERSION__ !== 'undefined' ? __VIDEONODE_UI_VERSION__ : 'dev'
+                    }
                   </div>
-                )}
-                {!versionInfo && (
-                  <div className="text-fg-subtle">Loading version info...</div>
-                )}
+                </div>
                 <Tooltip.Arrow className="fill-fg" />
               </Tooltip.Content>
             </Tooltip.Portal>

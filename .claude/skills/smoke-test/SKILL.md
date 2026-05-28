@@ -23,7 +23,7 @@ The Go suite under `test/smoke/` does all the orchestration:
 2. **Encoder validation** — runs `videonode validate-encoders -q` with the temp dir as cwd so it writes to the isolated `streams.toml`.
 3. **Platform detection** — inspects `/proc/device-tree/compatible`, `/proc/driver/nvidia`, `lspci`, and `/dev/dri` to determine the expected encoder family (`mpp` / `nvenc` / `vaapi` / `software`).
 4. **Server spawn** — starts `videonode` on ephemeral HTTP/RTSP/SRT ports with `AUTH_TYPE=basic AUTH_USERNAME=smoke AUTH_PASSWORD=smoke` and `STREAMS_CONFIG_FILE` pointed at the temp `streams.toml` (which contains a `test_mode = true` bootstrap stream `smoke-pipeline`).
-5. **API surface tests** — `/api/health`, `/api/update/version`, `/api/metrics` (with and without auth), `GET /api/streams`, `GET /api/encoders`, `GET /api/devices`, full CRUD cycle on a temporary stream.
+5. **API surface tests** — `/api/health`, `/api/metrics` (with and without auth), `GET /api/streams`, `GET /api/encoders`, `GET /api/devices`, full CRUD cycle on a temporary stream.
 6. **Encoder family assertion** — parses `streams.toml`'s `[validation.h264].working` / `[validation.h265].working` and fails if the expected family is absent.
 7. **Pipeline E2E** — tails `/api/events` (SSE) until `stream-state-changed` with `action=running` arrives for `smoke-pipeline`, in parallel polls `GET /api/streams/smoke-pipeline` for `enabled=true`, then ffprobes both the RTSP and SRT outputs and asserts `codec_name=h264`.
 8. **Teardown** — sends SIGTERM to the server's process group (kills FFmpeg children too), waits up to 5s, then SIGKILL. Removes the temp dir on PASS, keeps it on FAIL.

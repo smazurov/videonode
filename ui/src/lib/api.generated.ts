@@ -580,26 +580,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/update/version": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Version
-         * @description Get application version information
-         */
-        get: operations["get-version"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/webrtc": {
         parameters: {
             query?: never;
@@ -2149,49 +2129,6 @@ export interface components {
              * @example 2025-01-27T10:30:00Z
              */
             timestamp: string;
-        };
-        VersionData: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VersionData.json
-             */
-            readonly $schema?: string;
-            /**
-             * @description Build timestamp
-             * @example 2024-12-15 14:30
-             */
-            build_date: string;
-            /**
-             * @description Unique build identifier
-             * @example a1b2c3d4
-             */
-            build_id: string;
-            /**
-             * @description Compiler used
-             * @example gc
-             */
-            compiler: string;
-            /**
-             * @description Git commit SHA
-             * @example abc1234
-             */
-            git_commit: string;
-            /**
-             * @description Go compiler version
-             * @example go1.21.0
-             */
-            go_version: string;
-            /**
-             * @description Platform
-             * @example linux/amd64
-             */
-            platform: string;
-            /**
-             * @description Application version
-             * @example dev
-             */
-            version: string;
         };
     };
     responses: never;
@@ -4322,35 +4259,6 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "get-version": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VersionData"];
-                };
-            };
-            /** @description Error */
-            default: {
                 headers: {
                     [name: string]: unknown;
                 };
