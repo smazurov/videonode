@@ -1,10 +1,21 @@
 #!/bin/sh
 set -e
 
-if [ "$1" = "purge" ]; then
-    rm -rf /etc/videonode
-fi
+case "$1" in
+    remove)
+        if [ -x "/usr/bin/deb-systemd-helper" ]; then
+            deb-systemd-helper mask videonode.service >/dev/null || true
+        fi
+        ;;
+    purge)
+        if [ -x "/usr/bin/deb-systemd-helper" ]; then
+            deb-systemd-helper purge videonode.service >/dev/null || true
+            deb-systemd-helper unmask videonode.service >/dev/null || true
+        fi
+        rm -rf /etc/videonode
+        ;;
+esac
 
 if [ -d /run/systemd/system ]; then
-    systemctl --system daemon-reload || true
+    systemctl --system daemon-reload >/dev/null || true
 fi
