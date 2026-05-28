@@ -47,8 +47,19 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
-      - name: Install chglog
-        run: go install github.com/goreleaser/chglog/cmd/chglog@latest
+      - name: Debug git state
+        run: |
+          echo "=== tags ==="
+          git tag -l 'v*' --sort=-v:refname | head -10
+          echo "=== describe ==="
+          git describe --tags --abbrev=0 HEAD || echo "no tags reachable"
+          echo "=== HEAD ==="
+          git log --oneline -1
+      - name: Update changelog
+        run: |
+          go install github.com/goreleaser/chglog/cmd/chglog@latest
+          TAG="v${VERSION#v}"
+          chglog add --version "$TAG" --output changelog.yml || echo "chglog add failed (may already exist), continuing"
       - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser

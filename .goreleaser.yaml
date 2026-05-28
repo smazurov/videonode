@@ -5,7 +5,6 @@ project_name: videonode
 before:
   hooks:
     - go mod tidy
-    - chglog add --version {{ .Tag }} --output changelog.yml
 
 builds:
   - id: videonode
