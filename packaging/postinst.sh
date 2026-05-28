@@ -8,7 +8,9 @@ case "$1" in
 
         if [ -x "/usr/bin/deb-systemd-helper" ]; then
             deb-systemd-helper unmask videonode.service >/dev/null || true
-            if deb-systemd-helper --quiet was-enabled videonode.service; then
+            if [ -z "$2" ]; then
+                deb-systemd-helper enable videonode.service >/dev/null || true
+            elif deb-systemd-helper --quiet was-enabled videonode.service; then
                 deb-systemd-helper enable videonode.service >/dev/null || true
             else
                 deb-systemd-helper update-state videonode.service >/dev/null || true
