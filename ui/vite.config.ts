@@ -17,7 +17,7 @@ export default defineConfig(() => {
       name: 'videonode-ui',
       command: {
         commands: [
-          'git describe --tags --always --dirty',
+          'echo ${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}',
           'date -u +"%Y-%m-%dT%H:%M:%SZ"'
         ],
         separator: ' • '

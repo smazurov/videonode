@@ -10,9 +10,9 @@ VideoNode automatically detects connected capture devices, validates available h
 
 ```bash
 # Add the repository
-curl -fsSL https://smazurov.github.io/videonode/gpg.key \
+curl -fsSL https://mazurov.dev/videonode/gpg.key \
   | sudo gpg --dearmor -o /usr/share/keyrings/videonode.gpg
-echo "deb [arch=arm64 signed-by=/usr/share/keyrings/videonode.gpg] https://smazurov.github.io/videonode stable main" \
+echo "deb [arch=arm64 signed-by=/usr/share/keyrings/videonode.gpg] https://mazurov.dev/videonode stable main" \
   | sudo tee /etc/apt/sources.list.d/videonode.list
 
 # Install

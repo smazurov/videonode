@@ -24,7 +24,6 @@ jobs:
         include:
           - arch: arm64
             runner: ubuntu-24.04-arm
-            native: true
     runs-on: ${{ matrix.runner }}
     container: arm64v8/debian:trixie
     timeout-minutes: 25
@@ -32,31 +31,26 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - run: git fetch --force --tags
 
-      # Go + UI
-      - name: Install Go
-        uses: actions/setup-go@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
-      - name: Install Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: ui/package.json
+
       - name: Build UI
         working-directory: ui
         run: pnpm install --frozen-lockfile && pnpm build
+
       - name: Build Go binary
         run: |
           VER="${VERSION#v}"
-          CGO_ENABLED=0 go build \
-            -tags ui_embed \
+          CGO_ENABLED=0 go build -tags ui_embed \
             -ldflags "-s -w \
               -X github.com/smazurov/videonode/internal/version.Version=${VER} \
               -X github.com/smazurov/videonode/internal/version.GitCommit=$(git rev-parse --short HEAD) \
@@ -64,14 +58,11 @@ jobs:
               -X github.com/smazurov/videonode/internal/version.BuildID=${GITHUB_RUN_ID}" \
             -o dist/videonode .
 
-      # Native C++ (only on platforms with native pipeline)
-      - name: Build native binaries
-        if: matrix.native
+      - name: Build native C++ binaries
         run: composer/scripts/build-deb-arm64.sh
         env:
           MODE: release-nfpm
       - name: Stage native binaries
-        if: matrix.native
         run: cp composer/build/deb-arm64/staging/bin/* dist/
 
       - uses: actions/upload-artifact@v7
@@ -79,12 +70,13 @@ jobs:
           name: build-${{ matrix.arch }}
           path: dist/
 
-  package-deb:
+  package:
     needs: [build]
     strategy:
       matrix:
         include:
           - arch: arm64
+            format: deb
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -103,60 +95,54 @@ jobs:
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3
           sudo apt-get update -qq
           sudo apt-get install -y lintian
-      - name: Build .deb
+      - name: Package
         run: |
           chmod +x dist/videonode dist/videonode-source dist/videonode-sink dist/videonode-composer
           VER="${VERSION#v}"
           GOARCH=${{ matrix.arch }} VERSION=$VER \
-            nfpm package --packager deb --target dist/
-      - name: Lint .deb
-        run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary dist/*.deb
+            nfpm package --packager ${{ matrix.format }} --target dist/
+      - name: Lint
+        run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary dist/*.${{ matrix.format }}
       - uses: actions/upload-artifact@v7
         with:
-          name: deb-${{ matrix.arch }}
-          path: dist/*.deb
+          name: pkg-${{ matrix.arch }}-${{ matrix.format }}
+          path: dist/*.${{ matrix.format }}
 
   publish-release:
-    needs: [package-deb]
+    needs: [package]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
-          fetch-depth: 0
-      - run: git fetch --force --tags
-      - name: Create tag (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
+          go-version-file: go.mod
       - name: Render release notes
         run: |
           go install github.com/goreleaser/chglog/cmd/chglog@latest
           TAG="v${VERSION#v}"
-          chglog add --version "$TAG" --output changelog.yml 2>/dev/null || true
-          chglog format --template release --version "$TAG" --output RELEASE_NOTES.md || true
-          cat RELEASE_NOTES.md 2>/dev/null || echo "Release ${TAG}" > RELEASE_NOTES.md
+          chglog format --template release --version "$TAG" -i changelog.yml --output RELEASE_NOTES.md 2>/dev/null || true
+          test -s RELEASE_NOTES.md || echo "Release ${TAG}" > RELEASE_NOTES.md
       - uses: actions/download-artifact@v8
         with:
-          pattern: deb-*
+          pattern: pkg-*
           merge-multiple: true
           path: dist/
       - name: Create GitHub Release
         run: |
           TAG="v${VERSION#v}"
-          gh release create "$TAG" dist/*.deb \
+          gh release create "$TAG" dist/* \
             --title "$TAG" \
             --notes-file RELEASE_NOTES.md \
+            --target "${{ github.sha }}" \
             ${{ contains(env.VERSION, 'rc') && '--prerelease' || '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-apt:
-    needs: [package-deb]
+    needs: [package]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -170,7 +156,7 @@ jobs:
       - uses: actions/configure-pages@v6
       - uses: actions/download-artifact@v8
         with:
-          pattern: deb-*
+          pattern: pkg-*-deb
           merge-multiple: true
           path: dist/
       - uses: morph027/apt-repo-action@v3

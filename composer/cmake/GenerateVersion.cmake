@@ -3,19 +3,22 @@
 
 set(FALLBACK_VERSION "0.1.0")
 
-find_program(GIT git)
-if(GIT)
-    execute_process(
-        COMMAND ${GIT} describe --tags --always --dirty
-        WORKING_DIRECTORY "${SOURCE_DIR}"
-        OUTPUT_VARIABLE GIT_VERSION
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE GIT_RESULT)
-endif()
-
-if(NOT GIT OR NOT GIT_RESULT EQUAL 0 OR GIT_VERSION STREQUAL "")
-    set(GIT_VERSION "${FALLBACK_VERSION}")
+if(DEFINED ENV{VERSION} AND NOT "$ENV{VERSION}" STREQUAL "")
+    set(GIT_VERSION "$ENV{VERSION}")
+else()
+    find_program(GIT git)
+    if(GIT)
+        execute_process(
+            COMMAND ${GIT} describe --tags --always --dirty
+            WORKING_DIRECTORY "${SOURCE_DIR}"
+            OUTPUT_VARIABLE GIT_VERSION
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE GIT_RESULT)
+    endif()
+    if(NOT GIT OR NOT GIT_RESULT EQUAL 0 OR GIT_VERSION STREQUAL "")
+        set(GIT_VERSION "${FALLBACK_VERSION}")
+    endif()
 endif()
 
 set(VERSION_CONTENT [=[
