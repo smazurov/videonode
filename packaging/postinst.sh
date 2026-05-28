@@ -12,14 +12,16 @@ case "$1" in
             usermod -aG shadow videonode >/dev/null 2>&1 || true
         fi
 
-        # On first install only, add the invoking admin (sudo apt install)
-        # to the videonode group so they can log in via the web UI.
-        if [ -z "$2" ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] \
-                && id "$SUDO_USER" >/dev/null 2>&1; then
+        # Add the invoking admin (sudo apt install/upgrade) to the videonode
+        # group so they can log in via the web UI. Idempotent — runs on both
+        # install and upgrade, but skipped if SUDO_USER is already a member.
+        if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] \
+                && id "$SUDO_USER" >/dev/null 2>&1 \
+                && ! id -nG "$SUDO_USER" 2>/dev/null | tr ' ' '\n' | grep -qx videonode; then
             if adduser --quiet "$SUDO_USER" videonode >/dev/null 2>&1; then
                 echo "videonode: added $SUDO_USER to the 'videonode' group (web UI login enabled)"
             fi
-        elif [ -z "$2" ]; then
+        elif [ -z "$2" ] && [ -z "${SUDO_USER:-}" ]; then
             echo "videonode: to grant web UI access to a user, run: sudo adduser <username> videonode"
         fi
 
