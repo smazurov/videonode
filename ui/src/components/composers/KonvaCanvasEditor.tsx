@@ -556,7 +556,7 @@ export function KonvaCanvasEditor({
 
               {/* Transformer */}
               <Transformer ref={trRef}
-                rotationSnaps={[0, 90, 180, 270]} rotationSnapTolerance={45}
+                rotateEnabled={false}
                 keepRatio={true}
                 shiftBehavior="none"
                 enabledAnchors={shiftHeld ? [...ANCHORS_CORNERS] : [...ANCHORS_ALL]}

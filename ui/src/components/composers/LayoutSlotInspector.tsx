@@ -1,5 +1,9 @@
 import { useState } from 'react';
-import { TrashIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowUturnLeftIcon,
+  ArrowUturnRightIcon,
+  TrashIcon,
+} from '@heroicons/react/24/outline';
 
 import { Button } from '../Button';
 import { InputField } from '../InputField';
@@ -133,18 +137,48 @@ export function LayoutSlotInspector({
         />
       </div>
 
-      <Select
-        label="Rotation"
-        value={String(slot.rotation ?? 0)}
-        onChange={(e) => {
-          onChange({ ...slot, rotation: Number.parseInt(e.target.value, 10) });
-        }}
-      >
-        <option value="0">0</option>
-        <option value="90">90</option>
-        <option value="180">180</option>
-        <option value="270">270</option>
-      </Select>
+      <div className="space-y-1">
+        <label className="block text-sm font-medium text-fg">Rotation</label>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const next = ((((slot.rotation ?? 0) - 90) % 360) + 360) % 360;
+              onChange({ ...slot, rotation: next });
+            }}
+            title="Rotate 90° counter-clockwise"
+            aria-label="Rotate 90° counter-clockwise"
+            className="rounded-sm p-1.5 text-fg-muted hover:bg-surface-muted"
+          >
+            <ArrowUturnLeftIcon className="h-4 w-4" />
+          </button>
+          <div className="flex-1">
+            <Select
+              value={String(slot.rotation ?? 0)}
+              onChange={(e) => {
+                onChange({ ...slot, rotation: Number.parseInt(e.target.value, 10) });
+              }}
+            >
+              <option value="0">0</option>
+              <option value="90">90</option>
+              <option value="180">180</option>
+              <option value="270">270</option>
+            </Select>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const next = (((slot.rotation ?? 0) + 90) % 360 + 360) % 360;
+              onChange({ ...slot, rotation: next });
+            }}
+            title="Rotate 90° clockwise"
+            aria-label="Rotate 90° clockwise"
+            className="rounded-sm p-1.5 text-fg-muted hover:bg-surface-muted"
+          >
+            <ArrowUturnRightIcon className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
 
       <Select
         label="Aspect Ratio"
