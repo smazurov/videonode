@@ -31,7 +31,6 @@ export default withMermaid(
           items: [
             { text: 'Changelog', link: '/changelog' },
             { text: 'Releases on GitHub', link: 'https://github.com/smazurov/videonode/releases' },
-            { text: 'APT repo', link: 'https://mazurov.dev/videonode/' },
           ],
         },
         { text: 'GitHub', link: 'https://github.com/smazurov/videonode' },
