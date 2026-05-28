@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.1.2",
   "scripts": {
     "changelog": "chglog format --template-file scripts/changelog.tpl -i ../changelog.yml -o docs/changelog.md",
     "version-stamp": "chglog format --template-file scripts/version.tpl -i ../changelog.yml -o docs/.vitepress/version.json",
