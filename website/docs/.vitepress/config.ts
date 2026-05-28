@@ -73,7 +73,7 @@ export default withMermaid(
       },
 
       footer: {
-        message: 'Released under the MIT License.',
+        message: 'Released under the <a href="https://github.com/smazurov/videonode/blob/main/LICENSE">AGPL-3.0 License</a>.',
         copyright: `Copyright © ${new Date().getFullYear()} Stepan Mazurov`,
       },
     },
