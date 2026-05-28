@@ -32,6 +32,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # C++ first — build-deb-arm64.sh installs ca-certificates, git, etc.
+      - name: Build native C++ binaries
+        run: composer/scripts/build-deb-arm64.sh
+        env:
+          MODE: release-nfpm
+      - name: Stage native binaries
+        run: cp composer/build/deb-arm64/staging/bin/* dist/
+
+      # Go + UI (container now has ca-certificates + git from above)
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -42,11 +51,9 @@ jobs:
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: ui/package.json
-
       - name: Build UI
         working-directory: ui
         run: pnpm install --frozen-lockfile && pnpm build
-
       - name: Build Go binary
         run: |
           VER="${VERSION#v}"
@@ -57,13 +64,6 @@ jobs:
               -X github.com/smazurov/videonode/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
               -X github.com/smazurov/videonode/internal/version.BuildID=${GITHUB_RUN_ID}" \
             -o dist/videonode .
-
-      - name: Build native C++ binaries
-        run: composer/scripts/build-deb-arm64.sh
-        env:
-          MODE: release-nfpm
-      - name: Stage native binaries
-        run: cp composer/build/deb-arm64/staging/bin/* dist/
 
       - uses: actions/upload-artifact@v7
         with:
