@@ -1,3 +1,22 @@
+- semver: 4.0.0-rc3
+  date: 2026-05-27T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: cdd37c1
+      note: "VitePress docs site with Mermaid, search, versioned navbar"
+    - commit: feff078
+      note: "release pipeline rewrite: matrix build replaces goreleaser, chglog-driven .deb"
+    - commit: f62e5a3
+      note: "shadow-group-gated auth + postinst enrollment, service auto-start on install"
+    - commit: 74749ac
+      note: "composer UI: auto-slot on input add, canvas rotation moved to inspector"
+    - commit: 16f5389
+      note: "source reports placeholder dims while V4L2 inactive"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc1
   date: 2026-05-27T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
