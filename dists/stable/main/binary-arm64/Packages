@@ -1,18 +1,18 @@
 Package: videonode
-Version: 4.0.0~rc2
+Version: 4.0.0~rc3
 Architecture: arm64
 Maintainer: Stepan Mazurov <smazurov@gmail.com>
-Installed-Size: 29264
+Installed-Size: 29328
 Depends: libc6, libstdc++6, libegl1, libgles2, libgbm1, libdrm2
 Homepage: https://github.com/smazurov/videonode
 Priority: optional
 Section: video
-Filename: pool/main/v/videonode/videonode_4.0.0~rc2_arm64.deb
-Size: 11109378
-SHA512: bf81f86aee41bc480fd1a6c9b96e96c522165d58f72a79a80f64d3ae08b3bb0f9f8f8a9fa33f111242cbe269580a2d34b82df08dea7b8c5ccfe8c0b32e5e16ec
-SHA256: f7e280f3785f9f666dc4baf8057d3a9627a5d1a927ea86deef2a74c90fc7b938
-SHA1: ef637870be558dc9de5bfbaf91e3d3bda9344dc7
-MD5sum: 8527ded75cbf0c8cb70fd6d9f24c2814
+Filename: pool/main/v/videonode/videonode_4.0.0~rc3_arm64.deb
+Size: 11139796
+SHA512: a068154c4ab76690b3a89067962ddf789f0f8c4fba7fc6f4bffe919c0347c3620143d05c49e786fb2a7ab2418343e66f07ca73e0e23aa2defefa6c1f5e68f334
+SHA256: 1082aade06da3a9700416b9ab47e5a2bcb6b8531a04d0d158b28ab8bd52f41c0
+SHA1: 60c5cae72ea7e3abe6cc7ced18f6a758dba6a07d
+MD5sum: 9ee58f677b79702a544a9b8f811bf834
 Description: RK3588 video streaming server with native dma-buf pipeline.
  Turns V4L2 capture devices into RTSP, WebRTC, and SRT streams
  with GPU-accelerated compositing via EGL/GLES on Mali-G610.
@@ -26,10 +26,10 @@ Homepage: https://github.com/smazurov/videonode
 Priority: optional
 Section: 
 Filename: pool/main/v/videonode-keyring/videonode-keyring_1779921143_all.deb
-Size: 980
-SHA512: 94ce91b963cd473cefc854dc793529e0f012661d03f6c71c9491a688166bce30e9bed55b33e1e8dcd9a6b2ba241c7a0d14b3d5a32ccd47ce2820b363155c0ec8
-SHA256: 2f00a2cf3c71f5c855bea1c26e8a7da8dfa9fbcd93ed2346cac6daad107a6dfd
-SHA1: 8531a584b1d618a5317b69eb8a23f7a425f2f7db
-MD5sum: 7ae7023bb39a2e4d02145d80d6ed4498
+Size: 986
+SHA512: a94d48f36e9cd755c13b8358c7c4eb52b04d813ad36ca7858d252a22d2e2a202c9c5bcc898ab34f6a1d47a96ce2462334c27bae6895f74822fbf6eac2530dd60
+SHA256: 36b9e848fce2c614282330807cdb63f1a742f8fdf7fc5e78fd0c49df4db83747
+SHA1: bb4cc93626dc72c13f490dd2f6d61ca4ea704489
+MD5sum: 0a0f1e47ba2e201f5c7e8d81eff20c89
 Description: videonode keyring
 
