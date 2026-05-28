@@ -17,6 +17,9 @@ concurrency:
   group: release-${{ inputs.version || github.ref_name }}
   cancel-in-progress: false
 
+# DO NOT add force/force_orphan to JamesIves/peaceiris — both silently bypass
+# file-preservation and would nuke the docs deployed by .github/workflows/docs.yml.
+
 jobs:
   build:
     strategy:
@@ -149,14 +152,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      contents: write
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/configure-pages@v6
       - uses: actions/download-artifact@v8
         with:
           pattern: pkg-*-deb
@@ -170,8 +171,27 @@ jobs:
           codename: stable
           architectures: arm64
           import-from-repo-url: https://mazurov.dev/videonode
-      - uses: actions/upload-pages-artifact@v5
+      - name: Deploy apt repo to gh-pages
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          path: ${{ steps.apt-repo.outputs.dir }}
-      - id: deploy
-        uses: actions/deploy-pages@v5
+          branch: gh-pages
+          folder: ${{ steps.apt-repo.outputs.dir }}
+          clean: true
+          # Allowlist of docs-owned paths so they survive an apt deploy. Keep in
+          # sync with the Docusaurus build output (see website/build/ after a build).
+          clean-exclude: |
+            index.html
+            404.html
+            sitemap.xml
+            .nojekyll
+            assets
+            img
+            category
+            getting-started
+            reference
+            operating
+            development
+            CNAME
+          force: false
+          attempt-limit: 3
+          cname: mazurov.dev

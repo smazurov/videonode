@@ -23,3 +23,10 @@ processes:
     working_dir: "./ui"
     availability:
       restart: "on_failure"
+
+  # Documentation site (Docusaurus) — http://localhost:3000/videonode/
+  docs:
+    command: "node_modules/.bin/docusaurus start --host 0.0.0.0"
+    working_dir: "./website"
+    availability:
+      restart: "on_failure"
