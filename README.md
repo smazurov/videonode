@@ -27,15 +27,7 @@ rkmpp, librga, librockchip-mpp) to be installed separately via
 [videonode-sbc-config](https://github.com/smazurov/videonode-sbc-config) —
 the installer warns if these are missing.
 
-### Script install (any Linux)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/smazurov/videonode/main/install.sh | bash
-```
-
-This downloads the latest release tarball, installs to `~/.local/bin`, sets up config in `~/.config/videonode`, and configures a systemd user service. Does not include the native C++ pipeline.
-
-### Uninstall (script install)
+### Uninstall (legacy script install)
 
 If migrating from a script install to the `.deb` package, first remove the
 per-user installation:
