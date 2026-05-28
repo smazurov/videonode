@@ -38,7 +38,9 @@ jobs:
         env:
           MODE: release-nfpm
       - name: Stage native binaries
-        run: cp composer/build/deb-arm64/staging/bin/* dist/
+        run: |
+          mkdir -p dist
+          cp composer/build/deb-arm64/staging/bin/* dist/
 
       # Go + UI (container now has ca-certificates + git from above)
       - uses: actions/setup-go@v6
