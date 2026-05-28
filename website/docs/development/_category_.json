@@ -1,8 +1,0 @@
-{
-  "label": "Development",
-  "position": 4,
-  "link": {
-    "type": "generated-index",
-    "description": "Architecture, build-from-source, and internal formats."
-  }
-}

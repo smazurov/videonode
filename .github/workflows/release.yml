@@ -178,15 +178,13 @@ jobs:
           folder: ${{ steps.apt-repo.outputs.dir }}
           clean: true
           # Allowlist of docs-owned paths so they survive an apt deploy. Keep in
-          # sync with the Docusaurus build output (see website/build/ after a build).
+          # sync with the VitePress build output (website/docs/.vitepress/dist).
           clean-exclude: |
             index.html
             404.html
-            sitemap.xml
-            .nojekyll
+            hashmap.json
+            vp-icons.css
             assets
-            img
-            category
             getting-started
             reference
             operating

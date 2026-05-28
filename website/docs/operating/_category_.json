@@ -1,8 +1,0 @@
-{
-  "label": "Operating",
-  "position": 3,
-  "link": {
-    "type": "generated-index",
-    "description": "Day-2 tasks: streaming outputs, encoder selection, observability."
-  }
-}

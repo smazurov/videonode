@@ -39,7 +39,7 @@ jobs:
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           branch: gh-pages
-          folder: website/build
+          folder: website/docs/.vitepress/dist
           clean: true
           # Allowlist of apt-owned paths so they survive a docs deploy. The apt
           # repo workflow (.github/workflows/release.yml publish-apt job) owns these.
