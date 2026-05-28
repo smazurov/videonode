@@ -1,3 +1,14 @@
+- semver: 4.0.0-rc4
+  date: 2026-05-28T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 37f0656
+      note: "packaging: enroll SUDO_USER on upgrade, not just first install"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc3
   date: 2026-05-27T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
