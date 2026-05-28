@@ -19,7 +19,7 @@ Every page lives in one of four modes. Stay in mode for the entire page.
 | **Tutorial** | `getting-started/` | "We'll…", "you'll see…" — beginner-friendly | Listing options; assuming knowledge |
 | **How-to** | `operating/` | Imperative, terse | Teaching theory; multiple approaches |
 | **Reference** | `reference/` | Structured, table-first, no narrative | Telling a story; use cases |
-| **Explanation** | `development/` (mostly) | Discursive, "because…", context | Step-by-step procedures |
+| **Explanation** | `development/` | Discursive, "because…", context | Step-by-step procedures |
 
 `reference/pipeline-model.md` is the one cross-folder exception — explanation living in `reference/` because that's where readers expect it. Otherwise: folder ⇒ mode.
 

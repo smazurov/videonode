@@ -8,7 +8,7 @@ export default withMermaid(
     base: '/videonode/',
     cleanUrls: true,
     lastUpdated: true,
-    ignoreDeadLinks: false,
+    ignoreDeadLinks: [/^http:\/\/localhost/],
 
     head: [
       ['link', { rel: 'icon', href: '/videonode/favicon.ico' }],
@@ -54,7 +54,6 @@ export default withMermaid(
           items: [
             { text: 'Architecture', link: '/development/architecture' },
             { text: 'Building from source', link: '/development/building' },
-            { text: 'streams.toml (internal)', link: '/development/streams-toml' },
           ],
         },
       ],
