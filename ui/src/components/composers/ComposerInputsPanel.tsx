@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { TrashIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
+import { TrashIcon, PencilSquareIcon, Squares2X2Icon } from '@heroicons/react/24/outline';
 
 import { Badge } from '../Badge';
 import { Button } from '../Button';
@@ -10,6 +10,7 @@ import { StatusPill, type StatusPillStatus } from '../primitives/StatusPill';
 import { poolStateToPill } from '../../lib/pool-status';
 import { EffectEditor } from './EffectEditor';
 import { InputRefPicker } from './InputRefPicker';
+import { makeDefaultLayoutSlot } from './layout-math';
 import type { ComposerData, ComposerInput, LayoutSlot } from '../../lib/composer-types';
 import { useComposerStore, type AvailableSource, type ComposerEffect } from '../../hooks/useComposerStore';
 import { useSourceStore } from '../../hooks/useSourceStore';
@@ -40,6 +41,22 @@ const SOURCE_REF_PREFIX = 'source:';
 function sourceIdFromRef(ref: string): string | null {
   if (!ref.startsWith(SOURCE_REF_PREFIX)) return null;
   return ref.slice(SOURCE_REF_PREFIX.length);
+}
+
+function srcDimsForRef(
+  ref: string,
+  sourcesById: Record<string, Source>,
+): { w: number; h: number } | undefined {
+  const id = sourceIdFromRef(ref);
+  if (!id) return undefined;
+  const s = sourcesById[id];
+  if (!s) return undefined;
+  const live = s.latest_status?.format;
+  const cfg = s.format;
+  const w = live?.w ?? cfg?.width;
+  const h = live?.h ?? cfg?.height;
+  if (!w || !h) return undefined;
+  return { w, h };
 }
 
 function resolveStatus(source: Source | undefined): StatusPillStatus | 'missing' {
@@ -80,8 +97,13 @@ export function ComposerInputsPanel({ composer }: Readonly<ComposerInputsPanelPr
     async (ref: string) => {
       setBusy(true);
       try {
-        const next = [...composer.inputs, { ref }];
-        await updateComposer(composer.composer_id, { inputs: toWireInputs(next) });
+        const nextInputs = [...composer.inputs, { ref }];
+        const slot = makeDefaultLayoutSlot(ref, composer.canvas, srcDimsForRef(ref, sourcesById));
+        const nextLayout = [...composer.layout, slot];
+        await updateComposer(composer.composer_id, {
+          inputs: toWireInputs(nextInputs),
+          layout: nextLayout,
+        });
         toast.success(`Added ${ref}`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to add input');
@@ -89,7 +111,24 @@ export function ComposerInputsPanel({ composer }: Readonly<ComposerInputsPanelPr
         setBusy(false);
       }
     },
-    [composer.composer_id, composer.inputs, updateComposer],
+    [composer.composer_id, composer.canvas, composer.inputs, composer.layout, sourcesById, updateComposer],
+  );
+
+  const handleCreateSlot = useCallback(
+    async (ref: string) => {
+      setBusy(true);
+      try {
+        const slot = makeDefaultLayoutSlot(ref, composer.canvas, srcDimsForRef(ref, sourcesById));
+        const nextLayout = [...composer.layout, slot];
+        await updateComposer(composer.composer_id, { layout: nextLayout });
+        toast.success(`Added ${ref} to layout`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to add to layout');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [composer.composer_id, composer.canvas, composer.layout, sourcesById, updateComposer],
   );
 
   const handleRemove = useCallback(
@@ -133,6 +172,10 @@ export function ComposerInputsPanel({ composer }: Readonly<ComposerInputsPanelPr
   );
 
   const existingRefs = composer.inputs.map((i) => i.ref);
+  const slotRefs = useMemo(
+    () => new Set(composer.layout.map((s) => s.input)),
+    [composer.layout],
+  );
 
   const editingInput: ComposerInput | undefined = useMemo(
     () => composer.inputs.find((i) => i.ref === editingRef),
@@ -167,12 +210,14 @@ export function ComposerInputsPanel({ composer }: Readonly<ComposerInputsPanelPr
                   key={input.ref}
                   input={input}
                   source={sid ? sourcesById[sid] : undefined}
+                  hasSlot={slotRefs.has(input.ref)}
                   isEditing={editingRef === input.ref}
                   disabled={busy}
                   onEdit={() =>
                     setEditingRef((cur) => (cur === input.ref ? null : input.ref))
                   }
                   onRemove={() => void handleRemove(input.ref)}
+                  onCreateSlot={() => void handleCreateSlot(input.ref)}
                 />
               );
             })}
@@ -198,13 +243,24 @@ export function ComposerInputsPanel({ composer }: Readonly<ComposerInputsPanelPr
 interface InputRowProps {
   input: ComposerInput;
   source: Source | undefined;
+  hasSlot: boolean;
   isEditing: boolean;
   disabled: boolean;
   onEdit: () => void;
   onRemove: () => void;
+  onCreateSlot: () => void;
 }
 
-function InputRow({ input, source, isEditing, disabled, onEdit, onRemove }: Readonly<InputRowProps>) {
+function InputRow({
+  input,
+  source,
+  hasSlot,
+  isEditing,
+  disabled,
+  onEdit,
+  onRemove,
+  onCreateSlot,
+}: Readonly<InputRowProps>) {
   const sourceId = sourceIdFromRef(input.ref);
   const status = resolveStatus(source);
   return (
@@ -226,6 +282,9 @@ function InputRow({ input, source, isEditing, disabled, onEdit, onRemove }: Read
           ) : (
             <StatusPill status={status} size="xs" />
           )}
+          {!hasSlot && (
+            <Badge tone="warning" size="xs">not on canvas</Badge>
+          )}
           {input.effect ? (
             <Badge tone="info" size="xs">{input.effect.type}</Badge>
           ) : (
@@ -234,6 +293,16 @@ function InputRow({ input, source, isEditing, disabled, onEdit, onRemove }: Read
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {!hasSlot && (
+          <Button
+            theme="light"
+            size="SM"
+            text="Add to layout"
+            LeadingIcon={Squares2X2Icon}
+            onClick={onCreateSlot}
+            disabled={disabled}
+          />
+        )}
         <Button
           theme={isEditing ? 'primary' : 'light'}
           size="SM"

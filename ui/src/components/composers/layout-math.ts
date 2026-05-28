@@ -61,6 +61,40 @@ export function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+export interface DefaultSlotDims {
+  input: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function makeDefaultLayoutSlot(
+  ref: string,
+  canvas: { w: number; h: number },
+  srcDims?: { w: number; h: number },
+): DefaultSlotDims {
+  const halfW = Math.round(canvas.w / 2);
+  const halfH = Math.round(canvas.h / 2);
+  let w = halfW;
+  let h = halfH;
+  if (srcDims && srcDims.w > 0 && srcDims.h > 0) {
+    const ar = srcDims.w / srcDims.h;
+    h = Math.round(w / ar);
+    if (h > halfH) {
+      h = halfH;
+      w = Math.round(h * ar);
+    }
+  }
+  return {
+    input: ref,
+    x: Math.max(0, Math.round((canvas.w - w) / 2)),
+    y: Math.max(0, Math.round((canvas.h - h) / 2)),
+    w,
+    h,
+  };
+}
+
 export function visualToKonva(
   vx: number, vy: number, w: number, h: number, rotation: number,
 ): { x: number; y: number } {
