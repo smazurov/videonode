@@ -18,21 +18,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  goreleaser:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            native: true
+    runs-on: ${{ matrix.runner }}
+    container: arm64v8/debian:trixie
+    timeout-minutes: 25
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - run: git fetch --force --tags
-      - uses: actions/setup-go@v6
+
+      # Go + UI
+      - name: Install Go
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
-      - uses: actions/setup-node@v6
+          cache: false
+      - name: Install Node.js
+        uses: actions/setup-node@v6
         with:
           node-version: 22
       - uses: pnpm/action-setup@v6
@@ -41,81 +52,10 @@ jobs:
       - name: Build UI
         working-directory: ui
         run: pnpm install --frozen-lockfile && pnpm build
-      - name: Create tag (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
-      - name: Debug git state
-        run: |
-          echo "=== tags ==="
-          git tag -l 'v*' --sort=-v:refname | head -10
-          echo "=== describe ==="
-          git describe --tags --abbrev=0 HEAD || echo "no tags reachable"
-          echo "=== HEAD ==="
-          git log --oneline -1
-      - name: Update changelog
-        run: |
-          go install github.com/goreleaser/chglog/cmd/chglog@latest
-          TAG="v${VERSION#v}"
-          chglog add --version "$TAG" --output changelog.yml || echo "chglog add failed (may already exist), continuing"
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-native:
-    runs-on: ubuntu-24.04-arm
-    container: arm64v8/debian:trixie
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-      - name: Build + stage C++ binaries
-        run: composer/scripts/build-deb-arm64.sh
-        env:
-          MODE: release-nfpm
-      - uses: actions/upload-artifact@v7
-        with:
-          name: native-arm64
-          path: composer/build/deb-arm64/staging/bin/
-
-  package-deb:
-    needs: [goreleaser, build-native]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-      - uses: pnpm/action-setup@v6
-        with:
-          package_json_file: ui/package.json
-      - name: Build UI
-        working-directory: ui
-        run: pnpm install --frozen-lockfile && pnpm build
-      - uses: actions/download-artifact@v8
-        with:
-          name: native-arm64
-          path: dist/
-      - name: Build arm64 Go binary
+      - name: Build Go binary
         run: |
           VER="${VERSION#v}"
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
+          CGO_ENABLED=0 go build \
             -tags ui_embed \
             -ldflags "-s -w \
               -X github.com/smazurov/videonode/internal/version.Version=${VER} \
@@ -123,6 +63,41 @@ jobs:
               -X github.com/smazurov/videonode/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
               -X github.com/smazurov/videonode/internal/version.BuildID=${GITHUB_RUN_ID}" \
             -o dist/videonode .
+
+      # Native C++ (only on platforms with native pipeline)
+      - name: Build native binaries
+        if: matrix.native
+        run: composer/scripts/build-deb-arm64.sh
+        env:
+          MODE: release-nfpm
+      - name: Stage native binaries
+        if: matrix.native
+        run: cp composer/build/deb-arm64/staging/bin/* dist/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: build-${{ matrix.arch }}
+          path: dist/
+
+  package-deb:
+    needs: [build]
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v8
+        with:
+          name: build-${{ matrix.arch }}
+          path: dist/
       - name: Install nfpm + lintian
         run: |
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3
@@ -132,20 +107,53 @@ jobs:
         run: |
           chmod +x dist/videonode dist/videonode-source dist/videonode-sink dist/videonode-composer
           VER="${VERSION#v}"
-          GOARCH=arm64 VERSION=$VER \
+          GOARCH=${{ matrix.arch }} VERSION=$VER \
             nfpm package --packager deb --target dist/
       - name: Lint .deb
         run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary dist/*.deb
-      - name: Attach .deb to GitHub Release
-        run: |
-          TAG="v${VERSION#v}"
-          gh release upload "$TAG" dist/*.deb --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v7
         with:
-          name: deb
+          name: deb-${{ matrix.arch }}
           path: dist/*.deb
+
+  publish-release:
+    needs: [package-deb]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - run: git fetch --force --tags
+      - name: Create tag (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
+      - name: Render release notes
+        run: |
+          go install github.com/goreleaser/chglog/cmd/chglog@latest
+          TAG="v${VERSION#v}"
+          chglog add --version "$TAG" --output changelog.yml 2>/dev/null || true
+          chglog format --template release --version "$TAG" --output RELEASE_NOTES.md || true
+          cat RELEASE_NOTES.md 2>/dev/null || echo "Release ${TAG}" > RELEASE_NOTES.md
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: deb-*
+          merge-multiple: true
+          path: dist/
+      - name: Create GitHub Release
+        run: |
+          TAG="v${VERSION#v}"
+          gh release create "$TAG" dist/*.deb \
+            --title "$TAG" \
+            --notes-file RELEASE_NOTES.md \
+            ${{ contains(env.VERSION, 'rc') && '--prerelease' || '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-apt:
     needs: [package-deb]
@@ -162,7 +170,8 @@ jobs:
       - uses: actions/configure-pages@v6
       - uses: actions/download-artifact@v8
         with:
-          name: deb
+          pattern: deb-*
+          merge-multiple: true
           path: dist/
       - uses: morph027/apt-repo-action@v3
         id: apt-repo
@@ -171,7 +180,7 @@ jobs:
           signing-key: ${{ secrets.APT_SIGNING_KEY }}
           codename: stable
           architectures: arm64
-          import-from-repo-url: https://smazurov.github.io/videonode
+          import-from-repo-url: https://mazurov.dev/videonode
       - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ steps.apt-repo.outputs.dir }}
