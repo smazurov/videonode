@@ -3,6 +3,7 @@ module github.com/smazurov/videonode
 go 1.25.0
 
 require (
+	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5
 	github.com/bluenviron/gortsplib/v5 v5.3.1
 	github.com/bluenviron/mediacommon/v2 v2.7.1
 	github.com/coreos/go-systemd/v22 v22.6.0
@@ -11,8 +12,9 @@ require (
 	github.com/datarhei/gosrt v0.9.0
 	github.com/dustinkirkland/golang-petname v0.0.0-20240428194347-eebcea082ee0
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/google/uuid v1.6.0
+	github.com/go-logfmt/logfmt v0.6.1
 	github.com/kelindar/event v1.5.2
+	github.com/openwall/yescrypt-go v1.0.0
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pion/interceptor v0.1.43
 	github.com/pion/rtcp v1.2.16
@@ -37,9 +39,9 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davidmz/go-pageant v1.0.2 // indirect
 	github.com/go-fed/httpsig v1.1.0 // indirect
-	github.com/go-logfmt/logfmt v0.6.1 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect

@@ -5,8 +5,21 @@ package auth
 type Result struct {
 	Valid    bool
 	Username string
-	Error    error // System error (not invalid creds)
+	Reason   string // Machine-readable rejection reason (empty on success)
+	Error    error  // System error (not invalid creds)
 }
+
+// Rejection reasons surfaced through Result.Reason for logging and diagnostics.
+const (
+	ReasonUnknownUser      = "unknown_user"
+	ReasonNotInGroup       = "not_in_group"
+	ReasonInvalidPassword  = "invalid_password"
+	ReasonAccountLocked    = "account_locked"
+	ReasonAccountExpired   = "account_expired"
+	ReasonShadowReadDenied = "shadow_read_denied"
+	ReasonUnsupportedHash  = "unsupported_hash"
+	ReasonSystemError      = "system_error"
+)
 
 // Authenticator validates user credentials.
 type Authenticator interface {

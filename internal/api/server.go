@@ -125,11 +125,24 @@ func (s *Server) basicAuthMiddleware(authenticator auth.Authenticator) func(huma
 		// Validate credentials using authenticator
 		result := authenticator.Authenticate(parts[0], parts[1])
 		if result.Error != nil {
+			if s.logger != nil {
+				s.logger.Error("authentication system error",
+					logging.KeyUsername, parts[0],
+					logging.KeyRemoteAddr, ctx.RemoteAddr(),
+					logging.KeyReason, result.Reason,
+					logging.KeyError, result.Error)
+			}
 			ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
 			huma.WriteErr(s.api, ctx, http.StatusInternalServerError, "Authentication error")
 			return
 		}
 		if !result.Valid {
+			if s.logger != nil {
+				s.logger.Info("authentication rejected",
+					logging.KeyUsername, parts[0],
+					logging.KeyRemoteAddr, ctx.RemoteAddr(),
+					logging.KeyReason, result.Reason)
+			}
 			ctx.SetHeader("WWW-Authenticate", `Basic realm="VideoNode API"`)
 			huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "Invalid credentials")
 			return
