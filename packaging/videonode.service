@@ -12,7 +12,7 @@ ExecStartPre=-/usr/bin/videonode validate-encoders --quiet
 ExecStart=/usr/bin/videonode -c /etc/videonode/config.toml
 Restart=on-failure
 RestartSec=5
-SupplementaryGroups=video render
+SupplementaryGroups=video render shadow
 
 [Install]
 WantedBy=multi-user.target
