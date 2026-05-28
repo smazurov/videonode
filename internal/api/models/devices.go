@@ -3,6 +3,7 @@ package models
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -40,10 +41,17 @@ var videoFormatToPixelFormat = map[VideoFormat]uint32{
 
 // Schema implements SchemaProvider for dynamic enum validation.
 func (VideoFormat) Schema(_ huma.Registry) *huma.Schema {
-	// Generate enum values dynamically from our map
-	enumValues := make([]any, 0, len(videoFormatToPixelFormat))
+	// Sort so the generated OpenAPI enum order is stable across runs
+	// (Go map iteration is randomized, which churns api.generated.ts).
+	names := make([]string, 0, len(videoFormatToPixelFormat))
 	for format := range videoFormatToPixelFormat {
-		enumValues = append(enumValues, string(format))
+		names = append(names, string(format))
+	}
+	sort.Strings(names)
+
+	enumValues := make([]any, len(names))
+	for i, n := range names {
+		enumValues[i] = n
 	}
 
 	return &huma.Schema{
