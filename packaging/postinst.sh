@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-systemd-sysusers
-systemd-tmpfiles --create
+systemd-sysusers videonode.conf
+systemd-tmpfiles --create videonode.conf
 
 if [ -d /run/systemd/system ]; then
     deb-systemd-helper enable videonode.service || true
