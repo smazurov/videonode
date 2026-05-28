@@ -7,6 +7,7 @@ systemd-tmpfiles --create videonode.conf
 if [ -d /run/systemd/system ]; then
     deb-systemd-helper enable videonode.service || true
     systemctl --system daemon-reload || true
+    deb-systemd-invoke restart videonode.service || true
 fi
 
 # Rockchip stack checks (advisory, non-fatal)
