@@ -76,6 +76,17 @@ void build_status_proto(::videonode::control::Status& out, const StatusContext& 
                                     ? (ctx.cap.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg")
                                     : "rga";
         fmt->set_mode(mode_name);
+    } else {
+        // V4L2 not negotiated (test_mode sources, or capture still
+        // initialising). Broadcasts are NV12 placeholder frames at
+        // placeholder_w × placeholder_h; report those dims so consumers
+        // (UI AR/crop, etc.) can size against the real frame stream
+        // instead of zeros.
+        fmt->set_fourcc("NV12");
+        fmt->set_w(static_cast<uint32_t>(ctx.args.placeholder_w));
+        fmt->set_h(static_cast<uint32_t>(ctx.args.placeholder_h));
+        fmt->set_fps(static_cast<uint32_t>(ctx.args.placeholder_broadcast_fps));
+        fmt->set_mode("placeholder");
     }
 
     auto* bc = out.mutable_broadcast();
