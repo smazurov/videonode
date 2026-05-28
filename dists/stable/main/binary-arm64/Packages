@@ -1,0 +1,35 @@
+Package: videonode
+Version: 4.0.0~rc2
+Architecture: arm64
+Maintainer: Stepan Mazurov <smazurov@gmail.com>
+Installed-Size: 29264
+Depends: libc6, libstdc++6, libegl1, libgles2, libgbm1, libdrm2
+Homepage: https://github.com/smazurov/videonode
+Priority: optional
+Section: video
+Filename: pool/main/v/videonode/videonode_4.0.0~rc2_arm64.deb
+Size: 11109378
+SHA512: bf81f86aee41bc480fd1a6c9b96e96c522165d58f72a79a80f64d3ae08b3bb0f9f8f8a9fa33f111242cbe269580a2d34b82df08dea7b8c5ccfe8c0b32e5e16ec
+SHA256: f7e280f3785f9f666dc4baf8057d3a9627a5d1a927ea86deef2a74c90fc7b938
+SHA1: ef637870be558dc9de5bfbaf91e3d3bda9344dc7
+MD5sum: 8527ded75cbf0c8cb70fd6d9f24c2814
+Description: RK3588 video streaming server with native dma-buf pipeline.
+ Turns V4L2 capture devices into RTSP, WebRTC, and SRT streams
+ with GPU-accelerated compositing via EGL/GLES on Mali-G610.
+
+Package: videonode-keyring
+Version: 1779921143
+Architecture: all
+Maintainer: apt-repo-action@smazurov
+Installed-Size: 0
+Homepage: https://github.com/smazurov/videonode
+Priority: optional
+Section: 
+Filename: pool/main/v/videonode-keyring/videonode-keyring_1779921143_all.deb
+Size: 980
+SHA512: 94ce91b963cd473cefc854dc793529e0f012661d03f6c71c9491a688166bce30e9bed55b33e1e8dcd9a6b2ba241c7a0d14b3d5a32ccd47ce2820b363155c0ec8
+SHA256: 2f00a2cf3c71f5c855bea1c26e8a7da8dfa9fbcd93ed2346cac6daad107a6dfd
+SHA1: 8531a584b1d618a5317b69eb8a23f7a425f2f7db
+MD5sum: 7ae7023bb39a2e4d02145d80d6ed4498
+Description: videonode keyring
+
