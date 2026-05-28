@@ -12,11 +12,11 @@ curl -u videonode:videonode http://localhost:8090/metrics
 
 All metrics use the `videonode_` prefix. The families include:
 
-- `videonode_ffmpeg_*` — per-stream encoder stats (`fps`, `dropped_frames_total`, `duplicate_frames_total`, `processing_speed`), labeled by `stream_id`
-- `videonode_producer_*` — per-source process stats (`rss_bytes`, `cpu_percent`), labeled by `source_id`
-- `videonode_webrtc_*` and `videonode_srt_*` — egress byte and packet counters, labeled by `stream_id`
+- `videonode_ffmpeg_*`: per-stream encoder stats (`fps`, `dropped_frames_total`, `duplicate_frames_total`, `processing_speed`), labeled by `stream_id`
+- `videonode_producer_*`: per-source process stats (`rss_bytes`, `cpu_percent`), labeled by `source_id`
+- `videonode_webrtc_*` and `videonode_srt_*`: egress byte and packet counters, labeled by `stream_id`
 
-To see the full current set, scrape the endpoint directly — the list grows with the deployment.
+To see the full current set, scrape the endpoint directly; the list grows with the deployment.
 
 ## Consuming SSE events
 
@@ -28,8 +28,8 @@ curl -u videonode:videonode -N http://localhost:8090/api/events
 
 Each event carries a typed payload. Two events you'll see frequently:
 
-- `pipeline-state-changed` — fires when the pipeline master switch toggles on or off
-- `source-status` — fires when a source's frame delivery state changes (e.g., stalled, recovering)
+- `pipeline-state-changed`: fires when the pipeline master switch toggles on or off
+- `source-status`: fires when a source's frame delivery state changes (e.g., stalled, recovering)
 
 The connection sends a `heartbeat` every 15 seconds to keep proxies and idle clients alive.
 

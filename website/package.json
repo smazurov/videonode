@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "changelog": "chglog format --template-file scripts/changelog.tpl -i ../changelog.yml -o docs/changelog.md",
+    "predev": "pnpm changelog",
+    "prebuild": "pnpm changelog",
     "dev": "vitepress dev docs --port 5174",
     "build": "vitepress build docs",
     "preview": "vitepress preview docs",

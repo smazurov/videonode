@@ -1,76 +1,42 @@
 # Quickstart
 
-This tutorial takes you from a running VideoNode installation to a live stream in five steps. It assumes you have already [installed VideoNode](installation).
+This tutorial takes you from a running VideoNode installation to a live stream playing in your browser. It assumes you've completed [Installation](./installation).
 
-## Step 1: Start the service
+## Step 1: Open the UI
 
-```bash
-sudo systemctl start videonode
-```
+Browse to `http://<your-box>:8090` (or `http://localhost:8090` if you're on the box itself). The login page appears. Sign in with your Linux username and password (or the basic-auth credentials, if you switched to that during install).
 
-You'll see no output — that's expected. The daemon logs to the system journal.
+You'll land on the **Streams** page, empty on a fresh install:
 
-## Step 2: Confirm the API is up
+![Empty streams page with a Create Stream button](/screenshots/streams-empty.png)
 
-```bash
-curl http://localhost:8090/api/health
-```
+## Step 2: Create a source
 
-You should see:
+A *source* is the upstream that produces frames: a real V4L2 device or a built-in test pattern. Click **Sources** in the nav, then **New source**.
 
-```json
-{"status":"ok","message":"API is healthy"}
-```
+![New source form: ID field, test-mode checkbox, video device dropdown, format / resolution / framerate selectors](/screenshots/new-source.png)
 
-The health endpoint requires no authentication.
+Pick a Source ID (kebab-case), select your capture device from the **Video Device** dropdown, and pick a format, resolution, and framerate. If you don't have hardware plugged in yet, tick **Test mode** to use the built-in test-pattern producer instead. Click **Create Source**.
 
-## Step 3: Open the UI
+The source appears in the table with status **Running** and consumer count `0`. It's broadcasting frames but no one is listening yet.
 
-Navigate to `http://localhost:8090` in a browser. A login prompt appears — enter username `admin` and password `password` (the defaults from `config.toml`; change them before exposing VideoNode to a network). You'll land on the stream dashboard.
+![Sources page showing a running test source](/screenshots/sources-list.png)
 
-## Step 4: Add a source
+## Step 3: Create a stream
 
-We'll use a test-pattern source so you don't need a capture device plugged in yet.
+A *stream* pairs an upstream (your new source) with an encoder and a publish target. Click **Streams**, then **Create Stream**.
 
-```bash
-curl -u admin:password \
-  -X POST http://localhost:8090/api/sources \
-  -H "Content-Type: application/json" \
-  -d '{"id":"test-src","test_mode":true}'
-```
+![New stream form: stream ID, upstream selector, encoder fields, audio block](/screenshots/new-stream.png)
 
-You should see a response containing `"id":"test-src"` and `"status":"idle"`.
+Set:
 
-Next, create a stream that encodes from that source and publishes over RTSP:
+- **Stream ID**: anything kebab-case; this becomes the URL path component for RTSP/SRT/WebRTC consumers.
+- **Upstream**: pick your source from the dropdown.
+- **Codec**: `H.264` for widest compatibility.
+- **Bitrate**: `2M` is a reasonable default for 1080p.
 
-```bash
-curl -u admin:password \
-  -X POST http://localhost:8090/api/streams \
-  -H "Content-Type: application/json" \
-  -d '{
-    "stream_id": "test-stream",
-    "upstream": "source:test-src",
-    "encoder": {"codec":"h264","bitrate":"2M"},
-    "publish": [{"type":"rtsp","url":"rtsp://localhost:8554/test-stream"}]
-  }'
-```
+Leave the rest at defaults and click **Create Stream**. The stream appears in the Streams table.
 
-Enable the pipeline to start the process:
+## Step 4: Watch the stream
 
-```bash
-curl -u admin:password \
-  -X POST http://localhost:8090/api/pipeline/start
-```
-
-Refresh the UI — you'll see `test-stream` listed with a live WebRTC preview.
-
-## Step 5: Consume the stream
-
-Click the stream thumbnail in the UI for in-browser WebRTC playback. To pull from an external player, use the RTSP URL you configured above:
-
-```bash
-ffplay -fflags nobuffer -flags low_delay -framedrop \
-  -rtsp_transport tcp rtsp://localhost:8554/test-stream
-```
-
-For SRT and other output options, see [Streaming outputs](../operating/streaming-outputs).
+The Streams page renders a live WebRTC preview as soon as you click the row. To open the stream in an external player, see [Streaming outputs](../operating/streaming-outputs) for the RTSP / SRT / WebRTC URL formats and example consumer commands.

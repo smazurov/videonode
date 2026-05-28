@@ -42,7 +42,7 @@ cd ui && pnpm lint
 
 ## Building the native binaries
 
-Use the `relwithdebinfo` preset for daily installs — it produces optimized binaries with readable stack traces. The `dev` preset (Debug, unoptimized) is only necessary when stepping through code with a debugger.
+Use the `relwithdebinfo` preset for daily installs: it produces optimized binaries with readable stack traces. The `dev` preset (Debug, unoptimized) is only necessary when stepping through code with a debugger.
 
 To configure, build, and install to `~/.local/bin/`:
 

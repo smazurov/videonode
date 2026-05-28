@@ -14,7 +14,7 @@ To watch the stream with ffplay, run:
 ffplay rtsp://localhost:8554/cam-lobby
 ```
 
-Replace `cam-lobby` with your stream ID. Any RTSP 1.0 client works — VLC, GStreamer, OBS.
+Replace `cam-lobby` with your stream ID. Any RTSP 1.0 client works: VLC, GStreamer, OBS.
 
 ## SRT
 
@@ -28,22 +28,62 @@ The `streamid` query parameter is how the server routes the connection to the ri
 
 ## WebRTC
 
-WebRTC uses an SDP offer/answer exchange over the REST API. No WHEP endpoint exists; the browser must drive signaling via `POST /api/webrtc`.
+The simplest way to watch a stream over WebRTC is the built-in UI: log in to `http://<host>:8090/streams` and click the stream. The browser opens a peer connection for you.
 
-To open a live preview in the VideoNode UI, navigate to:
+### Embed a single stream
+
+Each stream also has a chromeless URL designed to drop into an iframe or open in a kiosk:
 
 ```
-http://localhost:8090
+http://<host>:8090/video?stream=<stream_id>
 ```
 
-The built-in UI handles WebRTC signaling automatically. To implement your own player, post an SDP offer:
+Optional query parameters:
+
+| Param | Default | Effect |
+|---|---|---|
+| `muted` | `true` | Set to `false` to start with audio. |
+| `stats` | `false` | Show the debug overlay on load. Toggles on double-click. |
+
+Example:
+
+```
+http://videonode.local:8090/video?stream=cam-lobby&muted=false&stats=true
+```
+
+The view renders only the player at full viewport on a black background. No nav, no chrome.
+
+### Debug stats
+
+The built-in stats overlay calls `RTCPeerConnection.getStats()` once per second and shows resolution, FPS, frames decoded and dropped, codecs, current bitrate, jitter buffer delay, A/V sync offset, packet loss, and RTT. Open any stream in the UI to see it, or pass `?stats=true` on the embed URL, or double-click the player to toggle it. This is purely browser-side instrumentation; no extra endpoint is involved.
+
+For server-side metrics across all consumers, scrape Prometheus at `/api/metrics`:
 
 ```bash
-curl -X POST "http://localhost:8090/api/webrtc?stream=cam-lobby" \
-  -H "Content-Type: application/sdp" \
-  --data-binary @offer.sdp
+curl -u videonode:videonode http://localhost:8090/api/metrics \
+  | jq '[.[] | select(.name | startswith("videonode_webrtc"))]'
 ```
 
-The response body is the SDP answer (`Content-Type: application/sdp`). Set it as the remote description in your `RTCPeerConnection`.
+Relevant series:
 
-Authentication follows the same Basic Auth required by all other API endpoints. See `config.toml` → `[auth]` for credentials.
+| Metric | Labels | What |
+|---|---|---|
+| `videonode_webrtc_active_peers` | `stream_id` | Connected peers per stream. |
+| `videonode_webrtc_peer_nacks_total` | `stream_id`, `peer_id` | NACK count (packet loss indicator). |
+| `videonode_webrtc_peer_plis_total` | `stream_id`, `peer_id` | PLI count (decoder requested a keyframe). |
+| `videonode_webrtc_peer_jitter` | `stream_id`, `peer_id` | Interarrival jitter in RTP units. Divide by 90000 for seconds. |
+| `videonode_webrtc_stream_bytes_total` | `stream_id` | Bytes sent per stream. |
+
+See [observability](./observability) for the full metric inventory.
+
+### Custom player
+
+For a self-driven player, drive signaling against the REST API. There is no WHEP endpoint; the daemon exposes a single SDP offer/answer exchange:
+
+```
+POST http://<host>:8090/api/webrtc?stream=<stream_id>
+Content-Type: application/sdp
+Body: your SDP offer
+```
+
+The response body is your SDP answer (`Content-Type: application/sdp`). Set it as the remote description on your `RTCPeerConnection`. Authentication follows the daemon's `auth.type` setting, using the same Linux-account or basic credentials as the rest of the API. See [config.toml reference](../reference/config-toml#auth).

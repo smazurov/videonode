@@ -44,7 +44,7 @@ composer = "~/.local/bin/videonode-composer"
 [logging]
 level  = "info"
 format = "text"
-# Per-module overrides — any key other than level/format is treated as a module name.
+# Per-module overrides: any key other than level/format is treated as a module name.
 streams   = "info"
 streaming = "debug"
 devices   = "info"
@@ -129,7 +129,7 @@ The mapping is `VIDEONODE_<ENV_TAG>`, where the env tag corresponds to the secti
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `default_fps` | int | `10` | Default frame rate for vision raw-frame pipes. Per-source `vision.fps` in `streams.toml` overrides this. `0` disables throttling. |
+| `default_fps` | int | `10` | Default frame rate for vision raw-frame pipes. Per-source `vision.fps` in source config overrides this. `0` disables throttling. |
 
 ## `[native_pipeline]`
 

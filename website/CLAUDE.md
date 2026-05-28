@@ -1,4 +1,4 @@
-# Agent guide — VideoNode docs
+# Agent guide: VideoNode docs
 
 This is the **VitePress** docs site for VideoNode, published at <https://mazurov.dev/videonode/> via the `gh-pages` branch. Content lives under `docs/`, config at `docs/.vitepress/config.ts`, build output at `docs/.vitepress/dist/`.
 
@@ -10,20 +10,20 @@ If you're an LLM agent writing or editing pages here, follow the rules below ver
 pnpm dev      # localhost:5174/videonode/  — hot reload
 ```
 
-## Diátaxis mode per page — never mix
+## Diátaxis mode per page (never mix)
 
 Every page lives in one of four modes. Stay in mode for the entire page.
 
 | Mode | Folder | Voice | Cardinal sin |
 |---|---|---|---|
-| **Tutorial** | `getting-started/` | "We'll…", "you'll see…" — beginner-friendly | Listing options; assuming knowledge |
+| **Tutorial** | `getting-started/` | "We'll…", "you'll see…" (beginner-friendly) | Listing options; assuming knowledge |
 | **How-to** | `operating/` | Imperative, terse | Teaching theory; multiple approaches |
 | **Reference** | `reference/` | Structured, table-first, no narrative | Telling a story; use cases |
 | **Explanation** | `development/` | Discursive, "because…", context | Step-by-step procedures |
 
-`reference/pipeline-model.md` is the one cross-folder exception — explanation living in `reference/` because that's where readers expect it. Otherwise: folder ⇒ mode.
+`reference/pipeline-model.md` is the one cross-folder exception: explanation living in `reference/` because that's where readers expect it. Otherwise: folder ⇒ mode.
 
-**Apply the compass at paragraph level, not just page level.** A reference page with a step-by-step procedure embedded mid-page is mixing modes inside the page — extract the procedure to a how-to and link. ([Diátaxis compass](https://diataxis.fr/compass/))
+**Apply the compass at paragraph level, not just page level.** A reference page with a step-by-step procedure embedded mid-page is mixing modes inside the page. Extract the procedure to a how-to and link. ([Diátaxis compass](https://diataxis.fr/compass/))
 
 ## Core rules (every page)
 
@@ -37,20 +37,21 @@ Every page lives in one of four modes. Stay in mode for the entire page.
 8. **No marketing voice, no emoji** unless quoting source. Skip "welcome!", "let's dive in", "in this guide we'll explore". Start.
 9. **Link laterally.** Relative paths to sibling pages (`../reference/config-toml`, no `.md` extension thanks to `cleanUrls: true`). Don't repeat content; link to it.
 10. **Code blocks need language tags.** ` ```toml`, ` ```go`, ` ```bash`. Required for syntax highlighting.
+11. **No em-dashes.** Never use `—` (U+2014). Em-dashes are the single strongest tell of LLM-written prose; they read affected even when grammatically correct. Use a colon, comma, parentheses, or two sentences instead. Search the file for `—` before saving; if you find one, rephrase.
 
 ## Mode-specific rules
 
 ### Tutorials (`getting-started/`)
 
-- **Never explain *why* mid-step — link out to an explanation page.** Inline rationale breaks the doing-flow that tutorials promise. ([Diátaxis tutorials](https://diataxis.fr/tutorials/))
+- **Never explain *why* mid-step.** Link out to an explanation page instead. Inline rationale breaks the doing-flow that tutorials promise. ([Diátaxis tutorials](https://diataxis.fr/tutorials/))
 - **Never offer alternative commands or paths.** Pick one and commit. Forcing the reader to choose during a tutorial breaks the contract. Alternatives belong in how-to or reference pages.
 - **One product change can cascade through the entire narrative.** Run the tutorial end-to-end after any non-trivial code change to the touched component. A broken mid-step destroys all reader confidence, and the damage is invisible until someone tries it.
 
 ### How-to guides (`operating/`)
 
-- **Title as a gerund phrase.** "Configuring TLS on RTSP" beats "TLS Configuration" — signals actionable content to scanners and search. ([Diátaxis how-to](https://diataxis.fr/how-to-guides/))
-- **State the goal *before* the action in every procedure step.** "To deploy, run `kubectl apply -f deploy.yaml`" — not "Run `kubectl apply -f deploy.yaml` to deploy." Readers scanning steps need to know if a step is relevant before committing to read it. ([Google procedures](https://developers.google.com/style/procedures))
-- **Practical completeness beats exhaustive completeness — document one path, the shortest viable one.** Covering every variation turns a how-to into a reference page, diluting both. ([Diátaxis how-to](https://diataxis.fr/how-to-guides/))
+- **Title as a gerund phrase.** "Configuring TLS on RTSP" beats "TLS Configuration": a gerund signals actionable content to scanners and search. ([Diátaxis how-to](https://diataxis.fr/how-to-guides/))
+- **State the goal *before* the action in every procedure step.** Write "To deploy, run `kubectl apply -f deploy.yaml`", not "Run `kubectl apply -f deploy.yaml` to deploy." Readers scanning steps need to know if a step is relevant before committing to read it. ([Google procedures](https://developers.google.com/style/procedures))
+- **Practical completeness beats exhaustive completeness.** Document one path, the shortest viable one. Covering every variation turns a how-to into a reference page, diluting both. ([Diátaxis how-to](https://diataxis.fr/how-to-guides/))
 
 ### Reference (`reference/`)
 
@@ -60,21 +61,21 @@ Every page lives in one of four modes. Stay in mode for the entire page.
 
 ### Explanation (`development/`)
 
-- **Explanation is not a luxury appended after how-tos.** Without explanation, practitioners develop "loose and fragmented and fragile knowledge." Justify design decisions and trade-offs — that's the whole point. ([Diátaxis explanation](https://diataxis.fr/explanation/))
+- **Explanation is not a luxury appended after how-tos.** Without explanation, practitioners develop "loose and fragmented and fragile knowledge." Justifying design decisions and trade-offs is the whole point. ([Diátaxis explanation](https://diataxis.fr/explanation/))
 - **Lead with the *because*, not the *what*.** The code already shows the what; the doc adds the why.
 
-## Style — Google developer style guide
+## Style (Google developer style guide)
 
 - **Second person.** "You configure…" not "We configure…" or "One configures…".
-- **Active voice as default; passive only for special cases.** Use passive when the actor is irrelevant ("The database was purged in January") or you're de-emphasizing blame ("Over 50 conflicts were found"). All other cases: doer = subject. Passive-as-default hides who does what — the primary failure mode in API docs. ([Google voice](https://developers.google.com/style/voice))
+- **Active voice as default; passive only for special cases.** Use passive when the actor is irrelevant ("The database was purged in January") or you're de-emphasizing blame ("Over 50 conflicts were found"). All other cases: doer = subject. Passive-as-default hides who does what, and that is the primary failure mode in API docs. ([Google voice](https://developers.google.com/style/voice))
 - **Sentence case for all headings.** `# Pipeline model`, not `# Pipeline Model`. Applies to `##` and `###` too.
-- **Descriptive link text.** Never `click here`, `this document`, `this article`, or a bare URL. Link text must make sense out of context — screen readers and search crawlers read it in isolation. ([Google link text](https://developers.google.com/style/link-text))
+- **Descriptive link text.** Never `click here`, `this document`, `this article`, or a bare URL. Link text must make sense out of context, because screen readers and search crawlers read it in isolation. ([Google link text](https://developers.google.com/style/link-text))
 - **Numbered lists for sequences only.** Step-by-step procedures get `1.`/`2.`/`3.`. Everything else uses bullets.
 - **Introduce every list with a complete sentence.** Not a fragment that the list grammatically completes. Fragment intros break screen reader flow and make the list non-scannable. ([Google lists](https://developers.google.com/style/lists))
 - **Serial comma:** "sources, composers, and streams".
 - **`code font` for identifiers.** `config.toml`, `--port`, `VideoSink::start()`. Bare text for UI labels and concepts.
 - **Don't inflect code as English words.** Never `` `ADDRESS`'s value ``; write `the ADDRESS constant's value`. Possessives on inline code force screen readers to treat `'s` as part of the identifier. ([Google code in text](https://developers.google.com/style/code-in-text))
-- **No pre-announcements.** Don't document features that don't exist yet. Leave them out — not a `:::note coming soon`.
+- **No pre-announcements.** Don't document features that don't exist yet. Leave them out entirely, not behind a `:::note coming soon`.
 
 ## Code samples
 
@@ -84,21 +85,21 @@ Every page lives in one of four modes. Stay in mode for the entire page.
 
 ## Mermaid diagrams
 
-`vitepress-plugin-mermaid` is wired in. Fenced ` ```mermaid` blocks render in any `.md` file — no JSX, no imports.
+`vitepress-plugin-mermaid` is wired in. Fenced ` ```mermaid` blocks render in any `.md` file with no JSX and no imports required.
 
 ### When to use a Mermaid diagram
 
 Use one when **a diagram makes the explanation faster than prose**:
-- **Pipeline / data flow** — `flowchart LR`.
-- **Sequence / RPC** — `sequenceDiagram`.
-- **State machine** — `stateDiagram-v2`.
-- **Decision tree** — `flowchart TD`.
+- **Pipeline / data flow**: `flowchart LR`.
+- **Sequence / RPC**: `sequenceDiagram`.
+- **State machine**: `stateDiagram-v2`.
+- **Decision tree**: `flowchart TD`.
 
 **Don't** use a diagram for: decoration; type hierarchies (use a table); lists of features (use bullets); anything with >15 nodes (readers can't scan, SVG bloats the page).
 
 ### Mermaid rules
 
-1. **Quote labels with special characters.** `A["videonode-source #1"]` — unquoted `#`, `(`, `:` break the parser silently.
+1. **Quote labels with special characters.** `A["videonode-source #1"]`: unquoted `#`, `(`, `:` break the parser silently.
 2. **Add accessible descriptions** via `accTitle` and `accDescr` directives. Mermaid renders as inline SVG with no synthesized alt text:
    ```mermaid
    flowchart LR
@@ -110,14 +111,14 @@ Use one when **a diagram makes the explanation faster than prose**:
      V4L2[V4L2 device] --> src[videonode-source]
      src --> comp[videonode-composer]
    ```
-3. **Diagram drift defense — cite the source as an HTML comment.** Above every diagram, add:
+3. **Diagram drift defense: cite the source as an HTML comment.** Above every diagram, add:
    ```markdown
    <!-- depicts: internal/streams/pipelinectl/manager.go:Manager.spawn (rev as of <commit-sha>) -->
    ```
    No automated Mermaid-to-code test tooling exists. The comment tells reviewers which file to re-read when checking for drift. This is the only reliable defense.
 4. **One diagram per concept.** Two diagrams explaining the same thing from different angles means you're explaining the wrong thing.
 5. **Keep node labels short** (≤30 chars). Detail goes in a numbered list below the diagram, referencing node IDs.
-6. **Don't style manually.** No `classDef`, no inline color overrides. The plugin handles light/dark theme auto-switching — manual colors break dark mode.
+6. **Don't style manually.** No `classDef`, no inline color overrides. The plugin handles light/dark theme auto-switching; manual colors break dark mode.
 7. **No `subgraph` unless the grouping is the point** (e.g., "everything inside this box is one process").
 8. **Heavy diagrams: pre-render to SVG.** >15 nodes or slow in dev → run through the [Mermaid Live Editor](https://mermaid.live), export SVG, drop into `docs/public/diagrams/`, reference as `![alt](/videonode/diagrams/foo.svg)`. Runtime stays slim; the diagram becomes uneditable in markdown. Accept the tradeoff for big ones.
 
@@ -135,7 +136,7 @@ The sidebar is **explicit** in `docs/.vitepress/config.ts`. **When you add a new
 ### Links
 
 - Path-style without extension: `[the API](../reference/rest-api)`, not `(...rest-api.md)`.
-- Dead links fail CI — fix or remove the link before merging.
+- Dead links fail CI. Fix or remove the link before merging.
 
 ### Code groups (multi-tab snippets)
 
@@ -170,6 +171,6 @@ One type per page max. Misuse dilutes attention.
 - **No FAQs.** Every FAQ item is either a how-to (task), an explanation (concept), or a reference entry. Route it there. FAQ pages "accumulate disparate content on unrelated topics" and rot fast. ([Write the Docs](https://www.writethedocs.org/guide/writing/beginners-guide-to-docs/))
 - **Don't introduce a new top-level section folder** (`troubleshooting/`, `recipes/`, etc.) without updating both the sidebar in `config.ts` AND `clean-exclude` in `.github/workflows/release.yml`. Otherwise the next release-tag apt-deploy will delete the folder.
 - **Don't write `:::note coming soon` or `TODO: write this later`.** Leave the page out entirely.
-- **Don't link to GitHub source with line numbers in rendered prose** — they rot. Link to file paths; let the reader navigate.
+- **Don't link to GitHub source with line numbers in rendered prose**: they rot. Link to file paths; let the reader navigate.
 - **Don't migrate content from `CLAUDE.md` or `AGENTS.md` verbatim.** Those speak to coding agents; this site speaks to humans. Translate.
 - **Don't add tracking, analytics, or comment systems.**

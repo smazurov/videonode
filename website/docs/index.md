@@ -4,7 +4,7 @@ layout: home
 hero:
   name: VideoNode
   text: Hardware-accelerated video streaming for Linux
-  tagline: V4L2 capture, GPU composition, RTSP/SRT/WebRTC out — driven by a single Go daemon.
+  tagline: V4L2 capture, GPU composition, RTSP/SRT/WebRTC out. Driven by a single Go daemon.
   actions:
     - theme: brand
       text: Get Started
@@ -15,12 +15,12 @@ hero:
 
 features:
   - title: Three-entity pipeline
-    details: Sources, composers, and streams as independent top-level entities — each with its own lifecycle, CRUD API, and ref-based wiring.
+    details: Sources, composers, and streams as independent top-level entities, each with its own lifecycle, CRUD API, and ref-based wiring.
     link: /reference/pipeline-model
   - title: Hardware encoders
     details: Rockchip MPP, VAAPI, software fallback. validate-encoders picks the right one per platform.
     link: /operating/encoders
   - title: Live composition
-    details: Multi-input GPU canvas with per-source layout and perspective transforms — edited via unary RPCs without restarting the pipeline.
+    details: Multi-input GPU canvas with per-source layout and perspective transforms, edited via unary RPCs without restarting the pipeline.
     link: /development/architecture
 ---

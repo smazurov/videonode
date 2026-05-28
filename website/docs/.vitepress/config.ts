@@ -17,6 +17,7 @@ export default withMermaid(
     themeConfig: {
       nav: [
         { text: 'Docs', link: '/getting-started/introduction' },
+        { text: 'Changelog', link: '/changelog' },
         { text: 'GitHub', link: 'https://github.com/smazurov/videonode' },
       ],
 
@@ -78,7 +79,7 @@ export default withMermaid(
     },
 
     mermaid: {
-      // Mermaid config — see https://mermaid.js.org/config/setup/modules/mermaidAPI.html
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
     },
   })
 );

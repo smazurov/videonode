@@ -1,0 +1,14 @@
+/* Mermaid diagrams in the doc column: scale to width, enforce readable min-height. */
+.vp-doc .mermaid {
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  padding: 0.5rem 0;
+  text-align: center;
+}
+
+.vp-doc .mermaid svg {
+  max-width: 100%;
+  height: auto !important;
+  min-height: 280px;
+  display: inline-block;
+}
