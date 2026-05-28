@@ -182,14 +182,16 @@ jobs:
           clean-exclude: |
             index.html
             404.html
+            changelog.html
             hashmap.json
             vp-icons.css
+            sitemap.xml
             assets
             getting-started
             reference
             operating
             development
+            screenshots
             CNAME
           force: false
           attempt-limit: 3
-          cname: mazurov.dev

@@ -55,4 +55,3 @@ jobs:
             CNAME
           force: false
           attempt-limit: 3
-          cname: mazurov.dev

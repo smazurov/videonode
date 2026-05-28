@@ -6,7 +6,7 @@ VideoNode is a self-hosted video streaming server for Linux. It takes frames fro
 
 ## Three-entity pipeline model
 
-VideoNode v2 organises every pipeline into three independent entities. Each has its own identity, CRUD surface, and lifecycle. Streams reference upstream entities by explicit ID. There is no monolithic block that bundles capture, composition, and encoding together.
+VideoNode organises every pipeline into three independent entities. Each has its own identity, CRUD surface, and lifecycle. Streams reference upstream entities by explicit ID. There is no monolithic block that bundles capture, composition, and encoding together.
 
 - **Source** captures V4L2 frames from one device (or generates a test pattern when `test_mode = true`) and broadcasts raw NV12 frames to any number of consumers. A source runs as a separate `videonode-source` process per source ID.
 - **Composer** reads frames from one or more sources, composites them onto a BGRA canvas using GLES, and broadcasts the result. Multiple streams can share one composer: the GPU does the compositing work once, and each stream pays only its own encoder cost. A composer is optional; streams that need no compositing reference a source directly.
