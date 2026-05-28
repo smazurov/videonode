@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "changelog": "chglog format --template-file scripts/changelog.tpl -i ../changelog.yml -o docs/changelog.md",
-    "predev": "pnpm changelog",
-    "prebuild": "pnpm changelog",
+    "version-stamp": "chglog format --template-file scripts/version.tpl -i ../changelog.yml -o docs/.vitepress/version.json",
+    "predev": "pnpm changelog && pnpm version-stamp",
+    "prebuild": "pnpm changelog && pnpm version-stamp",
     "dev": "vitepress dev docs --port 5174",
     "build": "vitepress build docs",
     "preview": "vitepress preview docs",
