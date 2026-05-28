@@ -1,7 +1,10 @@
 #!/bin/sh
 set -e
 
-if [ -d /run/systemd/system ]; then
-    deb-systemd-invoke stop videonode.service || true
-    deb-systemd-helper disable videonode.service || true
-fi
+case "$1" in
+    remove|upgrade|deconfigure)
+        if [ -d /run/systemd/system ]; then
+            deb-systemd-invoke stop videonode.service >/dev/null || true
+        fi
+        ;;
+esac
