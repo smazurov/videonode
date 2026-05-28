@@ -30,9 +30,10 @@ jobs:
     permissions:
       contents: read
     steps:
+      - run: apt-get update -qq && apt-get install -y -qq git ca-certificates
       - uses: actions/checkout@v6
 
-      # C++ first — build-deb-arm64.sh installs ca-certificates, git, etc.
+      # C++ first — build-deb-arm64.sh installs remaining deps
       - name: Build native C++ binaries
         run: composer/scripts/build-deb-arm64.sh
         env:
