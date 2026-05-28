@@ -1,5 +1,5 @@
 Package: videonode
-Version: 4.0.0~rc3
+Version: 4.0.0~rc4
 Architecture: arm64
 Maintainer: Stepan Mazurov <smazurov@gmail.com>
 Installed-Size: 29328
@@ -7,12 +7,12 @@ Depends: libc6, libstdc++6, libegl1, libgles2, libgbm1, libdrm2
 Homepage: https://github.com/smazurov/videonode
 Priority: optional
 Section: video
-Filename: pool/main/v/videonode/videonode_4.0.0~rc3_arm64.deb
-Size: 11139796
-SHA512: a068154c4ab76690b3a89067962ddf789f0f8c4fba7fc6f4bffe919c0347c3620143d05c49e786fb2a7ab2418343e66f07ca73e0e23aa2defefa6c1f5e68f334
-SHA256: 1082aade06da3a9700416b9ab47e5a2bcb6b8531a04d0d158b28ab8bd52f41c0
-SHA1: 60c5cae72ea7e3abe6cc7ced18f6a758dba6a07d
-MD5sum: 9ee58f677b79702a544a9b8f811bf834
+Filename: pool/main/v/videonode/videonode_4.0.0~rc4_arm64.deb
+Size: 11139260
+SHA512: 646610cb8baa09219d17355ca37b479157db8eb10122b6c2dbe20f0ea6845999f6302f4841f2bbb529f600b03f04da3ec1ef36e3766d1b7c29035e879a35b37c
+SHA256: da6606a20c2355ae01841a4ea96d53183d49d890e83d57617d42c397b2caf933
+SHA1: a373f5a9a7ed5c55f2121c04ee0c7ab831675a14
+MD5sum: c6eca777dd0ec75044e5f089e53467c4
 Description: RK3588 video streaming server with native dma-buf pipeline.
  Turns V4L2 capture devices into RTSP, WebRTC, and SRT streams
  with GPU-accelerated compositing via EGL/GLES on Mali-G610.
@@ -27,9 +27,9 @@ Priority: optional
 Section: 
 Filename: pool/main/v/videonode-keyring/videonode-keyring_1779921143_all.deb
 Size: 986
-SHA512: a94d48f36e9cd755c13b8358c7c4eb52b04d813ad36ca7858d252a22d2e2a202c9c5bcc898ab34f6a1d47a96ce2462334c27bae6895f74822fbf6eac2530dd60
-SHA256: 36b9e848fce2c614282330807cdb63f1a742f8fdf7fc5e78fd0c49df4db83747
-SHA1: bb4cc93626dc72c13f490dd2f6d61ca4ea704489
-MD5sum: 0a0f1e47ba2e201f5c7e8d81eff20c89
+SHA512: 082e8970921bd2307874d9a695f499032db63f4b1105014637519dd12d65e477ecae31cea4c22b5b44007f823239c8764ee2f15e47120e0d6834a69e6d786f84
+SHA256: f3c6975fef2665f32831d4ad6b36009fc594c0d21574a6fafff4a4a99e18eb1f
+SHA1: 34b68bb6f9d8109138c6fabd30e1f2344dbd3c3a
+MD5sum: e43a076cbcd684e64a2cd47181c62a20
 Description: videonode keyring
 
