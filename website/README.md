@@ -6,7 +6,7 @@ VitePress source for the docs published at <https://mazurov.dev/videonode/>.
 
 ```bash
 pnpm install
-pnpm dev    # http://localhost:5173/videonode/
+pnpm dev    # http://localhost:5174/videonode/   (UI uses 5173)
 ```
 
 `pnpm build` produces a static site under `docs/.vitepress/dist/`. The same command runs in CI.
