@@ -350,7 +350,11 @@ TEST(LatestFrameHolder, ConcurrentUpdateAndSnapshot) {
     std::atomic<bool> stop{false};
     std::atomic<uint64_t> last_published{0};
 
-    std::thread producer([&] {
+    // jthread so a fatal ASSERT failure in the consumer (which returns from
+    // the test body, skipping join()) auto-joins on destruction instead of
+    // tripping std::terminate() — that abort otherwise masks the real
+    // assertion message behind a bare SIGABRT.
+    std::jthread producer([&] {
         for (uint64_t i = 1; i <= N; ++i) {
             vn::snapshot::FrameRef r{};
             r.format = vn::snapshot::Format::Nv12;
@@ -361,8 +365,12 @@ TEST(LatestFrameHolder, ConcurrentUpdateAndSnapshot) {
             r.planes[0] = {.fd = fd, .offset = 0, .pitch = W, .row_bytes = W, .rows = H};
             r.planes[1] = {.fd = fd, .offset = W * H, .pitch = W, .row_bytes = W, .rows = H / 2};
             r.frame_idx = i;
-            h.Update(r);
+            // Advance the published-counter BEFORE making the frame visible,
+            // so last_published is always an upper bound on what a consumer can
+            // Snapshot. Update() publishes under a mutex; a consumer that
+            // observes frame i therefore also observes last_published >= i.
             last_published.store(i, std::memory_order_release);
+            h.Update(r);
         }
         stop.store(true, std::memory_order_release);
     });
