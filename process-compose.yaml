@@ -23,3 +23,10 @@ processes:
     working_dir: "./ui"
     availability:
       restart: "on_failure"
+
+  # Documentation site (VitePress) — http://localhost:5174/videonode/
+  docs:
+    command: "node_modules/.bin/vitepress dev docs --host 0.0.0.0 --port 5174"
+    working_dir: "./website"
+    availability:
+      restart: "on_failure"

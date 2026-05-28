@@ -1,0 +1,21 @@
+{
+  "name": "videonode-docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "changelog": "chglog format --template-file scripts/changelog.tpl -i ../changelog.yml -o docs/changelog.md",
+    "version-stamp": "chglog format --template-file scripts/version.tpl -i ../changelog.yml -o docs/.vitepress/version.json",
+    "predev": "pnpm changelog && pnpm version-stamp",
+    "prebuild": "pnpm changelog && pnpm version-stamp",
+    "dev": "vitepress dev docs --port 5174",
+    "build": "vitepress build docs",
+    "preview": "vitepress preview docs",
+    "start": "vitepress dev docs --host 0.0.0.0 --port 5174"
+  },
+  "devDependencies": {
+    "mermaid": "^11.15.0",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
+  }
+}
