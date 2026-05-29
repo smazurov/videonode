@@ -16,10 +16,13 @@
 #include <gbm.h>
 #include <gtest/gtest.h>
 
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
+#include <linux/dma-buf.h>
 #include <span>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -27,6 +30,28 @@ namespace {
 
 constexpr int kW = 64;
 constexpr int kH = 64;
+
+// A consumer's independent mmap of a dma-buf is not guaranteed cache-coherent
+// with producer-side writes until the CPU access is bracketed by
+// DMA_BUF_IOCTL_SYNC. Skipping it makes reads on the gbm/radeonsi dev-box
+// backend intermittently return stale (zero) bytes. Exporters that don't
+// implement the ioctl report the buffer as already coherent (ENOTTY), so a
+// failed sync is harmless here.
+void dmabuf_sync(int fd, uint64_t flags) {
+    dma_buf_sync sync = {};
+    sync.flags = flags;
+    while (::ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync) == -1 && (errno == EINTR || errno == EAGAIN)) {
+    }
+}
+
+// Read byte 0 of a consumer-mapped dma-buf with the full CPU-access sync
+// bracket so the value reflects the latest producer write, deterministically.
+uint8_t coherent_read0(int fd, std::span<const uint8_t> view) {
+    dmabuf_sync(fd, DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ);
+    uint8_t v = view[0];
+    dmabuf_sync(fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+    return v;
+}
 
 } // namespace
 
@@ -75,7 +100,8 @@ TEST(Nv12RingOverwrite, RingSlotReuseCausesDataCorruption) {
 
     // Verify consumer sees the original 0xAA data.
     std::span<const uint8_t> consumer_view(static_cast<const uint8_t*>(consumer_map), y_size);
-    EXPECT_EQ(consumer_view[0], 0xAA) << "consumer should see original data";
+    EXPECT_EQ(coherent_read0(consumer_fd, consumer_view), 0xAA)
+        << "consumer should see original data";
 
     // Frame 1: write 0xBB into slot 1 (different slot, no conflict).
     {
@@ -86,7 +112,8 @@ TEST(Nv12RingOverwrite, RingSlotReuseCausesDataCorruption) {
     }
 
     // Consumer should still see 0xAA in slot 0.
-    EXPECT_EQ(consumer_view[0], 0xAA) << "consumer should still see 0xAA after slot 1 write";
+    EXPECT_EQ(coherent_read0(consumer_fd, consumer_view), 0xAA)
+        << "consumer should still see 0xAA after slot 1 write";
 
     // Frame 2: V4L2 returns buffer index 0 again → CSC writes into
     // ring[0 % 2] = ring[0], overwriting the consumer's data.
@@ -99,24 +126,25 @@ TEST(Nv12RingOverwrite, RingSlotReuseCausesDataCorruption) {
 
     // Consumer's mmap of the SAME underlying dma-buf now shows 0xCC.
     // This is the overwrite race.
-    bool overwritten = (consumer_view[0] == 0xCC);
+    uint8_t seen = coherent_read0(consumer_fd, consumer_view);
+    bool overwritten = (seen == 0xCC);
     if (overwritten) {
         printf("  [CONFIRMED] Ring slot reuse overwrote consumer's view: "
                "expected 0xAA, got 0x%02X — source CSC ring race demonstrated\n",
-               consumer_view[0]);
+               seen);
     } else {
         printf("  [INFO] Consumer still sees 0x%02X (expected 0xAA) — "
                "driver may cache differently\n",
-               consumer_view[0]);
+               seen);
     }
 
     // The key assertion: with a 2-slot ring and V4L2-style indexing,
     // the producer WILL overwrite the consumer's buffer. This test
     // documents the race rather than asserting a specific outcome,
     // since cache coherency behavior varies by driver.
-    EXPECT_TRUE(overwritten || consumer_view[0] == 0xAA)
+    EXPECT_TRUE(overwritten || seen == 0xAA)
         << "consumer should see either original (0xAA) or overwritten (0xCC) data, got 0x"
-        << std::hex << int(consumer_view[0]);
+        << std::hex << int(seen);
 
     ::munmap(consumer_map, y_size);
     ::close(consumer_fd);
@@ -162,7 +190,7 @@ TEST(Nv12RingOverwrite, DeeperRingDelaysReuse) {
     ASSERT_NE(consumer_map, MAP_FAILED);
 
     std::span<const uint8_t> consumer_view(static_cast<const uint8_t*>(consumer_map), y_size);
-    EXPECT_EQ(consumer_view[0], 0xAA);
+    EXPECT_EQ(coherent_read0(consumer_fd, consumer_view), 0xAA);
 
     // Frames 1 and 2 go to slots 1 and 2 — slot 0 is untouched.
     for (int i = 1; i < kRingSize; ++i) {
@@ -173,7 +201,7 @@ TEST(Nv12RingOverwrite, DeeperRingDelaysReuse) {
     }
 
     // After 2 frames, consumer's slot 0 is still intact.
-    EXPECT_EQ(consumer_view[0], 0xAA)
+    EXPECT_EQ(coherent_read0(consumer_fd, consumer_view), 0xAA)
         << "3-slot ring: slot 0 should survive 2 frame advances without overwrite";
 
     printf("  [OK] 3-slot ring preserved slot 0 through frames 1-2\n");
