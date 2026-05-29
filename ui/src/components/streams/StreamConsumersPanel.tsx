@@ -227,6 +227,8 @@ function disconnectConsumer(streamId: string, protocol: Protocol, clientId: stri
   fetch(`${API_BASE_URL}/api/streams/${encodeURIComponent(streamId)}/${protocol}/consumers/${encodeURIComponent(clientId)}`, {
     method: 'DELETE',
     headers: credentials ? { Authorization: `Basic ${credentials}` } : {},
+  }).catch((error: unknown) => {
+    console.error(`Failed to disconnect ${protocol} consumer ${clientId}:`, error);
   });
 }
 
