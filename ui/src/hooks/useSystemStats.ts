@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { components } from '../lib/api.generated';
 import { api, unwrap } from '../lib/api';
 
@@ -22,6 +22,7 @@ export function useSystemStats({
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasDataRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -31,9 +32,10 @@ export function useSystemStats({
 
     const fetchOnce = async () => {
       try {
-        if (stats === null) setLoading(true);
+        if (!hasDataRef.current) setLoading(true);
         const data = unwrap(await api.GET('/api/system'), 'Failed to load system stats');
         if (cancelled) return;
+        hasDataRef.current = true;
         setStats(data);
         setError(null);
       } catch (error_: unknown) {
@@ -53,7 +55,6 @@ export function useSystemStats({
       cancelled = true;
       if (timer != null) window.clearInterval(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, intervalMs]);
 
   return { stats, loading, error };
