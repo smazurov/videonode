@@ -35,7 +35,7 @@ export function EntityDetailLayout({
       {breadcrumbs && breadcrumbs.length > 0 && (
         <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-xs text-fg-muted">
           {breadcrumbs.map((entry, idx) => (
-            <span key={idx} className="inline-flex items-center gap-1">
+            <span key={entry.to ?? `crumb-${idx}`} className="inline-flex items-center gap-1">
               {entry.to ? (
                 <Link to={entry.to} className="hover:text-fg">
                   {entry.label}

@@ -40,10 +40,21 @@ interface IconButtonProps
   readonly size?: Variants["size"];
   readonly theme?: Variants["theme"];
   readonly iconSize?: IconSize;
+  readonly ref?: React.Ref<HTMLButtonElement>;
 }
 
-export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
-  ({ icon: Icon, label, size = "MD", theme = "blank", iconSize = "MD", className, type = "button", ...props }, ref) => (
+export function IconButton({
+  icon: Icon,
+  label,
+  size = "MD",
+  theme = "blank",
+  iconSize = "MD",
+  className,
+  type = "button",
+  ref,
+  ...props
+}: Readonly<IconButtonProps>) {
+  return (
     <button
       ref={ref}
       type={type}
@@ -54,7 +65,5 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
     >
       <Icon className={cn(ICON_SIZE[iconSize], "shrink-0")} aria-hidden="true" />
     </button>
-  ),
-);
-
-IconButton.displayName = "IconButton";
+  );
+}

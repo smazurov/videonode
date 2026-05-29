@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 
 import { Button } from '../Button';
@@ -16,6 +16,17 @@ interface ComposerCanvasEditorProps {
   composer: ComposerData;
 }
 
+interface CanvasDraft {
+  w: number;
+  h: number;
+  fps: number;
+  // The committed prop values this draft was seeded from, used to detect
+  // external changes (SSE, another tab) and reset without a sync-setState effect.
+  seededW: number;
+  seededH: number;
+  seededFps: number;
+}
+
 // Canvas dim + fps editor with explicit Apply. Changing any of these
 // fields restarts the videonode-composer process (and drops downstream
 // encoders momentarily), so we don't auto-save on every keystroke the
@@ -24,19 +35,44 @@ export function ComposerCanvasEditor({ composer }: Readonly<ComposerCanvasEditor
   const updateComposer = useComposerStore((s) => s.updateComposer);
   const persistedFps = composer.canvas.fps ?? DEFAULT_CANVAS_FPS;
 
-  const [w, setW] = useState(composer.canvas.w);
-  const [h, setH] = useState(composer.canvas.h);
-  const [fps, setFps] = useState(persistedFps);
+  const [draft, setDraft] = useState<CanvasDraft>(() => ({
+    w: composer.canvas.w,
+    h: composer.canvas.h,
+    fps: persistedFps,
+    seededW: composer.canvas.w,
+    seededH: composer.canvas.h,
+    seededFps: persistedFps,
+  }));
   const [saving, setSaving] = useState(false);
 
-  // Reseed local state if the composer changes underneath us (SSE,
-  // another tab, etc.). Comparing by primitive avoids resetting while
-  // the user is typing.
-  useEffect(() => {
-    setW(composer.canvas.w);
-    setH(composer.canvas.h);
-    setFps(persistedFps);
-  }, [composer.canvas.w, composer.canvas.h, persistedFps]);
+  // When props change externally (SSE, another tab), derive the reset during
+  // render by updating state directly — React re-renders immediately without
+  // painting the intermediate state, avoiding the cascading-render problem of
+  // synchronous setState inside a useEffect body.
+  const { w: draftW, h: draftH, fps: draftFps, seededW, seededH, seededFps } = draft;
+  let w = draftW;
+  let h = draftH;
+  let fps = draftFps;
+  if (
+    seededW !== composer.canvas.w ||
+    seededH !== composer.canvas.h ||
+    seededFps !== persistedFps
+  ) {
+    const nextW = draftW === seededW ? composer.canvas.w : draftW;
+    const nextH = draftH === seededH ? composer.canvas.h : draftH;
+    const nextFps = draftFps === seededFps ? persistedFps : draftFps;
+    w = nextW;
+    h = nextH;
+    fps = nextFps;
+    setDraft({
+      w: nextW,
+      h: nextH,
+      fps: nextFps,
+      seededW: composer.canvas.w,
+      seededH: composer.canvas.h,
+      seededFps: persistedFps,
+    });
+  }
 
   const errors = useMemo(() => validateCanvas({ w, h, fps }), [w, h, fps]);
   const dirty = w !== composer.canvas.w || h !== composer.canvas.h || fps !== persistedFps;
@@ -59,9 +95,14 @@ export function ComposerCanvasEditor({ composer }: Readonly<ComposerCanvasEditor
   };
 
   const handleRevert = () => {
-    setW(composer.canvas.w);
-    setH(composer.canvas.h);
-    setFps(persistedFps);
+    setDraft({
+      w: composer.canvas.w,
+      h: composer.canvas.h,
+      fps: persistedFps,
+      seededW: composer.canvas.w,
+      seededH: composer.canvas.h,
+      seededFps: persistedFps,
+    });
   };
 
   return (
@@ -78,7 +119,7 @@ export function ComposerCanvasEditor({ composer }: Readonly<ComposerCanvasEditor
             max={7680}
             step={2}
             value={w}
-            onChange={(e) => setW(parseInt(e.target.value, 10) || 0)}
+            onChange={(e) => setDraft((d) => ({ ...d, w: parseInt(e.target.value, 10) || 0 }))}
             {...(errors.w ? { error: errors.w } : {})}
             fullWidth
           />
@@ -89,7 +130,7 @@ export function ComposerCanvasEditor({ composer }: Readonly<ComposerCanvasEditor
             max={4320}
             step={2}
             value={h}
-            onChange={(e) => setH(parseInt(e.target.value, 10) || 0)}
+            onChange={(e) => setDraft((d) => ({ ...d, h: parseInt(e.target.value, 10) || 0 }))}
             {...(errors.h ? { error: errors.h } : {})}
             fullWidth
           />
@@ -100,7 +141,7 @@ export function ComposerCanvasEditor({ composer }: Readonly<ComposerCanvasEditor
             max={240}
             step={1}
             value={fps}
-            onChange={(e) => setFps(parseInt(e.target.value, 10) || 0)}
+            onChange={(e) => setDraft((d) => ({ ...d, fps: parseInt(e.target.value, 10) || 0 }))}
             {...(errors.fps ? { error: errors.fps } : {})}
             fullWidth
           />

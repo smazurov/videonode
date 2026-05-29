@@ -24,7 +24,7 @@ import { canvasFpsOrDefault } from '../lib/composer-types';
 export default function ComposerDetail() {
   const navigate = useNavigate();
   const { composerId } = useParams<{ composerId: string }>();
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
 
   const composer = useComposerStore((s) =>
     composerId ? s.composersById[composerId] : undefined,

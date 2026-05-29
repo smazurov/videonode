@@ -10,7 +10,7 @@ import { StreamList } from '../components/streams/StreamList';
 
 export default function Streams() {
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
 
   const streamIds = useStreamStore((state) => state.streamIds);
   const { loading, error } = useStreamStore(

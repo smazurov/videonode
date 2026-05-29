@@ -28,8 +28,8 @@ export function KVInspector({
         className,
       )}
     >
-      {entries.map((entry, idx) => (
-        <React.Fragment key={idx}>
+      {entries.map((entry) => (
+        <React.Fragment key={String(entry.label)}>
           <dt className={cn("text-fg-muted font-medium", dense ? "py-0.5" : "py-1")}>
             {entry.label}
           </dt>

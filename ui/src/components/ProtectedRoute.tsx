@@ -6,7 +6,7 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children }: Readonly<ProtectedRouteProps>) {
-  const { user } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
   const location = useLocation();
 
   if (!user?.isAuthenticated) {

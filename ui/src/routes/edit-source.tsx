@@ -11,7 +11,7 @@ import { formatUptime } from '../lib/formatUptime';
 export default function EditSource() {
   const navigate = useNavigate();
   const { sourceId } = useParams<{ sourceId: string }>();
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
 
   const sourceData = useSourceStore((s) =>
     sourceId ? s.sourcesById[sourceId] : undefined,

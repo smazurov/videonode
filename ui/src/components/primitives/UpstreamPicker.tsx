@@ -141,11 +141,11 @@ export function UpstreamPicker({
             {filtered.length === 0 ? (
               <div className="px-3 py-2 text-fg-muted text-xs">No matches</div>
             ) : (
-              filtered.map((entry, idx) => {
+              filtered.map((entry) => {
                 if ("header" in entry) {
                   return (
                     <div
-                      key={`h-${entry.header}-${idx}`}
+                      key={`header-${entry.header}`}
                       className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-fg-subtle"
                     >
                       {KIND_LABELS[entry.header]}

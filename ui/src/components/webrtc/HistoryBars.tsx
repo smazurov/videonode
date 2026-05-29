@@ -41,13 +41,13 @@ export function HistoryBar({
 
   const bars = (
     <div className={`flex h-3 ${inline ? 'mr-2 inline-flex' : ''}`}>
-      {Array.from({ length: emptySlots }).map((_, i) => (
-        <div key={`empty-${i}`} className="w-2 h-full bg-surface-muted" />
+      {Array.from({ length: emptySlots }, (_, i) => i).map((slotPos) => (
+        <div key={`empty-slot-${slotPos}`} className="w-2 h-full bg-surface-muted" />
       ))}
-      {recentSamples.map((sample, i) => {
+      {recentSamples.map((sample) => {
         const ratio = Math.min(getValue(sample) / maxValue, 1);
         return (
-          <div key={`sample-${i}`} className="w-2 h-full bg-surface-muted overflow-hidden flex flex-col-reverse">
+          <div key={sample.timestamp} className="w-2 h-full bg-surface-muted overflow-hidden flex flex-col-reverse">
             <div className={`w-full ${getColor(sample)}`} style={{ height: `${ratio * 100}%` }} />
           </div>
         );

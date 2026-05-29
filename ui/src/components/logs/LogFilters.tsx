@@ -156,47 +156,50 @@ export function LogFilters({
       {/* Attribute Filters Row */}
       {attributeFilters.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-surface-muted border-b border-border shrink-0">
-          {attributeFilters.map((filter, index) => (
-            <div key={index} className="flex items-center gap-1.5">
-              <select
-                value={filter.key}
-                aria-label={`Attribute key ${index + 1}`}
-                onChange={e => onUpdateAttributeFilter(index, { key: e.target.value })}
-                className="pl-2 pr-7 py-0.5 text-xs bg-surface border border-border rounded text-canvas-soft-fg cursor-pointer bg-right focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-              >
-                {availableAttributeKeys.map(key => (
-                  <option key={key} value={key}>{key}</option>
-                ))}
-              </select>
-              <select
-                value={filter.operator}
-                aria-label={`Attribute operator ${index + 1}`}
-                onChange={e => onUpdateAttributeFilter(index, { operator: e.target.value as AttributeFilter['operator'] })}
-                className="pl-2 pr-7 py-0.5 text-xs bg-surface border border-border rounded text-fg-muted cursor-pointer bg-right focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-              >
-                <option value="contains">~</option>
-                <option value="equals">=</option>
-                <option value="exists">?</option>
-              </select>
-              {filter.operator !== 'exists' && (
-                <input
-                  type="text"
-                  value={filter.value}
-                  aria-label={`Attribute value ${index + 1}`}
-                  onChange={e => onUpdateAttributeFilter(index, { value: e.target.value })}
-                  placeholder="value"
-                  className="w-20 px-2 py-0.5 text-xs bg-surface border border-border rounded text-srt-soft-fg placeholder:text-fg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                />
-              )}
-              <button
-                onClick={() => onRemoveAttributeFilter(index)}
-                aria-label={`Remove attribute filter ${index + 1}`}
-                className="px-1.5 py-0.5 text-xs text-fg-subtle hover:text-fg bg-surface border border-border rounded hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-focus-ring"
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {attributeFilters.map((filter, index) => {
+            const filterKey = `${filter.key}:${filter.operator}:${filter.value}`;
+            return (
+              <div key={filterKey} className="flex items-center gap-1.5">
+                <select
+                  value={filter.key}
+                  aria-label={`Attribute key ${index + 1}`}
+                  onChange={e => onUpdateAttributeFilter(index, { key: e.target.value })}
+                  className="pl-2 pr-7 py-0.5 text-xs bg-surface border border-border rounded text-canvas-soft-fg cursor-pointer bg-right focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                >
+                  {availableAttributeKeys.map(key => (
+                    <option key={key} value={key}>{key}</option>
+                  ))}
+                </select>
+                <select
+                  value={filter.operator}
+                  aria-label={`Attribute operator ${index + 1}`}
+                  onChange={e => onUpdateAttributeFilter(index, { operator: e.target.value as AttributeFilter['operator'] })}
+                  className="pl-2 pr-7 py-0.5 text-xs bg-surface border border-border rounded text-fg-muted cursor-pointer bg-right focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                >
+                  <option value="contains">~</option>
+                  <option value="equals">=</option>
+                  <option value="exists">?</option>
+                </select>
+                {filter.operator !== 'exists' && (
+                  <input
+                    type="text"
+                    value={filter.value}
+                    aria-label={`Attribute value ${index + 1}`}
+                    onChange={e => onUpdateAttributeFilter(index, { value: e.target.value })}
+                    placeholder="value"
+                    className="w-20 px-2 py-0.5 text-xs bg-surface border border-border rounded text-srt-soft-fg placeholder:text-fg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  />
+                )}
+                <button
+                  onClick={() => onRemoveAttributeFilter(index)}
+                  aria-label={`Remove attribute filter ${index + 1}`}
+                  className="px-1.5 py-0.5 text-xs text-fg-subtle hover:text-fg bg-surface border border-border rounded hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-focus-ring"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </>

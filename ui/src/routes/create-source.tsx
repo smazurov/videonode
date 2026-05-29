@@ -7,7 +7,7 @@ import { useAuthStore } from '../hooks/useAuthStore';
 
 export default function CreateSource() {
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
 
   const handleSuccess = async () => {
     navigate('/sources');
