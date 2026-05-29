@@ -5,6 +5,7 @@ VideoNode is distributed as a Debian package for Linux arm64. This page covers i
 **Prerequisites:**
 
 - Linux, arm64 (aarch64). VideoNode targets Rockchip RK3588 SBCs for hardware encoding. The recommended board is the [FriendlyElec NanoPC-T6](https://www.friendlyelec.com/index.php?route=product/product&product_id=292) (8GB / 64GB eMMC or higher); other RK3588 boards work but the encoder paths are tuned and validated against the T6.
+- Debian 13 (trixie) or newer. The native binaries link trixie-era shared libraries (`libplacebo349`, `libabsl20240722`, and the `t64` builds of gRPC and protobuf), so `apt` refuses to install VideoNode on bookworm or older with a `base-files (>= 13~)` dependency error. Upgrade the board's OS to trixie first if it is still on bookworm.
 - A V4L2-capable capture device (e.g. `/dev/video0`): USB or MIPI-CSI cameras, HDMI capture cards. Verify with `v4l2-ctl --list-devices`.
 - `curl`, `gpg`, and `apt` available
 - A Linux account with `sudo` for the install steps below

@@ -21,7 +21,15 @@ license: AGPL-3.0-or-later
 # bump them if the build base moves.
 # librga / librockchip_mpp are board-specific (not in Debian) and provided by
 # install-rockchip-libs.sh / the Armbian image, so they are not declared here.
+#
+# base-files (>= 13~) gates the OS to trixie+. The trixie-only sonames below
+# already make the package uninstallable on bookworm, but apt reports that as a
+# cryptic pile of "not installable" lib errors. base-files tracks the Debian
+# release (bookworm 12.x, trixie 13.x), so this turns the refusal into a
+# readable "Depends: base-files (>= 13~) but 12.x is installed". The ~ lets any
+# trixie point release (13.8+deb13u4, ...) satisfy it.
 depends:
+  - base-files (>= 13~)
   - libc6
   - libstdc++6
   - libegl1
