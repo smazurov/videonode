@@ -5,12 +5,44 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 )
+
+// parseGoDir parses every .go file in dir that belongs to package pkgName and
+// returns their ASTs. It replaces the deprecated parser.ParseDir. When
+// includeTests is false, *_test.go files are skipped.
+func parseGoDir(t *testing.T, dir, pkgName string, includeTests bool) []*ast.File {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir %s: %v", dir, err)
+	}
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		if !includeTests && strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.ParseComments)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		if f.Name.Name != pkgName {
+			continue
+		}
+		files = append(files, f)
+	}
+	return files
+}
 
 // TestLifecyclePublishCoverage asserts that every entity registered
 // in NewServer has a corresponding *.PublishCreated, *.PublishUpdated,
@@ -28,21 +60,9 @@ import (
 // Failure messages name the exact missing call so the fix is one
 // search-and-paste away.
 func TestLifecyclePublishCoverage(t *testing.T) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parse api package: %v", err)
-	}
-	pkg, ok := pkgs["api"]
-	if !ok {
+	files := parseGoDir(t, ".", "api", false)
+	if len(files) == 0 {
 		t.Fatal("internal/api package not found")
-	}
-
-	files := make([]*ast.File, 0, len(pkg.Files))
-	for _, f := range pkg.Files {
-		files = append(files, f)
 	}
 
 	registered := discoverRegisteredEntities(t, files)
@@ -219,34 +239,14 @@ func exprString(expr ast.Expr) string {
 // forgot to wire the SSE fan-out, so the UI silently shows stale lists
 // after a contributing entity changes".
 func TestDenormalizedFanoutCoverage(t *testing.T) {
-	fset := token.NewFileSet()
-
-	apiPkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parse api package: %v", err)
-	}
-	apiPkg, ok := apiPkgs["api"]
-	if !ok {
+	apiFiles := parseGoDir(t, ".", "api", false)
+	if len(apiFiles) == 0 {
 		t.Fatal("internal/api package not found")
 	}
-	apiFiles := make([]*ast.File, 0, len(apiPkg.Files))
-	for _, f := range apiPkg.Files {
-		apiFiles = append(apiFiles, f)
-	}
 
-	modelsPkgs, err := parser.ParseDir(fset, "models", nil, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parse models package: %v", err)
-	}
-	modelsPkg, ok := modelsPkgs["models"]
-	if !ok {
+	modelsFiles := parseGoDir(t, "models", "models", true)
+	if len(modelsFiles) == 0 {
 		t.Fatal("internal/api/models package not found")
-	}
-	modelsFiles := make([]*ast.File, 0, len(modelsPkg.Files))
-	for _, f := range modelsPkg.Files {
-		modelsFiles = append(modelsFiles, f)
 	}
 
 	registered := discoverRegisteredEntities(t, apiFiles)

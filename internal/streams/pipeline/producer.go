@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
 )
 
@@ -83,8 +84,8 @@ func (p *ProducerStage) LogParser() process.LogParser { return ffmpeg.ParseLogLi
 // LogAttrs tags producer logs with the source id + pool-key instance.
 func (p *ProducerStage) LogAttrs() []slog.Attr {
 	return []slog.Attr{
-		slog.String("source_id", p.SourceID),
-		slog.String("stage_instance", p.ID()),
+		slog.String(logging.KeySourceID, p.SourceID),
+		slog.String(logging.KeyStageInstance, p.ID()),
 	}
 }
 

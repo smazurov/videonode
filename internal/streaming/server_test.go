@@ -33,14 +33,14 @@ func TestEnsureStreamReady_ExistingStreamReturnsImmediately(t *testing.T) {
 	s := newTestServer(t)
 	want := injectStream(s, "live")
 
-	var ensured int32
-	s.SetOnEnsureStream(func(string) error { atomic.AddInt32(&ensured, 1); return nil })
+	var ensured atomic.Int32
+	s.SetOnEnsureStream(func(string) error { ensured.Add(1); return nil })
 
 	got := s.EnsureStreamReady("live", time.Second)
 	if got != want {
 		t.Fatalf("EnsureStreamReady returned %v, want existing stream", got)
 	}
-	if n := atomic.LoadInt32(&ensured); n != 0 {
+	if n := ensured.Load(); n != 0 {
 		t.Fatalf("ensure hook called %d times, want 0 (stream already registered)", n)
 	}
 }
@@ -48,9 +48,9 @@ func TestEnsureStreamReady_ExistingStreamReturnsImmediately(t *testing.T) {
 func TestEnsureStreamReady_InvokesEnsureHookAndPolls(t *testing.T) {
 	s := newTestServer(t)
 
-	var calls int32
+	var calls atomic.Int32
 	s.SetOnEnsureStream(func(id string) error {
-		atomic.AddInt32(&calls, 1)
+		calls.Add(1)
 		// Simulate the encoder publishing the stream slightly later.
 		go func() {
 			time.Sleep(80 * time.Millisecond)
@@ -66,7 +66,7 @@ func TestEnsureStreamReady_InvokesEnsureHookAndPolls(t *testing.T) {
 	if got == nil {
 		t.Fatalf("EnsureStreamReady returned nil, expected stream after lazy-start")
 	}
-	if n := atomic.LoadInt32(&calls); n != 1 {
+	if n := calls.Load(); n != 1 {
 		t.Fatalf("ensure hook called %d times, want 1", n)
 	}
 	if elapsed < 80*time.Millisecond {
@@ -105,11 +105,11 @@ func TestLastReaderGone_FiresAfterDebounce(t *testing.T) {
 	s := newTestServer(t)
 	stream := injectStream(s, "live")
 
-	var fired int32
+	var fired atomic.Int32
 	done := make(chan struct{})
 	s.SetOnLastReaderGone(func(id string) {
 		if id == "live" {
-			atomic.StoreInt32(&fired, 1)
+			fired.Store(1)
 			close(done)
 		}
 	})
@@ -120,7 +120,7 @@ func TestLastReaderGone_FiresAfterDebounce(t *testing.T) {
 
 	// Should NOT have fired yet — debounce is 2s.
 	time.Sleep(200 * time.Millisecond)
-	if atomic.LoadInt32(&fired) != 0 {
+	if fired.Load() != 0 {
 		t.Fatalf("onLastReaderGone fired before debounce window")
 	}
 
@@ -135,8 +135,8 @@ func TestLastReaderGone_CancelledByReconnect(t *testing.T) {
 	s := newTestServer(t)
 	stream := injectStream(s, "live")
 
-	var fired int32
-	s.SetOnLastReaderGone(func(string) { atomic.AddInt32(&fired, 1) })
+	var fired atomic.Int32
+	s.SetOnLastReaderGone(func(string) { fired.Add(1) })
 
 	r1 := NewReader(stream, "reader-1")
 	r1.Close()
@@ -151,7 +151,7 @@ func TestLastReaderGone_CancelledByReconnect(t *testing.T) {
 
 	// Wait past the original debounce — should still not have fired.
 	time.Sleep(2500 * time.Millisecond)
-	if n := atomic.LoadInt32(&fired); n != 0 {
+	if n := fired.Load(); n != 0 {
 		t.Fatalf("onLastReaderGone fired %d times despite reconnect", n)
 	}
 
@@ -163,8 +163,8 @@ func TestLastReaderGone_NoFireIfReaderReattachedBeforeTimer(t *testing.T) {
 	s := newTestServer(t)
 	stream := injectStream(s, "live")
 
-	var fired int32
-	s.SetOnLastReaderGone(func(string) { atomic.AddInt32(&fired, 1) })
+	var fired atomic.Int32
+	s.SetOnLastReaderGone(func(string) { fired.Add(1) })
 
 	r1 := NewReader(stream, "r1")
 	r1.Close()
@@ -174,7 +174,7 @@ func TestLastReaderGone_NoFireIfReaderReattachedBeforeTimer(t *testing.T) {
 	NewReader(stream, "r2")
 
 	time.Sleep(2500 * time.Millisecond)
-	if n := atomic.LoadInt32(&fired); n != 0 {
+	if n := fired.Load(); n != 0 {
 		t.Fatalf("onLastReaderGone fired %d times despite re-attached reader", n)
 	}
 }

@@ -118,6 +118,15 @@ const (
 	KeyInterlaced     = "interlaced"
 )
 
+// HTTP requests.
+const (
+	KeyMethod    = "method"
+	KeyQuery     = "query"
+	KeyUserAgent = "user_agent"
+	KeyStatus    = "status"
+	KeyDuration  = "duration"
+)
+
 // Counts / status.
 const (
 	KeyDeviceCount      = "device_count"

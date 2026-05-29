@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
 )
 
@@ -151,8 +152,8 @@ func (e *EncoderStage) LogParser() process.LogParser { return ffmpeg.ParseLogLin
 // LogAttrs tags every encoder log line with the stream id + pool-key.
 func (e *EncoderStage) LogAttrs() []slog.Attr {
 	return []slog.Attr{
-		slog.String("stream_id", e.OwnerStreamID),
-		slog.String("stage_instance", e.ID()),
+		slog.String(logging.KeyStreamID, e.OwnerStreamID),
+		slog.String(logging.KeyStageInstance, e.ID()),
 	}
 }
 

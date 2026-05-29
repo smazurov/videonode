@@ -198,12 +198,12 @@ func BuildCommand(p *Params) string {
 		var fc strings.Builder
 		fc.WriteString("[0:v]split=2[enc][raw]")
 		if encFilters != "" {
-			fc.WriteString(fmt.Sprintf("; [enc]%s[encout]", encFilters))
+			fmt.Fprintf(&fc, "; [enc]%s[encout]", encFilters)
 		} else {
 			fc.WriteString("; [enc]null[encout]")
 		}
-		fc.WriteString(fmt.Sprintf("; [raw]scale=%d:%d,format=nv12[rawout]", vw, vh))
-		cmd.WriteString(fmt.Sprintf(" -filter_complex \"%s\"", fc.String()))
+		fmt.Fprintf(&fc, "; [raw]scale=%d:%d,format=nv12[rawout]", vw, vh)
+		fmt.Fprintf(&cmd, " -filter_complex \"%s\"", fc.String())
 		cmd.WriteString(" -map \"[encout]\"")
 	} else if len(videoFilterChain) > 0 {
 		cmd.WriteString(" -vf " + strings.Join(videoFilterChain, ","))
@@ -232,22 +232,22 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -bufsize " + p.BufferSize)
 	}
 	if p.CRF > 0 {
-		cmd.WriteString(fmt.Sprintf(" -crf %d", p.CRF))
+		fmt.Fprintf(&cmd, " -crf %d", p.CRF)
 	}
 	if p.QP > 0 {
-		cmd.WriteString(fmt.Sprintf(" -qp %d", p.QP))
+		fmt.Fprintf(&cmd, " -qp %d", p.QP)
 	}
 
 	if p.Preset != "" {
 		cmd.WriteString(" -preset " + p.Preset)
 	}
 	if p.GOP > 0 {
-		cmd.WriteString(fmt.Sprintf(" -g %d", p.GOP))
+		fmt.Fprintf(&cmd, " -g %d", p.GOP)
 	} else {
 		cmd.WriteString(" -g 60")
 	}
 	if p.BFrames >= 0 {
-		cmd.WriteString(fmt.Sprintf(" -bf %d", p.BFrames))
+		fmt.Fprintf(&cmd, " -bf %d", p.BFrames)
 	}
 
 	if !isHardwareEncoder(p.Encoder) {

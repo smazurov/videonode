@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
+	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/process"
 )
 
@@ -160,8 +161,8 @@ func (c *ComposerStage) LogParser() process.LogParser { return ffmpeg.ParseLogLi
 // LogAttrs tags composer logs with the composer id + pool-key instance.
 func (c *ComposerStage) LogAttrs() []slog.Attr {
 	return []slog.Attr{
-		slog.String("composer_id", c.ComposerID),
-		slog.String("stage_instance", c.ID()),
+		slog.String(logging.KeyComposerID, c.ComposerID),
+		slog.String(logging.KeyStageInstance, c.ID()),
 	}
 }
 

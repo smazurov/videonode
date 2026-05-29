@@ -44,17 +44,17 @@ func HTTPLoggingMiddleware(ctx huma.Context, next func(huma.Context)) {
 
 	// Build base log attributes
 	logAttrs := []slog.Attr{
-		slog.String("method", method),
-		slog.String("path", path),
-		slog.String("remote_addr", remoteAddr),
+		slog.String(logging.KeyMethod, method),
+		slog.String(logging.KeyPath, path),
+		slog.String(logging.KeyRemoteAddr, remoteAddr),
 	}
 
 	if query != "" {
-		logAttrs = append(logAttrs, slog.String("query", query))
+		logAttrs = append(logAttrs, slog.String(logging.KeyQuery, query))
 	}
 
 	if userAgent != "" {
-		logAttrs = append(logAttrs, slog.String("user_agent", userAgent))
+		logAttrs = append(logAttrs, slog.String(logging.KeyUserAgent, userAgent))
 	}
 
 	// Call the next handler
@@ -66,8 +66,8 @@ func HTTPLoggingMiddleware(ctx huma.Context, next func(huma.Context)) {
 
 	// Add response attributes
 	logAttrs = append(logAttrs,
-		slog.Int("status", status),
-		slog.Duration("duration", duration),
+		slog.Int(logging.KeyStatus, status),
+		slog.Duration(logging.KeyDuration, duration),
 	)
 
 	// Determine log level based on method and status code

@@ -96,6 +96,7 @@ func ParseLogLine(line string) (level, msg string, attrs []slog.Attr) {
 			if _, ok := logging.AllowedKeys[k]; !ok {
 				warnUnknownKey(k)
 			}
+			//nolint:sloglint // keys are parsed from C++ log lines and validated against logging.AllowedKeys, not literals
 			attrs = append(attrs, slog.String(k, v))
 		}
 	}

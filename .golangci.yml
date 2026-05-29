@@ -6,6 +6,12 @@ linters:
       - linters:
           - govet
         text: 'shadow: declaration of "(err|ctx)" shadows declaration'
+      # Test fixtures legitimately build slog.Attr with arbitrary keys
+      # (e.g. asserting the C++ log-line parser output); the constant-key
+      # vocabulary only applies to production logging call sites.
+      - linters:
+          - sloglint
+        path: _test.go
   enable:
     - asciicheck
     - bidichk
