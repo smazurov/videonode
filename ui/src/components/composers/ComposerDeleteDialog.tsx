@@ -31,6 +31,18 @@ export function ComposerDeleteDialog({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Track previous open value via state so we can detect the closed→open
+  // transition during render without touching a ref during render.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (!prevOpen && open) {
+      // Dialog just opened — reset transient state without a sync-setState effect.
+      setError(null);
+      setDeleting(false);
+    }
+  }
+
   const referencingStreams = useMemo(() => {
     const target = `composer:${composerId}`;
     return streams.filter((s) => s.upstream === target);
@@ -39,11 +51,7 @@ export function ComposerDeleteDialog({
   const blocked = referencingStreams.length > 0;
 
   useEffect(() => {
-    if (!open) {
-      setError(null);
-      setDeleting(false);
-      return;
-    }
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -93,7 +101,7 @@ export function ComposerDeleteDialog({
           id="composer-delete-title"
           className="text-lg font-semibold text-fg"
         >
-          Delete composer “{composerId}”?
+          Delete composer "{composerId}"?
         </h2>
 
         {blocked ? (

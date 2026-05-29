@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import { API_BASE_URL } from '../../lib/api';
 import { ICON_SIZE } from '../../utils';
@@ -46,6 +46,18 @@ interface PerspectiveCanvasProps {
   onSnapshotDimsChange?: (dims: SnapshotDims) => void;
 }
 
+// Snapshot state bundled so a single setState atomically resets all fields.
+interface SnapshotState {
+  // null tick = no snapshot requested; non-null = a fetch is in progress or done.
+  tick: number | null;
+  naturalDims: SnapshotDims | null;
+  error: string | null;
+  // The source/pipeline key this snapshot was taken for, used to detect changes
+  // during render without needing a sync-setState effect.
+  forSource: string | null;
+  forPipeline: boolean;
+}
+
 export function PerspectiveCanvas({
   snapshotSourceId,
   corners,
@@ -55,44 +67,64 @@ export function PerspectiveCanvas({
 }: Readonly<PerspectiveCanvasProps>) {
   const pipelineEnabled = useStreamStore((s) => s.pipelineEnabled);
   const pipelineActive = pipelineEnabled === true;
-  const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [naturalDims, setNaturalDims] = useState<SnapshotDims | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  // Use a monotonic generation counter as cache-buster (avoids Date.now() in render).
+  const [snapshot, setSnapshot] = useState<SnapshotState>(() => ({
+    tick: snapshotSourceId && pipelineActive ? 1 : null,
+    naturalDims: null,
+    error: null,
+    forSource: snapshotSourceId,
+    forPipeline: pipelineActive,
+  }));
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  const takeSnapshot = useCallback(() => {
-    if (!snapshotSourceId) {
-      setError('No preview source available');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    setNaturalDims(null);
-    // GET /api/sources/{id}/snapshot.jpg returns image/jpeg directly. Cache-bust
-    // with a fresh query so a repeated click pulls a new frame from the daemon
-    // cache instead of the browser cache.
-    setSnapshotUrl(
-      `${API_BASE_URL}/api/sources/${encodeURIComponent(snapshotSourceId)}/snapshot.jpg?t=${Date.now()}`,
-    );
-  }, [snapshotSourceId]);
+  // When the source id or pipeline active state changes, reset and request a
+  // new snapshot during render (no effect needed). React re-renders immediately
+  // without painting the intermediate state, avoiding cascading renders.
+  let effectiveSnapshot = snapshot;
+  if (snapshot.forSource !== snapshotSourceId || snapshot.forPipeline !== pipelineActive) {
+    const nextTick = snapshotSourceId && pipelineActive ? (snapshot.tick ?? 0) + 1 : null;
+    effectiveSnapshot = {
+      tick: nextTick,
+      naturalDims: null,
+      error: null,
+      forSource: snapshotSourceId,
+      forPipeline: pipelineActive,
+    };
+    setSnapshot(effectiveSnapshot);
+  }
 
-  useEffect(() => {
-    if (snapshotSourceId && pipelineActive) takeSnapshot();
-  }, [snapshotSourceId, pipelineActive, takeSnapshot]);
+  const snapshotUrl =
+    effectiveSnapshot.tick !== null && snapshotSourceId
+      ? `${API_BASE_URL}/api/sources/${encodeURIComponent(snapshotSourceId)}/snapshot.jpg?t=${effectiveSnapshot.tick}`
+      : null;
+
+  // loading is derived: URL is set, but the image hasn't loaded or errored yet.
+  const loading = snapshotUrl !== null && effectiveSnapshot.naturalDims === null && effectiveSnapshot.error === null;
+
+  const retakeSnapshot = useCallback(() => {
+    if (!snapshotSourceId) return;
+    setSnapshot((prev) => ({
+      ...prev,
+      tick: (prev.tick ?? 0) + 1,
+      naturalDims: null,
+      error: null,
+    }));
+  }, [snapshotSourceId]);
 
   const getImageCoords = useCallback(
     (clientX: number, clientY: number): Corner | null => {
       const img = imgRef.current;
-      if (!img || !naturalDims) return null;
-      const rect = img.getBoundingClientRect();
+      if (!effectiveSnapshot.naturalDims) return null;
+      const rect = img?.getBoundingClientRect();
+      if (!rect) return null;
       return [
-        Math.round((clientX - rect.left) * (naturalDims.w / rect.width)),
-        Math.round((clientY - rect.top) * (naturalDims.h / rect.height)),
+        Math.round((clientX - rect.left) * (effectiveSnapshot.naturalDims.w / rect.width)),
+        Math.round((clientY - rect.top) * (effectiveSnapshot.naturalDims.h / rect.height)),
       ];
     },
-    [naturalDims],
+    [effectiveSnapshot.naturalDims],
   );
 
   const handleImageClick = useCallback(
@@ -134,10 +166,10 @@ export function PerspectiveCanvas({
   }, []);
 
   const renderOverlay = () => {
-    if (!imgRef.current || !naturalDims || corners.length === 0) return null;
+    if (!imgRef.current || !effectiveSnapshot.naturalDims || corners.length === 0) return null;
     const rect = imgRef.current.getBoundingClientRect();
-    const sx = rect.width / naturalDims.w;
-    const sy = rect.height / naturalDims.h;
+    const sx = rect.width / effectiveSnapshot.naturalDims.w;
+    const sy = rect.height / effectiveSnapshot.naturalDims.h;
     const scaled = corners.map(([x, y]) => [x * sx, y * sy]);
 
     return (
@@ -150,33 +182,36 @@ export function PerspectiveCanvas({
         {scaled.length >= 2 && (
           <polygon
             points={scaled.map(([x, y]) => `${x},${y}`).join(' ')}
-            fill="rgba(59, 130, 246, 0.15)"
-            stroke="#3b82f6"
+            fill="color-mix(in srgb, var(--color-accent) 15%, transparent)"
+            stroke="var(--color-accent)"
             strokeWidth="2"
             strokeDasharray={scaled.length < 4 ? '6 3' : undefined}
           />
         )}
-        {scaled.map(([x, y], i) => (
-          <g
-            key={i}
-            style={{ pointerEvents: 'all', cursor: draggingIndex === i ? 'grabbing' : 'grab' }}
-            onMouseDown={(e) => handleDotMouseDown(e, i)}
-          >
-            <circle cx={x} cy={y} r={DOT_HIT_RADIUS} fill="transparent" />
-            <circle cx={x} cy={y} r={DOT_RADIUS} fill="#3b82f6" stroke="white" strokeWidth="2" />
-            <text
-              x={x}
-              y={Number(y) + 1}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fill="white"
-              fontSize="10"
-              fontWeight="bold"
+        {scaled.map(([x, y], i) => {
+          const label = sorted ? CORNER_LABELS[i] : String(i + 1);
+          return (
+            <g
+              key={`corner-${label}`}
+              style={{ pointerEvents: 'all', cursor: draggingIndex === i ? 'grabbing' : 'grab' }}
+              onMouseDown={(e) => handleDotMouseDown(e, i)}
             >
-              {sorted ? CORNER_LABELS[i] : i + 1}
-            </text>
-          </g>
-        ))}
+              <circle cx={x} cy={y} r={DOT_HIT_RADIUS} fill="transparent" />
+              <circle cx={x} cy={y} r={DOT_RADIUS} fill="var(--color-accent)" stroke="var(--color-accent-fg)" strokeWidth="2" />
+              <text
+                x={x}
+                y={Number(y) + 1}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill="var(--color-accent-fg)"
+                fontSize="10"
+                fontWeight="bold"
+              >
+                {label}
+              </text>
+            </g>
+          );
+        })}
       </svg>
     );
   };
@@ -206,14 +241,16 @@ export function PerspectiveCanvas({
                 const img = e.currentTarget;
                 if (img.naturalWidth > 0 && img.naturalHeight > 0) {
                   const dims = { w: img.naturalWidth, h: img.naturalHeight };
-                  setNaturalDims(dims);
+                  setSnapshot((prev) => ({ ...prev, naturalDims: dims }));
                   onSnapshotDimsChange?.(dims);
+                } else {
+                  // Browser fired onLoad but couldn't read dims — treat as error so
+                  // the loading spinner clears (naturalDims stays null, error clears it).
+                  setSnapshot((prev) => ({ ...prev, error: 'Snapshot loaded with unknown dimensions' }));
                 }
-                setLoading(false);
               }}
               onError={() => {
-                setLoading(false);
-                setError('Failed to load snapshot');
+                setSnapshot((prev) => ({ ...prev, error: 'Failed to load snapshot' }));
               }}
               draggable={false}
             />
@@ -224,7 +261,7 @@ export function PerspectiveCanvas({
             {renderOverlay()}
             {snapshotSourceId && pipelineActive && (
               <button
-                onClick={takeSnapshot}
+                onClick={retakeSnapshot}
                 aria-label="Retake snapshot"
                 className="absolute top-2 right-2 z-20 p-1.5 bg-surface-overlay hover:bg-surface-overlay rounded text-fg-inverse transition focus-visible:ring-2 focus-visible:ring-focus-ring"
                 title="Retake snapshot"
@@ -234,25 +271,28 @@ export function PerspectiveCanvas({
             )}
           </div>
         )}
-        {!loading && !snapshotUrl && !error && (
+        {!loading && !snapshotUrl && !effectiveSnapshot.error && (
           <div className="flex items-center justify-center h-64">
             <div className="text-fg-subtle">No snapshot available</div>
           </div>
         )}
-        {error && !loading && (
+        {effectiveSnapshot.error && !loading && (
           <div className="flex items-center justify-center h-64">
-            <div className="text-danger">{error}</div>
+            <div className="text-danger">{effectiveSnapshot.error}</div>
           </div>
         )}
       </div>
 
       {corners.length > 0 && (
         <div className="flex flex-wrap gap-3 mb-4 text-sm font-mono text-fg-muted">
-          {corners.map(([x, y], i) => (
-            <span key={i} className="px-2 py-1 bg-surface-muted rounded">
-              {sorted ? CORNER_LABELS[i] : `${i + 1}`}({x},{y})
-            </span>
-          ))}
+          {corners.map(([x, y], i) => {
+            const label = sorted ? CORNER_LABELS[i] : String(i + 1);
+            return (
+              <span key={`coord-${label}`} className="px-2 py-1 bg-surface-muted rounded">
+                {label}({x},{y})
+              </span>
+            );
+          })}
         </div>
       )}
     </>
