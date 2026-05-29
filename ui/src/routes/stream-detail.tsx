@@ -30,6 +30,7 @@ import { StreamMetricsPanel } from '../components/streams/StreamMetricsPanel';
 import { StreamConsumersPanel } from '../components/streams/StreamConsumersPanel';
 import { StreamEncoderPanel } from '../components/streams/StreamEncoderPanel';
 import { StreamConsumerTargetsPanel } from '../components/streams/StreamConsumerTargetsPanel';
+import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 import { WebRTCPlayer } from '../components/webrtc';
 import { api } from '../lib/api';
 import type { components } from '../lib/api.generated';
@@ -277,6 +278,10 @@ export default function StreamDetail() {
             <StreamConsumersPanel streamId={streamId} />
           )}
           <StreamConsumerTargetsPanel streamId={streamId} />
+          <EntityLogsPanel
+            filter={{ key: 'stream_id', id: streamId }}
+            description={`Live logs for stream ${streamId}.`}
+          />
         </EntityDetailLayout>
       </DashboardLayout.MainContent>
     </DashboardLayout>

@@ -17,6 +17,7 @@ import { ComposerLayoutPanel } from '../components/composers/ComposerLayoutPanel
 import { ComposerConsumersPanel } from '../components/composers/ComposerConsumersPanel';
 import { ComposerLivePreview } from '../components/composers/ComposerLivePreview';
 import { ComposerDeleteDialog } from '../components/composers/ComposerDeleteDialog';
+import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 import type { ComposerData } from '../lib/composer-types';
 import { canvasFpsOrDefault } from '../lib/composer-types';
 
@@ -141,6 +142,10 @@ export default function ComposerDetail() {
           <ComposerInputsPanel composer={data} />
           <ComposerLayoutPanel composer={data} />
           <ComposerConsumersPanel composer={data} />
+          <EntityLogsPanel
+            filter={{ key: 'composer_id', id: data.composer_id }}
+            description={`Live logs for composer ${data.composer_id}.`}
+          />
         </div>
 
         <ComposerDeleteDialog

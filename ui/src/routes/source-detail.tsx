@@ -15,6 +15,7 @@ import { SourceStatusPanel } from '../components/sources/SourceStatusPanel';
 import { SourceConsumersPanel } from '../components/sources/SourceConsumersPanel';
 import { SourceLivePreview } from '../components/sources/SourceLivePreview';
 import { SourceDeleteDialog } from '../components/sources/SourceDeleteDialog';
+import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 
 export default function SourceDetail() {
   const navigate = useNavigate();
@@ -128,6 +129,10 @@ export default function SourceDetail() {
             </div>
           )}
           <SourceConsumersPanel consumers={source.consumers ?? []} />
+          <EntityLogsPanel
+            filter={{ key: 'source_id', id: source.id }}
+            description={`Live logs for source ${source.id}.`}
+          />
         </div>
       </DashboardLayout.MainContent>
       <SourceDeleteDialog
