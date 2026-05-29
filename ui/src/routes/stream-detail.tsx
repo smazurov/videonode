@@ -189,9 +189,10 @@ export default function StreamDetail() {
     );
   }
 
-  const isRunning = stream.status === 'running';
+  // Mount the player whenever the pipeline is on, even if the stream is idle:
+  // the offer it sends is what lazily wakes the encoder (lazy-encoder-on-reader).
+  const canPreview = pipelineEnabled !== false;
   const showSmallPreview = previewMode === 'small';
-  const previewIdleMessage = pipelineEnabled === false ? 'Pipeline stopped' : 'Stream disabled';
 
   return (
     <DashboardLayout onLogout={logout} bottomBar={<InfoBar />}>
@@ -253,11 +254,11 @@ export default function StreamDetail() {
                     </span>
                   </div>
                   <LivePreviewFrame
-                    state={isRunning ? 'ready' : 'idle'}
-                    idleMessage={previewIdleMessage}
+                    state={canPreview ? 'ready' : 'idle'}
+                    idleMessage="Pipeline stopped"
                     mediaClassName="bg-black"
                   >
-                    {isRunning && (
+                    {canPreview && (
                       <WebRTCPlayer
                         key={`small:${streamId}:${refreshKey}`}
                         streamId={streamId}

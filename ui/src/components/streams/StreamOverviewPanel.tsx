@@ -31,8 +31,9 @@ export function StreamOverviewPanel({ streamId, className, videoHidden = false }
 
   const upstream = resolveUpstream(stream);
   const status = poolStateToPill(stream.status);
-  const isRunning = stream.status === 'running';
-  const idleMessage = pipelineEnabled === false ? 'Pipeline stopped' : 'Stream disabled';
+  // Mount the player whenever the pipeline is on, even if the stream is idle:
+  // the offer it sends is what lazily wakes the encoder (lazy-encoder-on-reader).
+  const canPreview = pipelineEnabled !== false;
 
   return (
     <section className={cn('space-y-4 rounded-lg border border-border bg-surface-raised p-4', className)}>
@@ -44,11 +45,11 @@ export function StreamOverviewPanel({ streamId, className, videoHidden = false }
 
       {!videoHidden && (
         <LivePreviewFrame
-          state={isRunning ? 'ready' : 'idle'}
-          idleMessage={idleMessage}
+          state={canPreview ? 'ready' : 'idle'}
+          idleMessage="Pipeline stopped"
           mediaClassName="bg-black"
         >
-          {isRunning && (
+          {canPreview && (
             <WebRTCPlayer
               key={`${streamId}:${refreshKey}`}
               streamId={streamId}
