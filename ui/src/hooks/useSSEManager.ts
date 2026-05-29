@@ -16,6 +16,8 @@ interface SSEManagerOptions {
 
 // Global SSE client instance
 let globalClient: SSEClient<"/api/events"> | null = null;
+// Backstop poll for the device list (see setupGlobalSSE).
+let deviceFallbackTimer: number | null = null;
 
 // Global handlers for the two non-entity event streams.
 const globalConnectionHandlers = new Set<(status: ConnectionStatus) => void>();
@@ -83,10 +85,21 @@ function setupGlobalSSE(): void {
     dispatchEntityEvent(data as EntityEvent);
   });
 
+  // Fallback poll for the device list: the device-discovery event is the
+  // primary freshness signal, but a missed event would leave the list stale.
+  // Re-fetch every 30s as a backstop.
+  deviceFallbackTimer = window.setInterval(() => {
+    void useDeviceStore.getState().fetchDevices();
+  }, 30_000);
+
   globalClient.connect();
 }
 
 function disconnectGlobalSSE(): void {
+  if (deviceFallbackTimer != null) {
+    window.clearInterval(deviceFallbackTimer);
+    deviceFallbackTimer = null;
+  }
   if (globalClient) {
     globalClient.disconnect();
     globalClient = null;
