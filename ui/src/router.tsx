@@ -23,7 +23,6 @@ const routes = {
   EditStream: lazy(() => import("./routes/edit-stream")),
 
   Logs: lazy(() => import("./routes/logs")),
-  TestLayoutEditor: lazy(() => import("./routes/test-layout-editor")),
 };
 
 export const router = createBrowserRouter([
@@ -38,11 +37,6 @@ export const router = createBrowserRouter([
     errorElement: <ErrorBoundary />,
   },
   {
-    path: "/test/layout-editor",
-    element: <routes.TestLayoutEditor />,
-    errorElement: <ErrorBoundary />,
-  },
-  {
     path: "/",
     element: <Root />,
     errorElement: <ErrorBoundary />,
@@ -53,24 +47,108 @@ export const router = createBrowserRouter([
       },
 
       // Sources
-      { path: "sources", element: <Guarded><routes.Sources /></Guarded> },
-      { path: "sources/new", element: <Guarded><routes.CreateSource /></Guarded> },
-      { path: "sources/:sourceId", element: <Guarded><routes.SourceDetail /></Guarded> },
-      { path: "sources/:sourceId/edit", element: <Guarded><routes.EditSource /></Guarded> },
+      {
+        path: "sources",
+        element: (
+          <Guarded>
+            <routes.Sources />
+          </Guarded>
+        ),
+      },
+      {
+        path: "sources/new",
+        element: (
+          <Guarded>
+            <routes.CreateSource />
+          </Guarded>
+        ),
+      },
+      {
+        path: "sources/:sourceId",
+        element: (
+          <Guarded>
+            <routes.SourceDetail />
+          </Guarded>
+        ),
+      },
+      {
+        path: "sources/:sourceId/edit",
+        element: (
+          <Guarded>
+            <routes.EditSource />
+          </Guarded>
+        ),
+      },
 
       // Composers
-      { path: "composers", element: <Guarded><routes.Composers /></Guarded> },
-      { path: "composers/new", element: <Guarded><routes.CreateComposer /></Guarded> },
-      { path: "composers/:composerId", element: <Guarded><routes.ComposerDetail /></Guarded> },
+      {
+        path: "composers",
+        element: (
+          <Guarded>
+            <routes.Composers />
+          </Guarded>
+        ),
+      },
+      {
+        path: "composers/new",
+        element: (
+          <Guarded>
+            <routes.CreateComposer />
+          </Guarded>
+        ),
+      },
+      {
+        path: "composers/:composerId",
+        element: (
+          <Guarded>
+            <routes.ComposerDetail />
+          </Guarded>
+        ),
+      },
 
       // Streams
-      { path: "streams", element: <Guarded><routes.Streams /></Guarded> },
-      { path: "streams/new", element: <Guarded><routes.CreateStream /></Guarded> },
-      { path: "streams/:streamId", element: <Guarded><routes.StreamDetail /></Guarded> },
-      { path: "streams/:streamId/edit", element: <Guarded><routes.EditStream /></Guarded> },
+      {
+        path: "streams",
+        element: (
+          <Guarded>
+            <routes.Streams />
+          </Guarded>
+        ),
+      },
+      {
+        path: "streams/new",
+        element: (
+          <Guarded>
+            <routes.CreateStream />
+          </Guarded>
+        ),
+      },
+      {
+        path: "streams/:streamId",
+        element: (
+          <Guarded>
+            <routes.StreamDetail />
+          </Guarded>
+        ),
+      },
+      {
+        path: "streams/:streamId/edit",
+        element: (
+          <Guarded>
+            <routes.EditStream />
+          </Guarded>
+        ),
+      },
 
       // Logs
-      { path: "logs", element: <Guarded><routes.Logs /></Guarded> },
+      {
+        path: "logs",
+        element: (
+          <Guarded>
+            <routes.Logs />
+          </Guarded>
+        ),
+      },
 
       {
         path: "*",
