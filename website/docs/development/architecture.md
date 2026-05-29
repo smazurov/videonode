@@ -66,4 +66,4 @@ flowchart TB
   muxers --> viewers["viewers"]
 ```
 
-For entity-level semantics (source, composer, stream lifecycles and CRUD), see [pipeline model](../reference/pipeline-model).
+For entity-level semantics (source, composer, stream lifecycles and CRUD), see [pipeline model](../reference/pipeline-model). For how the daemon pushes live state to the UI, see [events and SSE](./events-and-sse).

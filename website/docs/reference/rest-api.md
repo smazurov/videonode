@@ -16,4 +16,4 @@ All endpoints except `/api/health` require either Linux account auth (default) o
 
 ## Server-Sent Events
 
-Live state updates are pushed on the `/api/events` SSE channel. See [Observability](../operating/observability#consuming-sse-events) for the channel and event types.
+Live state updates are pushed on the `/api/events` SSE channel. See [Events and SSE](../development/events-and-sse) for the event model, or [Observability](../operating/observability#consuming-sse-events) to consume the stream.
