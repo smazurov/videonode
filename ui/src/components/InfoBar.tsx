@@ -37,6 +37,13 @@ interface SystemInfo {
 
 type StatusType = 'online' | 'offline' | 'warning' | 'reconnecting';
 
+const CONNECTION_STATUS_LABELS: Record<'online' | 'offline' | 'warning' | 'reconnecting', string> = {
+  online: "Connected",
+  offline: "Disconnected",
+  warning: "Warning",
+  reconnecting: "Reconnecting",
+};
+
 interface StatusIndicatorProps {
   status: StatusType;
   size?: 'sm' | 'md';
@@ -333,14 +340,7 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
                 <InfoItem
                   icon={ComputerDesktopIcon}
                   label="System"
-                  value={(() => {
-                    switch (connectionStatus) {
-                      case 'online': return "Connected";
-                      case 'offline': return "Disconnected";
-                      case 'reconnecting': return "Reconnecting";
-                      default: return "Unknown";
-                    }
-                  })()}
+                  value={CONNECTION_STATUS_LABELS[connectionStatus] ?? "Unknown"}
                   status={connectionStatus}
                 />
               </div>

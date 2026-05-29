@@ -436,18 +436,18 @@ function LayoutPreview({
           role="img"
           aria-label="Layout preview"
         >
-          {layout.map((slot, i) => {
+          {layout.map((slot) => {
             const stroke = Math.max(3, canvas.w / 600);
             const labelSize = Math.max(12, Math.min(slot.w, slot.h) / 8);
             return (
-              <g key={`${slot.input}-${i}`}>
+              <g key={slot.input}>
                 <rect
                   x={slot.x}
                   y={slot.y}
                   width={slot.w}
                   height={slot.h}
-                  fill="rgba(59, 130, 246, 0.18)"
-                  stroke="#3b82f6"
+                  fill="color-mix(in srgb, var(--color-accent) 18%, transparent)"
+                  stroke="var(--color-accent)"
                   strokeWidth={stroke}
                 />
                 <text
@@ -455,7 +455,7 @@ function LayoutPreview({
                   y={slot.y + slot.h / 2}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fill="#ffffff"
+                  fill="var(--color-accent-fg)"
                   fontSize={labelSize}
                   fontFamily="monospace"
                 >
