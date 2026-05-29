@@ -16,6 +16,7 @@ import {
   clamp,
   computeArPreview,
   konvaToVisual,
+  rotateOffset,
   snapVal,
   visualDims,
   visualToKonva,
@@ -287,7 +288,10 @@ export function KonvaCanvasEditor({
       rect.x(0); rect.y(0);
 
       const { vw, vh } = visualDims(w, h, rotation);
-      const vis = konvaToVisual(group.x() + offX, group.y() + offY, w, h, rotation);
+      // offX/offY live in the group's local (unrotated) frame; rotate them into
+      // world space before adding to the group origin, else a rotated resize jumps.
+      const { dx, dy } = rotateOffset(offX, offY, rotation);
+      const vis = konvaToVisual(group.x() + dx, group.y() + dy, w, h, rotation);
       if (doSnap) { vis.x = snapVal(vis.x, gridSize); vis.y = snapVal(vis.y, gridSize); }
       vis.x = clamp(Math.round(vis.x), 0, canvas.w - vw);
       vis.y = clamp(Math.round(vis.y), 0, canvas.h - vh);

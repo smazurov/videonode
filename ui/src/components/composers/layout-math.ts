@@ -121,6 +121,24 @@ export function visualDims(w: number, h: number, rotation: number): { vw: number
   return (rotation % 180 !== 0) ? { vw: h, vh: w } : { vw: w, vh: h };
 }
 
+/**
+ * Rotate a child offset from a rotated group's local frame into the parent's
+ * world frame. Konva rotates clockwise about the node origin in a y-down space,
+ * so for a local offset (ox, oy) the world delta is (ox·cosθ − oy·sinθ,
+ * ox·sinθ + oy·cosθ). Needed when a resize leaves a rect offset inside a
+ * rotated group: the offset must be world-rotated before adding to group.x/y.
+ */
+export function rotateOffset(
+  ox: number, oy: number, rotation: number,
+): { dx: number; dy: number } {
+  switch (((rotation % 360) + 360) % 360) {
+    case 90:  return { dx: -oy, dy: ox };
+    case 180: return { dx: -ox, dy: -oy };
+    case 270: return { dx: oy,  dy: -ox };
+    default:  return { dx: ox,  dy: oy };
+  }
+}
+
 export function findAlignmentSnap(
   pos: number, size: number, candidates: number[],
 ): { snappedPos: number; guidePos: number } | null {

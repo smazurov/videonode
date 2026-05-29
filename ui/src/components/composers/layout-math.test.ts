@@ -6,6 +6,7 @@ import {
   computeCropPercent,
   findAlignmentSnap,
   konvaToVisual,
+  rotateOffset,
   snapVal,
   visualDims,
   visualToKonva,
@@ -209,6 +210,55 @@ describe('visualDims', () => {
   it('rotation 270: swapped', () => {
     expect(visualDims(960, 540, 270)).toEqual({ vw: 540, vh: 960 });
   });
+});
+
+describe('rotateOffset', () => {
+  it('rotation 0: passes offset through', () => {
+    expect(rotateOffset(10, 20, 0)).toEqual({ dx: 10, dy: 20 });
+  });
+
+  it('rotation 90: (ox,oy) -> (-oy,ox)', () => {
+    expect(rotateOffset(10, 20, 90)).toEqual({ dx: -20, dy: 10 });
+  });
+
+  it('rotation 180: negates both', () => {
+    expect(rotateOffset(10, 20, 180)).toEqual({ dx: -10, dy: -20 });
+  });
+
+  it('rotation 270: (ox,oy) -> (oy,-ox)', () => {
+    expect(rotateOffset(10, 20, 270)).toEqual({ dx: 20, dy: -10 });
+  });
+
+  it('handles negative rotation via modulo', () => {
+    expect(rotateOffset(10, 20, -90)).toEqual(rotateOffset(10, 20, 270));
+  });
+});
+
+// Reproduces the resize math in handleOutputTransformEnd: a rect resized inside
+// a rotated group is left with a local offset (offX, offY). Recovering the
+// visual top-left requires world-rotating the offset before adding to the group
+// origin. Models a slot whose visual top-left should stay fixed at (visX, visY)
+// while one anchor is dragged (changing w/h and producing a non-zero offset).
+describe('resize keeps visual position under rotation', () => {
+  for (const rotation of [0, 90, 180, 270]) {
+    it(`rotation ${rotation}: recovers visual top-left`, () => {
+      const w = 200, h = 120;
+      const visX = 300, visY = 150;
+      // Konva group origin for a slot at this visual position.
+      const k = visualToKonva(visX, visY, w, h, rotation);
+      // Simulate the Transformer leaving a local offset on the rect; the group
+      // origin shifts by the world-rotated offset so the rect's world origin is
+      // unchanged. Here offX/offY are arbitrary local-frame values.
+      const offX = 17, offY = -9;
+      const off = rotateOffset(offX, offY, rotation);
+      const groupX = k.x - off.dx, groupY = k.y - off.dy;
+
+      const { dx, dy } = rotateOffset(offX, offY, rotation);
+      const vis = konvaToVisual(groupX + dx, groupY + dy, w, h, rotation);
+      expect(vis.x).toBeCloseTo(visX, 8);
+      expect(vis.y).toBeCloseTo(visY, 8);
+    });
+  }
 });
 
 describe('findAlignmentSnap', () => {
