@@ -9,6 +9,7 @@
 #include <libplacebo/log.h>
 #include <libplacebo/opengl.h>
 #include <libplacebo/renderer.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <cstring>
