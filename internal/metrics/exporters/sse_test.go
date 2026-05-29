@@ -10,22 +10,28 @@ import (
 	"github.com/smazurov/videonode/internal/metrics"
 )
 
-type mockEventBus struct {
+type capturedEvent struct {
+	entityType string
+	action     string
+	id         string
+	payload    any
+}
+
+// mockRegistry implements the EntityPublisher interface, capturing the
+// entity envelopes the exporter publishes.
+type mockRegistry struct {
 	mu        sync.Mutex
-	events    []events.Event
+	events    []capturedEvent
 	published chan struct{}
 }
 
-func newMockEventBus() *mockEventBus {
-	return &mockEventBus{
-		events:    make([]events.Event, 0),
-		published: make(chan struct{}, 100),
-	}
+func newMockRegistry() *mockRegistry {
+	return &mockRegistry{published: make(chan struct{}, 100)}
 }
 
-func (m *mockEventBus) Publish(ev events.Event) {
+func (m *mockRegistry) Publish(entityType, action, id string, payload any) {
 	m.mu.Lock()
-	m.events = append(m.events, ev)
+	m.events = append(m.events, capturedEvent{entityType, action, id, payload})
 	m.mu.Unlock()
 	select {
 	case m.published <- struct{}{}:
@@ -33,10 +39,10 @@ func (m *mockEventBus) Publish(ev events.Event) {
 	}
 }
 
-func (m *mockEventBus) getEvents() []events.Event {
+func (m *mockRegistry) getEvents() []capturedEvent {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	result := make([]events.Event, len(m.events))
+	result := make([]capturedEvent, len(m.events))
 	copy(result, m.events)
 	return result
 }
@@ -50,7 +56,7 @@ func TestSSEExporterPublishesMetrics(t *testing.T) {
 	metrics.SetFFmpegDroppedFrames(streamID, 5)
 	metrics.SetFFmpegDuplicateFrames(streamID, 2)
 
-	mock := newMockEventBus()
+	mock := newMockRegistry()
 	exporter := NewSSEExporter(mock)
 	exporter.interval = 50 * time.Millisecond
 
@@ -74,25 +80,28 @@ func TestSSEExporterPublishesMetrics(t *testing.T) {
 
 	var found bool
 	for _, ev := range evts {
-		if sme, ok := ev.(events.StreamMetricsEvent); ok {
-			if sme.StreamID == streamID {
-				found = true
-				if sme.FPS != "30.00" {
-					t.Errorf("FPS = %q, want \"30.00\"", sme.FPS)
-				}
-				if sme.DroppedFrames != "5" {
-					t.Errorf("DroppedFrames = %q, want \"5\"", sme.DroppedFrames)
-				}
-				if sme.DuplicateFrames != "2" {
-					t.Errorf("DuplicateFrames = %q, want \"2\"", sme.DuplicateFrames)
-				}
-				break
-			}
+		if ev.entityType != "stream" || ev.action != events.ActionMetrics || ev.id != streamID {
+			continue
 		}
+		found = true
+		payload, ok := ev.payload.(map[string]any)
+		if !ok {
+			t.Fatalf("payload type = %T, want map[string]any", ev.payload)
+		}
+		if payload["fps"] != 30.0 {
+			t.Errorf("fps = %v, want 30", payload["fps"])
+		}
+		if payload["dropped_frames"] != float64(5) {
+			t.Errorf("dropped_frames = %v, want 5", payload["dropped_frames"])
+		}
+		if payload["duplicate_frames"] != float64(2) {
+			t.Errorf("duplicate_frames = %v, want 2", payload["duplicate_frames"])
+		}
+		break
 	}
 
 	if !found {
-		t.Error("expected StreamMetricsEvent for test stream")
+		t.Error("expected stream metrics entity event for test stream")
 	}
 
 	metrics.DeleteFFmpegMetrics(streamID)
@@ -103,7 +112,7 @@ func TestSSEExporterNoMetrics(t *testing.T) {
 	testStreamID := "sse-no-metrics-test"
 	metrics.DeleteFFmpegMetrics(testStreamID)
 
-	mock := newMockEventBus()
+	mock := newMockRegistry()
 	exporter := NewSSEExporter(mock)
 	exporter.interval = 20 * time.Millisecond
 
@@ -118,10 +127,8 @@ func TestSSEExporterNoMetrics(t *testing.T) {
 
 	// Verify no events were published for our test stream
 	for _, ev := range mock.getEvents() {
-		if sme, ok := ev.(events.StreamMetricsEvent); ok {
-			if sme.StreamID == testStreamID {
-				t.Error("expected no events for deleted stream")
-			}
+		if ev.entityType == "stream" && ev.id == testStreamID {
+			t.Error("expected no events for deleted stream")
 		}
 	}
 }
@@ -131,7 +138,7 @@ func TestSSEExporterStopIdempotent(t *testing.T) {
 	metrics.SetFFmpegFPS(streamID, 30.0)
 	defer metrics.DeleteFFmpegMetrics(streamID)
 
-	mock := newMockEventBus()
+	mock := newMockRegistry()
 	exporter := NewSSEExporter(mock)
 	exporter.interval = 10 * time.Millisecond
 
@@ -163,7 +170,7 @@ func TestSSEExporterStopBeforeStart(t *testing.T) {
 	metrics.SetFFmpegFPS(streamID, 45.0)
 	defer metrics.DeleteFFmpegMetrics(streamID)
 
-	mock := newMockEventBus()
+	mock := newMockRegistry()
 	exporter := NewSSEExporter(mock)
 	exporter.interval = 10 * time.Millisecond
 
@@ -181,31 +188,5 @@ func TestSSEExporterStopBeforeStart(t *testing.T) {
 	// Verify events were published after start
 	if len(mock.getEvents()) == 0 {
 		t.Error("expected events after Start(), got none")
-	}
-}
-
-func TestGetEventTypes(t *testing.T) {
-	types := GetEventTypes()
-	if _, ok := types["stream-metrics"]; !ok {
-		t.Error("expected stream-metrics event type")
-	}
-}
-
-func TestGetEventTypesForEndpoint(t *testing.T) {
-	types := GetEventTypesForEndpoint("events")
-	if _, ok := types["stream-metrics"]; !ok {
-		t.Error("expected stream-metrics for events endpoint")
-	}
-
-	types = GetEventTypesForEndpoint("unknown")
-	if len(types) != 0 {
-		t.Error("expected empty map for unknown endpoint")
-	}
-}
-
-func TestGetEventRoutes(t *testing.T) {
-	routes := GetEventRoutes()
-	if routes["stream-metrics"] != "events" {
-		t.Errorf("stream-metrics route = %q, want \"events\"", routes["stream-metrics"])
 	}
 }

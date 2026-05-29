@@ -471,7 +471,7 @@ func (s *Server) BroadcastDeviceDiscovery(action string, device devices.DeviceIn
 		Type:       models.DeviceType(device.Type),
 	}
 
-	s.eventBus.Publish(events.DeviceDiscoveryEvent{
+	events.Publish(s.eventBus, events.DeviceDiscoveryEvent{
 		DeviceInfo: apiDevice,
 		Action:     action,
 		Timestamp:  timestamp,

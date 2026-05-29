@@ -37,7 +37,7 @@ func TestRegistry_LifecyclePublishesEntityEvent(t *testing.T) {
 
 	var got EntityEvent
 	var gotMu sync.Mutex
-	unsub := bus.Subscribe(func(e EntityEvent) {
+	unsub := Subscribe(bus, func(e EntityEvent) {
 		gotMu.Lock()
 		got = e
 		gotMu.Unlock()
@@ -161,7 +161,7 @@ func TestRegistry_DependencyFanOutTouchesReferencedEntity(t *testing.T) {
 
 	var events []EntityEvent
 	var evMu sync.Mutex
-	unsub := bus.Subscribe(func(e EntityEvent) {
+	unsub := Subscribe(bus, func(e EntityEvent) {
 		evMu.Lock()
 		events = append(events, e)
 		evMu.Unlock()
@@ -257,7 +257,7 @@ func TestRegistry_DeleteFansOutToReferencedEntity(t *testing.T) {
 
 	var events []EntityEvent
 	var evMu sync.Mutex
-	unsub := bus.Subscribe(func(e EntityEvent) {
+	unsub := Subscribe(bus, func(e EntityEvent) {
 		evMu.Lock()
 		events = append(events, e)
 		evMu.Unlock()
@@ -369,7 +369,7 @@ func TestRegistry_UpdateFansOutToPreviousAndCurrentReferences(t *testing.T) {
 
 	var events []EntityEvent
 	var evMu sync.Mutex
-	unsub := bus.Subscribe(func(e EntityEvent) {
+	unsub := Subscribe(bus, func(e EntityEvent) {
 		evMu.Lock()
 		events = append(events, e)
 		evMu.Unlock()

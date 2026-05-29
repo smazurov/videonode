@@ -69,6 +69,7 @@ export default withMermaid(
           collapsed: false,
           items: [
             { text: 'Architecture', link: '/development/architecture' },
+            { text: 'Events & SSE', link: '/development/events-and-sse' },
             { text: 'Building from source', link: '/development/building' },
           ],
         },

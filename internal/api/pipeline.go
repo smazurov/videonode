@@ -52,7 +52,7 @@ func (s *Server) registerPipelineRoutes() {
 		}
 		enabled := s.streamService.PipelineEnabled()
 		if s.eventBus != nil {
-			s.eventBus.Publish(events.PipelineStateChangedEvent{
+			events.Publish(s.eventBus, events.PipelineStateChangedEvent{
 				Enabled:   enabled,
 				Timestamp: time.Now().Format(time.RFC3339),
 			})
@@ -77,7 +77,7 @@ func (s *Server) registerPipelineRoutes() {
 		}
 		enabled := s.streamService.PipelineEnabled()
 		if s.eventBus != nil {
-			s.eventBus.Publish(events.PipelineStateChangedEvent{
+			events.Publish(s.eventBus, events.PipelineStateChangedEvent{
 				Enabled:   enabled,
 				Timestamp: time.Now().Format(time.RFC3339),
 			})

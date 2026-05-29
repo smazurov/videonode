@@ -15,7 +15,7 @@ import { Menu, MenuButton, MenuItems } from '@headlessui/react';
 import { MenuRow } from '../components/menu/MenuRow';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useStreamStore } from '../hooks/useStreamStore';
-import { useSSEManager, type StreamLifecycleEvent } from '../hooks/useSSEManager';
+import { useSSEManager } from '../hooks/useSSEManager';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { InfoBar } from '../components/InfoBar';
 import { Button } from '../components/Button';
@@ -33,9 +33,6 @@ import { StreamConsumerTargetsPanel } from '../components/streams/StreamConsumer
 import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 import { WebRTCPlayer } from '../components/webrtc';
 import { api } from '../lib/api';
-import type { components } from '../lib/api.generated';
-
-type StreamMetricsEvent = components['schemas']['StreamMetricsEvent'];
 
 const MODE_OPTIONS: ReadonlyArray<{
   value: StreamPreviewMode;
@@ -92,10 +89,7 @@ export default function StreamDetail() {
   const stream = useStreamStore((state) => (streamId ? state.streamsById[streamId] : undefined));
   const lastUpdated = useStreamStore((state) => state.lastUpdated);
   const fetchStreams = useStreamStore((state) => state.fetchStreams);
-  const addStream = useStreamStore((state) => state.addStream);
-  const removeStream = useStreamStore((state) => state.removeStream);
   const deleteStreamAction = useStreamStore((state) => state.deleteStream);
-  const updateStreamMetrics = useStreamStore((state) => state.updateStreamMetrics);
   const bumpStreamRefreshKey = useStreamStore((state) => state.bumpStreamRefreshKey);
   const refreshKey = useStreamStore(
     (state) => (streamId ? state.streamRefreshKeys[streamId] ?? 0 : 0),
@@ -115,25 +109,6 @@ export default function StreamDetail() {
     if (missing) navigate('/streams');
   }, [streamId, stream, lastUpdated, navigate]);
 
-  const handleStreamLifecycle = useCallback(
-    (event: StreamLifecycleEvent) => {
-      if (event.type === 'stream-created' || event.type === 'stream-updated') {
-        addStream(event.stream);
-      } else if (event.type === 'stream-deleted' && event.stream_id === streamId) {
-        removeStream(event.stream_id);
-        navigate('/streams');
-      }
-    },
-    [addStream, removeStream, streamId, navigate],
-  );
-
-  const handleStreamMetrics = useCallback(
-    (event: StreamMetricsEvent) => {
-      updateStreamMetrics(event);
-    },
-    [updateStreamMetrics],
-  );
-
   const prevConnectionStatusRef = useRef<'online' | 'offline' | 'reconnecting'>('online');
   const handleConnectionStatus = useCallback(
     (status: 'online' | 'offline' | 'reconnecting') => {
@@ -146,8 +121,6 @@ export default function StreamDetail() {
   );
 
   useSSEManager({
-    onStreamLifecycleEvent: handleStreamLifecycle,
-    onStreamMetricsEvent: handleStreamMetrics,
     onConnectionStatusChange: handleConnectionStatus,
   });
 

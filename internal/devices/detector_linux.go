@@ -259,7 +259,7 @@ func (d *linuxDetector) StopMonitoring() {
 func (d *linuxDetector) SetEventBus(bus *events.Bus) {
 	d.eventBus = bus
 	if bus != nil {
-		bus.Subscribe(d.handleStreamCrashed)
+		events.Subscribe(bus, d.handleStreamCrashed)
 	}
 }
 

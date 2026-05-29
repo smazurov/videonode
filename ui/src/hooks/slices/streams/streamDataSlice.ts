@@ -1,11 +1,8 @@
 import { StateCreator } from 'zustand';
 
-import type { components } from '../../../lib/api.generated';
 import type { Stream } from '../types';
 import { StreamStore } from '../../useStreamStore';
 import { assertNever, type EntityAction } from '../../entityTypes';
-
-type StreamMetricsEvent = components['schemas']['StreamMetricsEvent'];
 
 export interface StreamMetrics {
   fps?: string | undefined;
@@ -20,8 +17,7 @@ export interface StreamDataSlice {
   streamIds: string[];
   streamsById: Record<string, Stream>;
   metricsById: Record<string, StreamMetrics>;
-  // Live runtime slots populated by EntityEvent action=status|consumers.
-  // metricsById is shared with the legacy updateStreamMetrics path.
+  // Live runtime slots populated by EntityEvent action=status|metrics|consumers.
   statusById: Record<string, unknown>;
   consumersById: Record<string, unknown>;
   streamRefreshKeys: Record<string, number>;
@@ -29,7 +25,6 @@ export interface StreamDataSlice {
   setStreams: (streams: Stream[] | null | undefined) => void;
   addStream: (stream: Stream) => void;
   removeStream: (streamId: string) => void;
-  updateStreamMetrics: (metrics: StreamMetricsEvent) => void;
   bumpStreamRefreshKey: (streamId: string) => void;
   getStreamById: (streamId: string) => Stream | undefined;
   applyEntityEvent: (
@@ -106,36 +101,6 @@ export const createStreamDataSlice: StateCreator<
         streamsById: restStreams,
         metricsById: restMetrics,
         lastUpdated: new Date(),
-      };
-    });
-  },
-
-  updateStreamMetrics: (metrics) => {
-    set((state) => {
-      const existing = state.metricsById[metrics.stream_id];
-      const raw = metrics as Record<string, unknown>;
-      if (
-        existing &&
-        existing.fps === metrics.fps &&
-        existing.dropped_frames === metrics.dropped_frames &&
-        existing.duplicate_frames === metrics.duplicate_frames &&
-        existing.bytes_out === raw['bytes_out'] &&
-        existing.packets_out === raw['packets_out']
-      ) {
-        return state;
-      }
-      return {
-        metricsById: {
-          ...state.metricsById,
-          [metrics.stream_id]: {
-            ...existing,
-            fps: metrics.fps,
-            dropped_frames: metrics.dropped_frames,
-            duplicate_frames: metrics.duplicate_frames,
-            bytes_out: raw['bytes_out'] as number | undefined,
-            packets_out: raw['packets_out'] as number | undefined,
-          },
-        },
       };
     });
   },

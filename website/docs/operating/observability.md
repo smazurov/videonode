@@ -26,12 +26,12 @@ To receive real-time lifecycle and status changes, connect to the single multipl
 curl -u videonode:videonode -N http://localhost:8090/api/events
 ```
 
-Each event carries a typed payload. Two events you'll see frequently:
+Each event carries a typed payload. The two you'll see most:
 
+- `entity`: a uniform envelope for every per-entity update, discriminated by `entity_type` (`source`, `composer`, `stream`) and `action` (`created`, `updated`, `deleted`, `status`, `metrics`, `consumers`)
 - `pipeline-state-changed`: fires when the pipeline master switch toggles on or off
-- `source-status`: fires when a source's frame delivery state changes (e.g., stalled, recovering)
 
-The connection sends a `heartbeat` every 15 seconds to keep proxies and idle clients alive.
+The connection sends a `heartbeat` every 15 seconds to keep proxies and idle clients alive. For the full event model, see [Events and SSE](../development/events-and-sse).
 
 ## Filtering logs by stream
 

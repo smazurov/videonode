@@ -18,15 +18,16 @@ import "time"
 // auto-republished when a stream or composer ref changes via the
 // events.OnLifecycle dependency graph.
 type SourceData struct {
-	SourceID  string            `json:"id" example:"hdmi-slides" doc:"Stable source identifier (kebab-case)"`
-	Device    string            `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Empty when test_mode is true."`
-	TestMode  bool              `json:"test_mode,omitempty" example:"false" doc:"When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device."`
-	Format    *SourceFormatBody `json:"format,omitempty" doc:"Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate."`
-	Consumers []SourceReference `json:"consumers,omitempty" republish:"stream,composer" doc:"Composers and streams currently referencing this source. Server-denormalized; auto-republished when references change."`
-	Status    ProcessStatus     `json:"status,omitempty" example:"running" enum:"idle,starting,running,stopping,error" doc:"Process pool state"`
-	Liveness  SourceLiveness    `json:"liveness,omitempty" example:"live" enum:"live,transitioning,no_cable,no_signal,initializing,offline,unknown" doc:"Source-reported health, independent of the process pool state. offline when the process isn't running."`
-	CreatedAt time.Time         `json:"created_at,omitzero" doc:"When the source record was created"`
-	UpdatedAt time.Time         `json:"updated_at,omitzero" doc:"When the source record was last updated"`
+	SourceID      string            `json:"id" example:"hdmi-slides" doc:"Stable source identifier (kebab-case)"`
+	Device        string            `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Empty when test_mode is true."`
+	TestMode      bool              `json:"test_mode,omitempty" example:"false" doc:"When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device."`
+	Format        *SourceFormatBody `json:"format,omitempty" doc:"Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate."`
+	Consumers     []SourceReference `json:"consumers,omitempty" republish:"stream,composer" doc:"Composers and streams currently referencing this source. Server-denormalized; auto-republished when references change."`
+	Status        ProcessStatus     `json:"status,omitempty" example:"running" enum:"idle,starting,running,stopping,error" doc:"Process pool state"`
+	Liveness      SourceLiveness    `json:"liveness,omitempty" example:"live" enum:"live,transitioning,no_cable,no_signal,initializing,offline,unknown" doc:"Source-reported health, independent of the process pool state. offline when the process isn't running."`
+	ConsumerCount int               `json:"consumer_count,omitempty" example:"2" doc:"Live SCM_RIGHTS consumer count (processes attached to this source's dma-buf socket). Seeded on GET; updated live via the source.consumers SSE event."`
+	CreatedAt     time.Time         `json:"created_at,omitzero" doc:"When the source record was created"`
+	UpdatedAt     time.Time         `json:"updated_at,omitzero" doc:"When the source record was last updated"`
 }
 
 // SourceFormatBody is the operator-selected V4L2 capture format the

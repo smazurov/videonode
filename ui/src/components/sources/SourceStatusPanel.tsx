@@ -69,6 +69,11 @@ export function SourceStatusPanel({ source }: Readonly<SourceStatusPanelProps>) 
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-subtle">
+        {source.consumer_count !== undefined && (
+          <span>
+            Consumers <span className="text-fg">{source.consumer_count}</span>
+          </span>
+        )}
         {uptimeLabel && (
           <span>
             Uptime <span className="text-fg">{uptimeLabel}</span>

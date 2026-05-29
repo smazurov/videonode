@@ -148,7 +148,7 @@ func main() {
 
 		// Set up log callback to publish log entries to event bus for SSE streaming
 		logging.SetLogCallback(func(entry logging.LogEntry) {
-			eventBus.Publish(events.LogEntryEvent{
+			events.Publish(eventBus, events.LogEntryEvent{
 				Timestamp:  entry.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
 				Level:      entry.Level,
 				Module:     entry.Module,
@@ -157,15 +157,12 @@ func main() {
 			})
 		})
 
-		// Initialize LED control if enabled
-		var ledManager *led.Manager
+		// Initialize LED control if enabled. The LED is driven solely by the
+		// REST surface (POST /api/leds); it does not react to pipeline events.
 		var ledController led.Controller
 		if opts.FeaturesLEDControl {
 			logger.Info("LED control enabled, initializing")
 			ledController = led.New(logger)
-
-			// Create LED manager that subscribes to stream state changes
-			ledManager = led.NewManager(ledController, eventBus, logger)
 		}
 
 		// Initialize streaming server (RTSP + WebRTC + SRT)
@@ -193,16 +190,10 @@ func main() {
 			}
 		})
 
-		// Emit "running" event when a stream's RTSP producer connects.
-		// Mirror on the uniform entity envelope so the UI's per-stream
-		// status pill flips without piggybacking on the legacy event.
+		// Publish "running" status on the entity envelope when a stream's
+		// RTSP producer connects, so the UI's per-stream status pill flips
+		// without polling.
 		streamingServer.SetOnProducerConnected(func(streamID string) {
-			eventBus.Publish(events.StreamStateChangedEvent{
-				StreamID:  streamID,
-				Enabled:   true,
-				Action:    "running",
-				Timestamp: time.Now().Format(time.RFC3339),
-			})
 			if eventRegistry != nil {
 				eventRegistry.Publish("stream", events.ActionStatus, streamID, map[string]any{
 					"state":      "running",
@@ -257,7 +248,6 @@ func main() {
 			DRMDevice:      "/dev/dri/renderD128",
 			RTSPPort:       opts.StreamingRTSPPort,
 			DeviceResolver: streams.MakeDeviceResolver(logger),
-			EventBus:       eventBus,
 			ControlServer:  ctlServer,
 			Registry:       eventRegistry,
 			EncoderResolver: func(codec, inputPixFmt string) (pipeline.EncoderResolution, error) {
@@ -280,16 +270,31 @@ func main() {
 		// the drain from the publish so a slow event subscriber can
 		// never block the StatusFeed channel.
 		if ctlServer != nil {
+			// Source consumers change far less often than the ~1 Hz status
+			// heartbeat, and the status payload already embeds the consumer
+			// set. Strip consumers from the status event and publish a
+			// dedicated consumers event only when the membership (count +
+			// live fds) changes — no double-send, no per-tick churn.
+			lastConsumerSig := make(map[string]string)
+			consumerSig := func(c pipelinectl.SourceConsumersInfo) string {
+				fds := make([]int, 0, len(c.Live))
+				for _, e := range c.Live {
+					fds = append(fds, e.FD)
+				}
+				slices.Sort(fds)
+				return fmt.Sprintf("%d:%v", c.Count, fds)
+			}
 			pipelinectl.RunStatusFanout(
 				ctlServer.StatusFeed(),
 				func(st pipelinectl.StatusParams) {
-					eventBus.Publish(events.SourceStatusEvent{
-						DeviceID:  st.DeviceID,
-						Status:    st,
-						Timestamp: time.Now().Format(time.RFC3339),
-					})
-					if eventRegistry != nil && st.DeviceID != "" {
-						eventRegistry.Publish("source", events.ActionStatus, st.DeviceID, st)
+					if eventRegistry == nil || st.DeviceID == "" {
+						return
+					}
+					statusOnly := st
+					statusOnly.Consumers = pipelinectl.SourceConsumersInfo{}
+					eventRegistry.Publish("source", events.ActionStatus, st.DeviceID, statusOnly)
+					if sig := consumerSig(st.Consumers); lastConsumerSig[st.DeviceID] != sig {
+						lastConsumerSig[st.DeviceID] = sig
 						eventRegistry.Publish("source", events.ActionConsumers, st.DeviceID, st.Consumers)
 					}
 				},
@@ -418,7 +423,7 @@ func main() {
 
 		// Create SSE exporter if enabled
 		if opts.SSEEnabled {
-			sseExporter = exporters.NewSSEExporter(eventBus).WithEntityRegistry(eventRegistry)
+			sseExporter = exporters.NewSSEExporter(eventRegistry)
 		}
 
 		hooks.OnStart(func() {
@@ -489,11 +494,6 @@ func main() {
 				}()
 			}
 
-			// Start LED manager if enabled
-			if ledManager != nil {
-				ledManager.Start()
-			}
-
 			logger.Info("Starting HTTP server", logging.KeyPort, opts.Port)
 			if err := server.Start(opts.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				logger.Error("Failed to start HTTP server", logging.KeyError, err)
@@ -536,9 +536,6 @@ func main() {
 				srtServer.Stop()
 			}
 
-			if ledManager != nil {
-				ledManager.Stop()
-			}
 			if sseExporter != nil {
 				sseExporter.Stop()
 			}

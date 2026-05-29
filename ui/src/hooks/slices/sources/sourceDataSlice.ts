@@ -7,10 +7,9 @@ import { assertNever, type EntityAction } from '../../entityTypes';
 export interface SourceDataSlice {
   sourceIds: string[];
   sourcesById: Record<string, Source>;
-  // Live runtime slots populated by EntityEvent action=status|metrics|consumers.
+  // Live runtime slots populated by EntityEvent action=status|consumers.
   // Components select narrowly: useSourceStore(s => s.statusById[id]).
   statusById: Record<string, unknown>;
-  metricsById: Record<string, unknown>;
   consumersById: Record<string, unknown>;
 
   setSources: (sources: Source[] | null | undefined) => void;
@@ -37,7 +36,6 @@ export const createSourceDataSlice: StateCreator<
   sourceIds: [],
   sourcesById: {},
   statusById: {},
-  metricsById: {},
   consumersById: {},
 
   setSources: (sources) => {
@@ -129,9 +127,9 @@ export const createSourceDataSlice: StateCreator<
         return;
       }
       case 'metrics':
-        set((state) => ({
-          metricsById: { ...state.metricsById, [id]: payload },
-        }));
+        // Sources publish no metrics event (effective_fps is derived from the
+        // status snapshot); this case exists only to satisfy the exhaustive
+        // action switch.
         return;
       case 'consumers': {
         const snap = payload as Partial<{ count: number }> | null | undefined;

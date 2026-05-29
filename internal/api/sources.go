@@ -24,15 +24,16 @@ import (
 // service layer in Get/List; emitted to the UI on every
 // `entity{type:source}` event so the UI never has to join client-side.
 type Source struct {
-	ID        string
-	Device    string
-	TestMode  bool
-	Format    *SourceFormat
-	Status    models.ProcessStatus
-	Liveness  models.SourceLiveness
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Consumers []models.SourceReference
+	ID            string
+	Device        string
+	TestMode      bool
+	Format        *SourceFormat
+	Status        models.ProcessStatus
+	Liveness      models.SourceLiveness
+	ConsumerCount int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	Consumers     []models.SourceReference
 }
 
 // SourceFormat is the operator-selected V4L2 capture format mirrored
@@ -242,14 +243,15 @@ func (s *Server) registerSourceRoutes() {
 // sourceToAPI converts the internal source descriptor to the wire model.
 func sourceToAPI(src Source) models.SourceData {
 	out := models.SourceData{
-		SourceID:  src.ID,
-		Device:    src.Device,
-		TestMode:  src.TestMode,
-		Status:    src.Status,
-		Liveness:  src.Liveness,
-		CreatedAt: src.CreatedAt,
-		UpdatedAt: src.UpdatedAt,
-		Consumers: src.Consumers,
+		SourceID:      src.ID,
+		Device:        src.Device,
+		TestMode:      src.TestMode,
+		Status:        src.Status,
+		Liveness:      src.Liveness,
+		ConsumerCount: src.ConsumerCount,
+		CreatedAt:     src.CreatedAt,
+		UpdatedAt:     src.UpdatedAt,
+		Consumers:     src.Consumers,
 	}
 	if src.Format != nil {
 		name, ok := models.PixelFormatToVideoFormatByFourCC(src.Format.FourCC)
