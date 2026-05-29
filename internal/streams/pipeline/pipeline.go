@@ -37,10 +37,6 @@ type Config struct {
 	// when every Source uses TestMode.
 	DeviceResolver func(deviceID string) string
 
-	// EventBus, when non-nil, receives StageStateChangedEvent on every
-	// pool state transition.
-	EventBus *events.Bus
-
 	// ControlServer, when non-nil, is used by ApplyComposer to register
 	// the spawned videonode-composer over gRPC and push its initial
 	// SetCanvas / SetSource / SetLayout / SetEffects RPCs. Without this
@@ -1064,34 +1060,9 @@ func (p *Pipeline) entityLock(key string) *sync.Mutex {
 	return mu
 }
 
-// onStateChange forwards pool state transitions to the event bus and
-// touches the owning entity so its SSE snapshot refreshes with the new
-// pool-derived status field.
-func (p *Pipeline) onStateChange(id string, oldState, newState process.State, err error) {
-	if p.cfg.EventBus == nil {
-		return
-	}
-	p.mu.Lock()
-	stage, ok := p.stages[id]
-	p.mu.Unlock()
-	ev := events.StageStateChangedEvent{
-		StageID:   id,
-		OldState:  string(oldState),
-		NewState:  string(newState),
-		Timestamp: time.Now().Format(time.RFC3339),
-	}
-	if ok {
-		ev.StageKind = stage.Kind().String()
-		ev.StreamID = stage.StreamID()
-	}
-	if err != nil {
-		ev.Error = err.Error()
-	}
-	if newState == process.StateRunning {
-		ev.PID = p.pool.GetStatus(id).PID
-	}
-	events.Publish(p.cfg.EventBus, ev)
-
+// onStateChange touches the owning entity when a pool stage transitions so
+// its SSE snapshot refreshes with the new pool-derived status field.
+func (p *Pipeline) onStateChange(id string, _, newState process.State, _ error) {
 	if p.cfg.Registry != nil {
 		switch {
 		case strings.HasPrefix(id, "producer:"):

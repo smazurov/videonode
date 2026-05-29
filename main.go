@@ -248,7 +248,6 @@ func main() {
 			DRMDevice:      "/dev/dri/renderD128",
 			RTSPPort:       opts.StreamingRTSPPort,
 			DeviceResolver: streams.MakeDeviceResolver(logger),
-			EventBus:       eventBus,
 			ControlServer:  ctlServer,
 			Registry:       eventRegistry,
 			EncoderResolver: func(codec, inputPixFmt string) (pipeline.EncoderResolution, error) {
