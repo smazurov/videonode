@@ -157,15 +157,12 @@ func main() {
 			})
 		})
 
-		// Initialize LED control if enabled
-		var ledManager *led.Manager
+		// Initialize LED control if enabled. The LED is driven solely by the
+		// REST surface (POST /api/leds); it does not react to pipeline events.
 		var ledController led.Controller
 		if opts.FeaturesLEDControl {
 			logger.Info("LED control enabled, initializing")
 			ledController = led.New(logger)
-
-			// Create LED manager that subscribes to stream state changes
-			ledManager = led.NewManager(ledController, eventBus, logger)
 		}
 
 		// Initialize streaming server (RTSP + WebRTC + SRT)
@@ -193,16 +190,10 @@ func main() {
 			}
 		})
 
-		// Emit "running" event when a stream's RTSP producer connects.
-		// Mirror on the uniform entity envelope so the UI's per-stream
-		// status pill flips without piggybacking on the legacy event.
+		// Publish "running" status on the entity envelope when a stream's
+		// RTSP producer connects, so the UI's per-stream status pill flips
+		// without polling.
 		streamingServer.SetOnProducerConnected(func(streamID string) {
-			eventBus.Publish(events.StreamStateChangedEvent{
-				StreamID:  streamID,
-				Enabled:   true,
-				Action:    "running",
-				Timestamp: time.Now().Format(time.RFC3339),
-			})
 			if eventRegistry != nil {
 				eventRegistry.Publish("stream", events.ActionStatus, streamID, map[string]any{
 					"state":      "running",
@@ -504,11 +495,6 @@ func main() {
 				}()
 			}
 
-			// Start LED manager if enabled
-			if ledManager != nil {
-				ledManager.Start()
-			}
-
 			logger.Info("Starting HTTP server", logging.KeyPort, opts.Port)
 			if err := server.Start(opts.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				logger.Error("Failed to start HTTP server", logging.KeyError, err)
@@ -551,9 +537,6 @@ func main() {
 				srtServer.Stop()
 			}
 
-			if ledManager != nil {
-				ledManager.Stop()
-			}
 			if sseExporter != nil {
 				sseExporter.Stop()
 			}
