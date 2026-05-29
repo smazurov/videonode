@@ -29,13 +29,14 @@ if [[ $EUID -ne 0 ]] && [[ -z "$SUDO" ]] && command -v sudo >/dev/null; then
     SUDO=sudo
 fi
 
-# gtest/gmock are test-only — install them only for modes that build and
-# run the suite (dev, dev-asan, lint configures via the dev preset which
-# sets BUILD_TESTS=ON). release-nfpm builds with BUILD_TESTS=OFF and never
-# links or runs tests, so it does not pull them in.
+# Per-mode extras. gtest/gmock are test-only — only the modes that build and run
+# the suite (dev, dev-asan, lint configures via the dev preset which sets
+# BUILD_TESTS=ON) get them. release-nfpm builds with BUILD_TESTS=OFF and instead
+# pulls dpkg-dev for dpkg-shlibdeps (runtime-dep generation, see scripts/gen-deb-depends.sh).
 case "$MODE" in
     lint)         extra_pkgs=(clang-format clang-tidy libgtest-dev libgmock-dev) ;;
     dev|dev-asan) extra_pkgs=(libgtest-dev libgmock-dev) ;;
+    release-nfpm) extra_pkgs=(dpkg-dev) ;;
     *)            extra_pkgs=() ;;
 esac
 
