@@ -59,7 +59,7 @@ export type ComposerLifecycleEvent =
   | TaggedComposerDeletedEvent
   | TaggedComposerLayoutChangedEvent;
 
-type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
+export type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
 
 interface SSEManagerOptions {
   onStreamLifecycleEvent?: (event: StreamLifecycleEvent) => void;
@@ -86,9 +86,21 @@ const globalPipelineStateHandlers = new Set<(event: PipelineStateChangedEvent) =
 function mapStatus(status: SSEStatus): ConnectionStatus {
   switch (status) {
     case 'connected': return 'online';
+    // An EventSource attempt is actively in flight — surface as 'reconnecting'
+    // so the UI only says "reconnecting" while genuinely trying. The idle
+    // backoff wait stays 'disconnected' → 'offline' ("Disconnected").
+    case 'connecting':
     case 'reconnecting': return 'reconnecting';
     default: return 'offline';
   }
+}
+
+// Current connection status of the shared SSE client, for seeding local state
+// without waiting for the next onStatusChange event. 'online' is the
+// optimistic default before the client has connected, so consumers that mount
+// during a healthy session don't flash a disconnected indicator.
+export function getGlobalConnectionStatus(): ConnectionStatus {
+  return globalClient ? mapStatus(globalClient.getStatus()) : 'online';
 }
 
 // Until U1 regenerates api.generated.ts with source/composer events, the

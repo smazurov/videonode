@@ -202,16 +202,21 @@ export class SSEClient<P extends SSEPath> {
     }
 
     this.eventSource.onerror = async () => {
-      this.setStatus('reconnecting');
       this.eventSource?.close();
       this.eventSource = null;
 
       const authFailed = await this.verifyAuthOrRedirect();
       if (authFailed) {
+        this.setStatus('disconnected');
         this.config.onError?.(false);
         return;
       }
 
+      // Sitting in the backoff wait reads as 'disconnected'. The active
+      // EventSource attempt in connect() is the only thing that surfaces as
+      // 'connecting' — so "reconnecting" stays honest, shown only while a
+      // connection is genuinely being attempted, not during the idle wait.
+      this.setStatus('disconnected');
       this.config.onError?.(true);
       this.scheduleReconnect();
     };
@@ -291,12 +296,16 @@ export class SSEClient<P extends SSEPath> {
     }
     // authMiddleware.onResponse handles the 401 toast + clearAuthState; we
     // just need to know whether the call succeeded enough to continue
-    // reconnect attempts.
-    const { response, error } = await api.GET('/api/streams');
-    if (response?.status === 401) return true;
-    // Network errors leave error truthy but no 401 — keep reconnecting.
-    if (error) return false;
-    return false;
+    // reconnect attempts. openapi-fetch rejects (not returns) on a transport
+    // failure, so a downed backend throws here — swallow it and keep
+    // reconnecting rather than letting the rejection escape this async
+    // onerror handler as an unhandled promise rejection.
+    try {
+      const { response } = await api.GET('/api/streams');
+      return response?.status === 401;
+    } catch {
+      return false;
+    }
   }
 
   private scheduleReconnect(): void {
