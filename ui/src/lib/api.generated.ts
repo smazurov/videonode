@@ -245,7 +245,7 @@ export interface paths {
         };
         /**
          * Server-Sent Events Stream
-         * @description Real-time event stream for capture results, device changes, and system status
+         * @description Real-time event stream for entity lifecycle/status/metrics/consumers, device changes, and pipeline state
          */
         get: operations["events-stream"];
         put?: never;
@@ -768,23 +768,6 @@ export interface components {
              */
             w: number;
         };
-        ComposerCanvasDims: {
-            /**
-             * Format: int64
-             * @description Canvas frame rate (0 = daemon default)
-             */
-            fps?: number;
-            /**
-             * Format: int64
-             * @description Canvas height in pixels
-             */
-            h: number;
-            /**
-             * Format: int64
-             * @description Canvas width in pixels
-             */
-            w: number;
-        };
         ComposerCreateRequestData: {
             /**
              * Format: uri
@@ -803,14 +786,6 @@ export interface components {
             inputs: components["schemas"]["ComposerInputData"][] | null;
             /** @description Initial layout slots (optional; defaults to empty) */
             layout?: components["schemas"]["LayoutSlotData"][] | null;
-        };
-        ComposerCreatedEvent: {
-            /** @description Created composer data */
-            composer: components["schemas"]["ComposerPayload"];
-            /** @description Created composer identifier */
-            composer_id: string;
-            /** @description RFC3339 server time */
-            timestamp: string;
         };
         ComposerData: {
             /**
@@ -855,28 +830,6 @@ export interface components {
              */
             updated_at?: string;
         };
-        ComposerDeletedEvent: {
-            /** @description Deleted composer identifier */
-            composer_id: string;
-            /** @description RFC3339 server time */
-            timestamp: string;
-        };
-        ComposerEffect: {
-            /** @description Perspective corners when type='perspective' */
-            corners?: (number[] | null)[] | null;
-            /**
-             * Format: int64
-             * @description Source pixel height the corners are expressed in
-             */
-            snapshot_h?: number;
-            /**
-             * Format: int64
-             * @description Source pixel width the corners are expressed in
-             */
-            snapshot_w?: number;
-            /** @description Effect type, e.g. 'perspective' */
-            type: string;
-        };
         ComposerEffectRequestData: {
             /**
              * Format: uri
@@ -896,20 +849,6 @@ export interface components {
              */
             ref: string;
         };
-        ComposerInputPayload: {
-            /** @description Optional per-input effect */
-            effect?: components["schemas"]["ComposerEffect"];
-            /** @description Upstream ref, e.g. 'source:<id>' */
-            ref: string;
-        };
-        ComposerLayoutChangedEvent: {
-            /** @description Composer whose layout changed */
-            composer_id: string;
-            /** @description New layout slots */
-            layout: components["schemas"]["ComposerLayoutSlot"][] | null;
-            /** @description RFC3339 server time */
-            timestamp: string;
-        };
         ComposerLayoutRequestData: {
             /**
              * Format: uri
@@ -919,39 +858,6 @@ export interface components {
             readonly $schema?: string;
             /** @description Full replacement layout array */
             layout: components["schemas"]["LayoutSlotData"][] | null;
-        };
-        ComposerLayoutSlot: {
-            /** @description How to scale source into slot (stretch, fit, crop) */
-            aspect_ratio_mode?: string;
-            /** @description Crop positioning (only meaningful when aspect_ratio_mode=crop) */
-            crop?: components["schemas"]["CropConfigData"];
-            /**
-             * Format: int64
-             * @description Slot height in canvas pixels
-             */
-            h: number;
-            /** @description Matches ComposerInputPayload.Ref */
-            input: string;
-            /**
-             * Format: int64
-             * @description Clockwise rotation in degrees (0, 90, 180, 270)
-             */
-            rotation?: number;
-            /**
-             * Format: int64
-             * @description Slot width in canvas pixels
-             */
-            w: number;
-            /**
-             * Format: int64
-             * @description Slot X in canvas pixels
-             */
-            x: number;
-            /**
-             * Format: int64
-             * @description Slot Y in canvas pixels
-             */
-            y: number;
         };
         ComposerListData: {
             /**
@@ -969,20 +875,6 @@ export interface components {
              */
             count: number;
         };
-        ComposerPayload: {
-            /** @description Canvas dimensions */
-            canvas: components["schemas"]["ComposerCanvasDims"];
-            /** @description RFC3339 creation timestamp */
-            created_at?: string;
-            /** @description Composer identifier */
-            id: string;
-            /** @description Inputs sourced into the composer */
-            inputs?: components["schemas"]["ComposerInputPayload"][] | null;
-            /** @description Layout slots placed on the canvas */
-            layout?: components["schemas"]["ComposerLayoutSlot"][] | null;
-            /** @description RFC3339 last-update timestamp */
-            updated_at?: string;
-        };
         ComposerUpdateRequestData: {
             /**
              * Format: uri
@@ -996,14 +888,6 @@ export interface components {
             inputs?: components["schemas"]["ComposerInputData"][] | null;
             /** @description Replacement layout (also validated against inputs) */
             layout?: components["schemas"]["LayoutSlotData"][] | null;
-        };
-        ComposerUpdatedEvent: {
-            /** @description Composer data after the update */
-            composer: components["schemas"]["ComposerPayload"];
-            /** @description Updated composer identifier */
-            composer_id: string;
-            /** @description RFC3339 server time */
-            timestamp: string;
         };
         CropConfigData: {
             /**
@@ -1632,32 +1516,6 @@ export interface components {
              */
             width: number;
         };
-        SourceBroadcastInfo: {
-            /** Format: int32 */
-            last_seq: number;
-            /** Format: int64 */
-            placeholder_frames: number;
-            /** Format: int64 */
-            real_frames: number;
-            /** Format: int32 */
-            target_fps: number;
-        };
-        SourceConsumerEntry: {
-            /** Format: int64 */
-            evicted_at_frame?: number;
-            /** Format: int64 */
-            fd: number;
-            /** Format: int64 */
-            frames_dropped: number;
-            /** Format: int64 */
-            frames_sent: number;
-        };
-        SourceConsumersInfo: {
-            /** Format: int64 */
-            count: number;
-            evicted: components["schemas"]["SourceConsumerEntry"][] | null;
-            live: components["schemas"]["SourceConsumerEntry"][] | null;
-        };
         SourceCreateBody: {
             /**
              * Format: uri
@@ -1682,14 +1540,6 @@ export interface components {
              * @example false
              */
             test_mode?: boolean;
-        };
-        SourceCreatedEvent: {
-            /** @description Created source data */
-            source: components["schemas"]["SourcePayload"];
-            /** @description Created source identifier */
-            source_id: string;
-            /** @description RFC3339 server time */
-            timestamp: string;
         };
         SourceData: {
             /**
@@ -1740,16 +1590,6 @@ export interface components {
              */
             updated_at?: string;
         };
-        SourceDeletedEvent: {
-            /** @description Deleted source identifier */
-            source_id: string;
-            /** @description RFC3339 server time */
-            timestamp: string;
-        };
-        SourceDeviceInfo: {
-            multiplanar: boolean;
-            path: string;
-        };
         SourceFormatBody: {
             /**
              * @description Lowercase video format name (matches /api/devices/{id}/formats)
@@ -1776,37 +1616,6 @@ export interface components {
              */
             width: number;
         };
-        SourceFormatEventBody: {
-            /** @description Lowercase video format name */
-            format_name: string;
-            /**
-             * Format: int32
-             * @description Capture framerate; 0 = driver default
-             */
-            fps?: number;
-            /**
-             * Format: int32
-             * @description Capture height in pixels
-             */
-            height: number;
-            /**
-             * Format: int32
-             * @description Capture width in pixels
-             */
-            width: number;
-        };
-        SourceFormatInfo: {
-            /** Format: int32 */
-            buffers: number;
-            fourcc: string;
-            /** Format: int32 */
-            fps: number;
-            /** Format: int32 */
-            h: number;
-            mode: string;
-            /** Format: int32 */
-            w: number;
-        };
         SourceListData: {
             /**
              * Format: uri
@@ -1823,20 +1632,6 @@ export interface components {
             /** @description List of configured sources */
             sources: components["schemas"]["SourceData"][] | null;
         };
-        SourcePayload: {
-            /** @description RFC3339 creation timestamp */
-            created_at?: string;
-            /** @description Stable device identifier */
-            device?: string;
-            /** @description V4L2 capture format the daemon pushed to the source */
-            format?: components["schemas"]["SourceFormatEventBody"];
-            /** @description Source identifier */
-            id: string;
-            /** @description Source uses the RPC test-pattern producer */
-            test_mode?: boolean;
-            /** @description RFC3339 last-update timestamp */
-            updated_at?: string;
-        };
         SourceReference: {
             /**
              * @description Referencing entity identifier
@@ -1848,20 +1643,6 @@ export interface components {
              * @example composer
              */
             kind: string;
-        };
-        SourceSignalInfo: {
-            cable_present: boolean;
-            dv_timings: string;
-            has_dv_timings: boolean;
-            signal_locked: boolean;
-        };
-        SourceStatusEvent: {
-            /** @description Stable device identifier the snapshot describes */
-            device_id: string;
-            /** @description Full status snapshot from the sidecar */
-            status: components["schemas"]["StatusParams"];
-            /** @description Server time when received */
-            timestamp: string;
         };
         SourceUpdateBody: {
             /**
@@ -1882,62 +1663,6 @@ export interface components {
              * @example true
              */
             test_mode?: boolean;
-        };
-        SourceUpdatedEvent: {
-            /** @description Source data after the update */
-            source: components["schemas"]["SourcePayload"];
-            /** @description Updated source identifier */
-            source_id: string;
-            /** @description RFC3339 server time */
-            timestamp: string;
-        };
-        StageStateChangedEvent: {
-            /** @description Error message when NewState is 'error' */
-            error?: string;
-            /** @description New process state */
-            new_state: string;
-            /** @description Prior process state */
-            old_state: string;
-            /**
-             * Format: int64
-             * @description OS pid when running; 0 otherwise
-             */
-            pid?: number;
-            /** @description Pool key, e.g. 'producer:hdmi0' or 'composer:cam-front' */
-            stage_id: string;
-            /** @description 'producer' | 'composer' | 'encoder' */
-            stage_kind: string;
-            /** @description User-facing stream this stage belongs to (empty for shared producers) */
-            stream_id: string;
-            /** @description RFC3339 server time */
-            timestamp: string;
-        };
-        StatusParams: {
-            broadcast: components["schemas"]["SourceBroadcastInfo"];
-            consumers: components["schemas"]["SourceConsumersInfo"];
-            device: components["schemas"]["SourceDeviceInfo"];
-            device_id: string;
-            format: components["schemas"]["SourceFormatInfo"];
-            health: string;
-            signal: components["schemas"]["SourceSignalInfo"];
-            /** Format: int64 */
-            started_at_us?: number;
-            /** Format: int64 */
-            ts_ms: number;
-        };
-        StreamCreatedEvent: {
-            /**
-             * @description Action type
-             * @example created
-             */
-            action: string;
-            /** @description Created stream data */
-            stream: components["schemas"]["StreamData"];
-            /**
-             * @description Event timestamp
-             * @example 2025-01-27T10:30:00Z
-             */
-            timestamp: string;
         };
         StreamData: {
             /**
@@ -1999,23 +1724,6 @@ export interface components {
              */
             upstream: string;
         };
-        StreamDeletedEvent: {
-            /**
-             * @description Action type
-             * @example deleted
-             */
-            action: string;
-            /**
-             * @description Deleted stream identifier
-             * @example stream-001
-             */
-            stream_id: string;
-            /**
-             * @description Event timestamp
-             * @example 2025-01-27T10:30:00Z
-             */
-            timestamp: string;
-        };
         StreamListData: {
             /**
              * Format: uri
@@ -2041,15 +1749,6 @@ export interface components {
             readonly $schema?: string;
             /** @description List of active stream IDs */
             streams: string[] | null;
-        };
-        StreamMetricsEvent: {
-            bytes_out: string;
-            dropped_frames: string;
-            duplicate_frames: string;
-            fps: string;
-            packets_out: string;
-            stream_id: string;
-            type: string;
         };
         StreamRequestData: {
             /**
@@ -2082,28 +1781,6 @@ export interface components {
              */
             upstream: string;
         };
-        StreamStateChangedEvent: {
-            /**
-             * @description Action: enabled, disabled, running
-             * @example running
-             */
-            action?: string;
-            /**
-             * @description Whether stream is enabled
-             * @example true
-             */
-            enabled: boolean;
-            /**
-             * @description Stream identifier
-             * @example stream-001
-             */
-            stream_id: string;
-            /**
-             * @description Event timestamp
-             * @example 2025-01-27T10:30:00Z
-             */
-            timestamp: string;
-        };
         StreamUpdateRequestData: {
             /**
              * Format: uri
@@ -2123,20 +1800,6 @@ export interface components {
             name?: string;
             /** @description Upstream reference */
             upstream?: string;
-        };
-        StreamUpdatedEvent: {
-            /**
-             * @description Action type
-             * @example updated
-             */
-            action: string;
-            /** @description Updated stream data */
-            stream: components["schemas"]["StreamData"];
-            /**
-             * @description Event timestamp
-             * @example 2025-01-27T10:30:00Z
-             */
-            timestamp: string;
         };
         SystemStatsError: {
             /** @description Pool key of the erroring stage */
@@ -3027,50 +2690,6 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": ({
-                        data: components["schemas"]["ComposerCreatedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "composer-created";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["ComposerDeletedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "composer-deleted";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["ComposerLayoutChangedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "composer-layout-changed";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["ComposerUpdatedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "composer-updated";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
                         data: components["schemas"]["DeviceDiscoveryEvent"];
                         /**
                          * @description The event name.
@@ -3110,116 +2729,6 @@ export interface operations {
                          * @constant
                          */
                         event: "pipeline-state-changed";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["SourceCreatedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "source-created";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["SourceDeletedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "source-deleted";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["SourceStatusEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "source-status";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["SourceUpdatedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "source-updated";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["StageStateChangedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "stage-state-changed";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["StreamCreatedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "stream-created";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["StreamDeletedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "stream-deleted";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["StreamMetricsEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "stream-metrics";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["StreamStateChangedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "stream-state-changed";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["StreamUpdatedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "stream-updated";
                         /** @description The event ID. */
                         id?: number;
                         /** @description The retry time in milliseconds. */
