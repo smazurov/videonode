@@ -99,7 +99,7 @@ func (e *Entity[T]) PublishUpdated(payload T) {
 func (e *Entity[T]) PublishUpdatedWith(prev, next T) {
 	id := e.idOf(next)
 	if e.bus != nil {
-		e.bus.Publish(EntityEvent{
+		Publish(e.bus, EntityEvent{
 			EntityType: e.typ,
 			ID:         id,
 			Action:     ActionUpdated,
@@ -141,7 +141,7 @@ func (e *Entity[T]) PublishDeleted(id string) {
 func (e *Entity[T]) PublishDeletedWith(prev T) {
 	id := e.idOf(prev)
 	if e.bus != nil {
-		e.bus.Publish(EntityEvent{
+		Publish(e.bus, EntityEvent{
 			EntityType: e.typ,
 			ID:         id,
 			Action:     ActionDeleted,
@@ -200,7 +200,7 @@ func (e *Entity[T]) publish(action, id string, payload any) {
 	if e.bus == nil {
 		return
 	}
-	e.bus.Publish(EntityEvent{
+	Publish(e.bus, EntityEvent{
 		EntityType: e.typ,
 		ID:         id,
 		Action:     action,

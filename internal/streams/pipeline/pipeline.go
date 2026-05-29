@@ -1090,7 +1090,7 @@ func (p *Pipeline) onStateChange(id string, oldState, newState process.State, er
 	if newState == process.StateRunning {
 		ev.PID = p.pool.GetStatus(id).PID
 	}
-	p.cfg.EventBus.Publish(ev)
+	events.Publish(p.cfg.EventBus, ev)
 
 	if p.cfg.Registry != nil {
 		switch {
