@@ -22,6 +22,7 @@
 #include <linux/dma-buf.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/syscall.h> // SYS_memfd_create
 
 #include <algorithm>
 #include <atomic>

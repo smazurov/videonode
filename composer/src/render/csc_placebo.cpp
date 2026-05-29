@@ -10,6 +10,8 @@
 #include <libplacebo/opengl.h>
 #include <libplacebo/renderer.h>
 
+#include <unistd.h> // dup, close
+
 #include <atomic>
 #include <cstring>
 
