@@ -4,6 +4,7 @@
 #include "src/ipc/dmabuf_header.hpp"
 #include "src/ipc/scm_rights_producer.hpp"
 #include "src/ipc/scm_rights_source.hpp"
+#include "src/render/build_source_slot.hpp"
 #include "src/render/composer_service.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/render/gbm_alloc.hpp"
@@ -160,54 +161,19 @@ RenderBatch build_render_slots_(const Snapshot& snap,
         if (fv.plane1_fd.get() < 0 || fv.width <= 0 || fv.height <= 0)
             continue;
 
-        pl_compose::SourceSlot s;
-        s.src_y_fd = fv.fd.get();
-        s.src_uv_fd = fv.plane1_fd.get();
-        s.src_w = fv.width;
-        s.src_h = fv.height;
-        s.src_y_pitch = fv.plane0_pitch ? int(fv.plane0_pitch) : fv.width;
-        s.src_uv_pitch = fv.plane1_pitch ? int(fv.plane1_pitch) : fv.width;
-        s.x = rect.x;
-        s.y = rect.y;
-        s.w = rect.w;
-        s.h = rect.h;
-        s.rotation = rect.rotation;
+        FrameGeom geom;
+        geom.y_fd = fv.fd.get();
+        geom.uv_fd = fv.plane1_fd.get();
+        geom.width = fv.width;
+        geom.height = fv.height;
+        geom.y_pitch = int(fv.plane0_pitch);
+        geom.uv_pitch = int(fv.plane1_pitch);
+        geom.y_offset = int(fv.plane0_offset);
+        geom.uv_offset = int(fv.plane1_offset);
 
-        if (rect.aspect_ratio_mode != 0 && fv.width > 0 && fv.height > 0 && rect.w > 0 &&
-            rect.h > 0) {
-            auto src_ar = static_cast<float>(fv.width) / static_cast<float>(fv.height);
-            auto slot_ar = static_cast<float>(rect.w) / static_cast<float>(rect.h);
-            if (rect.aspect_ratio_mode == 1) {
-                // Fit: letterbox/pillarbox — shrink destination to match source AR
-                if (src_ar > slot_ar) {
-                    auto new_h = static_cast<int>(static_cast<float>(rect.w) / src_ar);
-                    s.y += (rect.h - new_h) / 2;
-                    s.h = new_h;
-                } else {
-                    auto new_w = static_cast<int>(static_cast<float>(rect.h) * src_ar);
-                    s.x += (rect.w - new_w) / 2;
-                    s.w = new_w;
-                }
-            } else if (rect.aspect_ratio_mode == 2) {
-                // Crop: fill slot, position crop window via crop_x/crop_y/crop_scale
-                auto vis_w = std::min(1.0F, slot_ar / src_ar);
-                auto vis_h = std::min(1.0F, src_ar / slot_ar);
-                if (rect.crop_scale > 1.0F) {
-                    vis_w = std::min(1.0F, vis_w / rect.crop_scale);
-                    vis_h = std::min(1.0F, vis_h / rect.crop_scale);
-                }
-                s.src_crop_x0 = rect.crop_x * (1.0F - vis_w);
-                s.src_crop_x1 = s.src_crop_x0 + vis_w;
-                s.src_crop_y0 = rect.crop_y * (1.0F - vis_h);
-                s.src_crop_y1 = s.src_crop_y0 + vis_h;
-            }
-        }
         auto sit = snap.source_states.find(bit->source_id);
-        if (sit != snap.source_states.end()) {
-            const auto& ss = sit->second;
-            if (ss.state != "placeholder" && ss.has_perspective)
-                std::memcpy(s.warp.m, ss.warp.data(), 9 * sizeof(float));
-        }
+        const SourceState* state = sit != snap.source_states.end() ? &sit->second : nullptr;
+        pl_compose::SourceSlot s = build_source_slot(geom, rect, state);
         batch.slots.push_back(s);
         batch.owned_frames.push_back(std::move(fv));
     }

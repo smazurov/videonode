@@ -29,10 +29,12 @@ vn_add_test(scm_ctrunc_repro
     DEPS scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
 
+vn_add_test(build_source_slot   DEPS build_source_slot            LABELS render)
 vn_add_test(placeholder_painter DEPS placeholder_painter          LABELS render)
 vn_add_test(homography          DEPS homography                   LABELS render)
 vn_add_test(world               DEPS world Threads::Threads       LABELS render)
 vn_add_test(source_probe        DEPS source_probe                 LABELS capture)
+vn_add_test(v4l2_fps            DEPS v4l2_fps                     LABELS capture)
 vn_add_test(jpeg_dec_turbo
     DEPS jpeg_dec_turbo PkgConfig::TURBOJPEG
     LABELS capture)

@@ -536,12 +536,15 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     nativerpc::SourceContext gctx;
     populate_gctx_(gctx, running, a, need_reinit_for_format_change, probe, active_format);
 
-    auto publish_active_format = [&](const Args& used) {
+    auto publish_active_format = [&]([[maybe_unused]] const Args& used) {
         std::lock_guard<std::mutex> lock(gctx.set_format_mu);
+        // fps comes from the actual negotiated rate (VIDIOC_G_PARM via
+        // get_format), not the requested arg — so the SetFormat no-op
+        // compares against reality and pins a rate the device wasn't using.
         active_format = nativerpc::ActiveFormat{.fourcc = cap.src_fmt_name,
                                                 .w = static_cast<uint32_t>(cap.width),
                                                 .h = static_cast<uint32_t>(cap.height),
-                                                .fps = static_cast<uint32_t>(used.in_fps)};
+                                                .fps = cap.fps};
     };
     auto clear_active_format = [&]() {
         std::lock_guard<std::mutex> lock(gctx.set_format_mu);

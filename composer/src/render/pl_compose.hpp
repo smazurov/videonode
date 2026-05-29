@@ -29,6 +29,8 @@ struct SourceSlot {
     int src_h = 0;
     int src_y_pitch = 0;
     int src_uv_pitch = 0;
+    int src_y_offset = 0;  // byte offset of the Y plane within src_y_fd
+    int src_uv_offset = 0; // byte offset of the UV plane within src_uv_fd
     int x = 0;
     int y = 0;
     int w = 0;

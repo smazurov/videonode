@@ -70,7 +70,7 @@ void build_status_proto(::videonode::control::Status& out, const StatusContext& 
         fmt->set_fourcc(ctx.cap.src_fmt_name);
         fmt->set_w(static_cast<uint32_t>(ctx.cap.width));
         fmt->set_h(static_cast<uint32_t>(ctx.cap.height));
-        fmt->set_fps(static_cast<uint32_t>(ctx.args.in_fps));
+        fmt->set_fps(ctx.cap.fps); // actual negotiated rate, not the requested arg
         fmt->set_buffers(static_cast<uint32_t>(ctx.cap.cap.buffers().size()));
         const char* mode_name = (ctx.cap.mode == DecodeMode::Mjpeg)
                                     ? (ctx.cap.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg")

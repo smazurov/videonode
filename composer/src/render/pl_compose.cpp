@@ -243,7 +243,8 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
         tp_y.sampleable = true;
         tp_y.import_handle = PL_HANDLE_DMA_BUF;
         tp_y.shared_mem.handle.fd = fd_y;
-        tp_y.shared_mem.size = static_cast<size_t>(src_y_pitch) * slot.src_h;
+        tp_y.shared_mem.offset = static_cast<size_t>(slot.src_y_offset);
+        tp_y.shared_mem.size = static_cast<size_t>(src_y_pitch) * slot.src_h + slot.src_y_offset;
         tp_y.shared_mem.drm_format_mod = src_mod;
         tp_y.shared_mem.stride_w = src_y_pitch;
         pl_tex tex_y = pl_tex_create(impl_->gpu, &tp_y);
@@ -261,7 +262,9 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
         tp_uv.sampleable = true;
         tp_uv.import_handle = PL_HANDLE_DMA_BUF;
         tp_uv.shared_mem.handle.fd = fd_uv;
-        tp_uv.shared_mem.size = static_cast<size_t>(src_uv_pitch) * (slot.src_h / 2);
+        tp_uv.shared_mem.offset = static_cast<size_t>(slot.src_uv_offset);
+        tp_uv.shared_mem.size =
+            static_cast<size_t>(src_uv_pitch) * (slot.src_h / 2) + slot.src_uv_offset;
         tp_uv.shared_mem.drm_format_mod = src_mod;
         tp_uv.shared_mem.stride_w = src_uv_pitch;
         pl_tex tex_uv = pl_tex_create(impl_->gpu, &tp_uv);

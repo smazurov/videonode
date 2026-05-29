@@ -11,6 +11,8 @@
 #include <libplacebo/renderer.h>
 #include <unistd.h>
 
+#include <unistd.h> // dup, close
+
 #include <atomic>
 #include <cstring>
 

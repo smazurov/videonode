@@ -15,7 +15,7 @@
 #include <chrono>
 #include <cstring>
 #include <sys/mman.h>
-#include <sys/syscall.h>
+#include <sys/syscall.h> // SYS_memfd_create
 #include <thread>
 #include <unistd.h>
 #include <vector>
