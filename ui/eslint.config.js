@@ -1,27 +1,27 @@
-const js = require("@eslint/js");
-const typescriptEslint = require("@typescript-eslint/eslint-plugin");
-const tsParser = require("@typescript-eslint/parser");
-const reactHooks = require("eslint-plugin-react-hooks");
-const reactRefresh = require("eslint-plugin-react-refresh");
-const react = require("eslint-plugin-react");
-const importPlugin = require("eslint-plugin-import");
-const security = require("eslint-plugin-security");
-const unicorn = require("eslint-plugin-unicorn").default;
-const sonarjs = require("eslint-plugin-sonarjs");
-const zustandRules = require("eslint-plugin-zustand-rules");
-const globals = require("globals");
+import { defineConfig } from "eslint/config";
+import js from "@eslint/js";
+import typescriptEslint from "@typescript-eslint/eslint-plugin";
+import tsParser from "@typescript-eslint/parser";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import eslintReact from "@eslint-react/eslint-plugin";
+import security from "eslint-plugin-security";
+import unicorn from "eslint-plugin-unicorn";
+import sonarjs from "eslint-plugin-sonarjs";
+import storeSelectors from "eslint-plugin-zustand-store-selectors";
+import globals from "globals";
 
 // Common rules shared between JS and TS
 const commonRules = {
   // React hooks rules
   ...reactHooks.configs.recommended.rules,
-  
+
   // Security rules
   ...security.configs.recommended.rules,
-  
+
   // SonarJS rules
   ...sonarjs.configs.recommended.rules,
-  
+
   // React refresh rules
   "react-refresh/only-export-components": [
     "warn",
@@ -29,16 +29,12 @@ const commonRules = {
       allowConstantExport: true,
     },
   ],
-  
-  // React rules
-  "react/react-in-jsx-scope": "off", // Not needed in React 17+
-  "react/jsx-uses-react": "off", // Not needed in React 17+
-  
+
   // Security rules
   "security/detect-object-injection": "off",
   "security/detect-non-literal-regexp": "warn",
   "security/detect-unsafe-regex": "error",
-  
+
   // Unicorn rules for code quality
   "unicorn/better-regex": "error",
   "unicorn/catch-error-name": "error",
@@ -52,15 +48,12 @@ const commonRules = {
   "unicorn/no-await-expression-member": "error",
   "unicorn/no-empty-file": "error",
   "unicorn/no-abusive-eslint-disable": "error",
-  
-  // Zustand rules
-  "zustand-rules/enforce-slices-when-large-state": ["warn", { maxProperties: 10 }],
-  "zustand-rules/use-store-selectors": "error",
-  "zustand-rules/no-state-mutation": "error",
-  "zustand-rules/enforce-use-setstate": "error",
-  // "zustand-rules/enforce-state-before-actions": "error", // Disabled: plugin has bugs
-  "zustand-rules/no-multiple-stores": "error",
-  
+
+  // Zustand: require selector functions when reading from the store.
+  // (Sole rule with an ESLint 10 published home; the other zustand-rules
+  // rules had no maintained es10 package — see eslint migration notes.)
+  "zustand-store-selectors/use-store-selectors": "error",
+
   // SonarJS specific overrides
   "sonarjs/cognitive-complexity": ["error", 15],
   "sonarjs/no-duplicate-string": "error",
@@ -99,6 +92,21 @@ const designSystemRules = {
         "Do not use arbitrary hex colors in class strings; add the value to tokens.dtcg.json and reference it as a semantic token.",
     },
   ],
+  // Feature components must not import heroicons directly; pass the icon via a
+  // primitive's `icon`/`LeadingIcon` prop. Primitives (Button/IconButton/Badge)
+  // and the design/ module are exempt via the block's `ignores`. See README.md.
+  "no-restricted-imports": [
+    "error",
+    {
+      patterns: [
+        {
+          group: ["@heroicons/react", "@heroicons/react/**"],
+          message:
+            "Do not import heroicons directly in feature components; pass the icon via a primitive's `icon`/`LeadingIcon` prop. See ui/src/design/README.md.",
+        },
+      ],
+    },
+  ],
 };
 
 // Files that still contain raw palette classes and are tracked as migration debt.
@@ -107,25 +115,37 @@ const designSystemRules = {
 // Keep this constant so future regressions can be pinned explicitly rather than re-growing allowlists.
 const DESIGN_SYSTEM_DEBT = [];
 
-module.exports = [
+export default defineConfig([
   {
+    name: "videonode/ignores",
     ignores: ["**/dist", "**/build", "**/node_modules", "**/api.generated.ts"],
   },
   // Base JavaScript recommended rules
   js.configs.recommended,
+  // Modern React rules (@eslint-react) for TS/TSX, with the rules that overlap
+  // eslint-plugin-react-hooks disabled so the official hooks plugin owns them.
+  {
+    name: "videonode/eslint-react/recommended-typescript",
+    files: ["**/*.{ts,tsx}"],
+    ...eslintReact.configs["recommended-typescript"],
+  },
+  {
+    name: "videonode/eslint-react/disable-hooks-conflict",
+    files: ["**/*.{ts,tsx}"],
+    ...eslintReact.configs["disable-conflict-eslint-plugin-react-hooks"],
+  },
   // TypeScript files configuration
   {
+    name: "videonode/typescript",
     files: ["**/*.{ts,tsx}"],
     plugins: {
       "@typescript-eslint": typescriptEslint,
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
-      react: react,
-      import: importPlugin,
       security: security,
       unicorn: unicorn,
       sonarjs: sonarjs,
-      "zustand-rules": zustandRules,
+      "zustand-store-selectors": storeSelectors,
     },
 
     languageOptions: {
@@ -143,29 +163,17 @@ module.exports = [
           jsx: true,
         },
         project: "./tsconfig.json",
-        tsconfigRootDir: __dirname,
-      },
-    },
-
-    settings: {
-      react: {
-        version: "detect",
-      },
-      "import/resolver": {
-        typescript: {
-          alwaysTryTypes: true,
-          project: "./tsconfig.json",
-        },
+        tsconfigRootDir: import.meta.dirname,
       },
     },
 
     rules: {
       // Common rules
       ...commonRules,
-      
+
       // TypeScript ESLint recommended rules
       ...typescriptEslint.configs.recommended.rules,
-      
+
       // Custom TypeScript rules
       "@typescript-eslint/no-unused-vars": [
         "error",
@@ -187,6 +195,7 @@ module.exports = [
   },
   // Design-system enforcement: semantic tokens only in component files.
   {
+    name: "videonode/design-system",
     files: ["src/components/**/*.{ts,tsx}"],
     ignores: [
       // Primitives and the design module are the source of truth for tokens.
@@ -198,45 +207,4 @@ module.exports = [
     ],
     rules: designSystemRules,
   },
-  // JavaScript files configuration
-  {
-    files: ["**/*.{js,jsx}"],
-    plugins: {
-      "react-hooks": reactHooks,
-      "react-refresh": reactRefresh,
-      react: react,
-      import: importPlugin,
-      security: security,
-      unicorn: unicorn,
-      sonarjs: sonarjs,
-      "zustand-rules": zustandRules,
-    },
-
-    languageOptions: {
-      globals: {
-        ...globals.browser,
-        ...globals.es2020,
-      },
-
-      ecmaVersion: "latest",
-      sourceType: "module",
-
-      parserOptions: {
-        ecmaFeatures: {
-          jsx: true,
-        },
-      },
-    },
-
-    settings: {
-      react: {
-        version: "detect",
-      },
-    },
-
-    rules: {
-      // Common rules
-      ...commonRules,
-    },
-  },
-];
+]);

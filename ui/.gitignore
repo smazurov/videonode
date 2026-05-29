@@ -12,6 +12,7 @@ dist-ssr
 dist-tokens
 build
 *.local
+.eslintcache
 
 # Editor directories and files
 .vscode/*

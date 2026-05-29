@@ -91,11 +91,11 @@ Prefer extending a primitive (new variant, new size) over duplicating JSX.
 
 ## Enforcement
 
-ESLint rules in `eslint.config.cjs`:
+ESLint rules in `eslint.config.js`:
 - `no-restricted-syntax` — fails on raw Tailwind palette classes (`bg-slate-800`, `text-red-500`) in `src/components/**`.
 - Same rule bans arbitrary hex colors (`bg-[#abcdef]`).
 - `no-restricted-imports` — feature components cannot import heroicons directly; pass the icon via `icon`/`LeadingIcon` props.
 
 Primitives (`Button`, `IconButton`, `Badge`) and the `design/` module are exempt — that's where tokens and icons live.
 
-An explicit **debt allowlist** at the bottom of `eslint.config.cjs` (`DESIGN_SYSTEM_DEBT`) exempts files not yet migrated. **Shrink** this list as files are converted; do not add to it.
+An explicit **debt allowlist** at the bottom of `eslint.config.js` (`DESIGN_SYSTEM_DEBT`) exempts files not yet migrated. **Shrink** this list as files are converted; do not add to it.
