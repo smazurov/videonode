@@ -115,9 +115,13 @@ function Stat({ icon: Icon, label, value, valueWidth, iconClassName }: Readonly<
   return (
     <span className="flex items-center gap-x-1 whitespace-nowrap">
       <Icon className={cn("w-4 h-4 text-fg-subtle shrink-0", iconClassName)} />
-      <span className="text-fg-muted">{label}:</span>
-      <span className={cn("font-mono tabular-nums font-medium text-fg text-left inline-block", valueWidth)}>
-        {value}
+      {/* Label is sans, value is mono — align on the shared text baseline so
+          the monospace value doesn't sit lower than the label. */}
+      <span className="flex items-baseline gap-x-1">
+        <span className="text-fg-muted">{label}:</span>
+        <span className={cn("font-mono tabular-nums font-medium text-fg text-left inline-block", valueWidth)}>
+          {value}
+        </span>
       </span>
     </span>
   );
@@ -286,7 +290,7 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
                       >
                         <Stat
                           icon={ExclamationTriangleIcon}
-                          iconClassName="text-danger animate-pulse translate-y-[1.5px]"
+                          iconClassName="text-danger animate-pulse"
                           label="Procs"
                           valueWidth="min-w-[1rem]"
                           value={systemStats.process_count}
