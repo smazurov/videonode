@@ -21,7 +21,8 @@ enum class Health {
     Transitioning, // SOURCE_CHANGE arrived or short DQBUF stall; hold last frame
     NoCable,       // QUERY_DV_TIMINGS returns ENOLINK (HDMI only)
     NoLock,        // cable plugged but no usable signal
-    Gone,          // device disappeared (ENODEV) or hard error
+    Gone,          // device absent (USB unplug / node gone) or hard error;
+                   // reported on the wire as no_signal (not offline)
 };
 
 // status_text returns a short label suitable for the placeholder painter.
@@ -29,7 +30,8 @@ const char* status_text(Health h);
 
 // health_token returns the stable machine token reported on the wire via
 // gRPC Status.health: live | transitioning | no_cable | no_signal |
-// initializing | offline. Distinct from status_text (human overlay).
+// initializing. Distinct from status_text (human overlay). The source binary
+// never emits "offline" — that is the Go daemon's process-down signal.
 const char* health_token(Health h);
 
 class SourceProbe {
@@ -44,6 +46,16 @@ class SourceProbe {
     void note_event(const v4l2_event& e);
     void note_dqbuf_success();
     void note_dqbuf_failure(int errno_val);
+
+    // note_device_absent is called by the reopen loop when an attempt finds
+    // the device gone (ENOENT/ENODEV) or hard-fails. Latches the absent state
+    // (reported as no_signal) until the next successful open or DQBUF.
+    void note_device_absent();
+
+    // note_device_acquiring is called when the node is present but not yet
+    // openable (EBUSY/EACCES — udev settle window). Drops the absent latch so
+    // health reports the bring-up state (initializing) rather than no_signal.
+    void note_device_acquiring();
 
     // mark_renegotiating is called by the main loop after it consumed a
     // SOURCE_CHANGE and successfully restarted streaming, so the probe

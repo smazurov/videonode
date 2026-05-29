@@ -29,7 +29,7 @@ const char* status_text(Health h) {
     case Health::NoLock:
         return "WAITING FOR SIGNAL";
     case Health::Gone:
-        return "DEVICE OFFLINE";
+        return "NO SIGNAL";
     }
     return "UNKNOWN";
 }
@@ -47,7 +47,10 @@ const char* health_token(Health h) {
     case Health::NoLock:
         return "no_signal";
     case Health::Gone:
-        return "offline";
+        // Device absent (USB unplugged / node gone) while the process is
+        // still up. Reported as no_signal, same as NoLock — "offline" is the
+        // Go daemon's process-down signal, never emitted by the source binary.
+        return "no_signal";
     }
     return "unknown";
 }
@@ -55,6 +58,11 @@ const char* health_token(Health h) {
 SourceProbe::SourceProbe(v4l2::Streamer& cap) : cap_(cap) {}
 
 bool SourceProbe::attach() {
+    // attach() runs right after a successful (re)open, so the device is
+    // present again. Clear the absent latch; leave source_change_pending_
+    // alone so a format-change reopen stays Transitioning until its first
+    // frame.
+    device_gone_ = false;
     bool subscribed = cap_.subscribe_source_change();
     int subscribe_errno = errno;
     // Cable / signal truth comes from VIDIOC_QUERY_DV_TIMINGS, not from
@@ -139,6 +147,25 @@ void SourceProbe::note_dqbuf_success() {
     ever_live_ = true;
     source_change_pending_ = false;
     consecutive_failures_ = 0;
+    device_gone_ = false;
+}
+
+void SourceProbe::note_device_absent() {
+    // A reopen attempt found the device gone (ENOENT/ENODEV) or hard-failed.
+    // Clean-slate like the cable-yank path so a later reopen reports Probing
+    // (initializing) until its first frame, not a stale Live.
+    device_gone_ = true;
+    ever_live_ = false;
+    consecutive_failures_ = 0;
+    source_change_pending_ = false;
+}
+
+void SourceProbe::note_device_acquiring() {
+    // The node is present but not yet openable (EBUSY/EACCES — udev still
+    // settling perms, or a prior opener tearing down). Drop the absent latch
+    // so health reports the bring-up state (initializing); leave ever_live_
+    // alone to avoid flicker if an otherwise-live device stalled briefly.
+    device_gone_ = false;
 }
 
 void SourceProbe::note_dqbuf_failure(int e) {

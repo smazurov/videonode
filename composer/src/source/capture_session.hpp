@@ -57,9 +57,21 @@ uint32_t v4l2_pix_fmt_(const std::string& s);
 // Release every fd/mmap held by `s` and reset it to a fresh state.
 void teardown_session_(CaptureSession& s);
 
+// Outcome of try_open_capture, classified from the open() errno so the
+// reopen loop can map each case to the right health/liveness:
+//   Ok     — device open + streaming.
+//   Absent — node gone (ENOENT/ENODEV); the device is unplugged.
+//   Busy   — node present but not yet usable (EBUSY/EACCES); udev settling.
+//   Failed — any other open errno, or a later negotiation step failing.
+enum class CaptureOpenStatus { Ok, Absent, Busy, Failed };
+
 // Open the V4L2 device, negotiate format, request buffers, build the
-// decoder (RGA or JPEG), and stream on. Returns false on any failure
-// (with `s` torn down). Reuses `allocator` for the NV12 output ring.
-bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator);
+// decoder (RGA or JPEG), and stream on. On any failure `s` is torn down and
+// the returned status classifies why. Reuses `allocator` for the NV12 output
+// ring. Pass quiet=true on the 1 Hz reopen loop to suppress the per-attempt
+// open() error log.
+[[nodiscard]] CaptureOpenStatus try_open_capture(CaptureSession& s, const Args& a,
+                                                 nv12_buf::Allocator& allocator,
+                                                 bool quiet = false);
 
 } // namespace source

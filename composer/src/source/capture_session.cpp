@@ -10,6 +10,7 @@
 #include "src/capture/mpp_jpeg_dec.hpp"
 #endif
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdint>
 #include <linux/videodev2.h>
@@ -254,20 +255,34 @@ void teardown_session_(CaptureSession& s) {
     s.using_mpp = false;
 }
 
-bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator) {
+CaptureOpenStatus try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator,
+                                   bool quiet) {
     teardown_session_(s);
-    if (!s.cap.open(a.device))
-        return false;
+    if (!s.cap.open(a.device, quiet)) {
+        // Classify the open() errno (preserved by quiet mode) so the reopen
+        // loop can pick the right liveness: absent (unplugged) vs busy
+        // (udev settling) vs a real fault.
+        switch (errno) {
+        case ENOENT:
+        case ENODEV:
+            return CaptureOpenStatus::Absent;
+        case EBUSY:
+        case EACCES:
+            return CaptureOpenStatus::Busy;
+        default:
+            return CaptureOpenStatus::Failed;
+        }
+    }
     if (!negotiate_format_(s, a))
-        return false;
+        return CaptureOpenStatus::Failed;
     if (!allocate_and_queue_buffers_(s, a))
-        return false;
+        return CaptureOpenStatus::Failed;
     if (s.mode == DecodeMode::Mjpeg) {
         if (!setup_mjpeg_decoder_(s, a, allocator))
-            return false;
+            return CaptureOpenStatus::Failed;
     } else {
         if (!setup_rga_output_ring_(s, a, allocator))
-            return false;
+            return CaptureOpenStatus::Failed;
     }
     s.active = true;
     char w_s[16], h_s[16], buf_s[16];
@@ -279,7 +294,7 @@ bool try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& all
     vn::log::info_s("videonode-source: capture ready",
                     {vn::key::width, w_s, vn::key::height, h_s, vn::key::fourcc,
                      s.src_fmt_name.c_str(), vn::key::buffers, buf_s, vn::key::mode, mode});
-    return true;
+    return CaptureOpenStatus::Ok;
 }
 
 } // namespace source
