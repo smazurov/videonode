@@ -13,19 +13,31 @@
 #include <rockchip/mpp_frame.h>
 #include <rockchip/mpp_packet.h>
 #include <rockchip/mpp_buffer.h>
+#include <rockchip/mpp_meta.h>
+#include <rockchip/mpp_log.h>
 
 #include <cstring>
-#include <thread>
-#include <chrono>
 
 namespace mpp_jpeg_dec {
 
 namespace {
 
-// Wait-poll backoff for decode_get_frame. The MJPEG decoder is fast — most
-// 1080p frames decode in well under 5 ms — so a short sleep loop is fine.
-constexpr int kMaxGetFrameRetries = 50;
-constexpr int kSleepUsPerRetry = 200;
+// Watchdog ceiling (milliseconds) for decode_get_frame. NOT a measured decode
+// time — an upper bound so a wedged VDPU can't hang the capture thread. MJPEG
+// is 1-in-1-out (advanced API), so the frame is ready right after put_packet
+// and get_frame returns far under this in the normal path.
+constexpr RK_S64 kOutputTimeoutMs = 500;
+
+constexpr int kAlign = 16;
+constexpr int align_up(int v) {
+    return (v + kAlign - 1) & ~(kAlign - 1);
+}
+
+// Output frame buffer is over-allocated to 4x aligned(w*h). MPP's buffer-slot
+// accounting can size for a 4:2:2 (2 byte/px) layout even when the JPEG is
+// 4:2:0; a tight NV12 (1.5x) allocation trips "mpp_buf_slot: mismatch
+// size_total" and the decode is rejected. ffmpeg-rockchip uses the same 4x.
+constexpr int kOutputBytesPerPxX4 = 4;
 
 } // namespace
 
@@ -58,11 +70,19 @@ int FrameRef::dmabuf_fd() const {
 }
 
 bool MppJpegDec::init(int max_width, int max_height) {
-    (void)max_width;
-    (void)max_height;
+    max_w_ = max_width;
+    max_h_ = max_height;
     MppCtx ctx = nullptr;
     MppApi* mpi = nullptr;
     MPP_RET ret;
+
+    // Silence MPP's own per-frame chatter (version banner, "mpp_buf_slot:
+    // mismatch size_total", and per-frame "mpp_parser_parse" errors on the
+    // occasional bad camera frame). We surface real failures ourselves via
+    // return codes + a rate-limited err/discard log, so MPP's redundant
+    // stderr would only spam the journal. Process-global, but videonode-source
+    // uses MPP solely for this decoder.
+    mpp_set_log_level(MPP_LOG_FATAL);
 
     ret = mpp_create(&ctx, &mpi);
     if (ret != MPP_OK || !ctx || !mpi) {
@@ -72,21 +92,6 @@ bool MppJpegDec::init(int max_width, int max_height) {
     ctx_ = ctx;
     mpi_ = mpi;
 
-    // Request NV12 output explicitly so we never need a CSC pass after decode.
-    MppFrameFormat fmt = MPP_FMT_YUV420SP;
-    ret = mpi->control(ctx, MPP_DEC_SET_OUTPUT_FORMAT, &fmt);
-    if (ret != MPP_OK) {
-        vn::log::warn("mpp_jpeg_dec: SET_OUTPUT_FORMAT=%d", ret);
-        // Continue: many MPP builds default to NV12 anyway. Log + go.
-    }
-
-    // Tell the decoder to parse headers in-band (no separate extradata channel).
-    RK_U32 need_split = 0;
-    ret = mpi->control(ctx, MPP_DEC_SET_PARSER_SPLIT_MODE, &need_split);
-    if (ret != MPP_OK) {
-        vn::log::warn("mpp_jpeg_dec: SET_PARSER_SPLIT_MODE=%d", ret);
-    }
-
     ret = mpp_init(ctx, MPP_CTX_DEC, MPP_VIDEO_CodingMJPEG);
     if (ret != MPP_OK) {
         vn::log::error("mpp_jpeg_dec: mpp_init=%d", ret);
@@ -95,73 +100,124 @@ bool MppJpegDec::init(int max_width, int max_height) {
         mpi_ = nullptr;
         return false;
     }
+
+    // DRM buffer pool for the input bitstream and output NV12 frames. MJPEG is
+    // driven through MPP's advanced 1-in-1-out model (it is the only codec for
+    // which mpi_dec_test sets simple=0): there is no info_change handshake and
+    // no decoder-managed output pool — the caller supplies the output buffer
+    // per packet, so we allocate from this group. DMA32 + cachable matches the
+    // ffmpeg-rockchip rkmppdec misc group.
+    ret = mpp_buffer_group_get_internal(&grp_, MPP_BUFFER_TYPE_DRM | MPP_BUFFER_FLAGS_DMA32 |
+                                                   MPP_BUFFER_FLAGS_CACHABLE);
+    if (ret != MPP_OK || !grp_) {
+        vn::log::error("mpp_jpeg_dec: buffer_group_get_internal=%d", ret);
+        mpp_destroy(ctx);
+        ctx_ = nullptr;
+        mpi_ = nullptr;
+        return false;
+    }
+
+    // Bound get_frame with a watchdog. In the 1-in-1-out model the frame is
+    // ready immediately after put_packet, so this only guards a wedged VDPU.
+    RK_S64 out_timeout = kOutputTimeoutMs;
+    ret = mpi->control(ctx, MPP_SET_OUTPUT_TIMEOUT, &out_timeout);
+    if (ret != MPP_OK) {
+        vn::log::warn("mpp_jpeg_dec: SET_OUTPUT_TIMEOUT=%d", ret);
+    }
+
     cfg_done_ = true;
     return true;
 }
 
 MppJpegDec::~MppJpegDec() {
+    // Release any held frame (returns its buffer to grp_) before tearing down
+    // the context and the pool the buffer came from.
+    pending_.reset();
     if (ctx_) {
         mpp_destroy(ctx_);
         ctx_ = nullptr;
     }
+    if (grp_) {
+        mpp_buffer_group_put(grp_);
+        grp_ = nullptr;
+    }
 }
 
 FrameRef MppJpegDec::decode(std::span<const uint8_t> jpeg) {
-    if (!ctx_ || !mpi_)
+    if (!ctx_ || !mpi_ || !grp_)
         return {};
     MppCtx c = ctx_;
     MppApi* m = mpi_;
 
-    MppPacket pkt = nullptr;
-    MPP_RET ret = mpp_packet_init(&pkt, const_cast<uint8_t*>(jpeg.data()), jpeg.size());
-    if (ret != MPP_OK || !pkt) {
-        vn::log::error("mpp_jpeg_dec: packet_init=%d", ret);
+    // Input bitstream must live in a DRM/DMA buffer for the MJPEG hal — a
+    // plain malloc'd pointer (mpp_packet_init) is silently never decoded.
+    MppBuffer in_buf = nullptr;
+    if (mpp_buffer_get(grp_, &in_buf, jpeg.size()) != MPP_OK || !in_buf) {
+        vn::log::error("mpp_jpeg_dec: in buffer_get(%zu) failed", jpeg.size());
         return {};
     }
-    // Mark end-of-stream so the decoder flushes this single JPEG immediately.
-    mpp_packet_set_eos(pkt);
+    mpp_buffer_write(in_buf, 0, const_cast<uint8_t*>(jpeg.data()), jpeg.size());
+    // Flush the CPU write to DRAM before the VDPU reads it. The input buffer
+    // is cachable; without this the hardware can read stale/uninitialised DRAM
+    // under memory pressure (the pool hands out a fresh buffer whenever the
+    // JPEG size changes), which surfaces as intermittent — and under load,
+    // total — "mpp_parser_parse" failures. Mirrors mpi_dec_test / ffmpeg-rkmpp.
+    mpp_buffer_sync_partial_end(in_buf, 0, jpeg.size());
+
+    MppPacket pkt = nullptr;
+    MPP_RET ret = mpp_packet_init_with_buffer(&pkt, in_buf);
+    if (ret != MPP_OK || !pkt) {
+        vn::log::error("mpp_jpeg_dec: packet_init_with_buffer=%d", ret);
+        mpp_buffer_put(in_buf);
+        return {};
+    }
+    mpp_packet_set_length(pkt, jpeg.size());
+
+    // Caller-supplied output frame buffer (the 1-in-1-out contract).
+    const size_t osz =
+        static_cast<size_t>(align_up(max_w_)) * align_up(max_h_) * kOutputBytesPerPxX4;
+    MppBuffer out_buf = nullptr;
+    if (mpp_buffer_get(grp_, &out_buf, osz) != MPP_OK || !out_buf) {
+        vn::log::error("mpp_jpeg_dec: out buffer_get(%zu) failed", osz);
+        mpp_packet_deinit(&pkt);
+        mpp_buffer_put(in_buf);
+        return {};
+    }
+    MppFrame frame = nullptr;
+    mpp_frame_init(&frame);
+    mpp_frame_set_buffer(frame, out_buf); // frame takes its own ref
+    mpp_buffer_put(out_buf);              // drop ours; frame keeps it alive
+
+    mpp_meta_set_frame(mpp_packet_get_meta(pkt), KEY_OUTPUT_FRAME, frame);
 
     ret = m->decode_put_packet(c, pkt);
-    if (ret != MPP_OK) {
+    MppFrame out = nullptr;
+    if (ret == MPP_OK) {
+        ret = m->decode_get_frame(c, &out); // returns the frame we attached
+    } else {
         vn::log::error("mpp_jpeg_dec: put_packet=%d", ret);
-        mpp_packet_deinit(&pkt);
-        return {};
-    }
-
-    MppFrame frame = nullptr;
-    bool info_change_handled = false;
-    for (int i = 0; i < kMaxGetFrameRetries; ++i) {
-        ret = m->decode_get_frame(c, &frame);
-        if (ret == MPP_OK && frame) {
-            if (mpp_frame_get_info_change(frame)) {
-                if (info_change_handled) {
-                    vn::log::error("mpp_jpeg_dec: info_change loop?");
-                    mpp_frame_deinit(&frame);
-                    break;
-                }
-                m->control(c, MPP_DEC_SET_INFO_CHANGE_READY, nullptr);
-                mpp_frame_deinit(&frame);
-                frame = nullptr;
-                info_change_handled = true;
-                continue;
-            }
-            if (mpp_frame_get_errinfo(frame) || mpp_frame_get_discard(frame)) {
-                vn::log::warn("mpp_jpeg_dec: frame err/discard");
-                mpp_frame_deinit(&frame);
-                frame = nullptr;
-                break;
-            }
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::microseconds(kSleepUsPerRetry));
     }
 
     mpp_packet_deinit(&pkt);
-    if (!frame) {
-        vn::log::error("mpp_jpeg_dec: no frame after %d retries", kMaxGetFrameRetries);
+    mpp_buffer_put(in_buf);
+
+    if (ret != MPP_OK || !out) {
+        vn::log::error("mpp_jpeg_dec: no frame (ret=%d)", ret);
+        mpp_frame_deinit(&frame);
         return {};
     }
-    return FrameRef(frame);
+    if (mpp_frame_get_errinfo(out) || mpp_frame_get_discard(out)) {
+        // Bad/truncated camera frame — drop it. Rate-limit the log: at 30 fps a
+        // burst of corrupt frames would otherwise flood the journal.
+        if ((discard_count_++ % 150) == 0)
+            vn::log::warn("mpp_jpeg_dec: frame err/discard (%llu total)",
+                          static_cast<unsigned long long>(discard_count_));
+        mpp_frame_deinit(&out);
+        return {};
+    }
+    // `out` is the same MppFrame object we created and attached; FrameRef now
+    // owns it (and through it the output buffer).
+    return FrameRef(out);
 }
 
 bool MppJpegDec::decode(std::span<const uint8_t> jpeg, jpeg_dec::DecodedNv12& out) {

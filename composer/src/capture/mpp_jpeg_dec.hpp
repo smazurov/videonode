@@ -36,6 +36,7 @@
 #include <rockchip/rk_mpi.h>
 #include <rockchip/mpp_frame.h>
 #include <rockchip/mpp_buffer.h>
+#include <rockchip/mpp_meta.h>
 
 namespace mpp_jpeg_dec {
 
@@ -105,7 +106,14 @@ class MppJpegDec : public jpeg_dec::JpegDec {
   private:
     MppCtx ctx_ = nullptr;
     MppApi* mpi_ = nullptr;
+    // DRM buffer pool we allocate the input bitstream + output NV12 frame
+    // from. MJPEG uses MPP's advanced (1-in-1-out) decode model: the caller
+    // supplies the output frame buffer per packet, so we own the pool.
+    MppBufferGroup grp_ = nullptr;
+    int max_w_ = 0; // output buffer sizing hint (from init)
+    int max_h_ = 0;
     bool cfg_done_ = false;
+    uint64_t discard_count_ = 0; // rate-limits the err/discard log
     FrameRef pending_;
 };
 
