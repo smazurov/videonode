@@ -191,7 +191,7 @@ func (a *LinuxAuthenticator) Authenticate(username, password string) Result {
 	}
 
 	if a.logger != nil {
-		a.logger.Info("auth accepted", logging.KeyUsername, username)
+		a.logger.Debug("auth accepted", logging.KeyUsername, username)
 	}
 	return Result{Valid: true, Username: username}
 }
