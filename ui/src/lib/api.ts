@@ -202,16 +202,21 @@ export class SSEClient<P extends SSEPath> {
     }
 
     this.eventSource.onerror = async () => {
-      this.setStatus('reconnecting');
       this.eventSource?.close();
       this.eventSource = null;
 
       const authFailed = await this.verifyAuthOrRedirect();
       if (authFailed) {
+        this.setStatus('disconnected');
         this.config.onError?.(false);
         return;
       }
 
+      // Sitting in the backoff wait reads as 'disconnected'. The active
+      // EventSource attempt in connect() is the only thing that surfaces as
+      // 'connecting' — so "reconnecting" stays honest, shown only while a
+      // connection is genuinely being attempted, not during the idle wait.
+      this.setStatus('disconnected');
       this.config.onError?.(true);
       this.scheduleReconnect();
     };

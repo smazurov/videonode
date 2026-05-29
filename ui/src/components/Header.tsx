@@ -2,6 +2,7 @@ import { Link, NavLink } from "react-router-dom";
 import { Button } from "./Button";
 import Container from "./Container";
 import { PipelineToggle } from "./PipelineToggle";
+import { useConnectionStatus } from "../hooks/useConnectionStatus";
 import { cn } from "../utils";
 
 interface HeaderProps {
@@ -17,8 +18,26 @@ const NAV_TABS = [
 ] as const;
 
 export function Header({ onLogout, className }: Readonly<HeaderProps>) {
+  const status = useConnectionStatus();
+
+  // Subtle full-header tint when the backend connection drops: yellow while a
+  // connection is actively being attempted (reconnecting), red while sitting
+  // disconnected.
+  let bgClass = "bg-surface-raised";
+  let statusText: string | null = null;
+  let statusColor = "";
+  if (status === "reconnecting") {
+    bgClass = "bg-warning/20";
+    statusText = "Reconnecting…";
+    statusColor = "text-warning-soft-fg";
+  } else if (status === "offline") {
+    bgClass = "bg-danger/20";
+    statusText = "Disconnected";
+    statusColor = "text-danger";
+  }
+
   return (
-    <header className={cn("bg-surface-raised border-b border-border shadow-sm", className)}>
+    <header className={cn("border-b border-border shadow-sm transition-colors duration-500", bgClass, className)}>
       <Container>
         <div className="flex items-center justify-between h-16">
           {/* Logo and branding */}
@@ -51,6 +70,9 @@ export function Header({ onLogout, className }: Readonly<HeaderProps>) {
 
           {/* Actions */}
           <div className="flex items-center space-x-3">
+            {statusText && (
+              <span className={cn("text-sm font-medium", statusColor)}>{statusText}</span>
+            )}
             {/* Logout button */}
             {onLogout && (
               <Button
