@@ -35,6 +35,7 @@ struct CaptureSession {
     std::string src_fmt_name;
     int width = 0;
     int height = 0;
+    uint32_t fps = 0; // actual negotiated capture rate (VIDIOC_G_PARM)
 
     DecodeMode mode = DecodeMode::Rga;
 

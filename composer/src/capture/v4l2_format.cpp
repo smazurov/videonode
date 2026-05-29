@@ -4,6 +4,7 @@
 
 #include "src/capture/v4l2_capture.hpp"
 
+#include "src/capture/v4l2_fps.hpp"
 #include "src/common/log_levels.hpp"
 
 #include <cerrno>
@@ -48,7 +49,7 @@ bool Streamer::get_format(StreamFormat& out) const {
         out.height = vfmt.fmt.pix.height;
         out.pixel_format = vfmt.fmt.pix.pixelformat;
     }
-    out.fps = 0; // we don't query S_PARM here
+    out.fps = query_capture_fps(xioctl, fd_, buf_type_());
     return true;
 }
 

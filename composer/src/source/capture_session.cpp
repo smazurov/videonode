@@ -105,6 +105,7 @@ bool negotiate_format_(CaptureSession& s, const Args& a) {
     }
     s.width = int(cur.width);
     s.height = int(cur.height);
+    s.fps = cur.fps; // actual negotiated rate from VIDIOC_G_PARM
     if (s.width <= 0 || s.height <= 0) {
         s.cap.close();
         return false;

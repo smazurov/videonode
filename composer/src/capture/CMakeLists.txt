@@ -1,7 +1,10 @@
 # src/capture/CMakeLists.txt — V4L2 capture + MJPEG decode + source-health probe.
 
+# v4l2_fps: pure timeperframe->fps helpers + injectable G_PARM query path.
+vn_add_library(v4l2_fps SOURCES v4l2_fps.cpp)
+
 # v4l2_capture: pure UAPI ioctl wrapper for V4L2 capture devices.
-vn_add_library(v4l2_capture SOURCES v4l2_capture.cpp v4l2_format.cpp)
+vn_add_library(v4l2_capture SOURCES v4l2_capture.cpp v4l2_format.cpp PUBLIC_DEPS v4l2_fps)
 
 # source_probe: event-driven source-health state machine. Pure logic.
 vn_add_library(source_probe
