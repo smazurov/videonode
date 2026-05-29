@@ -1,20 +1,22 @@
 ---
 name: deploy-rig
-description: Build composer native binaries on host, deploy to the RK3588 SBC (orangepi5-ultra.lan), build them rig-native, install into ~/.local/bin, and restart the canonical videonode systemd user service. Use after non-trivial composer/ or Go-side changes that need real-hardware verification.
+description: Build composer native binaries on host, deploy to the RK3588 SBC (orangepi5-ultra.lan), build them rig-native, install into /usr/bin, and restart the canonical videonode systemd system service. Use after non-trivial composer/ or Go-side changes that need real-hardware verification.
 ---
 
 # composer deploy-rig
 
-End-to-end real-hardware deploy + restart for the videonode rig. Builds locally (host sanity), rsyncs `composer/` to the rig, builds the native binaries rig-native, installs them into `~/.local/bin/`, optionally cross-builds the Go `videonode` supervisor for arm64 and installs that too, then restarts the `videonode.service` user unit so the running pipeline picks up the new bits.
+End-to-end real-hardware deploy + restart for the videonode rig. Builds locally (host sanity), rsyncs `composer/` to the rig, builds the native binaries rig-native, installs them into `/usr/bin/`, optionally cross-builds the Go `videonode` supervisor for arm64 and installs that too, then restarts the `videonode.service` system unit so the running pipeline picks up the new bits.
+
+> **The rig now runs a systemd _system_ service, not a `--user` unit.** Binaries live in `/usr/bin/` (root-owned), so install and restart require `sudo` (the `orangepi` login has sudo). Earlier revisions of this skill assumed a `--user` unit + `~/.local/bin/`; that layout is dead — `systemctl --user is-active videonode.service` returns `inactive`. Use `sudo systemctl …` (no `--user`) throughout.
 
 The composer is daemon-driven: `videonode-source`, `videonode-sink`, and `videonode-composer` run as children of the Go `videonode` supervisor, coordinated over the pipelinectl IPC socket. The canonical install layout on the rig is:
 
-- Go supervisor: `/home/orangepi/.local/bin/videonode`
-- Native helpers: `/home/orangepi/.local/bin/videonode-{source,sink,composer}`
-- Config: `/home/orangepi/.config/videonode/{config.toml,streams.toml}`
-- Systemd user unit: `videonode.service`
+- Go supervisor: `/usr/bin/videonode` (system unit `ExecStart=/usr/bin/videonode -c /etc/videonode/config.toml`, `User=videonode`, `WorkingDirectory=/etc/videonode`)
+- Native helpers: `/usr/bin/videonode-{source,sink,composer}` (root-owned)
+- Config: `/etc/videonode/{config.toml,streams.toml}`
+- Systemd system unit: `videonode.service` (manage with `sudo systemctl`, NOT `--user`)
 
-The supervisor exposes the API on `:8090` and serves RTSP on `:8554`. Per-stream paths are defined in `streams.toml` (e.g. `rtsp://orangepi5-ultra.lan:8554/r2`, `.../gpucanvas`).
+The supervisor exposes the API on `:8090` and serves RTSP on `:8554`. Per-stream paths are defined in `streams.toml` (e.g. `rtsp://orangepi5-ultra.lan:8554/lyra`, `.../solo`, `.../stream`).
 
 **Do not run anything out of `/tmp/smoke-vn/`**. That directory is a stale smoke-test artifact; if it exists, delete it and let smoke recreate its own scratch dir on the next run.
 
@@ -29,6 +31,12 @@ From the repo root:
 cd composer && cmake --preset dev && cmake --build --preset dev && cd ..
 
 # 2. Sync composer/ to the rig and build rig-native binaries.
+#    NOTE: build-on-rig.sh internally runs `systemctl --user stop` to free
+#    CPU — that's now a no-op (the service is a system unit), so the build
+#    competes with the live pipeline. To build on an idle rig, sudo-stop the
+#    system service first, then pass KEEP_SERVICE=1 (and bump JOBS):
+#      ssh orangepi 'sudo systemctl stop videonode.service'
+#      RIG=orangepi JOBS=8 KEEP_SERVICE=1 composer/scripts/build-on-rig.sh
 composer/scripts/sync-to-rig.sh
 RIG=orangepi composer/scripts/build-on-rig.sh
 
@@ -44,30 +52,32 @@ cd ui && pnpm install --frozen-lockfile && pnpm build && cd ..
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags ui_embed -o /tmp/videonode-arm64 .
 # Direct scp over the live canonical binary fails with "Failure" when
 # the service is holding the text segment mapped. Stage to /tmp first,
-# then cp inside step 4 (which has the service stopped):
+# then sudo cp inside step 4 (which has the service stopped):
 scp /tmp/videonode-arm64 orangepi:/tmp/videonode-arm64.staging
 
 # 4. Stop the service (free Text file busy locks), install the native bins
 #    AND the staged Go supervisor (if step 3 ran), then start the service.
+#    /usr/bin is root-owned -> sudo. `sudo -S` reads the password from stdin
+#    so this is non-interactive; the orangepi login has sudo.
 ssh orangepi '
-  systemctl --user stop videonode.service
-  [ -f /tmp/videonode-arm64.staging ] && cp -f /tmp/videonode-arm64.staging /home/orangepi/.local/bin/videonode
-  cp -f /home/orangepi/composer/build/src/bin/videonode-source   /home/orangepi/.local/bin/
-  cp -f /home/orangepi/composer/build/src/bin/videonode-sink     /home/orangepi/.local/bin/
-  cp -f /home/orangepi/composer/build/src/bin/videonode-composer /home/orangepi/.local/bin/
-  chmod +x /home/orangepi/.local/bin/videonode*
-  systemctl --user start videonode.service
+  sudo systemctl stop videonode.service
+  [ -f /tmp/videonode-arm64.staging ] && sudo cp -f /tmp/videonode-arm64.staging /usr/bin/videonode
+  sudo cp -f /home/orangepi/composer/build/src/bin/videonode-source   /usr/bin/
+  sudo cp -f /home/orangepi/composer/build/src/bin/videonode-sink     /usr/bin/
+  sudo cp -f /home/orangepi/composer/build/src/bin/videonode-composer /usr/bin/
+  sudo chmod +x /usr/bin/videonode /usr/bin/videonode-source /usr/bin/videonode-sink /usr/bin/videonode-composer
+  sudo systemctl start videonode.service
 '
 
 # 5. Verify.
-ssh orangepi 'systemctl --user is-active videonode.service'
+ssh orangepi 'systemctl is-active videonode.service'
 composer/scripts/verify-from-dev.sh
 ```
 
 Tunables (env vars, all optional):
 
 - `RIG` — ssh target. Default `orangepi` (from `~/.ssh/config`); a full host like `orangepi@orangepi5-ultra.lan` works too.
-- `STREAM` (for `verify-from-dev.sh`) — RTSP stream path. Default `composer`; for the canonical service use `gpucanvas` or whatever path your `streams.toml` exposes.
+- `STREAM` (for `verify-from-dev.sh`) — RTSP stream path. Default `composer`; for the canonical service use `lyra`, `solo`, `stream`, or whatever path your `streams.toml` exposes.
 - `EXPECT_W` / `EXPECT_H` — expected canvas dimensions. Defaults `1920` / `1080`.
 
 If you only need to validate the IPC contract (REST -> pipelinectl -> native helpers) and per-binary RSS/CPU without touching the canonical service, run `composer/scripts/smoke.sh --target rig` after step 2. Smoke spins up its own ephemeral `videonode` instance on ports `:8190` / `:8654` with private sockets — it does not require, and does not interact with, the canonical service. Total smoke wall time ≤ 60s.
@@ -75,57 +85,57 @@ If you only need to validate the IPC contract (REST -> pipelinectl -> native hel
 If a deploy or restart fails or a binary crashes, capture coredump info before declaring FAIL:
 
 ```
-ssh orangepi 'coredumpctl info --no-pager | head -100; \
+ssh orangepi 'sudo coredumpctl info --no-pager | head -100; \
   echo ---; \
-  LAST=$(coredumpctl list --no-legend 2>/dev/null | tail -1 | awk "{print \$5}"); \
-  [ -n "$LAST" ] && coredumpctl info --no-pager "$LAST" 2>/dev/null'
+  LAST=$(sudo coredumpctl list --no-legend 2>/dev/null | tail -1 | awk "{print \$5}"); \
+  [ -n "$LAST" ] && sudo coredumpctl info --no-pager "$LAST" 2>/dev/null'
 ```
 
 ## What it does
 
 1. **Host build** — `cmake --preset dev && cmake --build --preset dev` from `composer/`. The `dev` preset enables sanitizers + Ninja. Host build is a sanity check that the code compiles cleanly with the strict preset before any bytes hit the rig. The binaries that actually run are the rig-native ones from step 2.
 2. **Sync + rig build** — `sync-to-rig.sh` rsyncs `composer/` to `orangepi:/home/orangepi/composer/` with `--delete`, excluding `build/` and `.cache/`. `build-on-rig.sh` then ssh's in, runs cmake -> ninja, and produces `videonode-{source,sink,composer}` under `/home/orangepi/composer/build/src/bin/`. **Note: those are not yet on the canonical install path.**
-3. **Go cross-build (optional)** — if the Go side has changed too, `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build` produces an arm64 binary and `scp` installs it over `/home/orangepi/.local/bin/videonode`. Skip when only `composer/` has changed.
-4. **Install + restart** — stop the service (so the running process releases its text segment; otherwise `cp` fails with `Text file busy`), `cp -f` the freshly-built native bins from the composer build dir into `~/.local/bin/`, then start the service. The supervisor spawns the new native helpers as children.
-5. **Verify** — check `systemctl --user is-active`, then `verify-from-dev.sh` (or a manual `ffprobe`) against the chosen RTSP path.
+3. **Go cross-build (optional)** — if the Go side has changed too, `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build` produces an arm64 binary, `scp` stages it to `/tmp`, and step 4 `sudo cp`s it over `/usr/bin/videonode`. Skip when only `composer/` has changed.
+4. **Install + restart** — `sudo systemctl stop` the service (so the running process releases its text segment; otherwise `cp` fails with `Text file busy`), `sudo cp -f` the freshly-built native bins from the composer build dir into `/usr/bin/`, then `sudo systemctl start`. The supervisor spawns the new native helpers as children. When only `composer/` changed, you do NOT need to touch `/usr/bin/videonode` (the Go supervisor) — just the three native helpers.
+5. **Verify** — check `systemctl is-active` (no `--user`), then `verify-from-dev.sh` (or a manual `ffprobe`) against the chosen RTSP path. For a source-only change (e.g. the MJPEG decoder), the faster check is `journalctl -u videonode.service` for the absence of the old error plus `GET /api/sources/<id>` reporting `status: running` with the expected output format.
 
 ## Gotchas
 
-- **Canonical install path matters.** The systemd unit runs `/home/orangepi/.local/bin/videonode`, which by default looks up its native helpers under `~/.local/bin/`. Native bins sitting only at `/home/orangepi/composer/build/src/bin/` will be ignored by the canonical service — you must `cp` them across (step 4).
-- **`Text file busy`** on `cp` means the service is still running and holding the binary mapped. Always `systemctl --user stop videonode.service` before installing native helpers.
+- **Canonical install path matters.** The systemd unit runs `/usr/bin/videonode`, which by default looks up its native helpers on `$PATH` (`/usr/bin`). Native bins sitting only at `/home/orangepi/composer/build/src/bin/` will be ignored by the canonical service — you must `sudo cp` them across (step 4). `/usr/bin` is root-owned, so every install `cp`/`chmod` needs `sudo`.
+- **`Text file busy`** on `cp` means the service is still running and holding the binary mapped. Always `sudo systemctl stop videonode.service` (no `--user`) before installing native helpers.
 - **`/tmp/smoke-vn/`** is a stale smoke-test scratch dir. If you find a supervisor running from `/tmp/smoke-vn/videonode`, kill it (`pkill -TERM -f /tmp/smoke-vn/videonode`), wait, then `rm -rf /tmp/smoke-vn`. Do not relaunch from there.
 - **Running processes hold old code.** A successful `cp` updates the binary on disk, but already-running processes keep their old text segment mapped. Confirm the new code is live by comparing `ps -o etime` for the supervisor + helpers against the binary mtime on the rig.
 - **HDMI source unstable** — `verify-from-dev.sh` against the HDMI stream will fail if the input has no signal lock. That is a source issue, not a deploy issue; the composer canvas stream (which falls back to placeholder rendering when sources are absent) is the more reliable verification target.
 - **UI is `go:embed`-bundled behind the `ui_embed` build tag** — `go build` WITHOUT `-tags ui_embed` compiles `ui/embed_fallback.go` instead of `ui/embed.go`, and `ui.Handler()` redirects every UI route to `/docs`. The daemon is healthy and the API works, but `/streams` etc. serve no React app — it looks like the UI was never built. Tag-gated `go build -tags ui_embed` requires `ui/dist/` to exist, so `cd ui && pnpm build` is a hard prerequisite. The bundled binary jumps from ~36 MB to ~40 MB when the embed actually lands; check `ls -la` on the staging file before deploying. Diff the served HTML via `curl http://localhost:8090/streams | grep '<title>'` — should be `<title>VideoNode</title>`, not a `Found` redirect blob.
-- **Auth on the canonical service** uses the `[auth] username/password` fields in `config.toml`, courtesy of `[auth] type = "basic"` (added 2026-05; pre-2026-05 the unset `type` defaulted to `linux`/PAM, which silently checked the system user `REDACTED-CREDS` instead). Today's canonical creds: `REDACTED-CREDS`. If a fresh install or a reverted config drops `type = "basic"`, the factory falls back to `linux` and `curl -u REDACTED-CREDS` will return 401 — re-add `type = "basic"` to `[auth]` and restart. `curl -u <wrong>:<wrong>` returns a generic 401 with no hint about which backend rejected.
+- **Auth on the canonical service** uses the `[auth] username/password` fields in `/etc/videonode/config.toml`, courtesy of `[auth] type = "basic"` (added 2026-05; pre-2026-05 the unset `type` defaulted to `linux`/PAM, which silently checked the system user `REDACTED-CREDS` instead). As of 2026-05-28 the rig is in the **`linux`/PAM fallback**: `curl -u REDACTED-CREDS` returns 200 and `curl -u REDACTED-CREDS` returns 401, i.e. `type = "basic"` is NOT set (or got reverted). If you want the documented `REDACTED-CREDS` basic creds back, add `type = "basic"` to `[auth]` and restart; otherwise use the system login `REDACTED-CREDS`. `curl -u <wrong>:<wrong>` returns a generic 401 with no hint about which backend rejected.
 
 ## Prerequisites
 
 - Host: `cmake` (>=3.20), `ninja`, a working C++ compiler, and the composer deps listed in `composer/README.md`.
 - Host: `rsync`, `ssh`, network reachability to `orangepi5-ultra.lan`.
 - Host: a Go toolchain — only needed if step 3 (Go cross-build) is in scope.
-- Rig: `coredumpctl` available (Armbian default); HDMI-IN feeding `/dev/v4l/by-path/platform-fdee0000.hdmirx-controller-video-index0`.
-- Rig: `~/.config/systemd/user/videonode.service` installed and enabled, with `~/.config/videonode/{config.toml,streams.toml}` populated.
+- Rig: `coredumpctl` available (Armbian default); HDMI-IN feeding `/dev/v4l/by-path/platform-fdee0000.hdmirx-controller-video-index0`, and/or the Hollyland Lyra UVC camera (`usb-Hollyland_Lyra_*`, MJPEG → `videonode-source` MPP decode).
+- Rig: `videonode.service` installed and enabled as a **system** unit (run `systemctl cat videonode.service` for its path), with `/etc/videonode/{config.toml,streams.toml}` populated. `sudo` access on the rig (the `orangepi` login has it).
 
 ## Reporting
 
 End the report with one verdict line:
 
-- `verdict: PASS` — host build, sync, rig build, install, and service-restart all succeeded; `systemctl --user is-active` returns `active`; and at least one RTSP stream ffprobes as `h264 1920x1080` at the expected frame rate.
+- `verdict: PASS` — host build, sync, rig build, install, and service-restart all succeeded; `systemctl is-active videonode.service` returns `active`; and at least one RTSP stream ffprobes as `h264 1920x1080` at the expected frame rate.
 - `verdict: FAIL (<short reason>)` — short reason in: `host build`, `sync`, `rig build`, `install`, `service start`, `ffprobe`, `crash`.
 - `verdict: DEPLOYED-NO-VERIFY` — sync + rig build + install + restart all succeeded and the caller explicitly skipped the ffprobe step.
 
 On FAIL also surface:
-- The last ~50 lines of `journalctl --user -u videonode.service` on the rig.
+- The last ~50 lines of `sudo journalctl -u videonode.service` on the rig (system journal; `--user` is empty since the unit is a system service).
 - `coredumpctl` output if a core was produced (see command above).
-- The mtimes of `~/.local/bin/videonode*` versus `ps -o etime` for the supervisor — if the running PID is older than the binary, the cp landed but the restart did not.
+- The mtimes of `/usr/bin/videonode*` versus `ps -o etime` for the supervisor — if the running PID is older than the binary, the cp landed but the restart did not.
 
-Manually verifying a live RTSP feed (canonical service):
+Manually verifying a live RTSP feed (canonical service). Note streams are lazy-encoder-on-reader: a path 404s until a reader connects and the daemon spawns the encoder, so probe with a client that holds the connection (ffprobe/ffplay do):
 
 ```
-ffplay -rtsp_transport tcp rtsp://orangepi5-ultra.lan:8554/gpucanvas
-# or, scripted:
-STREAM=gpucanvas composer/scripts/verify-from-dev.sh
+ffplay -rtsp_transport tcp rtsp://orangepi5-ultra.lan:8554/lyra
+# or, scripted (current stream paths: lyra, solo, stream):
+STREAM=lyra composer/scripts/verify-from-dev.sh
 ```
 
 ## When NOT to use
