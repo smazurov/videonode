@@ -82,8 +82,10 @@ struct DequeuedFrame {
 class Streamer {
   public:
     // open() opens the device, QUERYCAPs it, fills multiplanar(). Returns
-    // false on error with an internal error message logged to stderr.
-    [[nodiscard]] bool open(const std::string& device_path);
+    // false on error with an internal error message logged to stderr. Pass
+    // quiet=true on retry paths (1 Hz reopen loop) to suppress the per-attempt
+    // open() error log and preserve errno for the caller to classify.
+    [[nodiscard]] bool open(const std::string& device_path, bool quiet = false);
 
     // close() releases all dma-buf fds and the device fd. Idempotent.
     void close();

@@ -81,6 +81,40 @@ TEST(SourceProbe, EnodevGoesGone) {
     EXPECT_EQ(int(Health::Gone), int(p.health()));
 }
 
+TEST(SourceProbe, DeviceAbsentGoesGone) {
+    v4l2::Streamer cap;
+    SourceProbe p(cap);
+    p.note_dqbuf_success();
+    p.note_device_absent();
+    EXPECT_EQ(int(Health::Gone), int(p.health()));
+}
+
+TEST(SourceProbe, DeviceAcquiringIsInitializing) {
+    v4l2::Streamer cap;
+    SourceProbe p(cap);
+    p.note_dqbuf_success();
+    p.note_device_absent();
+    // Node reappeared but not yet openable (EBUSY/EACCES) -> bring-up state.
+    p.note_device_acquiring();
+    EXPECT_EQ(int(Health::Probing), int(p.health()));
+}
+
+TEST(SourceProbe, ReconnectInitializingThenLive) {
+    // Full UVC unplug/replug lifecycle. attach() is safe on a closed Streamer:
+    // query_dv_timings_state() returns OtherError, so the probe stays in the
+    // non-HDMI branch.
+    v4l2::Streamer cap;
+    SourceProbe p(cap);
+    p.note_dqbuf_success();
+    EXPECT_EQ(int(Health::Live), int(p.health()));
+    p.note_device_absent();
+    EXPECT_EQ(int(Health::Gone), int(p.health())); // no_signal
+    p.attach();
+    EXPECT_EQ(int(Health::Probing), int(p.health())); // initializing, no frame yet
+    p.note_dqbuf_success();
+    EXPECT_EQ(int(Health::Live), int(p.health()));
+}
+
 TEST(SourceProbe, StatusTextCoversAllStates) {
     EXPECT_TRUE(source_probe::status_text(Health::Probing));
     EXPECT_TRUE(source_probe::status_text(Health::Live));
@@ -96,5 +130,7 @@ TEST(SourceProbe, HealthTokenIsStableMachineToken) {
     EXPECT_STREQ("transitioning", source_probe::health_token(Health::Transitioning));
     EXPECT_STREQ("no_cable", source_probe::health_token(Health::NoCable));
     EXPECT_STREQ("no_signal", source_probe::health_token(Health::NoLock));
-    EXPECT_STREQ("offline", source_probe::health_token(Health::Gone));
+    // Gone (device absent) reports no_signal, not offline — "offline" is the
+    // Go daemon's process-down signal, never emitted by the source binary.
+    EXPECT_STREQ("no_signal", source_probe::health_token(Health::Gone));
 }

@@ -35,10 +35,13 @@ void close_planes(BufferRef& b) {
 
 } // namespace
 
-bool Streamer::open(const std::string& device_path) {
+bool Streamer::open(const std::string& device_path, bool quiet) {
     fd_ = ::open(device_path.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (fd_ < 0) {
-        vn::log::error("v4l2_capture: open(%s): %s", device_path.c_str(), strerror(errno));
+        // On quiet retry paths, leave errno untouched so the caller can
+        // classify it (the logging call below would clobber it).
+        if (!quiet)
+            vn::log::error("v4l2_capture: open(%s): %s", device_path.c_str(), strerror(errno));
         return false;
     }
     device_path_ = device_path;

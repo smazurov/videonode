@@ -189,6 +189,8 @@ struct LoopState {
     clock::time_point next_broadcast;
     clock::time_point next_power_poll;
     clock::time_point next_status_heartbeat;
+    clock::time_point next_reinit_attempt;                      // 1 Hz reopen pacing
+    CaptureOpenStatus prev_open_status = CaptureOpenStatus::Ok; // gate Failed log to transition
     int prev_consumer_count = -1;
     std::chrono::nanoseconds broadcast_period;
 };
@@ -389,9 +391,14 @@ void broadcast_tick_(LoopState& st, source_probe::Health h) {
 }
 
 // Attempt (re)open of the capture device, publish active_format on success.
+// Paced to 1 Hz so an absent device doesn't busy-spin open(); the errno
+// classification drives the probe's health (no_signal vs initializing).
 void maybe_reinit_capture_(LoopState& st, nv12_buf::Allocator& allocator,
                            auto& publish_active_format) {
     if (!st.need_reinit)
+        return;
+    auto now = LoopState::clock::now();
+    if (now < st.next_reinit_attempt)
         return;
     Args snap;
     {
@@ -402,11 +409,34 @@ void maybe_reinit_capture_(LoopState& st, nv12_buf::Allocator& allocator,
         st.need_reinit = false;
         return;
     }
-    if (try_open_capture(st.cap, snap, allocator)) {
+    CaptureOpenStatus status = try_open_capture(st.cap, snap, allocator, /*quiet=*/true);
+    int open_errno = errno; // best-effort; meaningful for open-stage failures
+    st.next_reinit_attempt = now + std::chrono::seconds(1);
+    switch (status) {
+    case CaptureOpenStatus::Ok:
         st.probe.attach();
         publish_active_format(snap);
         st.need_reinit = false;
+        break;
+    case CaptureOpenStatus::Busy:
+        // Node present, udev still settling perms — report the bring-up state
+        // (initializing) and keep retrying quietly.
+        st.probe.note_device_acquiring();
+        vn::log::debug("videonode-source: %s present but busy, retrying", snap.device.c_str());
+        break;
+    case CaptureOpenStatus::Absent:
+        // Expected on unplug. The Live -> NO SIGNAL health-change line is the
+        // single user-facing log; stay quiet per-attempt.
+        st.probe.note_device_absent();
+        break;
+    case CaptureOpenStatus::Failed:
+        st.probe.note_device_absent();
+        if (st.prev_open_status != CaptureOpenStatus::Failed)
+            vn::log::error("videonode-source: open(%s) failed (errno=%d)", snap.device.c_str(),
+                           open_errno);
+        break;
     }
+    st.prev_open_status = status;
     // even if reinit failed we proceed — placeholder still ticks
 }
 
@@ -434,7 +464,7 @@ void handle_format_change_(LoopState& st, nv12_buf::Allocator& allocator,
         teardown_session_(st.cap);
         clear_active_format();
         st.need_reinit = false;
-    } else if (try_open_capture(st.cap, snap, allocator)) {
+    } else if (try_open_capture(st.cap, snap, allocator) == CaptureOpenStatus::Ok) {
         st.probe.attach();
         publish_active_format(snap);
         st.need_reinit = false;
@@ -574,7 +604,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     };
 
     if (!a.device.empty()) {
-        if (try_open_capture(cap, a, allocator)) {
+        if (try_open_capture(cap, a, allocator) == CaptureOpenStatus::Ok) {
             probe.attach();
             publish_active_format(a);
         } else {
@@ -604,6 +634,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                  .next_broadcast = clock::now(),
                  .next_power_poll = clock::now(),
                  .next_status_heartbeat = clock::now(),
+                 .next_reinit_attempt = clock::now(),
                  .broadcast_period = broadcast_period};
 
     while (running.load()) {
