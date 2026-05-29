@@ -604,7 +604,7 @@ func (m *Manager) ComposerSnapshot(ctx context.Context, composerID string) (*pb.
 	c, ok := m.composers[composerID]
 	m.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("pipelinectl: no composer for id %q", composerID)
+		return nil, fmt.Errorf("%w %q", ErrNoSuchComposer, composerID)
 	}
 	resp, err := c.compClient.Snapshot(ctx, &pb.ComposerSnapshotRequest{})
 	if err != nil {
@@ -621,7 +621,7 @@ func (m *Manager) callComposer(_ context.Context, composerID string, fn func(pb.
 	c, ok := m.composers[composerID]
 	m.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf("pipelinectl: no composer for id %q", composerID)
+		return fmt.Errorf("%w %q", ErrNoSuchComposer, composerID)
 	}
 	if err := fn(c.compClient); err != nil {
 		return fmt.Errorf("pipelinectl: composer %s: %w", composerID, err)
@@ -694,6 +694,10 @@ func consumerEntriesFromProto(in []*pb.ConsumerEntry) []SourceConsumerEntry {
 	return out
 }
 
-// Compile-time assertion so we trip a build error if the package's
-// errors-package import is dropped accidentally.
-var _ = errors.New
+// ErrNoSuchComposer is returned (wrapped) by composer-targeted RPCs when
+// the composer's live process isn't registered with the control plane —
+// e.g. the pipeline switch is on but the process hasn't been spawned, or
+// it was never dialed. Callers performing best-effort live pushes use
+// errors.Is(err, ErrNoSuchComposer) to treat this as a non-fatal skip
+// rather than a genuine RPC failure.
+var ErrNoSuchComposer = errors.New("pipelinectl: no composer for id")

@@ -580,7 +580,7 @@ func (p *Pipeline) UpdateComposerLayout(id string, layout []LayoutSlot) error {
 	}
 	c, found := p.composers.Get(id)
 	if !found {
-		return fmt.Errorf("pipeline: composer %q not registered", id)
+		return fmt.Errorf("pipeline: composer %q not registered: %w", id, pipelinectl.ErrNoSuchComposer)
 	}
 	inputIdx := make(map[string]int, len(c.Inputs))
 	for i, in := range c.Inputs {
@@ -621,7 +621,7 @@ func (p *Pipeline) UpdateComposerEffect(id, inputRef string, effect *Effect) err
 		return errors.New("pipeline: ControlServer is nil; cannot hot-apply effect")
 	}
 	if _, found := p.composers.Get(id); !found {
-		return fmt.Errorf("pipeline: composer %q not registered", id)
+		return fmt.Errorf("pipeline: composer %q not registered: %w", id, pipelinectl.ErrNoSuchComposer)
 	}
 	sourceID := strings.TrimPrefix(inputRef, "source:")
 	params := pipelinectl.SetEffectsParams{SourceID: sourceID}
