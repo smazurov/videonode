@@ -6,6 +6,7 @@ import { Badge } from '../Badge';
 import { cn } from '../../utils';
 import { API_BASE_URL } from '../../lib/api';
 import { getAuthCredentials } from '../../lib/auth';
+import { formatUptime } from '../../lib/formatUptime';
 
 interface StreamConsumersPanelProps {
   readonly streamId: string;
@@ -58,25 +59,13 @@ interface ConsumerCounts {
 }
 
 function uptimeFrom(startMicros: number | undefined): string {
-  if (!startMicros) return '—';
-  const start = new Date(startMicros / 1000);
-  const seconds = Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000));
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  if (seconds < 60) return `${s}s`;
-  return `${m}m ${s}s`;
+  return formatUptime(startMicros) ?? '—';
 }
 
 function uptimeFromRFC3339(rfc3339: string): string {
-  const start = new Date(rfc3339);
-  if (isNaN(start.getTime())) return '—';
-  const seconds = Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000));
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  if (seconds < 60) return `${s}s`;
-  const h = Math.floor(m / 60);
-  if (h === 0) return `${m}m ${s}s`;
-  return `${h}h ${m % 60}m`;
+  const startMs = new Date(rfc3339).getTime();
+  if (isNaN(startMs)) return '—';
+  return formatUptime(startMs * 1000) ?? '—';
 }
 
 function formatRate(bytesPerSec: number): string {

@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Badge } from '../Badge';
 import { useProcesses, type ProcessEntry } from '../../hooks/useProcesses';
+import { formatUptime } from '../../lib/formatUptime';
 
 const STATE_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
   running: 'success',
@@ -15,19 +16,6 @@ const KIND_TONE: Record<string, 'canvas' | 'webrtc' | 'rtsp' | 'neutral'> = {
   composer: 'canvas',
   encoder: 'webrtc',
 };
-
-function formatUptimeFromNow(startedAtUs: number, nowMs: number): string {
-  const ageMs = nowMs - Math.floor(startedAtUs / 1000);
-  if (ageMs < 0) return '—';
-  const seconds = Math.floor(ageMs / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m${seconds % 60}s`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h${minutes % 60}m`;
-  const days = Math.floor(hours / 24);
-  return `${days}d${hours % 24}h`;
-}
 
 function formatRSS(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
@@ -79,7 +67,7 @@ function ProcessRow({ proc, now }: ProcessRowProps & { readonly now: number }) {
         {proc.started_at_us !== undefined && proc.started_at_us > 0 && (
           <>
             <span className="text-fg-subtle">uptime</span>
-            <span className="text-fg">{formatUptimeFromNow(proc.started_at_us, now)}</span>
+            <span className="text-fg">{formatUptime(proc.started_at_us, now) ?? '—'}</span>
           </>
         )}
         {proc.pid !== undefined && proc.pid > 0 && (
