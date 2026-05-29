@@ -20,6 +20,13 @@ vn_add_library(world
     SOURCES world.cpp
     PUBLIC_DEPS composer_rpc homography)
 
+# build_source_slot: pure frame+layout → pl_compose::SourceSlot mapping.
+# Header-only dependency on pl_compose; no GPU/EGL/dma-buf, so it builds
+# and unit-tests on the host regardless of HAVE_PLACEBO / HAVE_GBM.
+vn_add_library(build_source_slot
+    SOURCES build_source_slot.cpp
+    PUBLIC_DEPS world)
+
 # composer_service: gRPC service impl for videonode.control.Composer.
 # Translates proto requests into composer_rpc structs and forwards to
 # World::apply_*. Daemon dials in over the per-instance UDS.
@@ -99,5 +106,5 @@ if(HAVE_GBM)
     vn_add_library(canvas_loop
         SOURCES canvas_loop.cpp
         PUBLIC_DEPS pl_compose egl_ctx scm_rights_source scm_rights_producer dmabuf_header world
-                    gbm_alloc composer_service vn_snapshot)
+                    build_source_slot gbm_alloc composer_service vn_snapshot)
 endif()

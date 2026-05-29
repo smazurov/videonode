@@ -29,6 +29,7 @@ vn_add_test(scm_ctrunc_repro
     DEPS scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
 
+vn_add_test(build_source_slot   DEPS build_source_slot            LABELS render)
 vn_add_test(placeholder_painter DEPS placeholder_painter          LABELS render)
 vn_add_test(homography          DEPS homography                   LABELS render)
 vn_add_test(world               DEPS world Threads::Threads       LABELS render)
