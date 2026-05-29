@@ -22,6 +22,7 @@
 #include "src/rpc/grpc_server.hpp"
 #include "src/snapshot/snapshot.hpp"
 #include "src/source/broadcast.hpp"
+#include "src/source/capture_poll.hpp"
 #include "src/source/capture_session.hpp"
 #include "src/source/source_service.hpp"
 #include "version.hpp"
@@ -318,9 +319,30 @@ void poll_and_dispatch_(LoopState& st) {
         return;
 
     pollfd pfd = pset[cap_idx];
-    if (pfd.revents & POLLPRI)
+    CapturePollAction act = classify_capture_poll(pfd.revents);
+    if (act.error) {
+        // A USB capture stall under load latches POLLERR/POLLHUP on the fd.
+        // The dispatch below only reacts to POLLPRI/POLLIN, so left unhandled
+        // poll() returns immediately every iteration -> the loop pins a core
+        // at 100% and never recovers. Note the failure (health -> NoLock),
+        // drop the faulted session so the existing reinit path reopens a clean
+        // fd next tick, and pace to the broadcast deadline so repeated
+        // open-then-fault cycles run at frame rate instead of busy-spinning.
+        vn::log::warn("videonode-source: capture fd error revents=0x%x, reinit",
+                      static_cast<unsigned>(pfd.revents));
+        st.probe.note_dqbuf_failure(EIO);
+        teardown_session_(st.cap);
+        st.last_good_decoded = {};
+        st.need_reinit = true;
+        auto now = LoopState::clock::now();
+        if (st.next_broadcast <= now)
+            st.next_broadcast = now + st.broadcast_period;
+        std::this_thread::sleep_until(st.next_broadcast);
+        return;
+    }
+    if (act.drain_events)
         handle_v4l2_events_(st);
-    if (pfd.revents & POLLIN)
+    if (act.dequeue)
         handle_dqbuf_(st);
 }
 
@@ -614,6 +636,11 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
 
         if (h == source_probe::Health::Live) {
             st.next_broadcast += broadcast_period;
+            // Catch up if we've fallen behind (e.g. real frames stalled while
+            // health still reads Live) so the deadline never sits in the past,
+            // which would collapse the poll timeout to 0 and busy-spin.
+            if (st.next_broadcast < clock::now())
+                st.next_broadcast = clock::now() + broadcast_period;
             continue;
         }
 
