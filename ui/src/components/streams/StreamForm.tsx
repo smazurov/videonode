@@ -6,7 +6,6 @@ import type { components } from '../../lib/api.generated';
 import { UpstreamSection } from './UpstreamSection';
 import { EncoderFields } from './EncoderFields';
 import { AudioFields } from './AudioFields';
-import { PublishTargetsEditor } from './PublishTargetsEditor';
 
 type StreamData = components['schemas']['StreamData'];
 
@@ -62,13 +61,6 @@ export function StreamForm({
           <AudioFields
             value={form.value.audio}
             onChange={form.setAudio}
-            disabled={form.saving}
-            errors={form.errors}
-          />
-
-          <PublishTargetsEditor
-            value={form.value.publish}
-            onChange={form.setPublish}
             disabled={form.saving}
             errors={form.errors}
           />

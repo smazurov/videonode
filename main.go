@@ -255,6 +255,7 @@ func main() {
 			VNComposerBin:  native.Composer,
 			VNSinkBin:      native.VNSink,
 			DRMDevice:      "/dev/dri/renderD128",
+			RTSPPort:       opts.StreamingRTSPPort,
 			DeviceResolver: streams.MakeDeviceResolver(logger),
 			EventBus:       eventBus,
 			ControlServer:  ctlServer,

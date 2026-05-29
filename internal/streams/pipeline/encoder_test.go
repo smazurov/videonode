@@ -120,7 +120,7 @@ func TestEncoderStage_NV12_Y4M_BuildsYuv4mpegpipeInput(t *testing.T) {
 		},
 		Cfg:       EncoderConfig{Codec: "h264", Bitrate: "4M", GOP: 60},
 		Resolved:  EncoderResolution{EncoderName: "h264_rkmpp"},
-		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://localhost:8554/cam-front"}},
+		OutputURL: "rtsp://localhost:8554/cam-front",
 		VNSinkBin: "/usr/local/bin/vn-sink",
 	}
 	argv, _, err := e.Command()
@@ -151,7 +151,7 @@ func TestEncoderStage_BGRA_RawBuildsRawvideoInput(t *testing.T) {
 		},
 		Cfg:       EncoderConfig{Codec: "h265", Bitrate: "12M"},
 		Resolved:  EncoderResolution{EncoderName: "hevc_rkmpp"},
-		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://localhost:8554/canvas-1"}},
+		OutputURL: "rtsp://localhost:8554/canvas-1",
 		VNSinkBin: "/usr/local/bin/vn-sink",
 	}
 	argv, _, err := e.Command()
@@ -202,7 +202,7 @@ func TestEncoderStage_AudioInputsAppendedPerDevice(t *testing.T) {
 			Audio: ALSADirectAudio{Config: AudioConfig{Devices: []string{"hw:0", "hw:1"}}},
 		},
 		Cfg:       EncoderConfig{Codec: "h264", Bitrate: "2M"},
-		Publish:   []PublishTarget{{Type: "rtsp", URL: "rtsp://x/y"}},
+		OutputURL: "rtsp://x/y",
 		VNSinkBin: "/usr/bin/vn-sink",
 	}
 	argv, _, err := e.Command()

@@ -141,12 +141,6 @@ func pipelineStreamFromV2(v V2Stream) streams.PipelineStream {
 	s.Encoder.RateControl = v.Encoder.RateControl
 	s.Encoder.Preset = v.Encoder.Preset
 
-	if len(v.Publish) > 0 {
-		s.Publish = make([]pipeline.PublishTarget, len(v.Publish))
-		for i, p := range v.Publish {
-			s.Publish[i] = pipeline.PublishTarget{Type: p.Type, URL: p.URL}
-		}
-	}
 	return s
 }
 
@@ -171,11 +165,5 @@ func pipelineStreamToV2(s streams.PipelineStream) V2Stream {
 	v.Encoder.RateControl = s.Encoder.RateControl
 	v.Encoder.Preset = s.Encoder.Preset
 
-	if len(s.Publish) > 0 {
-		v.Publish = make([]V2PublishTarget, len(s.Publish))
-		for i, p := range s.Publish {
-			v.Publish[i] = V2PublishTarget{Type: p.Type, URL: p.URL}
-		}
-	}
 	return v
 }

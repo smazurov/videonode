@@ -27,7 +27,7 @@ export default function CreateStream() {
                 Create New Stream
               </h1>
               <p className="text-gray-600 dark:text-gray-300 mt-1">
-                Define an encoder + audio + publish for an existing source or composer upstream.
+                Define an encoder + audio for an existing source or composer upstream.
               </p>
             </div>
             <Button theme="light" onClick={handleCancel} size="SM" text="Back to Streams" />

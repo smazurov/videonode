@@ -79,28 +79,21 @@ type EncoderConfigData struct {
 	Preset      string `json:"preset,omitempty" example:"fast" doc:"Encoder preset"`
 }
 
-// PublishTargetData mirrors pipeline.PublishTarget: one output destination.
-type PublishTargetData struct {
-	Type string `json:"type" example:"rtsp" doc:"Output type (rtsp, srt, hls, ...)"`
-	URL  string `json:"url" example:"rtsp://example/stream" doc:"Destination URL"`
-}
-
 // StreamData is the slim API view of a stream. Upstream is "source:<id>" or
 // "composer:<id>"; the encoder dials whichever SCM socket that resolves to.
 type StreamData struct {
-	StreamID          string              `json:"stream_id" example:"stream-001" doc:"Unique stream identifier"`
-	Name              string              `json:"name,omitempty" example:"Main Archive" doc:"Human-readable stream name"`
-	Upstream          string              `json:"upstream" example:"source:hdmi0" doc:"Upstream reference: \"source:<id>\" or \"composer:<id>\""`
-	Audio             AudioConfigData     `json:"audio,omitzero" doc:"Audio routing"`
-	Encoder           EncoderConfigData   `json:"encoder,omitzero" doc:"Encoder configuration"`
-	Publish           []PublishTargetData `json:"publish,omitempty" doc:"Output destinations"`
-	CustomEncoderArgs string              `json:"custom_encoder_args,omitempty" doc:"User-supplied ffmpeg encoder args (replaces daemon-generated argv from -c:v onward)"`
-	Enabled           bool                `json:"enabled" example:"true" doc:"Runtime state — true when the encoder process is intended to run"`
-	Status            ProcessStatus       `json:"status,omitempty" example:"running" enum:"idle,starting,running,stopping,error" doc:"Encoder process pool state"`
-	RTSPURL           string              `json:"rtsp_url,omitempty" example:"rtsp://localhost:8554/stream-001" doc:"RTSP playback URL"`
-	SRTURL            string              `json:"srt_url,omitempty" example:"srt://localhost:6001?streamid=stream-001" doc:"SRT playback URL"`
-	CreatedAt         time.Time           `json:"created_at,omitzero" doc:"When the stream spec was created"`
-	UpdatedAt         time.Time           `json:"updated_at,omitzero" doc:"When the stream spec was last updated"`
+	StreamID          string            `json:"stream_id" example:"stream-001" doc:"Unique stream identifier"`
+	Name              string            `json:"name,omitempty" example:"Main Archive" doc:"Human-readable stream name"`
+	Upstream          string            `json:"upstream" example:"source:hdmi0" doc:"Upstream reference: \"source:<id>\" or \"composer:<id>\""`
+	Audio             AudioConfigData   `json:"audio,omitzero" doc:"Audio routing"`
+	Encoder           EncoderConfigData `json:"encoder,omitzero" doc:"Encoder configuration"`
+	CustomEncoderArgs string            `json:"custom_encoder_args,omitempty" doc:"User-supplied ffmpeg encoder args (replaces daemon-generated argv from -c:v onward)"`
+	Enabled           bool              `json:"enabled" example:"true" doc:"Runtime state — true when the encoder process is intended to run"`
+	Status            ProcessStatus     `json:"status,omitempty" example:"running" enum:"idle,starting,running,stopping,error" doc:"Encoder process pool state"`
+	RTSPURL           string            `json:"rtsp_url,omitempty" example:"rtsp://localhost:8554/stream-001" doc:"RTSP playback URL"`
+	SRTURL            string            `json:"srt_url,omitempty" example:"srt://localhost:6001?streamid=stream-001" doc:"SRT playback URL"`
+	CreatedAt         time.Time         `json:"created_at,omitzero" doc:"When the stream spec was created"`
+	UpdatedAt         time.Time         `json:"updated_at,omitzero" doc:"When the stream spec was last updated"`
 }
 
 // StreamListData contains a list of all configured streams.
@@ -116,14 +109,13 @@ type StreamListResponse struct {
 
 // StreamRequestData is the create-stream payload.
 type StreamRequestData struct {
-	StreamID          string              `json:"stream_id" pattern:"^[a-zA-Z0-9_-]+$" minLength:"1" maxLength:"50" example:"my-stream-001" doc:"Stream identifier"`
-	Name              string              `json:"name,omitempty" example:"Main Archive" doc:"Human-readable stream name"`
-	Upstream          string              `json:"upstream" pattern:"^(source|composer):[a-zA-Z0-9_-]+$" example:"source:hdmi0" doc:"Upstream reference"`
-	Audio             AudioConfigData     `json:"audio,omitzero" doc:"Audio routing"`
-	Encoder           EncoderConfigData   `json:"encoder,omitzero" doc:"Encoder configuration"`
-	Publish           []PublishTargetData `json:"publish,omitempty" doc:"Output destinations"`
-	CustomEncoderArgs string              `json:"custom_encoder_args,omitempty" doc:"User-supplied ffmpeg encoder args"`
-	Enabled           *bool               `json:"enabled,omitempty" doc:"Initial enabled state (default true)"`
+	StreamID          string            `json:"stream_id" pattern:"^[a-zA-Z0-9_-]+$" minLength:"1" maxLength:"50" example:"my-stream-001" doc:"Stream identifier"`
+	Name              string            `json:"name,omitempty" example:"Main Archive" doc:"Human-readable stream name"`
+	Upstream          string            `json:"upstream" pattern:"^(source|composer):[a-zA-Z0-9_-]+$" example:"source:hdmi0" doc:"Upstream reference"`
+	Audio             AudioConfigData   `json:"audio,omitzero" doc:"Audio routing"`
+	Encoder           EncoderConfigData `json:"encoder,omitzero" doc:"Encoder configuration"`
+	CustomEncoderArgs string            `json:"custom_encoder_args,omitempty" doc:"User-supplied ffmpeg encoder args"`
+	Enabled           *bool             `json:"enabled,omitempty" doc:"Initial enabled state (default true)"`
 }
 
 // Resolve validates the upstream reference shape.
@@ -146,13 +138,12 @@ type StreamRequest struct {
 // StreamUpdateRequestData contains partial-update fields. Pointers/nullables
 // distinguish "not set" from "set to zero/null".
 type StreamUpdateRequestData struct {
-	Name              *string                       `json:"name,omitempty" doc:"Human-readable name"`
-	Upstream          *string                       `json:"upstream,omitempty" pattern:"^(source|composer):[a-zA-Z0-9_-]+$" doc:"Upstream reference"`
-	Audio             Nullable[AudioConfigData]     `json:"audio,omitzero" doc:"Audio routing (null to clear)"`
-	Encoder           Nullable[EncoderConfigData]   `json:"encoder,omitzero" doc:"Encoder configuration (null to clear)"`
-	Publish           Nullable[[]PublishTargetData] `json:"publish,omitzero" doc:"Output destinations (null to clear)"`
-	CustomEncoderArgs *string                       `json:"custom_encoder_args,omitempty" doc:"User-supplied ffmpeg encoder args"`
-	Enabled           *bool                         `json:"enabled,omitempty" doc:"Runtime enabled state"`
+	Name              *string                     `json:"name,omitempty" doc:"Human-readable name"`
+	Upstream          *string                     `json:"upstream,omitempty" pattern:"^(source|composer):[a-zA-Z0-9_-]+$" doc:"Upstream reference"`
+	Audio             Nullable[AudioConfigData]   `json:"audio,omitzero" doc:"Audio routing (null to clear)"`
+	Encoder           Nullable[EncoderConfigData] `json:"encoder,omitzero" doc:"Encoder configuration (null to clear)"`
+	CustomEncoderArgs *string                     `json:"custom_encoder_args,omitempty" doc:"User-supplied ffmpeg encoder args"`
+	Enabled           *bool                       `json:"enabled,omitempty" doc:"Runtime enabled state"`
 }
 
 // StreamUpdateRequest wraps StreamUpdateRequestData for API requests.

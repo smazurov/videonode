@@ -1,13 +1,10 @@
-// Local type stubs for the U13 stream-form shape. These mirror the
-// canonical Go types from /home/stepan/.claude/plans/plan-a-full-rewrite-linked-gray.md
-// (Stream, EncoderConfig, AudioConfig, PublishTarget). They will be
-// replaced by `components['schemas']['*']` once `pnpm gen:api` runs
-// against the new backend OpenAPI in U1.
+// Local type stubs for the stream-form shape. These mirror the canonical
+// Go types (Stream, EncoderConfig, AudioConfig). The encoder's output is
+// the daemon's local RTSP relay, hardcoded server-side — not a form field.
 
 export type EncoderCodec = 'h264' | 'h265' | 'av1';
 export type RateControl = 'cbr' | 'vbr' | 'cqp';
 export type AudioCodec = 'aac' | 'opus';
-export type PublishType = 'rtsp' | 'srt' | 'hls';
 
 export interface EncoderConfig {
   codec: EncoderCodec;
@@ -24,16 +21,10 @@ export interface AudioConfig {
   mix_filter?: string;
 }
 
-export interface PublishTarget {
-  type: PublishType;
-  url: string;
-}
-
 export interface StreamFormValue {
   stream_id: string;
   upstream: string;
   encoder: EncoderConfig;
   audio: AudioConfig;
-  publish: PublishTarget[];
   custom_encoder_args?: string;
 }

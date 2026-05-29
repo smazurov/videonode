@@ -12,7 +12,7 @@ import (
 // EncoderStage is the per-Stream Encoder process: `vn-sink | ffmpeg`.
 // VN-sink dials either a producer's SCM socket (NV12 → Y4M) or a
 // composer's `--scm-out` socket (BGRA → raw), and pipes to ffmpeg which
-// encodes and publishes to the configured PublishTargets.
+// encodes and publishes to the daemon's local RTSP relay (OutputURL).
 //
 // One EncoderStage per stream, always present. Restart isolation works
 // because vn-sink retry-dials its source SCM, so encoder respawn doesn't
@@ -22,9 +22,9 @@ type EncoderStage struct {
 	Media             MediaSource
 	Cfg               EncoderConfig
 	Resolved          EncoderResolution // populated by buildEncoder via Config.EncoderResolver
-	Publish           []PublishTarget
-	CustomEncoderArgs string // user override; replaces -c:v onward when set
-	VNSinkBin         string // path to vn-sink binary
+	OutputURL         string            // local RTSP relay URL, hardcoded by buildEncoder
+	CustomEncoderArgs string            // user override; replaces -c:v onward when set
+	VNSinkBin         string            // path to vn-sink binary
 }
 
 // EncoderIDFor returns the stable pool key for a stream's encoder
@@ -45,8 +45,8 @@ func (e *EncoderStage) Command() ([]string, []string, error) {
 	if e.Media.Video == nil {
 		return nil, nil, errors.New("encoder: media.video is nil")
 	}
-	if e.CustomEncoderArgs == "" && len(e.Publish) == 0 {
-		return nil, nil, errors.New("encoder: at least one PublishTarget is required")
+	if e.CustomEncoderArgs == "" && e.OutputURL == "" {
+		return nil, nil, errors.New("encoder: OutputURL is required")
 	}
 	if e.Media.Video.SocketPath() == "" {
 		return nil, nil, errors.New("encoder: media.video has no socket path")
@@ -69,7 +69,7 @@ func (e *EncoderStage) Command() ([]string, []string, error) {
 	return []string{"/bin/sh", "-c", cmd}, nil, nil
 }
 
-// buildFFmpegParams projects EncoderConfig + MediaSource + Publish onto
+// buildFFmpegParams projects EncoderConfig + MediaSource + OutputURL onto
 // ffmpeg.Params. Applies the same defaults the legacy arg builder did
 // (bitrate=4M, rc_mode=VBR for HW) so the shared builder sees a fully
 // populated struct.
@@ -99,8 +99,8 @@ func (e *EncoderStage) buildFFmpegParams() *ffmpeg.Params {
 		p.AudioInputs = append([]string(nil), alsa.Config.Devices...)
 	}
 
-	for _, pt := range e.Publish {
-		p.Outputs = append(p.Outputs, ffmpeg.OutputTarget{Type: pt.Type, URL: pt.URL})
+	if e.OutputURL != "" {
+		p.Outputs = append(p.Outputs, ffmpeg.OutputTarget{Type: "rtsp", URL: e.OutputURL})
 	}
 	p.ProgressSocket = ProgressSocketPathFor(e.OwnerStreamID)
 	return p

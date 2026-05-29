@@ -4,7 +4,6 @@ import type { components } from '../lib/api.generated';
 import type {
   AudioConfig,
   EncoderConfig,
-  PublishTarget,
   StreamFormValue,
 } from '../components/streams/types';
 
@@ -28,7 +27,6 @@ function emptyValue(): StreamFormValue {
     upstream: '',
     encoder: defaultEncoder(),
     audio: defaultAudio(),
-    publish: [],
   };
 }
 
@@ -43,7 +41,6 @@ function fromStreamData(s: StreamData | undefined): StreamFormValue {
     upstream: s.upstream ?? '',
     encoder,
     audio,
-    publish: (s.publish as PublishTarget[] | undefined) ?? [],
     custom_encoder_args: s.custom_encoder_args ?? '',
   };
 }
@@ -64,7 +61,6 @@ function diffStreamForm(
   if (next.upstream !== initial.upstream) patch.upstream = next.upstream;
   if (changed(next.encoder, initial.encoder)) patch.encoder = next.encoder;
   if (changed(next.audio, initial.audio)) patch.audio = next.audio;
-  if (changed(next.publish, initial.publish)) patch.publish = next.publish;
   if ((next.custom_encoder_args ?? '') !== (initial.custom_encoder_args ?? '')) {
     patch.custom_encoder_args = next.custom_encoder_args ?? '';
   }
@@ -109,12 +105,6 @@ function validate({ mode, value, existingIds }: ValidateOpts): Record<string, st
     errors['encoder.gop'] = 'GOP must be non-negative';
   }
 
-  for (const [i, target] of value.publish.entries()) {
-    if (!target.url.trim()) {
-      errors[`publish.${i}.url`] = 'URL is required';
-    }
-  }
-
   return errors;
 }
 
@@ -125,7 +115,6 @@ export interface UseStreamFormResult {
   setUpstream: (next: string) => void;
   setEncoder: (next: EncoderConfig) => void;
   setAudio: (next: AudioConfig) => void;
-  setPublish: (next: PublishTarget[]) => void;
   setCustomEncoderArgs: (next: string) => void;
   errors: Record<string, string>;
   isValid: boolean;
@@ -168,10 +157,6 @@ export function useStreamForm(initialData?: StreamData): UseStreamFormResult {
     (next: AudioConfig) => setValue((cur) => ({ ...cur, audio: next })),
     [],
   );
-  const setPublish = useCallback(
-    (next: PublishTarget[]) => setValue((cur) => ({ ...cur, publish: next })),
-    [],
-  );
   const setCustomEncoderArgs = useCallback(
     (next: string) => setValue((cur) => ({ ...cur, custom_encoder_args: next })),
     [],
@@ -199,7 +184,6 @@ export function useStreamForm(initialData?: StreamData): UseStreamFormResult {
           upstream: value.upstream,
           encoder: value.encoder,
           audio: value.audio,
-          publish: value.publish,
           ...(value.custom_encoder_args ? { custom_encoder_args: value.custom_encoder_args } : {}),
         } as unknown as StreamRequestData);
       } else if (initialData) {
@@ -227,7 +211,6 @@ export function useStreamForm(initialData?: StreamData): UseStreamFormResult {
     setUpstream,
     setEncoder,
     setAudio,
-    setPublish,
     setCustomEncoderArgs,
     errors,
     isValid,
