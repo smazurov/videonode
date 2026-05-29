@@ -14,6 +14,11 @@ uint64_t now_ms() {
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
+int64_t wall_ms() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
 void broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec::DecodedNv12& d,
                     uint64_t frame_idx) {
     dmabuf_header::Header h_;
@@ -51,7 +56,7 @@ void broadcast_buffer(scm_rights_producer::ScmRightsProducer& prod, const nv12_b
 void build_status_proto(::videonode::control::Status& out, const StatusContext& ctx) {
     out.Clear();
     out.set_device_id(ctx.device_id);
-    out.set_ts_ms(static_cast<int64_t>(now_ms()));
+    out.set_ts_ms(wall_ms());
     out.set_health(source_probe::health_token(ctx.health));
 
     auto* dev = out.mutable_device();

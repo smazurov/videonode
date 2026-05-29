@@ -40,7 +40,10 @@ export function SourceStatusPanel({ source }: Readonly<SourceStatusPanelProps>) 
     });
   }
 
-  const uptimeLabel = formatUptime(source.started_at_us);
+  const lastUpdateMs = source.last_status_at
+    ? new Date(source.last_status_at).getTime()
+    : undefined;
+  const uptimeLabel = formatUptime(source.started_at_us, lastUpdateMs);
   const liveness = livenessToPill(source.liveness ?? source.latest_status?.health);
 
   return (

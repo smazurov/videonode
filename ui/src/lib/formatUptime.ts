@@ -1,10 +1,13 @@
 // Format a Unix-microseconds start timestamp as a human-readable uptime
-// (e.g. "3h12m", "27s"). Returns undefined when the input is missing,
-// zero, or in the future — callers can render a dash for that case.
-export function formatUptime(startedAtUs?: number): string | undefined {
+// (e.g. "3h12m", "27s"). The age is measured against nowMs — pass the
+// timestamp of the most recent status so the value advances in lockstep
+// with each status push; defaults to wall-clock now. Returns undefined
+// when the input is missing, zero, or in the future — callers can render
+// a dash for that case.
+export function formatUptime(startedAtUs?: number, nowMs: number = Date.now()): string | undefined {
   if (!startedAtUs || startedAtUs === 0) return undefined;
   const startedMs = Math.floor(startedAtUs / 1000);
-  const ageMs = Date.now() - startedMs;
+  const ageMs = nowMs - startedMs;
   if (ageMs < 0) return undefined;
   const seconds = Math.floor(ageMs / 1000);
   if (seconds < 60) return `${seconds}s`;

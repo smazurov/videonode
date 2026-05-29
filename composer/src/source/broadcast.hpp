@@ -17,6 +17,11 @@ namespace source {
 // Monotonic milliseconds since steady_clock epoch.
 uint64_t now_ms();
 
+// Wall-clock milliseconds since the Unix epoch (system_clock). Used for
+// the status timestamp so the UI can render a real date; never for
+// interval math (use now_ms() — it is immune to clock jumps).
+int64_t wall_ms();
+
 // Send a decoded NV12 frame to all connected SCM consumers.
 void broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec::DecodedNv12& d,
                     uint64_t frame_idx);
