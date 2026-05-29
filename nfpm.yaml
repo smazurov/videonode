@@ -13,6 +13,13 @@ vendor: Stepan Mazurov
 homepage: https://github.com/smazurov/videonode
 license: AGPL-3.0-or-later
 
+# Runtime libraries the native binaries dlopen/link against. The C++ side
+# (videonode-source/-sink/-composer) links gRPC, protobuf, abseil, libplacebo
+# and turbojpeg in addition to the EGL/GLES/GBM/DRM stack — without these the
+# binaries fail at startup with "cannot open shared object file". Package names
+# and soname suffixes are bookworm-specific; bump them if the build base moves.
+# librga / librockchip_mpp are board-specific (not in Debian) and provided by
+# install-rockchip-libs.sh / the Armbian image, so they are not declared here.
 depends:
   - libc6
   - libstdc++6
@@ -20,6 +27,11 @@ depends:
   - libgles2
   - libgbm1
   - libdrm2
+  - libgrpc++1.51
+  - libprotobuf32
+  - libabsl20220623
+  - libplacebo208
+  - libturbojpeg0
 
 contents:
   - src: ./dist/videonode

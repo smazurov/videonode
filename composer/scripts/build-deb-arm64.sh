@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-deb-arm64.sh — runs inside an arm64 Debian trixie environment
+# build-deb-arm64.sh — runs inside an arm64 Debian bookworm environment
 # (either spawned locally via build-deb-arm64-docker.sh, or supplied by
 # GH Actions via the `container:` directive). Installs deps and drives
 # cmake for the requested MODE.
@@ -40,6 +40,7 @@ DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y --no-install-recommends 
     libegl-dev libgles-dev libgbm-dev libdrm-dev \
     libturbojpeg0-dev \
     libplacebo-dev libvulkan-dev \
+    libabsl-dev \
     libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc \
     "${extra_pkgs[@]}"
 

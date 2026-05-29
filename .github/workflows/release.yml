@@ -28,7 +28,13 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    container: arm64v8/debian:trixie
+    # Build on bookworm, not trixie: the .deb targets Armbian/Debian bookworm
+    # SBCs (glibc 2.36, GCC 12, abseil 20220623). Building on the newer trixie
+    # produced binaries that demanded GLIBC_2.38 / GLIBCXX_3.4.31 /
+    # libabsl…so.20240722, none of which exist on bookworm. bookworm already
+    # ships gRPC 1.51.1 + protobuf 3.21.12 (what Dependencies.cmake expects),
+    # so this matches the runtime target with no backports.
+    container: arm64v8/debian:bookworm
     timeout-minutes: 25
     permissions:
       contents: read
