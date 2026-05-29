@@ -181,10 +181,11 @@ func (s *streamService) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-// Restart re-applies the persisted spec to the pipeline. ApplyStream is
-// idempotent — it stops the existing encoder stage and starts a fresh one.
-// When the pipeline master switch is off, Restart is a no-op (the encoder
-// would refuse to spawn anyway).
+// Restart re-applies the persisted spec to the pipeline. ApplyStream
+// refreshes the cached encoder stage; a running encoder (reader attached)
+// is bounced onto the fresh spec, while an idle encoder stays idle until
+// the next reader-connect spawn. When the pipeline master switch is off,
+// Restart is a no-op (the encoder would refuse to spawn anyway).
 func (s *streamService) Restart(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

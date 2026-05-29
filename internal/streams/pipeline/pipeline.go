@@ -687,11 +687,17 @@ func (p *Pipeline) DeleteComposer(id string) error {
 	return nil
 }
 
-// ApplyStream creates or updates the per-stream encoder process. The
-// Upstream string is resolved against the source/composer registries:
+// ApplyStream creates or updates a per-stream encoder stage and caches it
+// for the lazy-encoder lifecycle. The Upstream string is resolved against
+// the source/composer registries:
 //   - "source:<id>"   → ProducerFrameSource against the source's SCM
 //   - "composer:<id>" → ComposerFrameSource against the composer's
 //     SCM-out
+//
+// The encoder process is NOT spawned here. It stays idle until a reader
+// connects and EnsureEncoder spawns it, and stops after the last reader
+// disconnects. If the encoder is already running (a reader is attached
+// while the spec changes) it is bounced so the new spec takes effect now.
 //
 // Dangling references (the named source/composer isn't registered) are
 // an error.
@@ -713,8 +719,11 @@ func (p *Pipeline) ApplyStream(s Stream) error {
 	}
 	p.replaceStage(enc)
 	p.ensureCollector(s.ID)
+	if !p.pool.IsRunning(EncoderIDFor(s.ID)) {
+		return nil // idle: cached stage awaits the next reader-connect spawn
+	}
 	if err := p.restartStage(enc); err != nil {
-		return fmt.Errorf("pipeline: start encoder %s: %w", enc.ID(), err)
+		return fmt.Errorf("pipeline: restart encoder %s: %w", enc.ID(), err)
 	}
 	return nil
 }

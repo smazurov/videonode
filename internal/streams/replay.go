@@ -9,8 +9,10 @@ import (
 )
 
 // ReplayV2Entities applies every persisted v2 entity onto the supervised
-// pipeline at startup. When pipelineEnabled=true, all entities are fully
-// applied (processes spawned). When false, sources and composers are
+// pipeline at startup. When pipelineEnabled=true, sources and composers
+// are fully applied (processes spawned) and stream encoder stages are
+// cached but left idle — encoders spawn lazily on the first reader connect
+// (lazy-encoder-on-reader). When false, sources and composers are
 // registered in the pipeline's in-memory registry (for upstream-ref
 // resolution) but no processes are spawned.
 //
