@@ -6,6 +6,11 @@
 vn_add_probe(dma-probe         DEPS dma_heap)
 vn_add_probe(source-probe      DEPS dma_heap fake_source)
 
+if(HAVE_MPP)
+    # mpp-jpeg-probe: step-by-step MPP MJPEG decode diagnostic (rig-only).
+    vn_add_probe(mpp-jpeg-probe DEPS mpp_iface)
+endif()
+
 if(HAVE_GBM)
     vn_add_probe(egl-probe             DEPS egl_ctx gles_bundle)
     vn_add_probe(import-probe          DEPS dma_heap fake_source egl_ctx gles_bundle)
