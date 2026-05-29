@@ -13,6 +13,8 @@
 #include <atomic>
 #include <cstring>
 
+#include <unistd.h>
+
 namespace csc_placebo {
 
 namespace {

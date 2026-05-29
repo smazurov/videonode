@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstring>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
