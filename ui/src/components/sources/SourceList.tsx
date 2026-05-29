@@ -37,6 +37,39 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
       sortValue: (row) => (row.test_mode ? 'zzz-test-pattern' : row.device ?? ''),
     },
     {
+      id: 'format',
+      header: 'Format',
+      cell: (row) => {
+        const name = row.latest_status?.format?.fourcc ?? row.format?.format_name;
+        return <span className="text-fg-muted text-xs font-mono uppercase">{name ?? '—'}</span>;
+      },
+      sortValue: (row) => row.latest_status?.format?.fourcc ?? row.format?.format_name ?? '',
+    },
+    {
+      id: 'resolution',
+      header: 'Res',
+      cell: (row) => {
+        const w = row.latest_status?.format?.w ?? row.format?.width;
+        const h = row.latest_status?.format?.h ?? row.format?.height;
+        return (
+          <span className="text-fg-muted text-xs font-mono">
+            {w && h ? `${w}×${h}` : '—'}
+          </span>
+        );
+      },
+      sortValue: (row) => row.latest_status?.format?.w ?? row.format?.width ?? 0,
+    },
+    {
+      id: 'fps',
+      header: 'FPS',
+      cell: (row) => {
+        const fps = row.effective_fps ?? row.latest_status?.format?.fps ?? row.format?.fps;
+        return <span className="text-fg-muted text-xs font-mono">{fps ? fps : '—'}</span>;
+      },
+      sortValue: (row) => row.effective_fps ?? row.latest_status?.format?.fps ?? row.format?.fps ?? 0,
+      align: 'right',
+    },
+    {
       id: 'status',
       header: 'Status',
       cell: (row) => <StatusPill status={poolStateToPill(row.status)} />,
@@ -50,13 +83,6 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
         return <StatusPill status={pill.status} label={pill.label} />;
       },
       sortValue: (row) => row.liveness ?? '',
-    },
-    {
-      id: 'consumers',
-      header: 'Consumers',
-      cell: (row) => <span className="text-fg">{row.consumer_count ?? row.consumers?.length ?? 0}</span>,
-      sortValue: (row) => row.consumer_count ?? row.consumers?.length ?? 0,
-      className: 'text-right',
     },
     {
       id: 'uptime',
