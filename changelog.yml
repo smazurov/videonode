@@ -1,3 +1,24 @@
+- semver: 4.0.0-rc5
+  date: 2026-05-28T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 3ccdfaf
+      note: "streams drop configurable publish targets: encoders publish to the built-in local RTSP relay, SRT/WebRTC fan out from there (breaking)"
+    - commit: 1de2fe0
+      note: "remove the in-app self-update service; updates ship via the .deb / APT repo only (breaking)"
+    - commit: d5d9270
+      note: "sources expose a liveness signal distinct from status, surfaced with per-entity log panels over the shared SSE stream"
+    - commit: 4676230
+      note: "stream editing UI: partial-PATCH edits and auto-start preview that wakes an idle stream"
+    - commit: 47767b1
+      note: "pipeline fixes: compositor honors the NV12 UV-plane offset, source pins and reports the real capture rate via G_PARM"
+    - commit: 321b127
+      note: "packaging cleanup: drop the legacy install.sh and the network-online unit dependency"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc4
   date: 2026-05-28T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
