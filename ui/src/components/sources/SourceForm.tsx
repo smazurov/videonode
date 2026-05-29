@@ -1,4 +1,4 @@
-import { FormEvent } from 'react';
+import { SyntheticEvent } from 'react';
 import { Card } from '../Card';
 import { Button } from '../Button';
 import { InputField } from '../InputField';
@@ -54,7 +54,7 @@ export function SourceForm({
 }: Readonly<SourceFormProps>) {
   const form = useSourceForm(initialData);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: SyntheticEvent) => {
     e.preventDefault();
     const ok = await form.submit();
     if (ok) await onSuccess();
