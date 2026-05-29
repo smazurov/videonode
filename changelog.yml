@@ -1,3 +1,14 @@
+- semver: 4.0.0-rc6
+  date: 2026-05-29T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 0e467ef
+      note: "arm64 .deb builds on Debian bookworm and declares its native runtime libraries (gRPC, protobuf, abseil, libplacebo, turbojpeg), fixing missing-shared-object and GLIBCXX-version failures on bookworm/Armbian SBCs"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc5
   date: 2026-05-28T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
