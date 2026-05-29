@@ -14,7 +14,7 @@ import { SourceList } from '../components/sources/SourceList';
 
 export default function Sources() {
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
 
   const sourceIds = useSourceStore((s) => s.sourceIds);
   const sourcesById = useSourceStore((s) => s.sourcesById);

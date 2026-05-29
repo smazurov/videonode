@@ -15,7 +15,7 @@ import type { ComposerData } from '../lib/composer-types';
 
 export default function Composers() {
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
 
   const composerIds = useComposerStore((s) => s.composerIds);
   const composersById = useComposerStore((s) => s.composersById);

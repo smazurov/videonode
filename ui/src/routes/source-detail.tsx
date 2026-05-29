@@ -20,7 +20,7 @@ import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 export default function SourceDetail() {
   const navigate = useNavigate();
   const { sourceId } = useParams<{ sourceId: string }>();
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
 
   const source = useSourceStore((s) => (sourceId ? s.sourcesById[sourceId] : undefined));
   const { loading, error, lastUpdated } = useSourceStore(

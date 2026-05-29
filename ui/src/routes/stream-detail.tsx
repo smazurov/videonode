@@ -84,7 +84,7 @@ function PreviewModeToggle({
 export default function StreamDetail() {
   const navigate = useNavigate();
   const { streamId } = useParams<{ streamId: string }>();
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
 
   const stream = useStreamStore((state) => (streamId ? state.streamsById[streamId] : undefined));
   const lastUpdated = useStreamStore((state) => state.lastUpdated);
