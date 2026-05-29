@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/smazurov/videonode/internal/api/models"
-	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
 
@@ -66,13 +64,6 @@ func (s *Server) registerStreamRoutes() {
 		}
 
 		apiStream := s.streamToAPI(*created)
-		if s.eventBus != nil {
-			s.eventBus.Publish(events.StreamCreatedEvent{
-				Stream:    apiStream,
-				Action:    "created",
-				Timestamp: time.Now().Format(time.RFC3339),
-			})
-		}
 		if s.streamEntity != nil {
 			s.streamEntity.PublishCreated(apiStream)
 		}
@@ -115,13 +106,6 @@ func (s *Server) registerStreamRoutes() {
 		}
 
 		apiStream := s.streamToAPI(*updated)
-		if s.eventBus != nil {
-			s.eventBus.Publish(events.StreamUpdatedEvent{
-				Stream:    apiStream,
-				Action:    "updated",
-				Timestamp: time.Now().Format(time.RFC3339),
-			})
-		}
 		if s.streamEntity != nil {
 			if prevAPI != nil {
 				s.streamEntity.PublishUpdatedWith(*prevAPI, apiStream)
@@ -161,13 +145,6 @@ func (s *Server) registerStreamRoutes() {
 			return nil, s.mapStreamError(err)
 		}
 
-		if s.eventBus != nil {
-			s.eventBus.Publish(events.StreamDeletedEvent{
-				StreamID:  input.StreamID,
-				Action:    "deleted",
-				Timestamp: time.Now().Format(time.RFC3339),
-			})
-		}
 		if s.streamEntity != nil {
 			if prevAPI != nil {
 				s.streamEntity.PublishDeletedWith(*prevAPI)
@@ -218,13 +195,6 @@ func (s *Server) registerStreamRoutes() {
 
 		if st, gerr := s.streamService.Get(ctx, input.StreamID); gerr == nil {
 			apiStream := s.streamToAPI(*st)
-			if s.eventBus != nil {
-				s.eventBus.Publish(events.StreamUpdatedEvent{
-					Stream:    apiStream,
-					Action:    "restarted",
-					Timestamp: time.Now().Format(time.RFC3339),
-				})
-			}
 			if s.streamEntity != nil {
 				s.streamEntity.PublishUpdated(apiStream)
 			}

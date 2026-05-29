@@ -280,16 +280,31 @@ func main() {
 		// the drain from the publish so a slow event subscriber can
 		// never block the StatusFeed channel.
 		if ctlServer != nil {
+			// Source consumers change far less often than the ~1 Hz status
+			// heartbeat, and the status payload already embeds the consumer
+			// set. Strip consumers from the status event and publish a
+			// dedicated consumers event only when the membership (count +
+			// live fds) changes — no double-send, no per-tick churn.
+			lastConsumerSig := make(map[string]string)
+			consumerSig := func(c pipelinectl.SourceConsumersInfo) string {
+				fds := make([]int, 0, len(c.Live))
+				for _, e := range c.Live {
+					fds = append(fds, e.FD)
+				}
+				slices.Sort(fds)
+				return fmt.Sprintf("%d:%v", c.Count, fds)
+			}
 			pipelinectl.RunStatusFanout(
 				ctlServer.StatusFeed(),
 				func(st pipelinectl.StatusParams) {
-					eventBus.Publish(events.SourceStatusEvent{
-						DeviceID:  st.DeviceID,
-						Status:    st,
-						Timestamp: time.Now().Format(time.RFC3339),
-					})
-					if eventRegistry != nil && st.DeviceID != "" {
-						eventRegistry.Publish("source", events.ActionStatus, st.DeviceID, st)
+					if eventRegistry == nil || st.DeviceID == "" {
+						return
+					}
+					statusOnly := st
+					statusOnly.Consumers = pipelinectl.SourceConsumersInfo{}
+					eventRegistry.Publish("source", events.ActionStatus, st.DeviceID, statusOnly)
+					if sig := consumerSig(st.Consumers); lastConsumerSig[st.DeviceID] != sig {
+						lastConsumerSig[st.DeviceID] = sig
 						eventRegistry.Publish("source", events.ActionConsumers, st.DeviceID, st.Consumers)
 					}
 				},
@@ -418,7 +433,7 @@ func main() {
 
 		// Create SSE exporter if enabled
 		if opts.SSEEnabled {
-			sseExporter = exporters.NewSSEExporter(eventBus).WithEntityRegistry(eventRegistry)
+			sseExporter = exporters.NewSSEExporter(eventRegistry)
 		}
 
 		hooks.OnStart(func() {
