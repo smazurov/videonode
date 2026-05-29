@@ -1,31 +1,19 @@
 find_package(PkgConfig REQUIRED)
 find_package(Threads   REQUIRED)
 
-# gRPC + protobuf for the daemon ↔ native control plane. Matches the
-# project's pkg-config convention used for EGL / GLES / DRM above.
-# Debian trixie ships gRPC 1.51.1 (libgrpc++-dev) and protobuf 3.21.12
-# (libprotobuf-dev); Fedora 43+ has grpc-devel / grpc-plugins /
-# protobuf-devel. The Apache-libgrpc++ pkg-config link line is heavy
-# (transitive abseil/cares/re2/ssl/etc.) — pkg_check_modules captures
-# that automatically; find_package(gRPC CONFIG) does the same but
-# requires the CMake config files to be in the right place, which varies.
+# gRPC + protobuf for the daemon ↔ native control plane. pkg-config (not
+# find_package CONFIG) so the heavy transitive link line resolves portably.
 pkg_check_modules(GRPCPP   REQUIRED IMPORTED_TARGET grpc++)
 pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)
 
 add_library(grpc_bundle INTERFACE)
 target_link_libraries(grpc_bundle INTERFACE PkgConfig::GRPCPP PkgConfig::PROTOBUF)
 
-# Abseil's flag parser. Abseil is already pulled in transitively by gRPC's
-# pkg-config link line, but the symbols we use (ABSL_FLAG, absl::ParseCommandLine,
-# absl::SetProgramUsageMessage) require an explicit link against absl_flags +
-# absl_flags_parse. Both Debian trixie (libabsl-dev ≥ 20230802) and Fedora 43+
-# (abseil-cpp-devel) ship the upstream CMake config files; pkg-config files
-# also exist but the CONFIG form is what upstream documents.
+# Abseil flag parser — explicit link needed; transitive gRPC link doesn't expose it.
 find_package(absl CONFIG REQUIRED)
 add_library(absl_bundle INTERFACE)
 target_link_libraries(absl_bundle INTERFACE absl::flags absl::flags_parse)
 
-# Plugin + compiler binaries. Same path on Debian and Fedora (/usr/bin).
 find_program(GRPC_CPP_PLUGIN_PATH grpc_cpp_plugin REQUIRED)
 find_program(PROTOC_PATH          protoc          REQUIRED)
 
@@ -34,28 +22,21 @@ message(STATUS "  protobuf:                     ${PROTOBUF_VERSION}")
 message(STATUS "  grpc_cpp_plugin:              ${GRPC_CPP_PLUGIN_PATH}")
 message(STATUS "  protoc:                       ${PROTOC_PATH}")
 
-# Required on every Linux box with Mesa userspace + libdrm; transitively
-# pulled in by tests / host-side libs.
 pkg_check_modules(EGL    REQUIRED IMPORTED_TARGET egl)
 pkg_check_modules(GLESV2 REQUIRED IMPORTED_TARGET glesv2)
 pkg_check_modules(DRM    REQUIRED IMPORTED_TARGET libdrm)
 
-# libjpeg-turbo's TurboJPEG API. The videonode-source MJPEG path uses it
-# as the software fallback when Rockchip MPP isn't available (i.e. host
-# builds). Required — no silent stub fallback. Fedora: turbojpeg-devel,
-# Debian/Ubuntu: libturbojpeg0-dev.
+# TurboJPEG — software MJPEG decode fallback when Rockchip MPP is absent (host builds).
 pkg_check_modules(TURBOJPEG REQUIRED IMPORTED_TARGET libturbojpeg)
 
-# GBM ships separately on most distros. Without it the EGL platform GBM
-# path is unavailable, so the videonode-composer binary + GLES probes are
-# skipped, and HAVE_GLES_CSC stays off. Tests + UAPI libs still build.
+# Without GBM the videonode-composer binary + GLES probes are skipped.
 pkg_check_modules(GBM IMPORTED_TARGET gbm)
 set(HAVE_GBM FALSE)
 if(TARGET PkgConfig::GBM)
     set(HAVE_GBM TRUE)
 endif()
 
-# librga is Rockchip-only. HAVE_RGA is TRUE iff librga is on the system.
+# librga — Rockchip-only CSC backend.
 find_library(LIBRGA_LIB rga)
 set(HAVE_RGA FALSE)
 if(LIBRGA_LIB)
@@ -65,9 +46,7 @@ if(LIBRGA_LIB)
 endif()
 
 
-# librockchip_mpp is Rockchip-only. HAVE_MPP is real: TRUE iff librockchip_mpp
-# is on the system. When FALSE, mpp_jpeg_dec is skipped and any future
-# consumer of mpp_iface should be gated on HAVE_MPP.
+# librockchip_mpp — Rockchip-only; when absent mpp_jpeg_dec is skipped.
 find_library(LIBMPP_LIB rockchip_mpp)
 set(HAVE_MPP FALSE)
 if(LIBMPP_LIB)
@@ -76,17 +55,14 @@ if(LIBMPP_LIB)
     target_link_libraries(mpp_iface INTERFACE ${LIBMPP_LIB})
 endif()
 
-# Shared interface bundle for any target that wants EGL/GLES/GBM/DRM in one
-# go. Optional — only created when HAVE_GBM.
+# Shared EGL/GLES/GBM/DRM bundle; only created when HAVE_GBM.
 if(HAVE_GBM)
     add_library(gles_bundle INTERFACE)
     target_link_libraries(gles_bundle INTERFACE
         PkgConfig::EGL PkgConfig::GLESV2 PkgConfig::GBM PkgConfig::DRM)
 endif()
 
-# libplacebo — optional, used for evaluation probes (#9). Fedora:
-# libplacebo-devel, Debian: libplacebo-dev. When present, builds
-# placebo-csc-probe / placebo-vk-probe / placebo-host-copy-probe.
+# libplacebo — optional; enables the placebo CSC backend + evaluation probes (#9).
 pkg_check_modules(PLACEBO IMPORTED_TARGET libplacebo)
 set(HAVE_PLACEBO FALSE)
 if(TARGET PkgConfig::PLACEBO)
@@ -95,9 +71,7 @@ if(TARGET PkgConfig::PLACEBO)
     target_link_libraries(placebo_bundle INTERFACE PkgConfig::PLACEBO)
 endif()
 
-# Vulkan loader — optional, needed by placebo-vk-probe and
-# placebo-host-copy-probe. Usually present if vulkan-loader-devel is
-# installed.
+# Vulkan loader — optional, needed by the placebo vk/host-copy probes.
 pkg_check_modules(VULKAN IMPORTED_TARGET vulkan)
 set(HAVE_VULKAN FALSE)
 if(TARGET PkgConfig::VULKAN)
@@ -130,13 +104,9 @@ if(NOT HAVE_RGA AND NOT HAVE_PLACEBO)
         "(generic Linux) to enable a real backend.")
 endif()
 
-# GoogleTest — use the system install instead of fetching + building in-tree.
-# It rides in transitively with the gRPC dev package the build already
-# requires: Fedora's grpc-devel pulls gmock (-> gtest-devel); Debian's
-# libgrpc++-dev does not, so build-deb-arm64.sh installs libgtest-dev +
-# libgmock-dev explicitly. Provides the same GTest::gtest_main / GTest::gmock
-# imported targets the tests link against. Version now tracks the distro
-# rather than a pinned SHA.
+# GoogleTest — test-only, reached only when BUILD_TESTS=ON (OFF by default),
+# so shipping configures never require gtest. System install, not in-tree;
+# build-deb-arm64.sh adds libgtest-dev/libgmock-dev for the test modes only.
 if(BUILD_TESTS)
     find_package(GTest REQUIRED)
     include(GoogleTest)
