@@ -48,6 +48,30 @@ function fromStreamData(s: StreamData | undefined): StreamFormValue {
   };
 }
 
+// diffStreamForm returns only the fields that changed between the loaded
+// stream and the edited value, shaped for the partial PATCH body. Each
+// field is compared structurally so reordering object keys doesn't count
+// as a change. custom_encoder_args is included even when cleared to ''
+// so the user can remove it.
+function diffStreamForm(
+  initial: StreamFormValue,
+  next: StreamFormValue,
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  const changed = (a: unknown, b: unknown) =>
+    JSON.stringify(a) !== JSON.stringify(b);
+
+  if (next.upstream !== initial.upstream) patch.upstream = next.upstream;
+  if (changed(next.encoder, initial.encoder)) patch.encoder = next.encoder;
+  if (changed(next.audio, initial.audio)) patch.audio = next.audio;
+  if (changed(next.publish, initial.publish)) patch.publish = next.publish;
+  if ((next.custom_encoder_args ?? '') !== (initial.custom_encoder_args ?? '')) {
+    patch.custom_encoder_args = next.custom_encoder_args ?? '';
+  }
+
+  return patch;
+}
+
 interface ValidateOpts {
   mode: 'create' | 'edit';
   value: StreamFormValue;
@@ -169,24 +193,23 @@ export function useStreamForm(initialData?: StreamData): UseStreamFormResult {
     setSaving(true);
     setError(null);
     try {
-      // Cast through the legacy StreamRequestData shape until the API
-      // regen lands the new payload. The new fields (upstream, encoder,
-      // audio, publish, custom_encoder_args) flow through the body
-      // verbatim because the store passes the body to fetch without
-      // schema-enforced stripping.
-      const body = {
-        stream_id: value.stream_id,
-        upstream: value.upstream,
-        encoder: value.encoder,
-        audio: value.audio,
-        publish: value.publish,
-        ...(value.custom_encoder_args ? { custom_encoder_args: value.custom_encoder_args } : {}),
-      } as unknown as StreamRequestData;
-
       if (mode === 'create') {
-        await createStream(body);
+        await createStream({
+          stream_id: value.stream_id,
+          upstream: value.upstream,
+          encoder: value.encoder,
+          audio: value.audio,
+          publish: value.publish,
+          ...(value.custom_encoder_args ? { custom_encoder_args: value.custom_encoder_args } : {}),
+        } as unknown as StreamRequestData);
       } else if (initialData) {
-        await updateStream(initialData.stream_id, body as Partial<StreamRequestData>);
+        // PATCH is partial: only send fields the user actually changed.
+        // Omitted fields mean "leave alone"; sending the full value would
+        // clobber anything not surfaced in this form.
+        const patch = diffStreamForm(initialValue, value);
+        if (Object.keys(patch).length > 0) {
+          await updateStream(initialData.stream_id, patch as Partial<StreamRequestData>);
+        }
       }
       return true;
     } catch (error_) {
@@ -195,7 +218,7 @@ export function useStreamForm(initialData?: StreamData): UseStreamFormResult {
     } finally {
       setSaving(false);
     }
-  }, [isValid, mode, value, initialData, createStream, updateStream]);
+  }, [isValid, mode, value, initialValue, initialData, createStream, updateStream]);
 
   return {
     mode,
