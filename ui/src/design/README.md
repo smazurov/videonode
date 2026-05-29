@@ -91,11 +91,14 @@ Prefer extending a primitive (new variant, new size) over duplicating JSX.
 
 ## Enforcement
 
-ESLint rules in `eslint.config.js`:
-- `no-restricted-syntax` — fails on raw Tailwind palette classes (`bg-slate-800`, `text-red-500`) in `src/components/**`.
-- Same rule bans arbitrary hex colors (`bg-[#abcdef]`).
-- `no-restricted-imports` — feature components cannot import heroicons directly; pass the icon via `icon`/`LeadingIcon` props.
+ESLint rules in `eslint.config.js`, scoped to `src/components/**`:
+- `no-restricted-syntax` — fails on raw Tailwind palette classes (`bg-slate-800`, `text-red-500`) and arbitrary hex colors in class strings (`bg-[#abcdef]`).
+- `no-restricted-syntax` (color literals) — also fails on bare color *value* literals: hex (`fill="#ef4444"`) and functional (`stroke="rgba(0,0,0,0.5)"`, `hsl(...)`) — the kind passed to Konva/canvas props or inline styles. Fix them with a token:
+  - **DOM**: use a semantic Tailwind class (`bg-surface`, `text-fg`), or a CSS custom property in inline styles / SVG attributes (`fill="var(--color-accent)"`, `color-mix(in srgb, var(--color-accent) 15%, transparent)` for translucent fills).
+  - **Canvas/Konva** (needs a concrete color string, not `var()`): resolve at runtime via `getComputedStyle(document.documentElement).getPropertyValue('--color-…')` with a `semanticTokens` fallback — see `src/components/composers/KonvaCanvasEditor.tsx`.
 
-Primitives (`Button`, `IconButton`, `Badge`) and the `design/` module are exempt — that's where tokens and icons live.
+Primitives (`Button`, `IconButton`, `Badge`) and the `design/` module are exempt — that's where tokens live.
 
-An explicit **debt allowlist** at the bottom of `eslint.config.js` (`DESIGN_SYSTEM_DEBT`) exempts files not yet migrated. **Shrink** this list as files are converted; do not add to it.
+**Icons are not lint-restricted.** Components may import heroicons directly: icons here are intrinsic component vocabulary (action glyphs, chrome, status/empty states), there is no central icon barrel, and `routes/**` import them freely. Passing an icon via a primitive's `icon`/`LeadingIcon` prop is still the encouraged pattern for primitives, but it is not enforced.
+
+An explicit **debt allowlist** at the bottom of `eslint.config.js` (`DESIGN_SYSTEM_DEBT`) can pin files not yet migrated. **Shrink** this list as files are converted; do not add to it.

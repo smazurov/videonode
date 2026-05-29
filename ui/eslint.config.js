@@ -68,6 +68,15 @@ const commonRules = {
 const TAILWIND_PALETTE_PATTERN = String.raw`\b(bg|text|border|ring|from|to|via|divide|placeholder|fill|stroke|outline|decoration|accent|caret|shadow)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b`;
 const HEX_COLOR_ARBITRARY_PATTERN = String.raw`\[#[0-9a-fA-F]{3,8}\]`;
 
+// Bare color *value* literals (not class strings) — e.g. fill="#ef4444",
+// stroke: "rgba(0,0,0,0.5)" passed to Konva/canvas props or inline styles.
+// Anchored hex avoids matching DOM ids / arbitrary-value class strings (those
+// are caught by HEX_COLOR_ARBITRARY_PATTERN).
+const RAW_HEX_COLOR_PATTERN = String.raw`^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$`;
+const FUNCTIONAL_COLOR_PATTERN = String.raw`(?:rgba?|hsla?)\(`;
+const RAW_COLOR_MESSAGE =
+  "Use a design-system token instead of a hardcoded color. For DOM, use a semantic Tailwind class (bg-surface, text-fg). For canvas/Konva, resolve the token at runtime via getComputedStyle(document.documentElement).getPropertyValue('--color-…') with a semanticTokens fallback — see src/components/composers/KonvaCanvasEditor.tsx (readPalette).";
+
 const designSystemRules = {
   "no-restricted-syntax": [
     "error",
@@ -91,28 +100,35 @@ const designSystemRules = {
       message:
         "Do not use arbitrary hex colors in class strings; add the value to tokens.dtcg.json and reference it as a semantic token.",
     },
-  ],
-  // Feature components must not import heroicons directly; pass the icon via a
-  // primitive's `icon`/`LeadingIcon` prop. Primitives (Button/IconButton/Badge)
-  // and the design/ module are exempt via the block's `ignores`. See README.md.
-  "no-restricted-imports": [
-    "error",
     {
-      patterns: [
-        {
-          group: ["@heroicons/react", "@heroicons/react/**"],
-          message:
-            "Do not import heroicons directly in feature components; pass the icon via a primitive's `icon`/`LeadingIcon` prop. See ui/src/design/README.md.",
-        },
-      ],
+      selector: `Literal[value=/${RAW_HEX_COLOR_PATTERN}/]`,
+      message: RAW_COLOR_MESSAGE,
+    },
+    {
+      selector: `TemplateElement[value.raw=/${RAW_HEX_COLOR_PATTERN}/]`,
+      message: RAW_COLOR_MESSAGE,
+    },
+    {
+      selector: `Literal[value=/${FUNCTIONAL_COLOR_PATTERN}/]`,
+      message: RAW_COLOR_MESSAGE,
+    },
+    {
+      selector: `TemplateElement[value.raw=/${FUNCTIONAL_COLOR_PATTERN}/]`,
+      message: RAW_COLOR_MESSAGE,
     },
   ],
+  // heroicons import restriction intentionally lifted: icons here are intrinsic
+  // component vocabulary (action glyphs, chrome, status/empty states), there is
+  // no central icon barrel, and routes/** import heroicons freely. Routing all
+  // call sites through caller props would be awkward prop-drilling. The
+  // icon-via-prop pattern stays available/encouraged for primitives but is no
+  // longer lint-enforced. See ui/src/design/README.md.
+  "no-restricted-imports": "off",
 };
 
-// Files that still contain raw palette classes and are tracked as migration debt.
-// Remove entries here as they are migrated. Do not grow this list.
-// Empty — all component files have been migrated to semantic tokens.
-// Keep this constant so future regressions can be pinned explicitly rather than re-growing allowlists.
+// Files that still contain raw palette/color literals and are tracked as
+// migration debt. Remove entries here as they are migrated. Do not grow this list.
+// Keep this constant so regressions can be pinned explicitly rather than re-growing allowlists.
 const DESIGN_SYSTEM_DEBT = [];
 
 export default defineConfig([
