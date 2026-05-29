@@ -3,6 +3,7 @@ import { PlayIcon, SignalSlashIcon } from '@heroicons/react/24/outline';
 import { webrtcSignaling } from '../../lib/api';
 import { StatsOverlay } from './StatsOverlay';
 import { useStreamStore } from '../../hooks/useStreamStore';
+import { cn } from '../../utils';
 
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 30_000;
@@ -210,7 +211,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
 
   if (error) {
     return (
-      <div className={`relative flex items-center justify-center ${className}`} style={{ background: '#000' }}>
+      <div className={cn('relative flex items-center justify-center bg-black', className)}>
         <span className="text-danger text-sm">{error}</span>
       </div>
     );
@@ -220,7 +221,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
   const isConnecting = connectionState === 'connecting';
 
   return (
-    <div className={`relative ${className}`} style={{ background: '#000' }}>
+    <div className={cn('relative bg-black', className)}>
       <video
         ref={videoRef}
         autoPlay
