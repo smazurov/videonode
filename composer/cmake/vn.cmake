@@ -1,28 +1,13 @@
-# vn.cmake — helpers for declaring libraries / binaries / probes / tests
-# inside videonode-native. Goal: one-line target declarations so adding a
-# new file is cheap and visually consistent.
+# vn.cmake — one-line target helpers for videonode-native. Assumes
+# CMAKE_SOURCE_DIR/src is on the include path (set in the top-level CMakeLists).
 #
-# Helpers (all expect the convention CMAKE_SOURCE_DIR/src is on the include
-# path; that's set once in the top-level CMakeLists.txt):
-#
-#   vn_add_library(<name>
-#       [SOURCES <src1> <src2> ...]      # defaults to src/${name}.cpp
-#       [PRIVATE_DEPS <t> ...]
-#       [PUBLIC_DEPS  <t> ...])
-#
-#   vn_add_executable(<name>
-#       SOURCES <main.cpp> ...
-#       [DEPS <t> ...]
-#       [NO_INSTALL])                    # default: installed to bin/
-#
-#   vn_add_probe(<name>
-#       [SOURCES <src.cpp>]              # defaults to tools/<name>.cpp
-#       [DEPS <t> ...])                  # never installed
-#
-#   vn_add_test(<short_name>
-#       [SOURCES <src.cpp>]              # defaults to tests/test_<short>.cpp
-#       [DEPS <t> ...]                   # extra libs to link
-#       [LABELS <l> ...])                # ctest LABELS forwarded to discovered cases
+#   vn_add_library(<name>    [SOURCES ...] [PRIVATE_DEPS ...] [PUBLIC_DEPS ...])
+#       SOURCES defaults to src/<name>.cpp
+#   vn_add_executable(<name> SOURCES <main.cpp> ... [DEPS ...] [NO_INSTALL])
+#       installed to bin/ unless NO_INSTALL
+#   vn_add_probe(<name>      [SOURCES ...] [DEPS ...])    never installed
+#   vn_add_test(<short_name> [SOURCES ...] [DEPS ...] [LABELS ...])
+#       SOURCES defaults to tests/test_<short>.cpp; LABELS forwarded to ctest
 
 include(GNUInstallDirs)
 

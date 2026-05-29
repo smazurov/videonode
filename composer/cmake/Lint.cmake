@@ -1,11 +1,6 @@
-# Lint.cmake — `make lint` / `make format` targets driven by clang-format.
-# `lint` runs in dry-run mode and fails the build if any file would be
-# rewritten; `format` rewrites in place. Both targets are no-ops when
-# clang-format isn't installed.
-
+# clang-format-driven lint/format targets; no-ops when clang-format is absent.
 find_program(CLANG_FORMAT clang-format)
 
-# Discover sources to lint: every .cpp/.hpp/.h under src/, tools/, tests/.
 # CONFIGURE_DEPENDS so cmake re-globs when files appear/disappear.
 file(GLOB_RECURSE _vn_lint_sources CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/src/*.cpp"
@@ -51,15 +46,8 @@ if(ENABLE_CLANG_TIDY)
     endif()
 endif()
 
-# clang-tidy targets. `tidy-diff` is the diff-aware default used during
-# refactoring — only lints lines changed vs ${TIDY_DIFF_BASE}, so existing
-# legacy violations don't block. `tidy-all` runs over the whole tree (slow).
-#
-# Default base is `origin/native` because the composer/ directory does not
-# exist on `origin/main`; diffing against main would surface the entire
-# composer tree as "new" and defeat the diff-aware target. Override with
-# -DTIDY_DIFF_BASE=origin/some-feature-branch when diffing against a
-# different base is desired.
+# tidy-diff lints only lines changed vs TIDY_DIFF_BASE; tidy-all runs the whole
+# tree. Base is origin/native since composer/ doesn't exist on origin/main.
 set(TIDY_DIFF_BASE "origin/native" CACHE STRING
     "Git ref to diff against for tidy-diff (clang-tidy on changed lines).")
 
