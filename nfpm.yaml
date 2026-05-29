@@ -17,7 +17,8 @@ license: AGPL-3.0-or-later
 # (videonode-source/-sink/-composer) links gRPC, protobuf, abseil, libplacebo
 # and turbojpeg in addition to the EGL/GLES/GBM/DRM stack — without these the
 # binaries fail at startup with "cannot open shared object file". Package names
-# and soname suffixes are bookworm-specific; bump them if the build base moves.
+# and soname suffixes are trixie-specific (note the t64 64-bit-time_t suffixes);
+# bump them if the build base moves.
 # librga / librockchip_mpp are board-specific (not in Debian) and provided by
 # install-rockchip-libs.sh / the Armbian image, so they are not declared here.
 depends:
@@ -27,10 +28,10 @@ depends:
   - libgles2
   - libgbm1
   - libdrm2
-  - libgrpc++1.51
-  - libprotobuf32
-  - libabsl20220623
-  - libplacebo208
+  - libgrpc++1.51t64
+  - libprotobuf32t64
+  - libabsl20240722
+  - libplacebo349
   - libturbojpeg0
 
 contents:

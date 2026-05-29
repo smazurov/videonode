@@ -28,13 +28,13 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    # Build on bookworm, not trixie: the .deb targets Armbian/Debian bookworm
-    # SBCs (glibc 2.36, GCC 12, abseil 20220623). Building on the newer trixie
-    # produced binaries that demanded GLIBC_2.38 / GLIBCXX_3.4.31 /
-    # libabsl…so.20240722, none of which exist on bookworm. bookworm already
-    # ships gRPC 1.51.1 + protobuf 3.21.12 (what Dependencies.cmake expects),
-    # so this matches the runtime target with no backports.
-    container: arm64v8/debian:bookworm
+    # Build on trixie to match the SBC runtime target (Armbian/Debian trixie).
+    # bookworm was tried first to dodge glibc/abseil soname drift, but its
+    # libplacebo 4.208 is far too old for the composer's csc_placebo backend
+    # (it uses pl_opengl_params.get_proc_addr / pl_voidfunc_t, added long after
+    # 4.208), so the SBCs are upgraded to trixie instead of pinning the build
+    # back. The nfpm `depends` sonames below track trixie accordingly.
+    container: arm64v8/debian:trixie
     timeout-minutes: 25
     permissions:
       contents: read

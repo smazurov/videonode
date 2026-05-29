@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-deb-arm64.sh — runs inside an arm64 Debian bookworm environment
+# build-deb-arm64.sh — runs inside an arm64 Debian trixie environment
 # (either spawned locally via build-deb-arm64-docker.sh, or supplied by
 # GH Actions via the `container:` directive). Installs deps and drives
 # cmake for the requested MODE.
