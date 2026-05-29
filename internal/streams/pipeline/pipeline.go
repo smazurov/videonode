@@ -274,6 +274,20 @@ func (p *Pipeline) SourceLiveness(id string) string {
 	return "unknown"
 }
 
+// SourceConsumerCount reports the live SCM_RIGHTS consumer count for a source,
+// read from the sidecar's last status frame. Returns 0 when the source isn't
+// running or no status has arrived yet. Lets REST reads seed the count, since
+// the source.consumers SSE event only fires on membership change.
+func (p *Pipeline) SourceConsumerCount(id string) int {
+	if p.cfg.ControlServer == nil {
+		return 0
+	}
+	if n, ok := p.cfg.ControlServer.SourceConsumerCount(id); ok {
+		return n
+	}
+	return 0
+}
+
 // RegisterSource validates and populates the in-memory source registry
 // without spawning a process. Used when the pipeline master switch is
 // off so the registry stays current for upstream-ref resolution while

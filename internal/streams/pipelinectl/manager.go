@@ -94,6 +94,11 @@ type nativeConn struct {
 	// source's StreamStatus stream (sources only). Guarded by Manager.mu.
 	// Empty until the first status frame arrives.
 	lastHealth string
+
+	// lastConsumerCount is the SCM_RIGHTS consumer count from the most
+	// recent status frame, cached so REST reads can seed the count
+	// synchronously (consumers ride a change-driven SSE event otherwise).
+	lastConsumerCount int
 }
 
 // New constructs an unstarted Manager.
@@ -175,6 +180,19 @@ func (m *Manager) SourceHealth(id string) (string, bool) {
 		return "", false
 	}
 	return c.lastHealth, true
+}
+
+// SourceConsumerCount returns the SCM_RIGHTS consumer count from the source's
+// most recent status frame, and ok=false when the source is unknown. A
+// running source with no consumers reports (0, true). Pure cache read.
+func (m *Manager) SourceConsumerCount(id string) (int, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, exists := m.sources[id]
+	if !exists {
+		return 0, false
+	}
+	return c.lastConsumerCount, true
 }
 
 // ConnectedComposers returns a snapshot of registered composer IDs.
@@ -426,6 +444,7 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 			// is set under m.mu in Stop.
 			m.mu.Lock()
 			c.lastHealth = params.Health
+			c.lastConsumerCount = params.Consumers.Count
 			closed := m.statusClosed
 			m.mu.Unlock()
 			if closed {

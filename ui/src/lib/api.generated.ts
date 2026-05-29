@@ -1548,6 +1548,12 @@ export interface components {
              * @example https://example.com/schemas/SourceData.json
              */
             readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Live SCM_RIGHTS consumer count (processes attached to this source's dma-buf socket). Seeded on GET; updated live via the source.consumers SSE event.
+             * @example 2
+             */
+            consumer_count?: number;
             /** @description Composers and streams currently referencing this source. Server-denormalized; auto-republished when references change. */
             consumers?: components["schemas"]["SourceReference"][] | null;
             /**
