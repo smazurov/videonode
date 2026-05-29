@@ -3,7 +3,7 @@ import { Badge } from '../Badge';
 import { DataTable, type DataTableColumn } from '../primitives/DataTable';
 import { EmptyState } from '../primitives/EmptyState';
 import { StatusPill } from '../primitives/StatusPill';
-import { poolStateToPill } from '../../lib/pool-status';
+import { poolStateToPill, livenessToPill } from '../../lib/pool-status';
 import type { SourceEntry } from '../../hooks/useSourceStore';
 import { formatUptime } from '../../lib/formatUptime';
 
@@ -41,6 +41,15 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
       header: 'Status',
       cell: (row) => <StatusPill status={poolStateToPill(row.status)} />,
       sortValue: (row) => row.status ?? '',
+    },
+    {
+      id: 'liveness',
+      header: 'Liveness',
+      cell: (row) => {
+        const pill = livenessToPill(row.liveness);
+        return <StatusPill status={pill.status} label={pill.label} />;
+      },
+      sortValue: (row) => row.liveness ?? '',
     },
     {
       id: 'consumers',

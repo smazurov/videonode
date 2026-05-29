@@ -52,7 +52,7 @@ void build_status_proto(::videonode::control::Status& out, const StatusContext& 
     out.Clear();
     out.set_device_id(ctx.device_id);
     out.set_ts_ms(static_cast<int64_t>(now_ms()));
-    out.set_health(source_probe::status_text(ctx.health));
+    out.set_health(source_probe::health_token(ctx.health));
 
     auto* dev = out.mutable_device();
     dev->set_path(ctx.args.device);

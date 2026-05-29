@@ -24,6 +24,7 @@ type SourceData struct {
 	Format    *SourceFormatBody `json:"format,omitempty" doc:"Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate."`
 	Consumers []SourceReference `json:"consumers,omitempty" republish:"stream,composer" doc:"Composers and streams currently referencing this source. Server-denormalized; auto-republished when references change."`
 	Status    ProcessStatus     `json:"status,omitempty" example:"running" enum:"idle,starting,running,stopping,error" doc:"Process pool state"`
+	Liveness  SourceLiveness    `json:"liveness,omitempty" example:"live" enum:"live,transitioning,no_cable,no_signal,initializing,offline,unknown" doc:"Source-reported health, independent of the process pool state. offline when the process isn't running."`
 	CreatedAt time.Time         `json:"created_at,omitzero" doc:"When the source record was created"`
 	UpdatedAt time.Time         `json:"updated_at,omitzero" doc:"When the source record was last updated"`
 }

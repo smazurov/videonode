@@ -70,7 +70,8 @@ message ConsumersInfo {
 message Status {
   string device_id = 1;
   int64 ts_ms = 2;
-  // "live" | "transitioning" | "noCable" | "noLock" | "gone" | "probing"
+  // Source liveness token (videonode-source/source_probe::health_token):
+  // "live" | "transitioning" | "no_cable" | "no_signal" | "initializing" | "offline"
   string health = 3;
   DeviceInfo device = 4;
   SignalInfo signal = 5;

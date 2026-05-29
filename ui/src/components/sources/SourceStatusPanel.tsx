@@ -2,7 +2,7 @@ import { Card } from '../Card';
 import { SectionHeader } from '../primitives/SectionHeader';
 import { KVInspector, type KVEntry } from '../primitives/KVInspector';
 import { StatusPill } from '../primitives/StatusPill';
-import { poolStateToPill } from '../../lib/pool-status';
+import { poolStateToPill, livenessToPill } from '../../lib/pool-status';
 import type { SourceEntry } from '../../hooks/useSourceStore';
 import { formatUptime } from '../../lib/formatUptime';
 
@@ -41,13 +41,19 @@ export function SourceStatusPanel({ source }: Readonly<SourceStatusPanelProps>) 
   }
 
   const uptimeLabel = formatUptime(source.started_at_us);
+  const liveness = livenessToPill(source.liveness ?? source.latest_status?.health);
 
   return (
     <Card padding="lg">
       <SectionHeader
         title="Status"
         description="Live status snapshot from the source sidecar."
-        actions={<StatusPill status={poolStateToPill(source.status)} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <StatusPill status={poolStateToPill(source.status)} />
+            <StatusPill status={liveness.status} label={liveness.label} />
+          </div>
+        }
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
