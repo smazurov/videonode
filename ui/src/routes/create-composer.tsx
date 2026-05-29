@@ -27,8 +27,8 @@ async function fetchJSON<T>(path: string): Promise<T> {
 
 // Stub bridge to U2's useSourceStore. Until that store lands, fetch
 // /api/sources lazily here. When the store arrives, replace this hook
-// with `useSourceStore((s) => ({ sources: s.sourcesList, loading: s.loading }))`.
-function useSourceStoreStub(): {
+// with `useSourceStore((s) => s.sourcesList)` etc.
+function useSourcesData(): {
   sources: ComposerWizardSource[];
   loading: boolean;
 } {
@@ -77,8 +77,8 @@ function useExistingComposerIds(): string[] {
 
 export default function CreateComposer() {
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
-  const { sources, loading } = useSourceStoreStub();
+  const logout = useAuthStore((s) => s.logout);
+  const { sources, loading } = useSourcesData();
   const existingIds = useExistingComposerIds();
 
   const sortedSources = useMemo(

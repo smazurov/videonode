@@ -9,7 +9,9 @@ import { useAuthStore } from "../hooks/useAuthStore";
 export default function LoginRoute() {
   const [sq] = useSearchParams();
   const navigate = useNavigate();
-  const { user, isLoading, login } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const login = useAuthStore((s) => s.login);
   
   const [formData, setFormData] = useState({
     username: "",
@@ -23,7 +25,7 @@ export default function LoginRoute() {
     return <Navigate to={returnTo} replace />;
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     
     // Basic validation
@@ -32,7 +34,7 @@ export default function LoginRoute() {
       newErrors.username = "Username is required";
     }
     if (!formData.password.trim()) {
-      newErrors.password = "Password is required"; // eslint-disable-line sonarjs/no-hardcoded-passwords
+      newErrors.password = "Password is required";
     }
     
     if (Object.keys(newErrors).length > 0) {

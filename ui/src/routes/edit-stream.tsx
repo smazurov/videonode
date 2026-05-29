@@ -10,7 +10,7 @@ import { useStreamStore } from '../hooks/useStreamStore';
 export default function EditStream() {
   const navigate = useNavigate();
   const { streamId } = useParams<{ streamId: string }>();
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
 
   const streamData = useStreamStore((state) =>
     streamId ? state.streamsById[streamId] : undefined,
