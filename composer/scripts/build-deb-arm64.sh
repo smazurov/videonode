@@ -42,6 +42,7 @@ DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y --no-install-recommends 
     libplacebo-dev libvulkan-dev \
     libabsl-dev \
     libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc \
+    libgtest-dev libgmock-dev \
     "${extra_pkgs[@]}"
 
 # Locate composer/ from this script's location so callers don't need to cwd.

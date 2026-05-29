@@ -130,17 +130,14 @@ if(NOT HAVE_RGA AND NOT HAVE_PLACEBO)
         "(generic Linux) to enable a real backend.")
 endif()
 
-# GoogleTest — fetched + built in-tree so the dev box doesn't need a system
-# install and every CI lane sees the same version. SHA-pinned to v1.15.2
-# (release-1.15.2 commit on google/googletest). Bump deliberately, not by
-# tag-following.
+# GoogleTest — use the system install instead of fetching + building in-tree.
+# It rides in transitively with the gRPC dev package the build already
+# requires: Fedora's grpc-devel pulls gmock (-> gtest-devel); Debian's
+# libgrpc++-dev does not, so build-deb-arm64.sh installs libgtest-dev +
+# libgmock-dev explicitly. Provides the same GTest::gtest_main / GTest::gmock
+# imported targets the tests link against. Version now tracks the distro
+# rather than a pinned SHA.
 if(BUILD_TESTS)
-    include(FetchContent)
-    FetchContent_Declare(googletest
-        GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG b514bdc898e2951020cbdca1304b75f5950d1f59) # v1.15.2
-    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googletest)
+    find_package(GTest REQUIRED)
     include(GoogleTest)
 endif()
