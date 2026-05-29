@@ -81,18 +81,18 @@ export function useSourceForm(initialData?: SourceData) {
   const mode = initialData ? ('edit' as const) : ('create' as const);
 
   const [id, setId] = useState(initialData?.id ?? '');
-  const [device, setDeviceState] = useState(initialData?.device ?? '');
+  const [device, setDevice] = useState(initialData?.device ?? '');
   const [testMode, setTestMode] = useState<boolean>(initialData?.test_mode ?? false);
   const [format, setFormat] = useState<SourceFormatBody | null>(
     initialData?.format ?? null,
   );
 
-  const setDevice = useCallback((next: string) => {
-    setDeviceState((prev) => {
+  const setDeviceWithReset = useCallback((next: string) => {
+    setDevice((prev) => {
       if (prev !== next) setFormat(null);
       return next;
     });
-  }, []);
+  }, [setDevice]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -197,7 +197,7 @@ export function useSourceForm(initialData?: SourceData) {
     id,
     setId,
     device,
-    setDevice,
+    setDevice: setDeviceWithReset,
     testMode,
     toggleTestMode,
     format,

@@ -40,18 +40,18 @@ export function useStreamPreviewMode(streamId: string): {
   setMode: (mode: StreamPreviewMode) => void;
 } {
   const [trackedId, setTrackedId] = useState(streamId);
-  const [mode, setModeState] = useState<StreamPreviewMode>(
+  const [mode, setMode] = useState<StreamPreviewMode>(
     () => loadModeMap()[streamId] ?? DEFAULT_MODE,
   );
 
   if (trackedId !== streamId) {
     setTrackedId(streamId);
-    setModeState(loadModeMap()[streamId] ?? DEFAULT_MODE);
+    setMode(loadModeMap()[streamId] ?? DEFAULT_MODE);
   }
 
-  const setMode = useCallback(
+  const setModePersisted = useCallback(
     (next: StreamPreviewMode) => {
-      setModeState(next);
+      setMode(next);
       const map = loadModeMap();
       if (next === DEFAULT_MODE) delete map[streamId];
       else map[streamId] = next;
@@ -60,5 +60,5 @@ export function useStreamPreviewMode(streamId: string): {
     [streamId],
   );
 
-  return { mode, setMode };
+  return { mode, setMode: setModePersisted };
 }
