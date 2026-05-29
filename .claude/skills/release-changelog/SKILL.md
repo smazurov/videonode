@@ -49,6 +49,7 @@ Two UI commits both about the composer canvas → one composer-UI bullet. A CI c
 - Bullets that only restate the conventional-commit prefix (`ci: foo`, `fix: bar`).
 - Inventing dates — always use today's UTC date for new entries.
 - Editing or renumbering prior entries unless the user explicitly asks.
+- Logging internal hygiene work. Lint/format fixes, build-break fixes, test de-flaking, CI/tooling chores, and dependency bumps with no behavior change do **not** belong in the changelog — it is user-facing. Drop these commits from the grouping even when they fall inside the commit range; they are not a theme a reader cares about.
 
 ## Example
 
