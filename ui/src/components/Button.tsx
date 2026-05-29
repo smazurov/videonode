@@ -129,36 +129,40 @@ type ButtonPropsType = Pick<
 > &
   React.ComponentProps<typeof ButtonContent>;
 
-export const Button = React.forwardRef<HTMLButtonElement, ButtonPropsType>(
-  ({ type, disabled, onClick, formNoValidate, loading, ...props }, ref) => {
-    const classes = cn(
-      "group outline-none",
-      props.fullWidth ? "w-full" : "",
-      loading ? "pointer-events-none" : "",
-    );
+export function Button({
+  ref,
+  type,
+  disabled,
+  onClick,
+  formNoValidate,
+  loading,
+  ...props
+}: ButtonPropsType & { ref?: React.Ref<HTMLButtonElement> }) {
+  const classes = cn(
+    "group outline-none",
+    props.fullWidth ? "w-full" : "",
+    loading ? "pointer-events-none" : "",
+  );
 
-    return (
-      <button
-        ref={ref}
-        formNoValidate={formNoValidate}
-        className={classes}
-        type={type}
-        disabled={disabled}
-        onClick={onClick}
-        onMouseLeave={props?.onMouseLeave}
-        onMouseDown={props?.onMouseDown}
-        onMouseUp={props?.onMouseUp}
-        name={props.name}
-        value={props.value}
-        title={props.title}
-      >
-        <ButtonContent {...props} loading={loading ?? false} />
-      </button>
-    );
-  },
-);
-
-Button.displayName = "Button";
+  return (
+    <button
+      ref={ref}
+      formNoValidate={formNoValidate}
+      className={classes}
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      onMouseLeave={props?.onMouseLeave}
+      onMouseDown={props?.onMouseDown}
+      onMouseUp={props?.onMouseUp}
+      name={props.name}
+      value={props.value}
+      title={props.title}
+    >
+      <ButtonContent {...props} loading={loading ?? false} />
+    </button>
+  );
+}
 
 type LinkPropsType = Pick<LinkProps, "to"> &
   React.ComponentProps<typeof ButtonContent> & { disabled?: boolean };
