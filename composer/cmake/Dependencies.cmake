@@ -29,12 +29,10 @@ pkg_check_modules(DRM    REQUIRED IMPORTED_TARGET libdrm)
 # TurboJPEG — software MJPEG decode fallback when Rockchip MPP is absent (host builds).
 pkg_check_modules(TURBOJPEG REQUIRED IMPORTED_TARGET libturbojpeg)
 
-# Without GBM the videonode-composer binary + GLES probes are skipped.
-pkg_check_modules(GBM IMPORTED_TARGET gbm)
-set(HAVE_GBM FALSE)
-if(TARGET PkgConfig::GBM)
-    set(HAVE_GBM TRUE)
-endif()
+# GBM is mandatory: videonode-composer (and the GLES pipeline) always builds, so a
+# missing libgbm-dev fails configure here rather than silently dropping the binary.
+pkg_check_modules(GBM REQUIRED IMPORTED_TARGET gbm)
+set(HAVE_GBM TRUE)
 
 # librga — Rockchip-only CSC backend.
 find_library(LIBRGA_LIB rga)
@@ -55,21 +53,17 @@ if(LIBMPP_LIB)
     target_link_libraries(mpp_iface INTERFACE ${LIBMPP_LIB})
 endif()
 
-# Shared EGL/GLES/GBM/DRM bundle; only created when HAVE_GBM.
-if(HAVE_GBM)
-    add_library(gles_bundle INTERFACE)
-    target_link_libraries(gles_bundle INTERFACE
-        PkgConfig::EGL PkgConfig::GLESV2 PkgConfig::GBM PkgConfig::DRM)
-endif()
+# Shared EGL/GLES/GBM/DRM bundle.
+add_library(gles_bundle INTERFACE)
+target_link_libraries(gles_bundle INTERFACE
+    PkgConfig::EGL PkgConfig::GLESV2 PkgConfig::GBM PkgConfig::DRM)
 
-# libplacebo — optional; enables the placebo CSC backend + evaluation probes (#9).
-pkg_check_modules(PLACEBO IMPORTED_TARGET libplacebo)
-set(HAVE_PLACEBO FALSE)
-if(TARGET PkgConfig::PLACEBO)
-    set(HAVE_PLACEBO TRUE)
-    add_library(placebo_bundle INTERFACE)
-    target_link_libraries(placebo_bundle INTERFACE PkgConfig::PLACEBO)
-endif()
+# libplacebo is mandatory: it's the composer's GPU compose + (non-RGA) CSC backend.
+# Required so a missing/too-old libplacebo fails configure instead of dropping composer.
+pkg_check_modules(PLACEBO REQUIRED IMPORTED_TARGET libplacebo)
+set(HAVE_PLACEBO TRUE)
+add_library(placebo_bundle INTERFACE)
+target_link_libraries(placebo_bundle INTERFACE PkgConfig::PLACEBO)
 
 # Vulkan loader — optional, needed by the placebo vk/host-copy probes.
 pkg_check_modules(VULKAN IMPORTED_TARGET vulkan)
@@ -79,29 +73,15 @@ if(TARGET PkgConfig::VULKAN)
 endif()
 
 message(STATUS "videonode-native deps:")
-message(STATUS "  GBM (libgbm-dev):             ${HAVE_GBM}")
+message(STATUS "  GBM (libgbm-dev):             ${GBM_VERSION}")
 message(STATUS "  libturbojpeg (libjpeg-turbo): ${TURBOJPEG_VERSION}")
 message(STATUS "  librga (Rockchip):            ${HAVE_RGA}")
 message(STATUS "  librockchip_mpp (Rockchip):   ${HAVE_MPP}")
-if(HAVE_PLACEBO)
-    message(STATUS "  libplacebo:                   ${PLACEBO_VERSION}")
-else()
-    message(STATUS "  libplacebo:                   not found")
-endif()
+message(STATUS "  libplacebo:                   ${PLACEBO_VERSION}")
 if(HAVE_VULKAN)
     message(STATUS "  Vulkan:                       ${VULKAN_VERSION}")
 else()
     message(STATUS "  Vulkan:                       not found")
-endif()
-if(NOT HAVE_GBM)
-    message(STATUS "  -> GLES probes + videonode-composer binary will be SKIPPED")
-endif()
-if(NOT HAVE_RGA AND NOT HAVE_PLACEBO)
-    message(WARNING
-        "  No CSC backend available (HAVE_RGA=off, HAVE_PLACEBO=off). "
-        "videonode-source will still build, but non-NV12 V4L2 sources will "
-        "be dropped at runtime. Install librga (RK3588) or libplacebo-devel "
-        "(generic Linux) to enable a real backend.")
 endif()
 
 # GoogleTest — test-only, reached only when BUILD_TESTS=ON (OFF by default),
