@@ -1,18 +1,18 @@
 Package: videonode
-Version: 4.0.0~rc4
+Version: 4.0.0~rc5
 Architecture: arm64
 Maintainer: Stepan Mazurov <smazurov@gmail.com>
-Installed-Size: 29328
+Installed-Size: 24977
 Depends: libc6, libstdc++6, libegl1, libgles2, libgbm1, libdrm2
 Homepage: https://github.com/smazurov/videonode
 Priority: optional
 Section: video
-Filename: pool/main/v/videonode/videonode_4.0.0~rc4_arm64.deb
-Size: 11139260
-SHA512: 646610cb8baa09219d17355ca37b479157db8eb10122b6c2dbe20f0ea6845999f6302f4841f2bbb529f600b03f04da3ec1ef36e3766d1b7c29035e879a35b37c
-SHA256: da6606a20c2355ae01841a4ea96d53183d49d890e83d57617d42c397b2caf933
-SHA1: a373f5a9a7ed5c55f2121c04ee0c7ab831675a14
-MD5sum: c6eca777dd0ec75044e5f089e53467c4
+Filename: pool/main/v/videonode/videonode_4.0.0~rc5_arm64.deb
+Size: 9865824
+SHA512: 71e7787935b6ffe6605551705caf61da107f760faa420f850e4e27435d379fc88d62ead802d4a1f6c58cad21f932c6d72128b4faf62542c93dabaf8723c8e8f5
+SHA256: 2593cda0a328799a6621a9bde55eb4f416dc820ae981640f28ac67bac55a1697
+SHA1: ce5fac962ae105ac0607d8eb48727f1949dd665e
+MD5sum: 2888535430a619895a56a5b3ead3b9f6
 Description: RK3588 video streaming server with native dma-buf pipeline.
  Turns V4L2 capture devices into RTSP, WebRTC, and SRT streams
  with GPU-accelerated compositing via EGL/GLES on Mali-G610.
@@ -27,9 +27,9 @@ Priority: optional
 Section: 
 Filename: pool/main/v/videonode-keyring/videonode-keyring_1779921143_all.deb
 Size: 986
-SHA512: 082e8970921bd2307874d9a695f499032db63f4b1105014637519dd12d65e477ecae31cea4c22b5b44007f823239c8764ee2f15e47120e0d6834a69e6d786f84
-SHA256: f3c6975fef2665f32831d4ad6b36009fc594c0d21574a6fafff4a4a99e18eb1f
-SHA1: 34b68bb6f9d8109138c6fabd30e1f2344dbd3c3a
-MD5sum: e43a076cbcd684e64a2cd47181c62a20
+SHA512: 0470dd141159fc186a83686382c7cbd1a38bcc399de9c4a91410fe0c94ef461f1d9d83ab48aab37bca6e3795c83dc2243e6b39ad2896e66dc262b46b4c4bc962
+SHA256: 02f68ed3ee13c77b3a7f49735c370a637080c32f325734e7448cfb0257d2b50d
+SHA1: a78262900e43d2380a915b439eb6761dc9e09455
+MD5sum: 885c0beef8364e53d240e5bc951b3e92
 Description: videonode keyring
 
