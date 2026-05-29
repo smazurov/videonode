@@ -81,7 +81,7 @@ type V2LayoutSlot struct {
 // SnapshotW/SnapshotH dims that define the coord space Corners live in.
 type V2Effect struct {
 	Type      string    `toml:"type" json:"type"`
-	Corners   [4][2]int `toml:"corners,omitempty" json:"corners,omitempty"`
+	Corners   [4][2]int `toml:"corners,omitzero" json:"corners,omitempty"`
 	SnapshotW int       `toml:"snapshot_w,omitempty" json:"snapshot_w,omitempty"`
 	SnapshotH int       `toml:"snapshot_h,omitempty" json:"snapshot_h,omitempty"`
 }
