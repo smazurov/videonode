@@ -25,14 +25,22 @@ export function SourceDeleteDialog({
   const [error, setError] = useState<string | null>(null);
   const deleteSource = useSourceStore((s) => s.deleteSource);
 
+  // Track previous open value via state so we can detect the closed→open
+  // transition during render without touching a ref during render.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (!prevOpen && open) {
+      // Dialog just opened — reset transient state without a sync-setState effect.
+      setError(null);
+      setDeleting(false);
+    }
+  }
+
   const blocked = consumers.length > 0;
 
   useEffect(() => {
-    if (!open) {
-      setError(null);
-      setDeleting(false);
-      return;
-    }
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -69,7 +77,7 @@ export function SourceDeleteDialog({
     >
       <div className="w-full max-w-md rounded-md border border-border bg-surface p-6 shadow-lg space-y-4">
         <h2 id="source-delete-title" className="text-lg font-semibold text-fg">
-          Delete source “{sourceId}”?
+          Delete source "{sourceId}"?
         </h2>
 
         {blocked ? (

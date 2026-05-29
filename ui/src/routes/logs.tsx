@@ -68,14 +68,16 @@ const moduleFilter: FilterFn<LogEntry> = (row, _columnId, filterValue: string[])
 const columnHelper = createColumnHelper<LogEntry>();
 
 export default function Logs() {
-  const { logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { logs, connectionStatus, clearLogs } = useLogStream({ enabled: true });
 
   // Filter state (initialized from localStorage)
   const [settings] = useState(loadLogSettings);
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  // Derived from selectedLevels/selectedModules — no sync effect needed.
+  // (The table never mutates column filters independently in this setup.)
+
   const [globalFilter, setGlobalFilter] = useState(settings.globalFilter);
   const [selectedLevels, setSelectedLevels] = useState<string[]>(settings.selectedLevels);
   const [selectedModules, setSelectedModules] = useState<string[]>(settings.selectedModules);
@@ -163,6 +165,11 @@ export default function Logs() {
     columnHelper.accessor('message', {}),
   ], []);
 
+  const columnFilters: ColumnFiltersState = useMemo(() => [
+    { id: 'level', value: selectedLevels },
+    { id: 'module', value: selectedModules },
+  ], [selectedLevels, selectedModules]);
+
   // Global filter that searches message, module, and attributes
   const globalFilterFn: FilterFn<LogEntry> = useCallback((row, _columnId, filterValue: string) => {
     if (!filterValue) return true;
@@ -182,7 +189,6 @@ export default function Logs() {
     data: filteredByAttributes,
     columns,
     state: { columnFilters, globalFilter },
-    onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -196,14 +202,6 @@ export default function Logs() {
     || attributeFilters.length > 0
     || inlineAttributes.length > 0
     || globalFilter !== '';
-
-  // Sync level/module filters to table
-  useEffect(() => {
-    setColumnFilters([
-      { id: 'level', value: selectedLevels },
-      { id: 'module', value: selectedModules },
-    ]);
-  }, [selectedLevels, selectedModules]);
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
