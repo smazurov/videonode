@@ -719,6 +719,43 @@ func (p *Pipeline) ApplyStream(s Stream) error {
 	return nil
 }
 
+// RebuildStreamEncoder rebuilds a stream's encoder stage from the upstream's
+// current dims and applies it WITHOUT violating the lazy-encoder lifecycle.
+//
+// The ffmpeg `-s WxH` is baked into the cached stage at build time
+// (buildEncoder -> resolveUpstream), so when an upstream changes resolution
+// (source SetFormat / composer SetCanvas) the cached stage must be rebuilt or
+// the encoder keeps the stale geometry. If the encoder is currently running
+// (a reader is attached) it is bounced so the new size takes effect now; if it
+// is idle, only the cached stage is refreshed so the next reader-connect spawn
+// (EnsureEncoder) picks up the new dims. Unlike ApplyStream, this never
+// force-starts an idle encoder.
+func (p *Pipeline) RebuildStreamEncoder(s Stream) error {
+	if s.ID == "" {
+		return errors.New("pipeline: stream.ID is required")
+	}
+	if s.Upstream == "" {
+		return fmt.Errorf("pipeline: stream %s requires Upstream", s.ID)
+	}
+
+	mu := p.entityLock("stream:" + s.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	enc, err := p.buildEncoder(s)
+	if err != nil {
+		return fmt.Errorf("pipeline: build encoder %s: %w", s.ID, err)
+	}
+	p.replaceStage(enc)
+	if !p.pool.IsRunning(EncoderIDFor(s.ID)) {
+		return nil // idle: fresh stage cached for the next lazy spawn
+	}
+	if err := p.restartStage(enc); err != nil {
+		return fmt.Errorf("pipeline: restart encoder %s: %w", enc.ID(), err)
+	}
+	return nil
+}
+
 // DeleteStream stops the encoder process and drops the registry entry.
 // No-op for unknown ids. Upstream sources/composers stay warm.
 func (p *Pipeline) DeleteStream(id string) error {

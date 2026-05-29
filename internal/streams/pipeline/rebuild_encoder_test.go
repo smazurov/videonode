@@ -1,0 +1,79 @@
+package pipeline
+
+import (
+	"testing"
+
+	"github.com/smazurov/videonode/internal/process"
+)
+
+// recordingPool is a process.Pool test double: it records Start/Stop calls and
+// reports a controllable running set, so RebuildStreamEncoder's lazy behavior
+// can be asserted without spawning real processes.
+type recordingPool struct {
+	running map[string]bool
+	starts  []string
+	stops   []string
+}
+
+func newRecordingPool() *recordingPool { return &recordingPool{running: map[string]bool{}} }
+
+func (p *recordingPool) Start(id string) error {
+	p.starts = append(p.starts, id)
+	p.running[id] = true
+	return nil
+}
+
+func (p *recordingPool) Stop(id string) error {
+	p.stops = append(p.stops, id)
+	p.running[id] = false
+	return nil
+}
+func (p *recordingPool) Restart(_ string) error           { return nil }
+func (p *recordingPool) GetStatus(_ string) *process.Info { return &process.Info{} }
+func (p *recordingPool) IsRunning(id string) bool         { return p.running[id] }
+func (p *recordingPool) SetKind(_, _ string)              {}
+func (p *recordingPool) IDs() []string                    { return nil }
+func (p *recordingPool) StopAll()                         {}
+
+func newPipelineWithPool(pool process.Pool) *Pipeline {
+	p := New(Config{RTSPPort: ":8554"}, nil)
+	p.pool = pool
+	p.sources.Put(Source{ID: "cam", Format: &SourceFormat{Width: 1920, Height: 1080, FPS: 30}})
+	return p
+}
+
+func rebuildStream() Stream {
+	return Stream{ID: "s1", Upstream: "source:cam", Encoder: EncoderConfig{Codec: "h264"}}
+}
+
+// An idle encoder (no reader attached) must NOT be force-started — only its
+// cached stage is refreshed so the next lazy spawn uses the new dims.
+func TestRebuildStreamEncoder_IdleRefreshesStageWithoutStarting(t *testing.T) {
+	pool := newRecordingPool()
+	p := newPipelineWithPool(pool)
+
+	if err := p.RebuildStreamEncoder(rebuildStream()); err != nil {
+		t.Fatalf("RebuildStreamEncoder: %v", err)
+	}
+	if len(pool.starts) != 0 {
+		t.Errorf("idle encoder must not be started; starts=%v", pool.starts)
+	}
+	if _, ok := p.stages[EncoderIDFor("s1")]; !ok {
+		t.Error("cached encoder stage was not refreshed")
+	}
+}
+
+// A running encoder (reader attached) must be bounced (stop+start) so the new
+// `-s WxH` takes effect on the live process.
+func TestRebuildStreamEncoder_RunningGetsBounced(t *testing.T) {
+	pool := newRecordingPool()
+	p := newPipelineWithPool(pool)
+	pool.running[EncoderIDFor("s1")] = true
+
+	if err := p.RebuildStreamEncoder(rebuildStream()); err != nil {
+		t.Fatalf("RebuildStreamEncoder: %v", err)
+	}
+	if len(pool.stops) != 1 || len(pool.starts) != 1 {
+		t.Errorf("running encoder must be bounced; stops=%v starts=%v", pool.stops, pool.starts)
+	}
+}

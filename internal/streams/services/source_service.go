@@ -188,8 +188,46 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 	} else if s.pipe != nil {
 		_ = s.pipe.RegisterSource(src)
 	}
+	// A resolution/framerate change is baked into each consuming stream's
+	// ffmpeg `-s`/`-framerate` at encoder-build time and the source hot-apply
+	// keeps those encoders attached, so they'd otherwise keep the stale
+	// geometry. Rebuild dependents (bounces only the running ones). Gated on an
+	// actual dims change so a no-op edit doesn't disturb connected readers.
+	if s.pipe != nil && s.pipelineSwitchEnabled() && patch.Format != nil &&
+		sourceDimsChanged(prev.Format, src.Format) {
+		s.rebuildDependentEncoders(id)
+	}
 	out := sourceToAPI(src)
 	return &out, nil
+}
+
+// sourceDimsChanged reports whether the capture geometry/rate that a
+// downstream encoder bakes into ffmpeg's `-s`/`-framerate` differs between
+// two source formats.
+func sourceDimsChanged(a, b *pipeline.SourceFormat) bool {
+	if a == nil || b == nil {
+		return a != b
+	}
+	return a.Width != b.Width || a.Height != b.Height || a.FPS != b.FPS
+}
+
+// rebuildDependentEncoders rebuilds the encoder of every stream that consumes
+// this source so a resolution change reaches their launch-time ffmpeg `-s`.
+// Best-effort: logs and continues on per-stream failure.
+func (s *sourceService) rebuildDependentEncoders(id string) {
+	if s.pipe == nil {
+		return
+	}
+	target := pipeline.SourceIDFor(id)
+	for _, st := range s.store.ListPipelineStreams() {
+		if st.Upstream != target {
+			continue
+		}
+		if err := s.pipe.RebuildStreamEncoder(st); err != nil {
+			s.logger.Warn("Update: rebuild dependent encoder failed",
+				logging.KeyStreamID, st.ID, logging.KeyError, err)
+		}
+	}
 }
 
 // apiFormatToPipeline maps the API SourceFormat (FourCC-keyed, validated

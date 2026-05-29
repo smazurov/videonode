@@ -205,11 +205,38 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 			}
 			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + applyErr.Error()}
 		}
+		// A canvas resize changes the composer's broadcast dims, which each
+		// consuming stream's ffmpeg `-s` is fixed to at encoder-build time.
+		// Rebuild dependents (bounces only the running ones) so they pick up
+		// the new size; gated on canvasChanged so layout/input-only edits leave
+		// connected readers undisturbed.
+		if canvasChanged {
+			s.rebuildDependentEncoders(id)
+		}
 	} else if s.pipe != nil {
 		_ = s.pipe.RegisterComposer(c)
 	}
 	out := composerToAPI(c)
 	return &out, nil
+}
+
+// rebuildDependentEncoders rebuilds the encoder of every stream that consumes
+// this composer so a canvas resize reaches their launch-time ffmpeg `-s`.
+// Best-effort: logs and continues on per-stream failure.
+func (s *composerService) rebuildDependentEncoders(id string) {
+	if s.pipe == nil {
+		return
+	}
+	target := "composer:" + id
+	for _, st := range s.store.ListPipelineStreams() {
+		if st.Upstream != target {
+			continue
+		}
+		if err := s.pipe.RebuildStreamEncoder(st); err != nil {
+			s.logger.Warn("UpdateComposer: rebuild dependent encoder failed",
+				logging.KeyStreamID, st.ID, logging.KeyError, err)
+		}
+	}
 }
 
 // DeleteComposer refuses when any stream still references this composer;
