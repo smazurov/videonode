@@ -34,6 +34,24 @@ const char* status_text(Health h) {
     return "UNKNOWN";
 }
 
+const char* health_token(Health h) {
+    switch (h) {
+    case Health::Probing:
+        return "initializing";
+    case Health::Live:
+        return "live";
+    case Health::Transitioning:
+        return "transitioning";
+    case Health::NoCable:
+        return "no_cable";
+    case Health::NoLock:
+        return "no_signal";
+    case Health::Gone:
+        return "offline";
+    }
+    return "unknown";
+}
+
 SourceProbe::SourceProbe(v4l2::Streamer& cap) : cap_(cap) {}
 
 bool SourceProbe::attach() {

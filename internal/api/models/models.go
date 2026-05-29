@@ -21,6 +21,24 @@ const (
 	ProcessStatusError    ProcessStatus = "error"
 )
 
+// SourceLiveness is the source's own reported health, decoupled from the
+// process pool state (ProcessStatus). While the process runs it carries
+// the token reported by videonode-source over gRPC; the daemon overrides
+// it to "offline" when the process isn't running and "unknown" when
+// running but no status frame has arrived yet.
+type SourceLiveness string
+
+// SourceLiveness values.
+const (
+	SourceLivenessLive          SourceLiveness = "live"
+	SourceLivenessTransitioning SourceLiveness = "transitioning"
+	SourceLivenessNoCable       SourceLiveness = "no_cable"
+	SourceLivenessNoSignal      SourceLiveness = "no_signal"
+	SourceLivenessInitializing  SourceLiveness = "initializing"
+	SourceLivenessOffline       SourceLiveness = "offline"
+	SourceLivenessUnknown       SourceLiveness = "unknown"
+)
+
 // HealthData contains health check response fields.
 type HealthData struct {
 	Status  string `json:"status" example:"ok" doc:"Service status"`

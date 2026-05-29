@@ -27,6 +27,11 @@ enum class Health {
 // status_text returns a short label suitable for the placeholder painter.
 const char* status_text(Health h);
 
+// health_token returns the stable machine token reported on the wire via
+// gRPC Status.health: live | transitioning | no_cable | no_signal |
+// initializing | offline. Distinct from status_text (human overlay).
+const char* health_token(Health h);
+
 class SourceProbe {
   public:
     explicit SourceProbe(v4l2::Streamer& cap);

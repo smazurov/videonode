@@ -255,6 +255,23 @@ func (p *Pipeline) UpdateSourceFormat(id string, f SourceFormat) error {
 	return nil
 }
 
+// SourceLiveness reports the source's own health for the API `liveness`
+// field, decoupled from the process `status` (pool state). Returns
+// "offline" when the source process isn't running, the source binary's
+// last-reported health token while running, or "unknown" when running
+// but no status frame has arrived yet.
+func (p *Pipeline) SourceLiveness(id string) string {
+	if p.pool.GetStatus(SourcePoolKey(id)).State != process.StateRunning {
+		return "offline"
+	}
+	if p.cfg.ControlServer != nil {
+		if token, ok := p.cfg.ControlServer.SourceHealth(id); ok {
+			return token
+		}
+	}
+	return "unknown"
+}
+
 // RegisterSource validates and populates the in-memory source registry
 // without spawning a process. Used when the pipeline master switch is
 // off so the registry stays current for upstream-ref resolution while

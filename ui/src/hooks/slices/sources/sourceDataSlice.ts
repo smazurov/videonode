@@ -108,6 +108,11 @@ export const createSourceDataSlice: StateCreator<
           const lastAt = snap.ts_ms ? new Date(snap.ts_ms).toISOString() : new Date().toISOString();
           const merged: Source = { ...src, last_status_at: lastAt };
           if (payload) merged.latest_status = payload as NonNullable<Source['latest_status']>;
+          // Lift the per-second health token onto the top-level liveness
+          // field so list rows (which never read latest_status) update live.
+          if (typeof snap.health === 'string') {
+            merged.liveness = snap.health as NonNullable<Source['liveness']>;
+          }
           if (typeof snap.started_at_us === 'number' && snap.started_at_us > 0) {
             merged.started_at_us = snap.started_at_us;
           } else {

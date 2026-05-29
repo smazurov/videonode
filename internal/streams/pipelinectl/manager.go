@@ -89,6 +89,11 @@ type nativeConn struct {
 	// Stream lifecycle (sources only).
 	statusCancel context.CancelFunc
 	streamDone   chan struct{}
+
+	// lastHealth is the most recent health token received on this
+	// source's StreamStatus stream (sources only). Guarded by Manager.mu.
+	// Empty until the first status frame arrives.
+	lastHealth string
 }
 
 // New constructs an unstarted Manager.
@@ -157,6 +162,19 @@ func (m *Manager) ConnectedDevices() []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+// SourceHealth returns the most recent health token reported by the
+// source registered under id, and ok=false when the source is unknown
+// or has not yet sent a status frame. Pure cache read.
+func (m *Manager) SourceHealth(id string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, exists := m.sources[id]
+	if !exists || c.lastHealth == "" {
+		return "", false
+	}
+	return c.lastHealth, true
 }
 
 // ConnectedComposers returns a snapshot of registered composer IDs.
@@ -401,12 +419,15 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 			if params.DeviceID == "" {
 				params.DeviceID = c.id
 			}
+			// Cache the latest health token so REST reads
+			// (SourceHealth) can report liveness synchronously.
 			// Skip if Stop closed statusCh between our last ctx check
 			// and now — sending on a closed chan would panic. The flag
 			// is set under m.mu in Stop.
-			m.mu.RLock()
+			m.mu.Lock()
+			c.lastHealth = params.Health
 			closed := m.statusClosed
-			m.mu.RUnlock()
+			m.mu.Unlock()
 			if closed {
 				return
 			}

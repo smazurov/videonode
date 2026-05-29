@@ -89,3 +89,12 @@ TEST(SourceProbe, StatusTextCoversAllStates) {
     EXPECT_TRUE(source_probe::status_text(Health::NoLock));
     EXPECT_TRUE(source_probe::status_text(Health::Gone));
 }
+
+TEST(SourceProbe, HealthTokenIsStableMachineToken) {
+    EXPECT_STREQ("initializing", source_probe::health_token(Health::Probing));
+    EXPECT_STREQ("live", source_probe::health_token(Health::Live));
+    EXPECT_STREQ("transitioning", source_probe::health_token(Health::Transitioning));
+    EXPECT_STREQ("no_cable", source_probe::health_token(Health::NoCable));
+    EXPECT_STREQ("no_signal", source_probe::health_token(Health::NoLock));
+    EXPECT_STREQ("offline", source_probe::health_token(Health::Gone));
+}

@@ -1710,6 +1710,12 @@ export interface components {
              */
             id: string;
             /**
+             * @description Source-reported health, independent of the process pool state. offline when the process isn't running.
+             * @example live
+             * @enum {string}
+             */
+            liveness?: "live" | "transitioning" | "no_cable" | "no_signal" | "initializing" | "offline" | "unknown";
+            /**
              * @description Process pool state
              * @example running
              * @enum {string}

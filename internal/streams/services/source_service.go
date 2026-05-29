@@ -262,6 +262,7 @@ func (s *sourceService) findReferences(id string) []models.SourceReference {
 func (s *sourceService) enrichStatus(out *api.Source) {
 	if s.pipe != nil {
 		out.Status = models.ProcessStatus(s.pipe.Pool().GetStatus(pipeline.SourcePoolKey(out.ID)).State)
+		out.Liveness = models.SourceLiveness(s.pipe.SourceLiveness(out.ID))
 	}
 }
 
