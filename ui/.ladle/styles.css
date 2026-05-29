@@ -1,9 +1,0 @@
-/* Ladle-specific Tailwind entrypoint.
-   `source("../src/")` tells Tailwind v4 where to scan for class names —
-   documented workaround for https://github.com/tajo/ladle/issues/603
-   since @tailwindcss/vite's auto-scan doesn't cross Ladle's iframe boundary. */
-@import "tailwindcss" source("../src/");
-
-/* Pull in generated semantic tokens + app-level @theme customizations. */
-@import "../src/design/tokens.css";
-@import "../src/index.css";

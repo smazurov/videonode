@@ -82,13 +82,11 @@ Prefer extending a primitive (new variant, new size) over duplicating JSX.
 - `focus-visible:ring-2 focus-visible:ring-focus-ring` on every interactive element.
 - Label association: `htmlFor` ↔ `id` (or `useId()`), or explicit `aria-label` for icon-only controls.
 - `aria-invalid` + `aria-describedby` for error messages.
-- Color contrast: verify via axe DevTools or the `/design` review page. Target WCAG AA minimum (4.5:1 body, 3:1 large).
+- Color contrast: verify via axe DevTools against the running app. Target WCAG AA minimum (4.5:1 body, 3:1 large).
 - Semantic tokens only — do not reach past them to raw palette values.
 
 ## Review / preview
 
-- **Ladle**: `pnpm ladle` launches the preview at http://localhost:61000. Sidebar lists every primitive (grouped by `title:` slash-hierarchy in its `*.stories.tsx`), plus MDX pages for Overview, Tokens, and Status utilities. Dark-mode toggle lives in the Ladle toolbar and flips the same `.dark` class the app uses.
-- **Static export**: `pnpm ladle:build` produces a hostable `ui/build/` directory — the portable artifact for external consumers.
 - **External tokens**: drop `dist-tokens/videonode-tokens.dtcg.json` into Penpot or Figma Tokens Studio for a designer-facing view of the same source of truth. (Penpot can't render the React primitives; it's a DTCG editor, not a code-component previewer.)
 
 ## Enforcement
