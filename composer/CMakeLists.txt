@@ -1,4 +1,7 @@
-cmake_minimum_required(VERSION 3.30)
+# 3.25 is bookworm's cmake (the .deb runtime target); the release builds with a
+# bare `cmake -B build` configure, not presets, so this floor is what gates it.
+# Dev/lint use CMakePresets.json (v9 → needs 3.30) and run on trixie instead.
+cmake_minimum_required(VERSION 3.25)
 
 project(videonode-native
     LANGUAGES CXX
