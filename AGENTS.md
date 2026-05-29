@@ -138,9 +138,9 @@ Sources, composers, and streams are three independent top-level entities. Each h
 
 - **Source** (`videonode-source`, one per source-id) — captures V4L2 frames (or runs an RPC-driven test pattern when `test_mode = true`), broadcasts NV12 dma-bufs via SCM_RIGHTS to N consumers. **Lifecycle: pipeline-gated.** Sources run when the pipeline master switch is on and stop when it's off. While on, sources stay up until deleted; composers and streams attach/detach without restarting them. CRUD persists config regardless of switch state; on start, everything rehydrates.
 - **Composer** (`videonode-composer`, one per composer-id) — reads N source SCM sockets, GLES-composites onto a BGRA canvas, broadcasts the canvas dma-buf via SCM_RIGHTS. **Lifecycle: pipeline-gated.** Layout and per-input effects are live-editable via unary RPCs without restarting the process.
-- **Stream** (encoder = `vn-sink | ffmpeg`, one per stream-id) — vn-sink dials the upstream SCM (NV12 from a source or BGRA from a composer) and pipes to ffmpeg. Stream-id is encoder identity end-to-end (RTSP/SRT path, WebRTC peer key, metrics label). **Lifecycle: pipeline-gated, lazy-encoder-on-reader.** The stream's pipeline plan is resident, but the encoder process only spawns when the pipeline switch is on AND a reader (WebRTC/SRT/RTSP) connects, and stops after the last reader disconnects (debounced).
+- **Stream** (encoder = `vn-sink | ffmpeg`, one per stream-id) — vn-sink dials the upstream SCM (NV12 from a source or BGRA from a composer) and pipes to ffmpeg. Stream-id is encoder identity end-to-end (RTSP/SRT path, WebRTC peer key, metrics label). **Lifecycle: pipeline-gated, lazy-encoder-on-reader.** The stream's pipeline plan is resident, but the encoder process only spawns when the pipeline switch is on AND a reader (WebRTC/SRT/RTSP) connects, and stops after the last reader disconnects (debounced). The encoder publishes to the daemon's local RTSP relay (`rtsp://localhost:<rtsp_port>/<stream-id>`), hardcoded at the pipeline-build boundary (`buildEncoder` in `pipeline.go`); SRT and WebRTC fan out from there. There is no user-configurable publish list.
 
-User-facing config: three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with explicit `upstream = "source:<id>"` or `upstream = "composer:<id>"` references. See `examples/sources-composers-streams.toml`.
+User-facing config: three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with explicit `upstream = "source:<id>"` or `upstream = "composer:<id>"` references. Streams carry only encoder + audio config; the publish destination is the hardcoded local RTSP relay, not a config field.
 
 ### Application Structure
 - **CLI Framework**: Uses Huma v2 with humacli for command-line interface and API server
@@ -185,7 +185,7 @@ go doc github.com/pelletier/go-toml/v2           # TOML parsing
 Service-layer split (all live under `internal/streams`):
 - `SourceService` — CRUD + lifecycle for `videonode-source` instances (pipeline-gated).
 - `ComposerService` — CRUD + live layout/effect edits for `videonode-composer` instances (pipeline-gated).
-- `StreamService` — CRUD for encoder/audio/publish config; owns the lazy-encoder-on-reader lifecycle and the pipeline master switch.
+- `StreamService` — CRUD for encoder/audio config; owns the lazy-encoder-on-reader lifecycle and the pipeline master switch. The publish destination is the hardcoded local RTSP relay, set when the encoder stage is built.
 
 The HTTP surface is implemented in `internal/api/sources.go` and `internal/api/composers.go` (new alongside `streams.go`), with their request/response models in `internal/api/models/`. TOML persistence and the v1→v2 auto-migration live in `internal/streams/store` (see `migrate.go`).
 
@@ -217,8 +217,8 @@ The legacy `/api/streams/canvas/layout` endpoint is gone; canvas layout has move
 
 ### Configuration
 - **Main Config**: `config.toml` with sections for server, obs, capture, auth, features, and logging
-- **Entity Definitions**: `streams.toml` carries the three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with `version = 2` at the top. The canonical worked example is `examples/sources-composers-streams.toml` (multiple sources, one shared composer, multi-encode of the same scene).
-- **Auto-migration**: v1-shape files (monolithic `[[streams]]` with inline `inputs`/`layout`/`effects`/`force_composer`/stream-level `test_mode`) are auto-migrated on load by `internal/streams/store/migrate.go` and rewritten in place.
+- **Entity Definitions**: `streams.toml` carries the three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with `version = 2` at the top.
+- **Auto-migration**: v1-shape files (monolithic `[[streams]]` with inline `inputs`/`layout`/`effects`/`force_composer`/stream-level `test_mode`) are auto-migrated on load by `internal/streams/store/migrate.go` and rewritten in place. Legacy `publish` target entries (from v1 or older v2 files) are silently dropped on load — the publish destination is now hardcoded.
 - **Environment Variables**: All config values can be overridden via env vars (e.g., `VIDEONODE_SERVER_PORT`)
 
 ### Debugging & Logging

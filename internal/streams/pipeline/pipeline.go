@@ -25,6 +25,12 @@ type Config struct {
 	VNSinkBin     string
 	DRMDevice     string
 
+	// RTSPPort is the daemon's RTSP listen spec (e.g. ":8554" or
+	// "10.0.0.1:8654"). buildEncoder hardcodes each encoder's single
+	// output to the matching local RTSP relay URL; SRT and WebRTC fan out
+	// from there. Empty falls back to the well-known ":8554".
+	RTSPPort string
+
 	// DeviceResolver maps an opaque device id (USB bus-port etc.) to a
 	// canonical /dev/videoN path. Returns empty string when the device
 	// can't be resolved; ApplySource surfaces that as an error. Optional
@@ -734,10 +740,24 @@ func (p *Pipeline) buildEncoder(s Stream) (*EncoderStage, error) {
 		Media:             MediaSource{Video: video, Audio: ALSADirectAudio{Config: s.Audio}},
 		Cfg:               s.Encoder,
 		Resolved:          resolved,
-		Publish:           s.Publish,
+		OutputURL:         localRTSPURL(p.cfg.RTSPPort, s.ID),
 		CustomEncoderArgs: s.CustomEncoderArgs,
 		VNSinkBin:         p.cfg.VNSinkBin,
 	}, nil
+}
+
+// localRTSPURL builds the daemon's local RTSP relay URL for a stream id.
+// The portSpec is the RTSP listen spec (":8554", "host:8554"); a bare
+// ":port" resolves to localhost. This is the single hardcoded encoder
+// output — SRT and WebRTC fan out from the in-memory stream this feeds.
+func localRTSPURL(portSpec, streamID string) string {
+	if portSpec == "" {
+		portSpec = ":8554"
+	}
+	if portSpec[0] == ':' {
+		portSpec = "localhost" + portSpec
+	}
+	return "rtsp://" + portSpec + "/" + streamID
 }
 
 // resolveEncoder calls the configured EncoderResolver or falls back to

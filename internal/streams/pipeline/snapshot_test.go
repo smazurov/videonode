@@ -23,7 +23,6 @@ func TestSnapshot_EmitsAllStagesWithKinds(t *testing.T) {
 	mustApplyStream(t, p, Stream{
 		ID:       "canvas",
 		Upstream: "composer:main",
-		Publish:  []PublishTarget{{Type: "rtsp", URL: "rtsp://x/c"}},
 	})
 	for _, want := range []string{
 		"producer:d1", "producer:d2",

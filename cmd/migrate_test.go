@@ -19,7 +19,6 @@ func TestMigrateV1ToV2_SoloSource(t *testing.T) {
 				Name:    "Front camera",
 				Inputs:  []v1InputRef{{ID: "inp1", Device: "usb-1-2"}},
 				Encoder: V2EncoderConfig{Codec: "h264", Bitrate: "4M"},
-				Publish: []V2PublishTarget{{Type: "rtsp", URL: "rtsp://localhost:8554/cam-front"}},
 			},
 		},
 	}

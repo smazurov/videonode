@@ -19,21 +19,22 @@ package pipeline
 
 import "time"
 
-// Stream is a slim encode-and-publish spec. The upstream graph
-// (sources + optional composer) lives in separate top-level entities;
-// the stream references whichever upstream it wants by id.
+// Stream is a slim encode spec. The upstream graph (sources + optional
+// composer) lives in separate top-level entities; the stream references
+// whichever upstream it wants by id. The encoder always publishes to the
+// daemon's local RTSP relay; SRT and WebRTC fan out from there. That
+// output is hardcoded at the pipeline-build boundary, not user-configurable.
 type Stream struct {
 	ID   string `toml:"id" json:"id"`
 	Name string `toml:"name" json:"name"`
 	// Upstream is `source:<id>` or `composer:<id>` — the encoder dials
 	// whichever SCM socket the referenced entity binds.
-	Upstream          string          `toml:"upstream" json:"upstream"`
-	Audio             AudioConfig     `toml:"audio,omitzero" json:"audio,omitzero"`
-	Encoder           EncoderConfig   `toml:"encoder,omitzero" json:"encoder,omitzero"`
-	Publish           []PublishTarget `toml:"publish,omitempty" json:"publish,omitempty"`
-	CustomEncoderArgs string          `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
-	CreatedAt         time.Time       `toml:"created_at" json:"created_at"`
-	UpdatedAt         time.Time       `toml:"updated_at" json:"updated_at"`
+	Upstream          string        `toml:"upstream" json:"upstream"`
+	Audio             AudioConfig   `toml:"audio,omitzero" json:"audio,omitzero"`
+	Encoder           EncoderConfig `toml:"encoder,omitzero" json:"encoder,omitzero"`
+	CustomEncoderArgs string        `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
+	CreatedAt         time.Time     `toml:"created_at" json:"created_at"`
+	UpdatedAt         time.Time     `toml:"updated_at" json:"updated_at"`
 }
 
 // AudioConfig is the per-stream audio routing. Devices are ALSA device
@@ -58,11 +59,4 @@ type EncoderConfig struct {
 	BFrames     int    `toml:"b_frames,omitempty" json:"b_frames,omitempty"`
 	RateControl string `toml:"rate_control,omitempty" json:"rate_control,omitempty"`
 	Preset      string `toml:"preset,omitempty" json:"preset,omitempty"`
-}
-
-// PublishTarget is a single output destination. Type discriminates the
-// URL scheme (rtsp/srt/hls/...); URL is what the encoder writes to.
-type PublishTarget struct {
-	Type string `toml:"type" json:"type"`
-	URL  string `toml:"url" json:"url"`
 }

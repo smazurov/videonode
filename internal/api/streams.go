@@ -59,7 +59,6 @@ func (s *Server) registerStreamRoutes() {
 		Security:    withAuth(),
 	}, func(ctx context.Context, input *models.StreamRequest) (*models.StreamResponse, error) {
 		entity := streamFromCreateRequest(input.Body)
-		s.ensureLocalPublishTargets(&entity)
 
 		created, err := s.streamService.Create(ctx, entity)
 		if err != nil {
@@ -109,7 +108,6 @@ func (s *Server) registerStreamRoutes() {
 
 		updated, err := s.streamService.Update(ctx, input.StreamID, func(st *pipeline.Stream) error {
 			applyStreamPatch(st, body)
-			s.ensureLocalPublishTargets(st)
 			return nil
 		})
 		if err != nil {
@@ -246,7 +244,6 @@ func streamFromCreateRequest(body models.StreamRequestData) pipeline.Stream {
 		Upstream:          body.Upstream,
 		Audio:             audioFromAPI(body.Audio),
 		Encoder:           encoderFromAPI(body.Encoder),
-		Publish:           publishFromAPI(body.Publish),
 		CustomEncoderArgs: body.CustomEncoderArgs,
 	}
 	return st
@@ -275,13 +272,6 @@ func applyStreamPatch(st *pipeline.Stream, body models.StreamUpdateRequestData) 
 			st.Audio = audioFromAPI(body.Audio.Value)
 		}
 	}
-	if body.Publish.Sent {
-		if body.Publish.Null {
-			st.Publish = nil
-		} else {
-			st.Publish = publishFromAPI(body.Publish.Value)
-		}
-	}
 	if body.CustomEncoderArgs != nil {
 		st.CustomEncoderArgs = *body.CustomEncoderArgs
 	}
@@ -296,7 +286,6 @@ func (s *Server) streamToAPI(st pipeline.Stream) models.StreamData {
 		Upstream:          st.Upstream,
 		Audio:             audioToAPI(st.Audio),
 		Encoder:           encoderToAPI(st.Encoder),
-		Publish:           publishToAPI(st.Publish),
 		CustomEncoderArgs: st.CustomEncoderArgs,
 		Enabled:           true,
 		Status:            s.streamService.EncoderStatus(st.ID),
@@ -345,65 +334,6 @@ func encoderToAPI(e pipeline.EncoderConfig) models.EncoderConfigData {
 		RateControl: e.RateControl,
 		Preset:      e.Preset,
 	}
-}
-
-// ensureLocalPublishTargets makes sure st.Publish contains the local
-// RTSP entry. The local SRT and WebRTC outputs fan out from the
-// in-memory Stream fed by the RTSP OnAnnounce path; the SRT server is
-// subscribe-only and would reject an ffmpeg publisher. Idempotent.
-//
-// Also strips any local-SRT publish entry an earlier version may have
-// persisted, since publishing there breaks the encoder.
-func (s *Server) ensureLocalPublishTargets(st *pipeline.Stream) {
-	if st == nil || st.ID == "" {
-		return
-	}
-	badSRT := "srt://" + localHost(s.srtPortOrDefault()) + "?streamid=" + st.ID
-	filtered := st.Publish[:0]
-	for _, p := range st.Publish {
-		if p.Type == "srt" && p.URL == badSRT {
-			continue
-		}
-		filtered = append(filtered, p)
-	}
-	st.Publish = filtered
-
-	want := pipeline.PublishTarget{Type: "rtsp", URL: "rtsp://" + localHost(s.rtspPortOrDefault()) + "/" + st.ID}
-	for _, h := range st.Publish {
-		if h.Type == want.Type && h.URL == want.URL {
-			return
-		}
-	}
-	st.Publish = append(st.Publish, want)
-}
-
-func localHost(portSpec string) string {
-	if len(portSpec) > 0 && portSpec[0] == ':' {
-		return "localhost" + portSpec
-	}
-	return portSpec
-}
-
-func publishFromAPI(targets []models.PublishTargetData) []pipeline.PublishTarget {
-	if len(targets) == 0 {
-		return nil
-	}
-	out := make([]pipeline.PublishTarget, len(targets))
-	for i, t := range targets {
-		out[i] = pipeline.PublishTarget{Type: t.Type, URL: t.URL}
-	}
-	return out
-}
-
-func publishToAPI(targets []pipeline.PublishTarget) []models.PublishTargetData {
-	if len(targets) == 0 {
-		return nil
-	}
-	out := make([]models.PublishTargetData, len(targets))
-	for i, t := range targets {
-		out[i] = models.PublishTargetData{Type: t.Type, URL: t.URL}
-	}
-	return out
 }
 
 // mapStreamError maps stream-service errors to HTTP errors.

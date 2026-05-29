@@ -29,7 +29,7 @@ import {
 import { StreamMetricsPanel } from '../components/streams/StreamMetricsPanel';
 import { StreamConsumersPanel } from '../components/streams/StreamConsumersPanel';
 import { StreamEncoderPanel } from '../components/streams/StreamEncoderPanel';
-import { StreamPublishPanel } from '../components/streams/StreamPublishPanel';
+import { StreamConsumerTargetsPanel } from '../components/streams/StreamConsumerTargetsPanel';
 import { WebRTCPlayer } from '../components/webrtc';
 import { api } from '../lib/api';
 import type { components } from '../lib/api.generated';
@@ -275,7 +275,7 @@ export default function StreamDetail() {
           ) : (
             <StreamConsumersPanel streamId={streamId} />
           )}
-          <StreamPublishPanel streamId={streamId} />
+          <StreamConsumerTargetsPanel streamId={streamId} />
         </EntityDetailLayout>
       </DashboardLayout.MainContent>
     </DashboardLayout>

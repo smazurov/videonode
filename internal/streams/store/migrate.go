@@ -86,18 +86,18 @@ type V2Effect struct {
 	SnapshotH int       `toml:"snapshot_h,omitempty" json:"snapshot_h,omitempty"`
 }
 
-// V2Stream is an encoder + audio + publish targets pointing at one
-// upstream (source or composer).
+// V2Stream is an encoder + audio config pointing at one upstream (source
+// or composer). The encoder's output is the daemon's local RTSP relay,
+// hardcoded at the pipeline-build boundary — not persisted here.
 type V2Stream struct {
-	ID                string            `toml:"id" json:"id"`
-	Name              string            `toml:"name,omitempty" json:"name,omitempty"`
-	Upstream          string            `toml:"upstream" json:"upstream"`
-	Audio             V2AudioConfig     `toml:"audio,omitzero" json:"audio,omitzero"`
-	Encoder           V2EncoderConfig   `toml:"encoder,omitzero" json:"encoder,omitzero"`
-	Publish           []V2PublishTarget `toml:"publish,omitempty" json:"publish,omitempty"`
-	CustomEncoderArgs string            `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
-	CreatedAt         time.Time         `toml:"created_at" json:"created_at"`
-	UpdatedAt         time.Time         `toml:"updated_at" json:"updated_at"`
+	ID                string          `toml:"id" json:"id"`
+	Name              string          `toml:"name,omitempty" json:"name,omitempty"`
+	Upstream          string          `toml:"upstream" json:"upstream"`
+	Audio             V2AudioConfig   `toml:"audio,omitzero" json:"audio,omitzero"`
+	Encoder           V2EncoderConfig `toml:"encoder,omitzero" json:"encoder,omitzero"`
+	CustomEncoderArgs string          `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
+	CreatedAt         time.Time       `toml:"created_at" json:"created_at"`
+	UpdatedAt         time.Time       `toml:"updated_at" json:"updated_at"`
 }
 
 // V2AudioConfig is the per-stream audio routing.
@@ -118,12 +118,6 @@ type V2EncoderConfig struct {
 	Preset      string `toml:"preset,omitempty" json:"preset,omitempty"`
 }
 
-// V2PublishTarget is a single output destination.
-type V2PublishTarget struct {
-	Type string `toml:"type" json:"type"`
-	URL  string `toml:"url" json:"url"`
-}
-
 // v1RawStream mirrors the intermediate pipeline.Stream TOML shape (the
 // [[streams]] array form with inputs/effects/layout). Decoded raw so the
 // migrator can run regardless of whether the pipeline package matches the
@@ -136,7 +130,6 @@ type v1RawStream struct {
 	Effects           map[string][]v1RawFx `toml:"effects"`
 	Audio             V2AudioConfig        `toml:"audio"`
 	Encoder           V2EncoderConfig      `toml:"encoder"`
-	Publish           []V2PublishTarget    `toml:"publish"`
 	TestMode          bool                 `toml:"test_mode"`
 	ForceComposer     bool                 `toml:"force_composer"`
 	CustomEncoderArgs string               `toml:"custom_encoder_args"`
@@ -249,7 +242,6 @@ func migrateV1Streams(v1 []v1RawStream) (migrationResult, error) {
 			Name:              s.Name,
 			Audio:             s.Audio,
 			Encoder:           s.Encoder,
-			Publish:           s.Publish,
 			CustomEncoderArgs: s.CustomEncoderArgs,
 			CreatedAt:         s.CreatedAt,
 			UpdatedAt:         s.UpdatedAt,

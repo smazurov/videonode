@@ -26,7 +26,6 @@ export type ComposerRequest = components['schemas']['ComposerPayload'];
 
 export type AudioConfig = components['schemas']['AudioConfigData'];
 export type EncoderConfig = components['schemas']['EncoderConfigData'];
-export type PublishTarget = components['schemas']['PublishTargetData'];
 
 export type Stream = components['schemas']['StreamData'];
 export type StreamRequest = components['schemas']['StreamRequestData'];

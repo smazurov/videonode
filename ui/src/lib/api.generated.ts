@@ -1598,18 +1598,6 @@ export interface components {
             /** @description All supervised pipeline stages */
             processes: components["schemas"]["ProcessEntry"][] | null;
         };
-        PublishTargetData: {
-            /**
-             * @description Output type (rtsp, srt, hls, ...)
-             * @example rtsp
-             */
-            type: string;
-            /**
-             * @description Destination URL
-             * @example rtsp://example/stream
-             */
-            url: string;
-        };
         Resolution: {
             /**
              * Format: int32
@@ -1953,8 +1941,6 @@ export interface components {
              * @example Main Archive
              */
             name?: string;
-            /** @description Output destinations */
-            publish?: components["schemas"]["PublishTargetData"][] | null;
             /**
              * @description RTSP playback URL
              * @example rtsp://localhost:8554/stream-001
@@ -2059,8 +2045,6 @@ export interface components {
              * @example Main Archive
              */
             name?: string;
-            /** @description Output destinations */
-            publish?: components["schemas"]["PublishTargetData"][] | null;
             /**
              * @description Stream identifier
              * @example my-stream-001
@@ -2111,8 +2095,6 @@ export interface components {
             encoder?: components["schemas"]["EncoderConfigData"] | null;
             /** @description Human-readable name */
             name?: string;
-            /** @description Output destinations (null to clear) */
-            publish?: (components["schemas"]["PublishTargetData"][] | null) | null;
             /** @description Upstream reference */
             upstream?: string;
         };

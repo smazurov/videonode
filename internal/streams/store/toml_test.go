@@ -89,6 +89,53 @@ func TestSaveAndLoad_V2(t *testing.T) {
 	}
 }
 
+// TestLoadV2_DropsLegacyPublish verifies that a v2 file persisted by an
+// older version (carrying [[streams.publish]] entries) still loads cleanly
+// — the now-removed publish field is silently ignored, not an error. The
+// encoder output is hardcoded to the local RTSP relay at runtime.
+func TestLoadV2_DropsLegacyPublish(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "legacy_publish.toml")
+
+	legacy := `version = 2
+
+[[sources]]
+id = "cam-1"
+device = "usb-1-2"
+
+[[streams]]
+id = "encoder-1"
+upstream = "source:cam-1"
+
+  [streams.encoder.encoder]
+  codec = "h264"
+
+  [[streams.publish]]
+  type = "rtsp"
+  url = "rtsp://nas.lan:8554/archive"
+
+  [[streams.publish]]
+  type = "srt"
+  url = "srt://localhost:6001?streamid=encoder-1"
+`
+	if err := os.WriteFile(testFile, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy file: %v", err)
+	}
+
+	repo := NewTOML(testFile).(*tomlStore)
+	if err := repo.Load(); err != nil {
+		t.Fatalf("Load of v2 file with legacy publish should not error: %v", err)
+	}
+
+	got, ok := repo.GetV2Stream("encoder-1")
+	if !ok {
+		t.Fatal("stream encoder-1 not loaded")
+	}
+	if got.Upstream != "source:cam-1" {
+		t.Errorf("upstream round-trip failed: %q", got.Upstream)
+	}
+}
+
 func TestSourceCRUD(t *testing.T) {
 	repo, _ := setupTestStore(t)
 

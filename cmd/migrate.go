@@ -63,15 +63,15 @@ type V2Effect struct {
 	Corners [4][2]int `toml:"corners,omitempty"`
 }
 
-// V2Stream is encoder+audio+publish; the upstream ref points to a source or composer.
+// V2Stream is encoder+audio; the upstream ref points to a source or composer.
+// The encoder output (local RTSP relay) is hardcoded at runtime, not persisted.
 type V2Stream struct {
-	ID                string            `toml:"id"`
-	Name              string            `toml:"name,omitempty"`
-	Upstream          string            `toml:"upstream"` // "source:<id>" or "composer:<id>"
-	Audio             V2AudioConfig     `toml:"audio,omitempty"`
-	Encoder           V2EncoderConfig   `toml:"encoder,omitempty"`
-	Publish           []V2PublishTarget `toml:"publish,omitempty"`
-	CustomEncoderArgs string            `toml:"custom_encoder_args,omitempty"`
+	ID                string          `toml:"id"`
+	Name              string          `toml:"name,omitempty"`
+	Upstream          string          `toml:"upstream"` // "source:<id>" or "composer:<id>"
+	Audio             V2AudioConfig   `toml:"audio,omitempty"`
+	Encoder           V2EncoderConfig `toml:"encoder,omitempty"`
+	CustomEncoderArgs string          `toml:"custom_encoder_args,omitempty"`
 }
 
 // V2AudioConfig mirrors pipeline.AudioConfig at the TOML layer.
@@ -92,12 +92,6 @@ type V2EncoderConfig struct {
 	Preset      string `toml:"preset,omitempty"`
 }
 
-// V2PublishTarget is a single output destination.
-type V2PublishTarget struct {
-	Type string `toml:"type"`
-	URL  string `toml:"url"`
-}
-
 // v1Config matches the pre-split TOML shape: a single [[streams]] list with
 // embedded inputs/layout/effects. Used by the migrator to read legacy files.
 type v1Config struct {
@@ -113,7 +107,6 @@ type v1Stream struct {
 	Effects           map[string][]v1Effect `toml:"effects"`
 	Audio             V2AudioConfig         `toml:"audio"`
 	Encoder           V2EncoderConfig       `toml:"encoder"`
-	Publish           []V2PublishTarget     `toml:"publish"`
 	TestMode          bool                  `toml:"test_mode"`
 	CustomEncoderArgs string                `toml:"custom_encoder_args"`
 	ForceComposer     bool                  `toml:"force_composer"`
@@ -203,7 +196,6 @@ func MigrateV1ToV2(in *v1Config) (*V2Config, error) {
 				Upstream:          upstream,
 				Audio:             s.Audio,
 				Encoder:           s.Encoder,
-				Publish:           s.Publish,
 				CustomEncoderArgs: s.CustomEncoderArgs,
 			})
 			continue
@@ -255,7 +247,6 @@ func MigrateV1ToV2(in *v1Config) (*V2Config, error) {
 			Upstream:          "composer:" + compID,
 			Audio:             s.Audio,
 			Encoder:           s.Encoder,
-			Publish:           s.Publish,
 			CustomEncoderArgs: s.CustomEncoderArgs,
 		})
 	}

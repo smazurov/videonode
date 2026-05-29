@@ -63,15 +63,14 @@ type PlanEffect struct {
 // PlanStream is the canonical slim Stream — no Inputs/Layout/Effects/
 // ForceComposer/TestMode (TestMode moves to Source).
 type PlanStream struct {
-	ID                string          `toml:"id" json:"id"`
-	Name              string          `toml:"name" json:"name"`
-	Upstream          string          `toml:"upstream" json:"upstream"`
-	Audio             AudioConfig     `toml:"audio,omitempty" json:"audio,omitzero"`
-	Encoder           EncoderConfig   `toml:"encoder,omitempty" json:"encoder,omitzero"`
-	Publish           []PublishTarget `toml:"publish,omitempty" json:"publish,omitempty"`
-	CustomEncoderArgs string          `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
-	CreatedAt         time.Time       `toml:"created_at" json:"created_at"`
-	UpdatedAt         time.Time       `toml:"updated_at" json:"updated_at"`
+	ID                string        `toml:"id" json:"id"`
+	Name              string        `toml:"name" json:"name"`
+	Upstream          string        `toml:"upstream" json:"upstream"`
+	Audio             AudioConfig   `toml:"audio,omitempty" json:"audio,omitzero"`
+	Encoder           EncoderConfig `toml:"encoder,omitempty" json:"encoder,omitzero"`
+	CustomEncoderArgs string        `toml:"custom_encoder_args,omitempty" json:"custom_encoder_args,omitempty"`
+	CreatedAt         time.Time     `toml:"created_at" json:"created_at"`
+	UpdatedAt         time.Time     `toml:"updated_at" json:"updated_at"`
 }
 
 // ParseUpstreamRef splits an upstream string of the form "source:<id>"
