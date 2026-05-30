@@ -13,6 +13,10 @@
 #   BUILD_TYPE=Debug for sanitizer-style builds.
 # - KEEP_SERVICE=1 leaves videonode.service running across the build
 #   (use only when you know the rig is idle).
+# - VERSION stamps the binaries (vn::kVersion). The rig is a synced tree
+#   with no .git, so `git describe` there falls back to 0.1.0. We compute
+#   it here on the dev box (which has .git) and pass it through, matching
+#   what a native dev-box build stamps. Override by exporting VERSION.
 #
 # First time: configures cmake. Subsequent runs: incremental ninja build.
 set -euo pipefail
@@ -22,14 +26,16 @@ DST_DIR="${DST_DIR:-/home/orangepi/composer}"
 JOBS="${JOBS:-4}"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 KEEP_SERVICE="${KEEP_SERVICE:-0}"
+VERSION="${VERSION:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" describe --tags --always --dirty 2>/dev/null || true)}"
 
-echo ">>> build-on-rig: rig=${RIG} jobs=${JOBS} build_type=${BUILD_TYPE} keep_service=${KEEP_SERVICE}"
+echo ">>> build-on-rig: rig=${RIG} jobs=${JOBS} build_type=${BUILD_TYPE} keep_service=${KEEP_SERVICE} version=${VERSION:-<unset>}"
 
 ssh -o ServerAliveInterval=5 -o ServerAliveCountMax=3 \
     -o LogLevel=ERROR \
     "${RIG}" \
-    "DST_DIR='${DST_DIR}' JOBS='${JOBS}' BUILD_TYPE='${BUILD_TYPE}' KEEP_SERVICE='${KEEP_SERVICE}' bash -s" <<'REMOTE'
+    "DST_DIR='${DST_DIR}' JOBS='${JOBS}' BUILD_TYPE='${BUILD_TYPE}' KEEP_SERVICE='${KEEP_SERVICE}' VERSION='${VERSION}' bash -s" <<'REMOTE'
 set -euo pipefail
+export VERSION
 
 if [ "${KEEP_SERVICE}" != "1" ]; then
   echo ">>> stopping videonode.service on rig"
