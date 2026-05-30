@@ -9,6 +9,8 @@
 //
 // Usage: ./mpp-jpeg-probe <file.jpg> [W H]   (W,H default 3840 2160)
 
+#if __has_include(<rockchip/rk_mpi.h>)
+
 #include <rockchip/rk_mpi.h>
 #include <rockchip/mpp_frame.h>
 #include <rockchip/mpp_packet.h>
@@ -146,3 +148,14 @@ int main(int argc, char** argv) {
     printf("RESULT: completed %d iters, no stall\n", loops);
     return 0;
 }
+
+#else // <rockchip/rk_mpi.h> ships only on Rockchip; this probe is rig-only.
+
+#include <cstdio>
+
+int main() {
+    fprintf(stderr, "mpp-jpeg-probe: requires Rockchip MPP headers (rig-only build)\n");
+    return 1;
+}
+
+#endif

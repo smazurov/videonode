@@ -1,39 +1,18 @@
 // canvas_loop — daemon-driven composer render loop.
 //
-// videonode-composer is a passive render server: its argv carries only
-// `--drm-device --grpc-listen --composer-id`. Everything dynamic (canvas
-// dims, source bindings, layout, per-source effects, per-source state)
-// arrives over gRPC and lands in `World`. `RunCanvasLoop` snapshots
-// World per frame, materializes the bound sources (dialling/tearing
-// down ScmRightsSource instances to match the World's current slot
-// map), runs `gl_compose`, gbm_bo_maps the canvas, and writes BGRA
-// bytes to stdout.
-//
-// Lifecycles
-// ----------
-//   gl_compose is created lazily on the first "ready" snapshot (so we
-//   wait until the daemon has told us the canvas dims). MVP: canvas
-//   dimension changes mid-stream log a one-line WARN and are ignored —
-//   gl_compose is constructed once with the first ready dims and stays.
-//
-//   ScmRightsSource instances are owned by canvas_loop, one per slot.
-//   When a new slot/scm_path appears in the snapshot, we dial + start.
-//   When a slot disappears or its scm_path changes, we stop + drop.
-//   No per-frame work on already-running sources beyond `latest_frame()`.
-//
-// Until World is ready (canvas + at least one bound+placed slot),
-// RunCanvasLoop writes a solid-black BGRA frame each tick so any
-// downstream ffmpeg pipe keeps flowing.
+// videonode-composer is a passive render server: the daemon pushes all
+// dynamic state (canvas dims, source bindings, layout, effects, per-source
+// state) over gRPC into `World`. RunCanvasLoop snapshots World per frame,
+// reconciles the bound sources, composites, and writes/broadcasts BGRA.
+// Until World is ready it emits solid-black frames to keep the pipe alive.
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <string>
 
-namespace egl_ctx {
-class EglCtx;
-}
 namespace render {
 class World;
 }
@@ -43,10 +22,12 @@ class ComposerService;
 
 namespace render {
 
+// DRM render nodes probed in order when no usable --drm-device is given.
+inline constexpr std::array<const char*, 3> kDrmRenderCandidates{
+    "/dev/dri/renderD128", "/dev/dri/renderD129", "/dev/dri/renderD130"};
+
 // Lock-free counters the canvas loop writes once per frame and the gRPC
-// `Composer.GetStats` handler reads from another thread. fps_observed is
-// stored as centi-fps (fps × 100) so it can fit in a plain atomic and
-// stays consistent with the rest of the snapshot.
+// `Composer.GetStats` handler reads from another thread.
 struct RenderStats {
     std::atomic<uint64_t> frames_rendered{0};
     std::atomic<uint32_t> fps_observed_centi{0}; // fps * 100, recomputed every ~1s
@@ -58,24 +39,10 @@ struct RenderStats {
 
 // Configuration bundle for RunCanvasLoop.
 //
-// `target_fps` is the loop's tick rate; world.snapshot().canvas_fps
-// is preferred once ready, but until then we tick at this rate.
-//
-// `scm_out_path` selects the output mode:
-//   - empty       → legacy: BGRA bytes go to stdout (pipe to ffmpeg)
-//   - non-empty   → SCM_RIGHTS: listen on the path, broadcast canvas
-//                   dma-buf fd + dmabuf_header::Header to all consumers
-//                   (vn-sink → ffmpeg, etc.). Decouples composer lifetime
-//                   from any one consumer; encoder restart no longer kills
-//                   the composer via EPIPE.
-//
-// `stats` (optional) is updated each frame and on each consumer-prune
-// tick. Pass nullptr when no observer is wired up.
-//
-// `composer_svc` (optional) receives a FrameRef pointing at the latest
-// canvas dma-buf after each SCM broadcast.
+// `scm_out_path` selects the output mode: empty → BGRA to stdout (dies via
+// EPIPE if the consumer exits); non-empty → SCM_RIGHTS broadcast of the
+// canvas dma-buf, decoupling composer lifetime from any one consumer.
 struct CanvasLoopConfig {
-    egl_ctx::EglCtx& ctx;
     World& world;
     int target_fps = 30;
     int run_seconds = 0;
@@ -85,11 +52,12 @@ struct CanvasLoopConfig {
     nativerpc::ComposerService* composer_svc = nullptr;
 };
 
-// Render at the target frame rate until `running` goes false, the
-// composer's stdout closes (EPIPE in stdout mode), or `run_seconds`
-// (if non-zero) elapses.
-//
-// Returns the number of frames rendered (placeholder + real).
+// Sentinel return from RunCanvasLoop: an unrecoverable runtime error (not
+// GPU-absence; that's gated at startup). Distinct from a frame count (>= 0).
+inline constexpr int kCanvasRuntimeError = -1;
+
+// Returns the number of frames rendered, or kCanvasRuntimeError on
+// unrecoverable runtime failure.
 int RunCanvasLoop(CanvasLoopConfig cfg);
 
 } // namespace render
