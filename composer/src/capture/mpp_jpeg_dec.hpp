@@ -10,6 +10,13 @@
 // replaced. The decoder keeps a small pool of frame buffers internally, so
 // the caller may hold one previous frame while submitting the next packet.
 //
+// Decode flow mirrors ffmpeg-rockchip's rkmppdec.c MJPEG path: two buffer
+// groups (one for the input bitstream, one for output frames) and a one-shot
+// info-change handshake (SET_EXT_BUF_GROUP / SET_PARSER_FAST_MODE /
+// SET_INFO_CHANGE_READY) on the first decoded frame. Without that handshake
+// the MJPEG hal leaves the parser in "info-change pending" and resets the
+// jpegd block on every packet.
+//
 // Threading: each MppJpegDec instance is owned by exactly one capture
 // thread; no internal synchronization. The FrameRef returned MUST be passed
 // across thread boundaries with the same care as any std::unique_ptr.
@@ -81,9 +88,8 @@ class FrameRef {
 
 class MppJpegDec : public jpeg_dec::JpegDec {
   public:
-    // Initialize the decoder. width/height are hints to size the buffer pool;
-    // MPP picks its own internal pool sizes but knowing the input dims up
-    // front saves an info-change round-trip on the first frame.
+    // Initialize the decoder. width/height size the output frame buffers; the
+    // hal still reports the real geometry on the first frame's info-change.
     [[nodiscard]] bool init(int max_width, int max_height);
     ~MppJpegDec() override;
 
@@ -104,16 +110,35 @@ class MppJpegDec : public jpeg_dec::JpegDec {
     [[nodiscard]] bool decode(std::span<const uint8_t> jpeg, jpeg_dec::DecodedNv12& out) override;
 
   private:
+    // Tear down ctx + both buffer groups; safe to call partially-initialized.
+    void teardown_();
+    // Build the input bitstream packet (from buf_group_misc_). Returns nullptr
+    // on failure. The returned packet owns its DRM buffer.
+    [[nodiscard]] MppPacket alloc_input_packet_(std::span<const uint8_t> jpeg);
+    // Attach an output NV12 frame to pkt via KEY_OUTPUT_FRAME meta. Returns the
+    // frame (caller deinits on the error path) or nullptr on failure.
+    [[nodiscard]] MppFrame alloc_output_frame_(MppPacket pkt);
+    // Free the input packet MPP stashed in the output frame's KEY_INPUT_PACKET
+    // meta (mirrors rkmppdec.c). Replaces the caller deiniting its own packet.
+    void drain_input_packet_(MppFrame out);
+    // One-shot info-change handshake on the first decoded frame: attach the
+    // output group, enable fast parse, ack info-change. Returns false on a
+    // control failure (caller drops the frame and retries next call).
+    [[nodiscard]] bool handle_info_change_(MppFrame out);
+
     MppCtx ctx_ = nullptr;
     MppApi* mpi_ = nullptr;
-    // DRM buffer pool we allocate the input bitstream + output NV12 frame
-    // from. MJPEG uses MPP's advanced (1-in-1-out) decode model: the caller
-    // supplies the output frame buffer per packet, so we own the pool.
-    MppBufferGroup grp_ = nullptr;
-    int max_w_ = 0; // output buffer sizing hint (from init)
+    // Input bitstream + the first (pre-handshake) output frame come from the
+    // misc group; real output frames come from buf_group_ once attached via
+    // SET_EXT_BUF_GROUP. Both are DRM | DMA32 | CACHABLE.
+    MppBufferGroup buf_group_misc_ = nullptr;
+    MppBufferGroup buf_group_ = nullptr;
+    int max_w_ = 0; // output buffer sizing (from init)
     int max_h_ = 0;
     bool cfg_done_ = false;
-    uint64_t discard_count_ = 0; // rate-limits the err/discard log
+    bool info_change_done_ = false; // first-frame handshake latch
+    uint64_t pts_ = 0;              // manufactured monotonic PTS for the hal
+    uint64_t discard_count_ = 0;    // rate-limits the err/discard log
     FrameRef pending_;
 };
 
