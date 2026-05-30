@@ -49,7 +49,8 @@ export function SourceFormatSelector({
   // loaded list, default to the first available so the user doesn't have
   // to clear an invalid choice manually.
   useEffect(() => {
-    if (loadingFormats || formats.length === 0 || value.format_name) return;
+    if (loadingFormats || formats.length === 0) return;
+    if (value.format_name && formats.some((f) => f.format_name === value.format_name)) return;
     const first = formats[0]?.format_name;
     if (first) onChange({ ...EMPTY_VALUE, format_name: first });
   }, [loadingFormats, formats, value.format_name, onChange]);
