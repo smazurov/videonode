@@ -13,14 +13,12 @@ import {
   createSourceAPISlice,
   SourceAPISlice,
 } from './slices/sources/sourceApiSlice';
+import type { SourceData } from './slices/types';
 
 export type { Source } from './slices/types';
 export type { SourceData, SourceRequestData } from './slices/types';
 export type { Source as SourceEntry } from './slices/types';
-export interface SourceConsumerRef {
-  kind: 'composer' | 'stream';
-  id: string;
-}
+export type SourceConsumerRef = NonNullable<SourceData['consumers']>[number];
 
 export interface SourceStore
   extends SourceDataSlice,

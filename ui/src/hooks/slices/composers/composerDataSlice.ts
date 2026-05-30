@@ -2,7 +2,7 @@ import { StateCreator } from 'zustand';
 
 import type { Composer } from '../types';
 import { ComposerStore } from '../../useComposerStore';
-import { assertNever, type EntityAction } from '../../entityTypes';
+import { assertNever, type ComposerEvent } from '../../entityTypes';
 
 export interface ComposerDataSlice {
   composerIds: string[];
@@ -16,11 +16,7 @@ export interface ComposerDataSlice {
   addComposer: (composer: Composer) => void;
   removeComposer: (composerId: string) => void;
   getComposerById: (composerId: string) => Composer | undefined;
-  applyEntityEvent: (
-    action: EntityAction,
-    id: string,
-    payload: unknown,
-  ) => void;
+  applyEntityEvent: (event: ComposerEvent) => void;
 }
 
 function sortIds(ids: string[]): string[] {
@@ -81,33 +77,18 @@ export const createComposerDataSlice: StateCreator<
 
   getComposerById: (composerId) => get().composersById[composerId],
 
-  applyEntityEvent: (action, id, payload) => {
+  applyEntityEvent: (event) => {
     const { addComposer, removeComposer } = get();
-    switch (action) {
-      case 'created':
-      case 'updated':
-        if (payload) addComposer(payload as Composer);
+    switch (event.type) {
+      case 'composer.created':
+      case 'composer.updated':
+        addComposer(event.payload);
         return;
-      case 'deleted':
-        removeComposer(id);
-        return;
-      case 'status':
-        set((state) => ({
-          statusById: { ...state.statusById, [id]: payload },
-        }));
-        return;
-      case 'metrics':
-        set((state) => ({
-          metricsById: { ...state.metricsById, [id]: payload },
-        }));
-        return;
-      case 'consumers':
-        set((state) => ({
-          consumersById: { ...state.consumersById, [id]: payload },
-        }));
+      case 'composer.deleted':
+        removeComposer(event.id);
         return;
       default:
-        assertNever(action);
+        assertNever(event);
     }
   },
 });

@@ -2,25 +2,24 @@ import { StateCreator } from 'zustand';
 
 import type { Source } from '../types';
 import { SourceStore } from '../../useSourceStore';
-import { assertNever, type EntityAction } from '../../entityTypes';
+import {
+  assertNever,
+  type SourceConsumers,
+  type SourceEvent,
+  type StatusParams,
+} from '../../entityTypes';
 
 export interface SourceDataSlice {
   sourceIds: string[];
   sourcesById: Record<string, Source>;
-  // Live runtime slots populated by EntityEvent action=status|consumers.
-  // Components select narrowly: useSourceStore(s => s.statusById[id]).
-  statusById: Record<string, unknown>;
-  consumersById: Record<string, unknown>;
+  statusById: Record<string, StatusParams>;
+  consumersById: Record<string, SourceConsumers>;
 
   setSources: (sources: Source[] | null | undefined) => void;
   addSource: (source: Source) => void;
   removeSource: (sourceId: string) => void;
   getSourceById: (sourceId: string) => Source | undefined;
-  applyEntityEvent: (
-    action: EntityAction,
-    id: string,
-    payload: unknown,
-  ) => void;
+  applyEntityEvent: (event: SourceEvent) => void;
 }
 
 function sortIds(ids: string[]): string[] {
@@ -70,8 +69,8 @@ export const createSourceDataSlice: StateCreator<
 
   removeSource: (sourceId) => {
     set((state) => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars, sonarjs/no-unused-vars
-      const { [sourceId]: _, ...rest } = state.sourcesById;
+      const rest = { ...state.sourcesById };
+      delete rest[sourceId];
       return {
         sourceIds: state.sourceIds.filter((id) => id !== sourceId),
         sourcesById: rest,
@@ -82,41 +81,33 @@ export const createSourceDataSlice: StateCreator<
 
   getSourceById: (sourceId) => get().sourcesById[sourceId],
 
-  applyEntityEvent: (action, id, payload) => {
+  applyEntityEvent: (event) => {
     const { addSource, removeSource } = get();
-    switch (action) {
-      case 'created':
-      case 'updated':
-        if (payload) addSource(payload as Source);
+    switch (event.type) {
+      case 'source.created':
+      case 'source.updated':
+        addSource(event.payload);
         return;
-      case 'deleted':
-        removeSource(id);
+      case 'source.deleted':
+        removeSource(event.id);
         return;
-      case 'status': {
-        const snap = payload as Partial<{
-          health: string;
-          ts_ms: number;
-          started_at_us: number;
-          broadcast: { real_frames?: number };
-        }> | null | undefined;
+      case 'source.status': {
+        const { id, payload } = event;
         set((state) => {
           const next = { ...state.statusById, [id]: payload };
           const src = state.sourcesById[id];
-          if (!src || !snap) return { statusById: next };
-          const lastAt = snap.ts_ms ? new Date(snap.ts_ms).toISOString() : new Date().toISOString();
-          const merged: Source = { ...src, last_status_at: lastAt };
-          if (payload) merged.latest_status = payload as NonNullable<Source['latest_status']>;
-          // Lift the per-second health token onto the top-level liveness
-          // field so list rows (which never read latest_status) update live.
-          if (typeof snap.health === 'string') {
-            merged.liveness = snap.health as NonNullable<Source['liveness']>;
-          }
-          if (typeof snap.started_at_us === 'number' && snap.started_at_us > 0) {
-            merged.started_at_us = snap.started_at_us;
+          if (!src) return { statusById: next };
+          const lastAt = payload.ts_ms
+            ? new Date(payload.ts_ms).toISOString()
+            : new Date().toISOString();
+          const merged: Source = { ...src, last_status_at: lastAt, latest_status: payload };
+          if (isLivenessToken(payload.health)) merged.liveness = payload.health;
+          if (payload.started_at_us !== undefined && payload.started_at_us > 0) {
+            merged.started_at_us = payload.started_at_us;
           } else {
             delete merged.started_at_us;
           }
-          const fps = computeEffectiveFps(state.statusById[id], snap);
+          const fps = computeEffectiveFps(state.statusById[id], payload);
           if (fps !== undefined) merged.effective_fps = fps;
           else delete merged.effective_fps;
           return {
@@ -126,41 +117,44 @@ export const createSourceDataSlice: StateCreator<
         });
         return;
       }
-      case 'metrics':
-        // Sources publish no metrics event (effective_fps is derived from the
-        // status snapshot); this case exists only to satisfy the exhaustive
-        // action switch.
-        return;
-      case 'consumers': {
-        const snap = payload as Partial<{ count: number }> | null | undefined;
+      case 'source.consumers': {
+        const { id, payload } = event;
         set((state) => {
           const next = { ...state.consumersById, [id]: payload };
           const src = state.sourcesById[id];
-          if (!src || !snap || typeof snap.count !== 'number') {
-            return { consumersById: next };
-          }
+          if (!src) return { consumersById: next };
           return {
             consumersById: next,
             sourcesById: {
               ...state.sourcesById,
-              [id]: { ...src, consumer_count: snap.count },
+              [id]: { ...src, consumer_count: payload.count },
             },
           };
         });
         return;
       }
       default:
-        assertNever(action);
+        assertNever(event);
     }
   },
 });
 
-// mergeRuntime overlays a fresh API payload onto an existing in-store
-// entry while preserving the runtime-augmented fields the UI maintains
-// itself (status pill, latest status snapshot, last update timestamp,
-// process start time, effective fps, consumer count). Without this,
-// every dependency-driven `source.updated` republish would wipe the
-// UI's live state until the next status SSE arrived.
+const LIVENESS_TOKENS = new Set<string>([
+  'live',
+  'transitioning',
+  'no_cable',
+  'no_signal',
+  'initializing',
+  'offline',
+  'unknown',
+]);
+
+// The wire `health` token is a free string (it can be "idle"); validate it
+// against SourceData.liveness's enum before lifting it onto the list-row field.
+function isLivenessToken(value: string): value is NonNullable<Source['liveness']> {
+  return LIVENESS_TOKENS.has(value);
+}
+
 function mergeRuntime(prev: Source | undefined, next: Source): Source {
   if (!prev) return next;
   const merged: Source = { ...next };
@@ -174,32 +168,15 @@ function mergeRuntime(prev: Source | undefined, next: Source): Source {
   return merged;
 }
 
-// computeEffectiveFps derives a measured publish rate from consecutive
-// status snapshots: Δ real_frames / Δ ts. Returns undefined for the
-// first sample, when the counter resets, when ts is non-monotonic, or
-// when the window is shorter than 100ms (noise floor).
-function computeEffectiveFps(prev: unknown, next: {
-  ts_ms?: number;
-  broadcast?: { real_frames?: number };
-}): number | undefined {
-  const p = prev as
-    | { ts_ms?: number; broadcast?: { real_frames?: number } }
-    | undefined;
-  const prevTs = p?.ts_ms;
-  const prevFrames = p?.broadcast?.real_frames;
-  const nextTs = next.ts_ms;
-  const nextFrames = next.broadcast?.real_frames;
-  if (
-    typeof prevTs !== 'number' ||
-    typeof nextTs !== 'number' ||
-    typeof prevFrames !== 'number' ||
-    typeof nextFrames !== 'number'
-  ) {
-    return undefined;
-  }
-  const dt = nextTs - prevTs;
-  const df = nextFrames - prevFrames;
+// computeEffectiveFps derives a measured publish rate from consecutive status
+// snapshots: Δ real_frames / Δ ts. undefined on the first sample, counter
+// reset, non-monotonic ts, or a sub-100ms window (noise floor).
+function computeEffectiveFps(prev: StatusParams | undefined, next: StatusParams): number | undefined {
+  const prevTs = prev?.ts_ms;
+  const prevFrames = prev?.broadcast.real_frames;
+  if (prevTs === undefined || prevFrames === undefined) return undefined;
+  const dt = next.ts_ms - prevTs;
+  const df = next.broadcast.real_frames - prevFrames;
   if (dt < 100 || df < 0) return undefined;
   return Math.round((df / (dt / 1000)) * 10) / 10;
 }
-

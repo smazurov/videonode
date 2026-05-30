@@ -146,7 +146,7 @@ func TestBus_RoundTripSurvivingTypes(t *testing.T) {
 		ch := make(chan EntityEvent, 1)
 		unsub := Subscribe(bus, func(e EntityEvent) { ch <- e })
 		defer unsub()
-		Publish(bus, EntityEvent{EntityType: "source", Action: ActionCreated, ID: "hdmi0"})
+		Publish(bus, EntityEvent{Kind: "source." + ActionCreated, ID: "hdmi0"})
 		<-ch
 	})
 	t.Run("StreamCrashed", func(_ *testing.T) {
@@ -179,7 +179,7 @@ func TestEventJSONSerialization(t *testing.T) {
 	}{
 		{"DeviceDiscoveryEvent", DeviceDiscoveryEvent{Action: "added", Timestamp: "2025-01-27T10:30:00Z"}},
 		{"PipelineStateChangedEvent", PipelineStateChangedEvent{Enabled: true, Timestamp: "2025-01-27T10:30:00Z"}},
-		{"EntityEvent", EntityEvent{EntityType: "source", Action: ActionUpdated, ID: "hdmi0", Timestamp: "2025-01-27T10:30:00Z"}},
+		{"EntityEvent", EntityEvent{Kind: "source." + ActionUpdated, ID: "hdmi0", Timestamp: "2025-01-27T10:30:00Z"}},
 	}
 
 	for _, tt := range tests {

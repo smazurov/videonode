@@ -195,10 +195,9 @@ func main() {
 		// without polling.
 		streamingServer.SetOnProducerConnected(func(streamID string) {
 			if eventRegistry != nil {
-				eventRegistry.Publish("stream", events.ActionStatus, streamID, map[string]any{
-					"state":      "running",
-					"timestamp":  time.Now().Format(time.RFC3339),
-					"encoder_up": true,
+				eventRegistry.Publish("stream", events.ActionStatus, streamID, streaming.StreamStatusPayload{
+					State:     "running",
+					EncoderUp: true,
 				})
 			}
 		})
@@ -315,10 +314,9 @@ func main() {
 		streamingServer.SetOnLastReaderGone(func(streamID string) {
 			_ = nativePipeline.StopEncoder(streamID)
 			if eventRegistry != nil {
-				eventRegistry.Publish("stream", events.ActionStatus, streamID, map[string]any{
-					"state":      "stopped",
-					"timestamp":  time.Now().Format(time.RFC3339),
-					"encoder_up": false,
+				eventRegistry.Publish("stream", events.ActionStatus, streamID, streaming.StreamStatusPayload{
+					State:     "stopped",
+					EncoderUp: false,
 				})
 			}
 		})
@@ -474,19 +472,15 @@ func main() {
 								srtCount = srtServer.StreamConsumerCount(sid)
 							}
 
-							payload := map[string]any{
-								"total":  rtsp + webrtcCount + srtCount,
-								"rtsp":   rtsp,
-								"webrtc": webrtcCount,
-								"srt":    srtCount,
-							}
-							if clients := webrtcManager.StreamPeerInfo(sid); len(clients) > 0 {
-								payload["webrtc_clients"] = clients
+							payload := streaming.StreamConsumersPayload{
+								Total:         rtsp + webrtcCount + srtCount,
+								RTSP:          rtsp,
+								WebRTC:        webrtcCount,
+								SRT:           srtCount,
+								WebRTCClients: webrtcManager.StreamPeerInfo(sid),
 							}
 							if srtServer != nil {
-								if clients := srtServer.StreamConsumerInfo(sid); len(clients) > 0 {
-									payload["srt_clients"] = clients
-								}
+								payload.SRTClients = srtServer.StreamConsumerInfo(sid)
 							}
 							eventRegistry.Publish("stream", events.ActionConsumers, sid, payload)
 						}

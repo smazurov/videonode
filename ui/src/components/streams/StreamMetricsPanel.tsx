@@ -106,7 +106,7 @@ export function StreamMetricsPanel({ streamId, className }: StreamMetricsPanelPr
   const [history, setHistory] = useState<Sample[]>([]);
 
   useEffect(() => {
-    let lastFps: string | undefined;
+    let lastFps: number | undefined;
     return useStreamStore.subscribe((state) => {
       const fps = state.metricsById[streamId]?.fps;
       if (fps === lastFps) return;

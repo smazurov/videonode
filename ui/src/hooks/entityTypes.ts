@@ -3,43 +3,28 @@
 // EntityEvents needs these symbols; the dispatcher in entityDispatch.ts
 // needs the same symbols PLUS the stores themselves).
 
-import type { components } from '../lib/api.generated';
+import type { components, operations } from '../lib/api.generated';
 
-export type EntityEvent = components['schemas']['EntityEvent'];
+type EntitySSEData =
+  operations['events-stream']['responses'][200]['content']['text/event-stream'][number];
 
-// Canonical entity type names. Must match the strings registered in
-// `internal/api/server.go` via events.Register(...). Updating this
-// union is the only UI-side step required when a new entity is added
-// backend-side; the satisfies constraint in entityDispatch.ts forces
-// the dispatcher table to be updated in lockstep.
-export type EntityType = 'source' | 'composer' | 'stream';
+// EntityEvent is the discriminated union carried on the single "entity" SSE
+// event, narrowing on the `type` tag ("<entity>.<action>"). Derived from the
+// generated schema — the backend owns the shape end-to-end.
+export type EntityEvent = Extract<EntitySSEData, { event: 'entity' }>['data'];
 
-// Canonical action names. Must match the constants in
-// `internal/events/registry.go` (ActionCreated/Updated/Deleted/
-// Status/Metrics/Consumers). The exhaustive switch in each store's
-// applyEntityEvent turns a missing case into a compile error.
-export type EntityAction =
-  | 'created'
-  | 'updated'
-  | 'deleted'
-  | 'status'
-  | 'metrics'
-  | 'consumers';
+export type SourceEvent = Extract<EntityEvent, { type: `source.${string}` }>;
+export type ComposerEvent = Extract<EntityEvent, { type: `composer.${string}` }>;
+export type StreamEvent = Extract<EntityEvent, { type: `stream.${string}` }>;
 
-// Exhaustive action check. Use inside each store's applyEntityEvent
-// implementation: `default: assertNever(action)`. Adding a new
-// EntityAction without handling it produces a TS compile error.
+// Payload aliases for the typed slots stores keep keyed by id.
+export type StatusParams = components['schemas']['StatusParams'];
+export type SourceConsumers = components['schemas']['SourceConsumersInfo'];
+export type StreamStatus = components['schemas']['StreamStatusPayload'];
+export type StreamMetrics = components['schemas']['StreamMetricsPayload'];
+export type StreamConsumers = components['schemas']['StreamConsumersPayload'];
+
+// assertNever turns a missing union case into a compile error.
 export function assertNever(x: never): never {
-  throw new Error(`unhandled entity action: ${String(x)}`);
-}
-
-// Contract every entity store must implement. The dispatcher only
-// needs this much; each store still exports its own typed selectors
-// for components to consume.
-export interface EntityStoreLike {
-  applyEntityEvent: (
-    action: EntityAction,
-    id: string,
-    payload: unknown,
-  ) => void;
+  throw new Error(`unhandled entity event: ${String(x)}`);
 }

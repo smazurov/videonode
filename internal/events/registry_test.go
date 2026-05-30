@@ -50,7 +50,7 @@ func TestRegistry_LifecyclePublishesEntityEvent(t *testing.T) {
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		gotMu.Lock()
-		ok := got.EntityType != ""
+		ok := got.Kind != ""
 		gotMu.Unlock()
 		if ok {
 			break
@@ -60,11 +60,8 @@ func TestRegistry_LifecyclePublishesEntityEvent(t *testing.T) {
 
 	gotMu.Lock()
 	defer gotMu.Unlock()
-	if got.EntityType != "source" {
-		t.Fatalf("entity_type = %q, want %q", got.EntityType, "source")
-	}
-	if got.Action != ActionCreated {
-		t.Errorf("action = %q, want %q", got.Action, ActionCreated)
+	if got.Kind != "source."+ActionCreated {
+		t.Fatalf("type = %q, want %q", got.Kind, "source."+ActionCreated)
 	}
 	if got.ID != "hdmi0" {
 		t.Errorf("id = %q, want %q", got.ID, "hdmi0")
@@ -196,7 +193,7 @@ func TestRegistry_DependencyFanOutTouchesReferencedEntity(t *testing.T) {
 	// dependency fan-out.
 	sawSourceUpdated := false
 	for _, e := range events {
-		if e.EntityType == "source" && e.Action == ActionUpdated && e.ID == "hdmi0" {
+		if e.Kind == "source."+ActionUpdated && e.ID == "hdmi0" {
 			sawSourceUpdated = true
 		}
 	}
@@ -292,11 +289,11 @@ func TestRegistry_DeleteFansOutToReferencedEntity(t *testing.T) {
 	sourceUpdates := 0
 	for _, e := range events {
 		switch {
-		case e.EntityType == "stream" && e.Action == ActionCreated:
+		case e.Kind == "stream."+ActionCreated:
 			sawCreated = true
-		case e.EntityType == "stream" && e.Action == ActionDeleted:
+		case e.Kind == "stream."+ActionDeleted:
 			sawDeleted = true
-		case e.EntityType == "source" && e.Action == ActionUpdated && e.ID == "hdmi0":
+		case e.Kind == "source."+ActionUpdated && e.ID == "hdmi0":
 			sourceUpdates++
 		}
 	}
@@ -418,7 +415,7 @@ func TestRegistry_UpdateFansOutToPreviousAndCurrentReferences(t *testing.T) {
 func countSourceUpdatesFor(events []EntityEvent, id string) int {
 	n := 0
 	for _, e := range events {
-		if e.EntityType == "source" && e.Action == ActionUpdated && e.ID == id {
+		if e.Kind == "source."+ActionUpdated && e.ID == id {
 			n++
 		}
 	}
