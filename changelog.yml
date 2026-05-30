@@ -1,3 +1,24 @@
+- semver: 4.0.0-rc7
+  date: 2026-05-29T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: c1a4d04
+      note: "composer layout editor rebuilt on a Region/Content model: Region is the axis-aligned output rectangle, Content the rotatable source overlay (0/90/180/270, cover/fit/stretch, pan/zoom), fixing rotated-slot resize at the root; edits now persist while the pipeline is idle"
+    - commit: 8275702
+      note: "real-time updates collapse onto a single entity-envelope SSE stream, replacing the legacy per-event publishes; consumer-set changes fire a dedicated source.consumers event only on membership change"
+    - commit: 22fbdd1
+      note: "operational UI: infobar shows live pipeline uptime/CPU/mem via a new daemon resource endpoint, source list shows format/res/fps and live consumer count, and the header tints with no thrown errors when the backend connection drops"
+    - commit: cea24f4
+      note: "hardware MJPEG decode now works, driven through MPP's advanced 1-in-1-out path with input-buffer sync (the prior simple-API loop never produced a frame); adds an mpp-jpeg-probe diagnostic"
+    - commit: 4b21ceb
+      note: "source/capture robustness: reports no-signal when the device is absent, stops busy-spinning on capture-fd errors, stamps status with wall-clock time, and keeps the encoder idle until a reader connects (rebuilding it on a dimension change)"
+    - commit: 7720917
+      note: "release target moves to Debian 13 (trixie) so the composer libplacebo backend builds; .deb runtime deps are derived from the real binaries via dpkg-shlibdeps, and installs on bookworm now fail with a readable apt error"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc6
   date: 2026-05-29T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
