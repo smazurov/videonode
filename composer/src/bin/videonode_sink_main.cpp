@@ -35,6 +35,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <linux/dma-buf.h>
+#include <memory>
 #include <poll.h>
 #include <span>
 #include <string>
@@ -328,8 +329,25 @@ int parse_args(int argc, char** argv, Args& a) {
     return 0;
 }
 
-// run_frame_loop polls the source for new frames and writes them to stdout.
-// Returns 0 on clean shutdown, 1 on fatal error.
+// Outcome of run_frame_loop, telling main() whether to reconnect or exit.
+enum class LoopExit {
+    SourceDropped,     // reader thread died (reset/peer-closed) — re-dial
+    StdoutClosed,      // downstream ffmpeg gone — exit
+    FormatChanged,     // dims/format differ from announced — exit for rebuild
+    FirstFrameTimeout, // connected but no first frame within the deadline
+    Shutdown,          // signal-requested shutdown
+};
+
+// Format/dims announced on the first frame, persisted across reconnects so a
+// same-format source restart resumes the existing ffmpeg pipeline untouched
+// while a genuine reconfiguration forces a clean exit.
+struct StreamShape {
+    bool announced = false;
+    int width = 0;
+    int height = 0;
+    bool nv12_mode = true;
+};
+
 void wait_for_frame(int notify_fd, int timeout_ms) {
     if (notify_fd >= 0) {
         pollfd pfd{.fd = notify_fd, .events = POLLIN, .revents = 0};
@@ -343,23 +361,19 @@ void wait_for_frame(int notify_fd, int timeout_ms) {
     }
 }
 
-int run_frame_loop(scm_rights_source::ScmRightsSource& src, const Args& a) {
+[[nodiscard]] LoopExit run_frame_loop(scm_rights_source::ScmRightsSource& src, const Args& a,
+                                      StreamShape& shape) {
     uint64_t last_idx = 0;
-    bool announced = false;
-    int announced_w = 0;
-    int announced_h = 0;
-    bool nv12_mode = true;
     int nfd = src.notify_fd();
     auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(a.first_frame_timeout_s);
     while (g_running.load()) {
+        if (!src.running())
+            return LoopExit::SourceDropped;
         auto owned = src.latest_frame();
         if (owned.fd.get() < 0 || owned.frame_idx == 0) {
-            if (std::chrono::steady_clock::now() > deadline) {
-                vn::log::fatal("videonode-sink: timeout waiting for first frame on %s",
-                               a.socket_path.c_str());
-                return 1;
-            }
+            if (std::chrono::steady_clock::now() > deadline)
+                return LoopExit::FirstFrameTimeout;
             wait_for_frame(nfd, a.poll_ms);
             continue;
         }
@@ -367,20 +381,24 @@ int run_frame_loop(scm_rights_source::ScmRightsSource& src, const Args& a) {
             wait_for_frame(nfd, a.poll_ms);
             continue;
         }
-        if (!announced || owned.width != announced_w || owned.height != announced_h) {
-            if (announced) {
-                vn::log::warn("videonode-sink: dimensions changed %dx%d → %dx%d; downstream ffmpeg "
-                              "likely needs restart",
-                              announced_w, announced_h, owned.width, owned.height);
-            }
-            nv12_mode = is_nv12_format(owned.format);
+        const bool new_nv12 = is_nv12_format(owned.format);
+        if (shape.announced && (owned.width != shape.width || owned.height != shape.height ||
+                                new_nv12 != shape.nv12_mode)) {
+            vn::log::warn("videonode-sink: source reconfigured %dx%d %s -> %dx%d %s; exiting so "
+                          "the encoder rebuilds",
+                          shape.width, shape.height, shape.nv12_mode ? "NV12" : "BGRA", owned.width,
+                          owned.height, new_nv12 ? "NV12" : "BGRA");
+            return LoopExit::FormatChanged;
+        }
+        if (!shape.announced) {
+            shape.nv12_mode = new_nv12;
+            shape.width = owned.width;
+            shape.height = owned.height;
+            shape.announced = true;
             vn::log::info("videonode-sink: streaming raw %dx%d (%s fourcc=%s) from %s", owned.width,
-                          owned.height, nv12_mode ? "NV12" : "BGRA",
+                          owned.height, shape.nv12_mode ? "NV12" : "BGRA",
                           owned.format.empty() ? "NV12" : owned.format.c_str(),
                           a.socket_path.c_str());
-            announced = true;
-            announced_w = owned.width;
-            announced_h = owned.height;
         }
         if (a.verbose) {
             vn::log::info("videonode-sink: frame_idx=%llu fd=%d",
@@ -398,11 +416,24 @@ int run_frame_loop(scm_rights_source::ScmRightsSource& src, const Args& a) {
         v.plane1_offset = owned.plane1_offset;
         v.format = owned.format;
         v.frame_idx = owned.frame_idx;
-        bool ok = nv12_mode ? emit_frame_nv12_raw(v) : emit_frame_raw_bgra(v);
+        bool ok = shape.nv12_mode ? emit_frame_nv12_raw(v) : emit_frame_raw_bgra(v);
         if (!ok)
-            break;
+            return LoopExit::StdoutClosed;
     }
-    return 0;
+    return LoopExit::Shutdown;
+}
+
+// dial_source dials the producer socket (start() retries the dial ~30s with
+// backoff). Returns a started source, or nullptr on failure — the caller
+// decides whether that is fatal (initial connect) or a transient re-dial miss.
+[[nodiscard]] std::unique_ptr<scm_rights_source::ScmRightsSource> dial_source(const Args& a) {
+    auto src = std::make_unique<scm_rights_source::ScmRightsSource>();
+    scm_rights_source::InitParams p;
+    p.socket_path = a.socket_path;
+    p.dial = true;
+    if (!src->init(p) || !src->start())
+        return nullptr;
+    return src;
 }
 
 } // namespace
@@ -418,19 +449,46 @@ int main(int argc, char** argv) {
     ::setvbuf(stderr, nullptr, _IOLBF, 0);
     vn::signal::install_shutdown(g_running);
 
-    scm_rights_source::ScmRightsSource src;
-    scm_rights_source::InitParams p;
-    p.socket_path = a.socket_path;
-    p.dial = true;
-    if (!src.init(p) || !src.start()) {
-        vn::log::fatal("videonode-sink: failed to dial %s (is videonode-source up?)",
-                       a.socket_path.c_str());
-        return 1;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(a.settle_ms));
+    // Reconnect loop: a videonode-source/composer restart drops our SCM
+    // connection mid-stream. Re-dial and resume feeding the same downstream
+    // ffmpeg rather than exiting and forcing an encoder teardown + WebRTC
+    // renegotiation. `shape` persists across dials so a same-format restart is
+    // seamless; a genuine reconfiguration or a closed stdout exits instead.
+    StreamShape shape;
+    int rc = 0;
+    while (g_running.load()) {
+        auto src = dial_source(a);
+        if (!src) {
+            if (!shape.announced) {
+                vn::log::fatal("videonode-sink: failed to dial %s (is videonode-source up?)",
+                               a.socket_path.c_str());
+                rc = 1;
+                break;
+            }
+            vn::log::warn("videonode-sink: re-dial %s failed, retrying", a.socket_path.c_str());
+            continue;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(a.settle_ms));
 
-    int rc = run_frame_loop(src, a);
-    src.stop();
+        LoopExit reason = run_frame_loop(*src, a, shape);
+        src->stop();
+
+        if (reason == LoopExit::FirstFrameTimeout && !shape.announced) {
+            vn::log::fatal("videonode-sink: timeout waiting for first frame on %s",
+                           a.socket_path.c_str());
+            rc = 1;
+            break;
+        }
+        if (reason == LoopExit::SourceDropped || reason == LoopExit::FirstFrameTimeout) {
+            if (!g_running.load())
+                break;
+            vn::log::info("videonode-sink: source gone, reconnecting to %s", a.socket_path.c_str());
+            continue;
+        }
+        if (reason == LoopExit::StdoutClosed)
+            vn::log::info("videonode-sink: stdout closed, exiting");
+        break; // StdoutClosed / FormatChanged / Shutdown
+    }
     vn::log::info("videonode-sink: shutdown");
     return rc;
 }
