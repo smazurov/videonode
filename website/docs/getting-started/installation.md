@@ -26,6 +26,58 @@ After install, run `videonode validate-encoders` to verify the probe finds the h
 
 The native binaries dynamically link `librga` and `librockchip-mpp`. VideoNode's CI builds against pinned releases from [tsukumijima/mpp-rockchip](https://github.com/tsukumijima/mpp-rockchip) and [tsukumijima/librga-rockchip](https://github.com/tsukumijima/librga-rockchip). Install matching `.deb` files from those release pages, or use the equivalents your vendor OS provides. The MPP kernel module must also be loaded (`/proc/mpp_service/load` must exist); vendor images for the NanoPC-T6 load it by default.
 
+## Enable device-tree overlays (GPU + HDMI input)
+
+The composer GPU-composites onto a canvas using the Mali GPU, which is only
+usable when the kernel binds it through the **`panthor`** driver. `panthor`
+creates a DRM render node under `/dev/dri/` (e.g. `renderD130`). If that node is
+missing, the composer cannot initialize and logs errors like:
+
+```
+egl_ctx: open(/dev/dri/renderD130): No such file or directory
+pl_compose: both Vulkan and OpenGL backends failed
+canvas_loop: pl_compose init 1920x1080 failed
+```
+
+On Armbian/RK3588 the GPU is enabled by a **device-tree overlay**. Capturing
+from the onboard HDMI-RX port needs a second overlay.
+
+Edit `/boot/armbianEnv.txt` and add both overlays to the `overlays=` line:
+
+```ini
+# /boot/armbianEnv.txt
+overlay_prefix=rockchip-rk3588
+overlays=panthor-gpu rk3588-hdmirx
+```
+
+- `panthor-gpu`: binds the Mali GPU to the `panthor` driver (required for the
+  composer). With `overlay_prefix=rockchip-rk3588` it resolves to
+  `/boot/dtb/rockchip/overlay/rockchip-rk3588-panthor-gpu.dtbo`.
+- `rk3588-hdmirx`: enables the HDMI-RX capture input (only needed if you
+  capture from the onboard HDMI-in port).
+
+The same overlays can be toggled from a menu with `sudo armbian-config`
+(System → Hardware). GPU compositing also benefits from a larger CMA pool; if
+the canvas fails to allocate, raise it on the kernel cmdline in the same file:
+
+```ini
+extraargs=cma=1G
+```
+
+Reboot to apply, then confirm a render node is bound to `panthor`:
+
+```bash
+sudo reboot
+# after reboot:
+for n in /sys/class/drm/renderD*; do
+  echo "$(basename "$n") -> $(basename "$(readlink -f "$n/device/driver")")"
+done
+```
+
+You should see a line ending in `-> panthor` alongside `rockchip-drm` and
+`RKNPU`. If no `panthor` node appears, re-check the `overlays=` line and that
+the board booted a trixie-based image.
+
 ## Install from the APT repository
 
 Follow these steps in order.
