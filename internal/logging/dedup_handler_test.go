@@ -2,6 +2,7 @@ package logging
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"sync"
 	"testing"
@@ -187,6 +188,123 @@ func TestDedupHandler_LiveCallbackUpdates(t *testing.T) {
 	if entries[0].Attributes["suppressed"] != 3 {
 		t.Errorf("expected ring buffer suppressed=3, got %v", entries[0].Attributes["suppressed"])
 	}
+}
+
+func TestDedupHandler_PublishedAttributesNotMutated(t *testing.T) {
+	// The Attributes map handed to a consumer (live SSE callback / ReadAll) must
+	// never be mutated afterwards: an SSE goroutine json-marshals it while the
+	// dedup handler updates suppression, and a concurrent map write during
+	// marshal panics ("index out of range" in mapEncoder). Using the real
+	// BufferHandler as inner reproduces the shared-map: the first occurrence's
+	// map is the one written to the ring buffer AND delivered to the callback.
+	buf := NewRingBuffer(100)
+	var cbMu sync.Mutex
+	var delivered []LogEntry
+
+	mutex.Lock()
+	oldBuffer, oldCallback := logBuffer, logCallback
+	logBuffer = buf
+	logCallback = func(e LogEntry) {
+		cbMu.Lock()
+		delivered = append(delivered, e)
+		cbMu.Unlock()
+	}
+	mutex.Unlock()
+	defer func() {
+		mutex.Lock()
+		logBuffer = oldBuffer
+		logCallback = oldCallback
+		mutex.Unlock()
+	}()
+
+	h := NewDedupHandler(NewBufferHandler(slog.LevelInfo), time.Minute)
+
+	now := time.Now()
+	first := makeRecord(now, "spam")
+	first.AddAttrs(slog.String("k", "v"))
+	_ = h.Handle(context.Background(), first)
+
+	cbMu.Lock()
+	published := delivered[0].Attributes
+	cbMu.Unlock()
+
+	// Subsequent duplicates update suppression state on the ring buffer entry.
+	for i := 1; i <= 3; i++ {
+		_ = h.Handle(context.Background(), makeRecord(now.Add(time.Duration(i)*time.Millisecond), "spam"))
+	}
+
+	if v, mutated := published["suppressed"]; mutated {
+		t.Fatalf("published Attributes map was mutated in place (gained suppressed=%v); "+
+			"an SSE encoder marshaling this map races with the suppression update", v)
+	}
+}
+
+func TestDedupHandler_ConcurrentStreamWhileSuppressing(t *testing.T) {
+	// Regression for the SSE log panic ("index out of range" in json mapEncoder):
+	// one goroutine marshals streamed entries (ReadAll snapshots share the ring
+	// buffer's Attributes maps by reference) while another emits duplicates that
+	// update suppression. Pre-fix this was a concurrent map write during marshal.
+	// Run under `go test -race`.
+	buf := NewRingBuffer(100)
+
+	mutex.Lock()
+	oldBuffer, oldCallback := logBuffer, logCallback
+	logBuffer = buf
+	logCallback = func(LogEntry) {}
+	mutex.Unlock()
+	defer func() {
+		mutex.Lock()
+		logBuffer = oldBuffer
+		logCallback = oldCallback
+		mutex.Unlock()
+	}()
+
+	h := NewDedupHandler(NewBufferHandler(slog.LevelInfo), time.Hour)
+
+	base := time.Now()
+	seed := makeRecord(base, "spam")
+	seed.AddAttrs(slog.String("a", "1"), slog.String("b", "2"))
+	_ = h.Handle(context.Background(), seed)
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Writer: duplicates within cooldown -> UpdateLatest swaps the slot's map.
+	go func() {
+		defer wg.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-done:
+				return
+			default:
+				_ = h.Handle(context.Background(),
+					makeRecord(base.Add(time.Duration(i)*time.Microsecond), "spam"))
+			}
+		}
+	}()
+
+	// Reader: marshal ReadAll snapshots (the SSE streaming path).
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				for _, e := range buf.ReadAll() {
+					if _, err := json.Marshal(e); err != nil {
+						t.Errorf("marshal: %v", err)
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	close(done)
+	wg.Wait()
 }
 
 func TestDedupHandler_StaleEntryCleanup(t *testing.T) {

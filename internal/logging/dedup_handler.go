@@ -3,6 +3,7 @@ package logging
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 )
@@ -112,10 +113,15 @@ func (h *DedupHandler) Handle(ctx context.Context, r slog.Record) error {
 		buf.UpdateLatest(
 			func(e *LogEntry) bool { return e.Message == msg },
 			func(e *LogEntry) {
-				if e.Attributes == nil {
-					e.Attributes = make(map[string]any)
-				}
-				e.Attributes["suppressed"] = entry.suppressed
+				// Copy-on-write: a previously-published reference to this map
+				// (live SSE callback or a ReadAll snapshot) may be mid-marshal
+				// on another goroutine. Swap in a fresh map instead of mutating
+				// the shared one — a concurrent map write during json.Marshal
+				// panics in mapEncoder.
+				next := make(map[string]any, len(e.Attributes)+1)
+				maps.Copy(next, e.Attributes)
+				next["suppressed"] = entry.suppressed
+				e.Attributes = next
 				e.Timestamp = r.Time
 			},
 		)
