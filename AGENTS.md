@@ -26,7 +26,8 @@ This file provides guidance for agentic coding agents working with this Go-based
 ### Native binaries (C++, host)
 
 The Go daemon spawns `videonode-source`, `videonode-sink`, and
-`videonode-composer` from `~/.local/bin/` (see defaults in `main.go`).
+`videonode-composer` from `~/.local/bin/` on the dev box, and `/usr/bin/` on
+the SBC/rig.
 `process-compose` / `air` won't see your C++ changes until you install
 them there. **Any time you build C++ in `composer/`, also install:**
 
