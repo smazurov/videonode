@@ -181,28 +181,6 @@ func (s *streamService) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-// Restart re-applies the persisted spec to the pipeline. ApplyStream
-// refreshes the cached encoder stage; a running encoder (reader attached)
-// is bounced onto the fresh spec, while an idle encoder stays idle until
-// the next reader-connect spawn. When the pipeline master switch is off,
-// Restart is a no-op (the encoder would refuse to spawn anyway).
-func (s *streamService) Restart(_ context.Context, id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	st, ok := s.store.GetPipelineStream(id)
-	if !ok {
-		return &api.StreamNotFoundError{StreamID: id}
-	}
-	if s.pipe == nil || !s.pipelineSwitchEnabled() {
-		return nil
-	}
-	if err := s.pipe.ApplyStream(st); err != nil {
-		return &api.StreamInvalidError{Message: "pipeline rejected stream: " + err.Error()}
-	}
-	return nil
-}
-
 // pipelineSwitchEnabled reports the daemon-wide pipeline master switch.
 // Defaults to true when no switch is wired (production main.go always
 // wires the streamStore as the switch).

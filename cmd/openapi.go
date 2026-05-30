@@ -75,3 +75,6 @@ type noopProcessesProvider struct{}
 
 // Snapshot implements api.ProcessesProvider.
 func (noopProcessesProvider) Snapshot() []pipeline.ProcessView { return nil }
+
+// RestartProcess implements api.ProcessesProvider.
+func (noopProcessesProvider) RestartProcess(string) error { return nil }

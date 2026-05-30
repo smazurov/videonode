@@ -9,18 +9,25 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
 
 // ProcessesProvider is what /api/processes needs from the daemon — a
-// Snapshot() that returns the current view of supervised stages.
-// Pipeline implements it directly. Defined here (the consumer side) to
-// keep the interface tiny and inversion-of-deps friendly.
+// Snapshot() that returns the current view of supervised stages and a
+// RestartProcess() that bounces one stage by its pool id. Pipeline
+// implements both directly. Defined here (the consumer side) to keep the
+// interface tiny and inversion-of-deps friendly.
 type ProcessesProvider interface {
 	Snapshot() []pipeline.ProcessView
+	// RestartProcess bounces the supervised stage named by its internal
+	// pool id ("producer:<id>" / "composer:<id>" / "encoder:<stream-id>").
+	// Returns pipeline.ErrNoSuchProcess when the id isn't supervised.
+	RestartProcess(id string) error
 }
 
 // ProcessEntry is the API-facing per-stage row. Mirrors pipeline.ProcessView
@@ -70,6 +77,32 @@ func RegisterProcessesRoutes(api huma.API, provider ProcessesProvider) {
 		resp.Body.Processes = toProcessEntries(provider.Snapshot())
 		return resp, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "restart-process",
+		Method:      http.MethodPost,
+		Path:        "/api/processes/{id}/restart",
+		Summary:     "Restart a supervised pipeline process",
+		Description: "Bounce one supervised stage (source / composer / encoder) through the " +
+			"process pool. The id is the pool key as returned by GET /api/processes " +
+			"('source:<id>' / 'composer:<id>' / 'encoder:<stream-id>'). Sources and " +
+			"composers are re-applied (the gRPC control plane is re-established); a running " +
+			"encoder is bounced while an idle one (no reader attached) is left down.",
+		Tags:     []string{"processes"},
+		Errors:   []int{401, 404, 500},
+		Security: withAuth(),
+	}, func(_ context.Context, input *struct {
+		ID string `path:"id" pattern:"^(source|composer|encoder):[a-zA-Z0-9_-]+$" example:"source:hdmi0" doc:"Process pool id (kind:entity-id) as returned by GET /api/processes"`
+	},
+	) (*struct{}, error) {
+		if err := provider.RestartProcess(denormalizeProcessID(input.ID)); err != nil {
+			if errors.Is(err, pipeline.ErrNoSuchProcess) {
+				return nil, huma.Error404NotFound("no such supervised process: "+input.ID, err)
+			}
+			return nil, huma.Error500InternalServerError("failed to restart process", err)
+		}
+		return &struct{}{}, nil
+	})
 }
 
 // toProcessEntries projects pipeline.ProcessView rows onto the API shape,
@@ -78,7 +111,7 @@ func toProcessEntries(views []pipeline.ProcessView) []ProcessEntry {
 	out := make([]ProcessEntry, len(views))
 	for i, v := range views {
 		out[i] = ProcessEntry{
-			ID:           v.ID,
+			ID:           normalizeProcessID(v.ID),
 			Kind:         normalizeKind(v.Kind),
 			StreamID:     v.StreamID,
 			State:        v.State,
@@ -101,4 +134,24 @@ func normalizeKind(k string) string {
 		return "source"
 	}
 	return k
+}
+
+// normalizeProcessID rewrites the internal "producer:" pool-key prefix to
+// the API-facing "source:" so /api/processes ids match the canonical
+// source/composer/encoder vocabulary and round-trip with restart.
+func normalizeProcessID(id string) string {
+	if rest, ok := strings.CutPrefix(id, "producer:"); ok {
+		return "source:" + rest
+	}
+	return id
+}
+
+// denormalizeProcessID is the inverse of normalizeProcessID: it maps an
+// API-facing "source:" id back to the internal "producer:" pool key
+// before the request reaches the process pool.
+func denormalizeProcessID(id string) string {
+	if rest, ok := strings.CutPrefix(id, "source:"); ok {
+		return "producer:" + rest
+	}
+	return id
 }

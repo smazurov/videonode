@@ -175,33 +175,6 @@ func (s *Server) registerStreamRoutes() {
 		}
 		return &models.StreamResponse{Body: s.streamToAPI(*st)}, nil
 	})
-
-	huma.Register(s.api, huma.Operation{
-		OperationID: "restart-stream",
-		Method:      http.MethodPost,
-		Path:        "/api/streams/{stream_id}/restart",
-		Summary:     "Restart Stream",
-		Description: "Re-apply the persisted spec to the pipeline (stop + start the encoder)",
-		Tags:        []string{"streams"},
-		Errors:      []int{401, 404, 500, 503},
-		Security:    withAuth(),
-	}, func(ctx context.Context, input *struct {
-		StreamID string `path:"stream_id" minLength:"1" maxLength:"50" pattern:"^[a-zA-Z0-9_-]+$" example:"stream-001" doc:"Stream identifier"`
-	},
-	) (*struct{}, error) {
-		if err := s.streamService.Restart(ctx, input.StreamID); err != nil {
-			return nil, s.mapStreamError(err)
-		}
-
-		if st, gerr := s.streamService.Get(ctx, input.StreamID); gerr == nil {
-			apiStream := s.streamToAPI(*st)
-			if s.streamEntity != nil {
-				s.streamEntity.PublishUpdated(apiStream)
-			}
-		}
-
-		return &struct{}{}, nil
-	})
 }
 
 // streamFromCreateRequest converts the slim API create payload into a

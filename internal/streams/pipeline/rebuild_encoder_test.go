@@ -6,16 +6,20 @@ import (
 	"github.com/smazurov/videonode/internal/process"
 )
 
-// recordingPool is a process.Pool test double: it records Start/Stop calls and
-// reports a controllable running set, so RebuildStreamEncoder's lazy behavior
-// can be asserted without spawning real processes.
+// recordingPool is a process.Pool test double: it records Start/Stop/Restart
+// calls and reports a controllable running set (and optional explicit states),
+// so lazy restart behavior can be asserted without spawning real processes.
 type recordingPool struct {
-	running map[string]bool
-	starts  []string
-	stops   []string
+	running  map[string]bool
+	states   map[string]process.State // explicit GetStatus override per id
+	starts   []string
+	stops    []string
+	restarts []string
 }
 
-func newRecordingPool() *recordingPool { return &recordingPool{running: map[string]bool{}} }
+func newRecordingPool() *recordingPool {
+	return &recordingPool{running: map[string]bool{}, states: map[string]process.State{}}
+}
 
 func (p *recordingPool) Start(id string) error {
 	p.starts = append(p.starts, id)
@@ -28,12 +32,26 @@ func (p *recordingPool) Stop(id string) error {
 	p.running[id] = false
 	return nil
 }
-func (p *recordingPool) Restart(_ string) error           { return nil }
-func (p *recordingPool) GetStatus(_ string) *process.Info { return &process.Info{} }
-func (p *recordingPool) IsRunning(id string) bool         { return p.running[id] }
-func (p *recordingPool) SetKind(_, _ string)              {}
-func (p *recordingPool) IDs() []string                    { return nil }
-func (p *recordingPool) StopAll()                         {}
+
+func (p *recordingPool) Restart(id string) error {
+	p.restarts = append(p.restarts, id)
+	p.running[id] = true
+	return nil
+}
+
+func (p *recordingPool) GetStatus(id string) *process.Info {
+	if st, ok := p.states[id]; ok {
+		return &process.Info{ID: id, State: st}
+	}
+	if p.running[id] {
+		return &process.Info{ID: id, State: process.StateRunning}
+	}
+	return &process.Info{ID: id, State: process.StateIdle}
+}
+func (p *recordingPool) IsRunning(id string) bool { return p.running[id] }
+func (p *recordingPool) SetKind(_, _ string)      {}
+func (p *recordingPool) IDs() []string            { return nil }
+func (p *recordingPool) StopAll()                 {}
 
 func newPipelineWithPool(pool process.Pool) *Pipeline {
 	p := New(Config{RTSPPort: ":8554"}, nil)

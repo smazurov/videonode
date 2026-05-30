@@ -969,6 +969,75 @@ func (p *Pipeline) EnsureEncoder(streamID string) error {
 	return nil
 }
 
+// ErrNoSuchProcess is returned by RestartProcess when the pool id names a
+// stage the pipeline isn't currently supervising. The API maps it to 404.
+var ErrNoSuchProcess = errors.New("pipeline: no such supervised process")
+
+// RestartProcess bounces a single supervised stage through the process
+// pool, keyed by its pool id ("producer:<id>" / "composer:<id>" /
+// "encoder:<stream-id>"). It is the one standardized restart entry point
+// behind POST /api/processes/{id}/restart. Per kind:
+//   - producer → re-ApplySource from the registry (bounce + re-plumb the
+//     gRPC control plane; revives a crashed source).
+//   - composer → re-ApplyComposer from the registry (bounce + re-push
+//     canvas/source/layout/effects).
+//   - encoder  → restartEncoder (pool.Restart unless idle; the lazy
+//     lifecycle keeps an idle encoder down so we never spawn a
+//     consumer-less process).
+//
+// Unknown / not-registered ids return ErrNoSuchProcess.
+func (p *Pipeline) RestartProcess(poolID string) error {
+	kind, id, ok := strings.Cut(poolID, ":")
+	if !ok || id == "" {
+		return ErrNoSuchProcess
+	}
+	switch kind {
+	case "producer":
+		src, found := p.sources.Get(id)
+		if !found {
+			return ErrNoSuchProcess
+		}
+		return p.ApplySource(src)
+	case "composer":
+		c, found := p.composers.Get(id)
+		if !found {
+			return ErrNoSuchProcess
+		}
+		return p.ApplyComposer(c)
+	case "encoder":
+		p.mu.Lock()
+		_, cached := p.stages[poolID]
+		p.mu.Unlock()
+		if !cached {
+			return ErrNoSuchProcess
+		}
+		return p.restartEncoder(id)
+	default:
+		return ErrNoSuchProcess
+	}
+}
+
+// restartEncoder bounces a stream's encoder process through the pool,
+// reusing the cached stage. No-op when the encoder is idle (lazy
+// lifecycle: no reader attached → no process, and force-starting would
+// leave a consumer-less encoder running). A running or crashed encoder is
+// restarted/revived. The FFmpegCollector and the upstream source/composer
+// are unaffected — vn-sink retry-dials the upstream SCM.
+func (p *Pipeline) restartEncoder(streamID string) error {
+	if streamID == "" {
+		return errors.New("pipeline: streamID is required")
+	}
+	mu := p.entityLock("stream:" + streamID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	id := EncoderIDFor(streamID)
+	if p.pool.GetStatus(id).State == process.StateIdle {
+		return nil
+	}
+	return p.pool.Restart(id)
+}
+
 // Pool exposes the underlying process.Pool for callers that need status
 // lookups. Not used by Apply/Delete; only diagnostics should reach for
 // it.

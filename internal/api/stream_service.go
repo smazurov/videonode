@@ -20,7 +20,6 @@ type StreamService interface {
 	// in-place; the service handles validation, persistence, and rollback.
 	Update(ctx context.Context, id string, patch func(*pipeline.Stream) error) (*pipeline.Stream, error)
 	Delete(ctx context.Context, id string) error
-	Restart(ctx context.Context, id string) error
 
 	// EncoderStatus returns the process pool state for a stream's encoder.
 	EncoderStatus(streamID string) models.ProcessStatus
