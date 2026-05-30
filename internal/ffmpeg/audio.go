@@ -21,9 +21,9 @@ func MapCaptureDevice(dev string) string {
 
 // DsnoopDevice rewrites a raw ALSA hardware device string into the
 // videonode "vncap" PCM, which routes capture through a plug -> dsnoop
-// chain (see packaging/videonode.asound.conf). dsnoop gives mmap-backed
-// access to the hardware (legible capture on RK3588); plug converts the
-// card-native sample format to whatever the encoder requests.
+// chain (see packaging/videonode.asound.conf). The dsnoop layer gives
+// mmap-backed access to the hardware (legible capture on RK3588); plug
+// converts the card-native sample format to whatever the encoder requests.
 //
 //	hw:3,0      -> vncap:CARD=3,DEV=0
 //	hw:3        -> vncap:CARD=3,DEV=0
