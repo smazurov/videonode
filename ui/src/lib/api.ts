@@ -213,6 +213,11 @@ export interface SSEClientConfig<P extends SSEPath> {
   onStatusChange?: (status: SSEStatus) => void;
   onConnect?: () => void;
   onError?: (willReconnect: boolean) => void;
+  // Opt-in liveness watchdog. Only /api/events emits the 15s heartbeat the
+  // watchdog expects; endpoints without one (e.g. /api/logs/stream) must leave
+  // this off or the watchdog fires every HEARTBEAT_TIMEOUT_MS and forces a
+  // needless reconnect — which replays the whole backfill.
+  heartbeatWatchdog?: boolean;
 }
 
 type MessageHandler = (event: MessageEvent) => void;
@@ -304,6 +309,7 @@ export class SSEClient<P extends SSEPath> {
   // fires, a heartbeat was missed: the socket is likely black-holed (no
   // onerror yet), so force the disconnect path.
   private resetWatchdog(): void {
+    if (!this.config.heartbeatWatchdog) return;
     this.clearWatchdog();
     this.watchdogTimer = window.setTimeout(() => {
       void this.handleDisconnect();

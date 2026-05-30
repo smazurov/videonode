@@ -68,6 +68,7 @@ function setupGlobalSSE(): void {
 
   globalClient = new SSEClient({
     endpoint: '/api/events',
+    heartbeatWatchdog: true,
     onStatusChange: (status) => {
       const mapped = mapStatus(status);
       for (const handler of globalConnectionHandlers) {
