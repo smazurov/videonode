@@ -156,11 +156,6 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
   const streamsById = useStreamStore((state) => state.streamsById);
   const streams = useMemo(() => Object.values(streamsById), [streamsById]);
 
-  // Debug: Log when devices change
-  useEffect(() => {
-    console.log('InfoBar: Devices updated, count:', devices.length);
-  }, [devices]);
-
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
     health: null,
     encoders: null,
@@ -201,9 +196,9 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
       const health = healthResult?.data ?? null;
       const encoders = encodersResult?.data ?? null;
 
-      // Also fetch devices and streams if this is the initial load
+      // The device list is seeded by the SSE manager on (re)connect; only the
+      // stream list needs an initial pull here.
       if (showLoading) {
-        useDeviceStore.getState().fetchDevices();
         useStreamStore.getState().fetchStreams();
       }
 
