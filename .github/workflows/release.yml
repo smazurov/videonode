@@ -149,9 +149,28 @@ jobs:
       - name: Render release notes
         run: |
           go install github.com/goreleaser/chglog/cmd/chglog@latest
+          go install github.com/mikefarah/yq/v4@v4.44.3
           TAG="v${VERSION#v}"
-          chglog format --template release --version "$TAG" -i changelog.yml --output RELEASE_NOTES.md 2>/dev/null || true
+          VER="${VERSION#v}"
+          rm -f RELEASE_NOTES.md one.yml
+          # chglog format has no per-version filter, so slice the matching
+          # changelog.yml entry first, then render only that one with the
+          # GitHub-flavored release template (shared with the docs site).
+          yq "[.[] | select(.semver == \"$VER\")]" changelog.yml > one.yml
+          if [ "$(yq 'length' one.yml)" -gt 0 ]; then
+            chglog format --template-file website/scripts/release.tpl -i one.yml --output RELEASE_NOTES.md
+            # Footer: compare link to the previous release in changelog.yml.
+            mapfile -t VERS < <(yq -r '.[].semver' changelog.yml)
+            for i in "${!VERS[@]}"; do
+              if [ "${VERS[$i]}" = "$VER" ]; then PREV="${VERS[$((i+1))]:-}"; break; fi
+            done
+            if [ -n "${PREV:-}" ]; then
+              printf '\n**Full Changelog**: %s/%s/compare/v%s...%s\n' \
+                "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$PREV" "$TAG" >> RELEASE_NOTES.md
+            fi
+          fi
           test -s RELEASE_NOTES.md || echo "Release ${TAG}" > RELEASE_NOTES.md
+          echo "----- rendered notes -----"; cat RELEASE_NOTES.md
       - uses: actions/download-artifact@v8
         with:
           pattern: pkg-*
