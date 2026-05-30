@@ -4,7 +4,7 @@
 # GH Actions via the `container:` directive). Installs deps and drives
 # cmake for the requested MODE.
 #
-# MODE=release-nfpm (default) Release build → ctest → cmake --install to staging → strip
+# MODE=release-nfpm (default) Release build (tests OFF) → cmake --install to staging → strip
 #                              Artifact: composer/$BUILD_DIR/staging/bin/videonode-*
 # MODE=dev                    cmake --preset dev → build → ctest
 # MODE=dev-asan               cmake --preset dev-asan → build → ctest (ASan/UBSan)
@@ -29,9 +29,15 @@ if [[ $EUID -ne 0 ]] && [[ -z "$SUDO" ]] && command -v sudo >/dev/null; then
     SUDO=sudo
 fi
 
+# Per-mode extras. gtest/gmock are test-only — only the modes that build and run
+# the suite (dev, dev-asan, lint configures via the dev preset which sets
+# BUILD_TESTS=ON) get them. release-nfpm builds with BUILD_TESTS=OFF and instead
+# pulls dpkg-dev for dpkg-shlibdeps (runtime-dep generation, see scripts/gen-deb-depends.sh).
 case "$MODE" in
-    lint) extra_pkgs=(clang-format clang-tidy) ;;
-    *)    extra_pkgs=() ;;
+    lint)         extra_pkgs=(clang-format clang-tidy libgtest-dev libgmock-dev) ;;
+    dev|dev-asan) extra_pkgs=(libgtest-dev libgmock-dev) ;;
+    release-nfpm) extra_pkgs=(dpkg-dev) ;;
+    *)            extra_pkgs=() ;;
 esac
 
 $SUDO apt-get update -qq
@@ -42,7 +48,6 @@ DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y --no-install-recommends 
     libplacebo-dev libvulkan-dev \
     libabsl-dev \
     libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc \
-    libgtest-dev libgmock-dev \
     "${extra_pkgs[@]}"
 
 # Locate composer/ from this script's location so callers don't need to cwd.
@@ -57,9 +62,10 @@ git config --global --add safe.directory "$ROOT"
 cd "$ROOT/composer"
 case "$MODE" in
     release-nfpm)
-        cmake -B "$BUILD_DIR" -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
+        # Shipping build: tests OFF (the default; explicit for clarity), so
+        # gtest is never needed and there are no tests to run.
+        cmake -B "$BUILD_DIR" -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
         cmake --build "$BUILD_DIR"
-        ctest --test-dir "$BUILD_DIR" --output-on-failure
         cmake --install "$BUILD_DIR" --prefix "$BUILD_DIR/staging"
         find "$BUILD_DIR/staging/bin" -type f -executable -exec strip {} +
         ;;

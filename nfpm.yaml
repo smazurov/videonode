@@ -13,34 +13,21 @@ vendor: Stepan Mazurov
 homepage: https://github.com/smazurov/videonode
 license: AGPL-3.0-or-later
 
-# Runtime libraries the native binaries dlopen/link against. The C++ side
-# (videonode-source/-sink/-composer) links gRPC, protobuf, abseil, libplacebo
-# and turbojpeg in addition to the EGL/GLES/GBM/DRM stack — without these the
-# binaries fail at startup with "cannot open shared object file". Package names
-# and soname suffixes are trixie-specific (note the t64 64-bit-time_t suffixes);
-# bump them if the build base moves.
-# librga / librockchip_mpp are board-specific (not in Debian) and provided by
-# install-rockchip-libs.sh / the Armbian image, so they are not declared here.
+# Runtime library deps are NOT maintained here. The release workflow's package
+# step overwrites `.depends` (via yq) with the output of scripts/gen-deb-depends.sh,
+# which runs dpkg-shlibdeps against the real arm64 binaries in the trixie build job.
+# That derives ABI-correct, version-floored deps (e.g. `libplacebo349 (>= 7.349.0)`)
+# from what the binaries actually link, so a missing/too-old lib (notably libplacebo)
+# is refused at `apt install` instead of crashing at runtime. librga / librockchip_mpp
+# are board-provided (install-rockchip-libs.sh / the image) and stay undeclared.
 #
-# base-files (>= 13~) gates the OS to trixie+. The trixie-only sonames below
-# already make the package uninstallable on bookworm, but apt reports that as a
-# cryptic pile of "not installable" lib errors. base-files tracks the Debian
-# release (bookworm 12.x, trixie 13.x), so this turns the refusal into a
-# readable "Depends: base-files (>= 13~) but 12.x is installed". The ~ lets any
-# trixie point release (13.8+deb13u4, ...) satisfy it.
+# The list below is only a minimal fallback for a manual `nfpm package` run without
+# that generated dist/depends.txt. base-files (>= 13~) gates the OS to trixie+ (~ lets
+# any trixie point release satisfy it) and turns a wrong-release install into a readable
+# message rather than a pile of uninstallable-soname errors.
 depends:
   - base-files (>= 13~)
   - libc6
-  - libstdc++6
-  - libegl1
-  - libgles2
-  - libgbm1
-  - libdrm2
-  - libgrpc++1.51t64
-  - libprotobuf32t64
-  - libabsl20240722
-  - libplacebo349
-  - libturbojpeg0
 
 contents:
   - src: ./dist/videonode

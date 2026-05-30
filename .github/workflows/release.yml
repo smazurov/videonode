@@ -77,6 +77,15 @@ jobs:
               -X github.com/smazurov/videonode/internal/version.BuildID=${GITHUB_RUN_ID}" \
             -o dist/videonode .
 
+      # Derive the .deb runtime Depends from the actual arm64 binaries via
+      # dpkg-shlibdeps (valid only here: arm64 ELF + trixie symbols files together).
+      # The cross x86_64 package job can't compute this, so it rides the artifact.
+      - name: Compute runtime deps (dpkg-shlibdeps)
+        run: |
+          scripts/gen-deb-depends.sh \
+            dist/videonode-source dist/videonode-sink dist/videonode-composer > dist/depends.txt
+          echo "Generated .deb depends:"; cat dist/depends.txt
+
       - uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.arch }}
@@ -102,14 +111,19 @@ jobs:
         with:
           name: build-${{ matrix.arch }}
           path: dist/
-      - name: Install nfpm + lintian
+      - name: Install nfpm + lintian + yq
         run: |
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3
+          go install github.com/mikefarah/yq/v4@v4.44.3
           sudo apt-get update -qq
           sudo apt-get install -y lintian
       - name: Package
         run: |
           chmod +x dist/videonode dist/videonode-source dist/videonode-sink dist/videonode-composer
+          # Overwrite the static fallback depends with the dpkg-shlibdeps list
+          # computed against the real binaries in the trixie build job.
+          yq -i '.depends = (load_str("dist/depends.txt") | split("\n") | map(select(. != "")))' nfpm.yaml
+          echo "nfpm depends:"; yq '.depends' nfpm.yaml
           VER="${VERSION#v}"
           GOARCH=${{ matrix.arch }} VERSION=$VER \
             nfpm package --packager ${{ matrix.format }} --target dist/

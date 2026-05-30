@@ -1,6 +1,4 @@
-# 3.25 is bookworm's cmake (the .deb runtime target); the release builds with a
-# bare `cmake -B build` configure, not presets, so this floor is what gates it.
-# Dev/lint use CMakePresets.json (v9 → needs 3.30) and run on trixie instead.
+# Floor is bookworm's cmake (the bare-configure release target); presets need 3.30.
 cmake_minimum_required(VERSION 3.25)
 
 project(videonode-native
@@ -14,15 +12,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# We do not use C++20 modules (see composer/README.md → Follow-ups). Turning
-# off module dependency scanning keeps clang-tidy happy: cmake otherwise
-# injects -fdeps-format=p1689r5 / -fmodule-mapper into compile_commands.json,
-# which clang-tidy rejects as unknown arguments.
+# No C++20 modules; scanning injects flags clang-tidy rejects.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-# Mirror the build-tree compile_commands.json to the source tree so tools
-# that don't read .clangd (some IDEs, MCP servers, scripts) find it at the
-# expected root location.
+# Mirror compile_commands.json to the source tree for tools that don't read .clangd.
 if(CMAKE_EXPORT_COMPILE_COMMANDS)
     add_custom_target(vn_compile_commands_symlink ALL
         COMMAND ${CMAKE_COMMAND} -E create_symlink
@@ -39,23 +32,21 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wshadow)
 
-option(BUILD_TESTS "Build host-side unit tests under tests/" ON)
+# Opt-in: OFF keeps gtest off the shipping/release path; dev/sanitizer/lint
+# presets set it ON to build and run the suite.
+option(BUILD_TESTS "Build host-side unit tests under tests/" OFF)
 
-# Default to a per-user install prefix so `cmake --install build` doesn't
-# require sudo. Override with -DCMAKE_INSTALL_PREFIX=/usr (or anywhere
-# else) for a system-wide install.
+# Per-user install prefix so `cmake --install` needs no sudo; override with
+# -DCMAKE_INSTALL_PREFIX=/usr for a system-wide install.
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local"
         CACHE PATH "Install location (default: per-user $HOME/.local)" FORCE)
 endif()
 
-# All inter-target #include "src/foo.hpp" / "src/foo.h" paths assume the
-# repo root is on the include path.
+# Inter-target #include "src/foo.hpp" paths assume repo root on the include path.
 include_directories(${CMAKE_SOURCE_DIR})
 
-# Build-time version header. Runs git-describe on every build; falls back
-# to PROJECT_VERSION when git is unavailable. Writes version.hpp only when
-# the content changes to avoid needless recompilation.
+# Build-time version header from git-describe (falls back to PROJECT_VERSION).
 add_custom_target(vn_version ALL
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
