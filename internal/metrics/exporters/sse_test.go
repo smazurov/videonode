@@ -8,6 +8,7 @@ import (
 
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/metrics"
+	"github.com/smazurov/videonode/internal/streaming"
 )
 
 type capturedEvent struct {
@@ -84,18 +85,18 @@ func TestSSEExporterPublishesMetrics(t *testing.T) {
 			continue
 		}
 		found = true
-		payload, ok := ev.payload.(map[string]any)
+		payload, ok := ev.payload.(streaming.StreamMetricsPayload)
 		if !ok {
-			t.Fatalf("payload type = %T, want map[string]any", ev.payload)
+			t.Fatalf("payload type = %T, want streaming.StreamMetricsPayload", ev.payload)
 		}
-		if payload["fps"] != 30.0 {
-			t.Errorf("fps = %v, want 30", payload["fps"])
+		if payload.FPS != 30.0 {
+			t.Errorf("fps = %v, want 30", payload.FPS)
 		}
-		if payload["dropped_frames"] != float64(5) {
-			t.Errorf("dropped_frames = %v, want 5", payload["dropped_frames"])
+		if payload.DroppedFrames != 5 {
+			t.Errorf("dropped_frames = %v, want 5", payload.DroppedFrames)
 		}
-		if payload["duplicate_frames"] != float64(2) {
-			t.Errorf("duplicate_frames = %v, want 2", payload["duplicate_frames"])
+		if payload.DuplicateFrames != 2 {
+			t.Errorf("duplicate_frames = %v, want 2", payload.DuplicateFrames)
 		}
 		break
 	}

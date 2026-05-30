@@ -1187,29 +1187,142 @@ export interface components {
              */
             type: string;
         };
-        EntityEvent: {
-            /**
-             * @description created | updated | deleted | status | metrics | consumers
-             * @example updated
-             */
-            action: string;
-            /**
-             * @description Entity type: source | composer | stream
-             * @example source
-             */
-            entity_type: string;
-            /**
-             * @description Entity identifier (empty allowed for global events)
-             * @example hdmi0
-             */
+        EntityComposerCreated: {
             id: string;
-            /** @description Action-specific payload (entity snapshot for lifecycle, status snapshot, metrics, or per-client consumer list) */
-            payload?: unknown;
-            /**
-             * @description RFC3339 server time
-             * @example 2026-05-23T10:30:00Z
-             */
+            payload: components["schemas"]["ComposerData"];
             timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "composer.created";
+        };
+        EntityComposerDeleted: {
+            id: string;
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "composer.deleted";
+        };
+        EntityComposerUpdated: {
+            id: string;
+            payload: components["schemas"]["ComposerData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "composer.updated";
+        };
+        EntitySourceConsumers: {
+            id: string;
+            payload: components["schemas"]["SourceConsumersInfo"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.consumers";
+        };
+        EntitySourceCreated: {
+            id: string;
+            payload: components["schemas"]["SourceData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.created";
+        };
+        EntitySourceDeleted: {
+            id: string;
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.deleted";
+        };
+        EntitySourceStatus: {
+            id: string;
+            payload: components["schemas"]["StatusParams"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.status";
+        };
+        EntitySourceUpdated: {
+            id: string;
+            payload: components["schemas"]["SourceData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.updated";
+        };
+        EntityStreamConsumers: {
+            id: string;
+            payload: components["schemas"]["StreamConsumersPayload"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.consumers";
+        };
+        EntityStreamCreated: {
+            id: string;
+            payload: components["schemas"]["StreamData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.created";
+        };
+        EntityStreamDeleted: {
+            id: string;
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.deleted";
+        };
+        EntityStreamMetrics: {
+            id: string;
+            payload: components["schemas"]["StreamMetricsPayload"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.metrics";
+        };
+        EntityStreamStatus: {
+            id: string;
+            payload: components["schemas"]["StreamStatusPayload"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.status";
+        };
+        EntityStreamUpdated: {
+            id: string;
+            payload: components["schemas"]["StreamData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.updated";
         };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -1516,6 +1629,40 @@ export interface components {
              */
             width: number;
         };
+        SRTClientInfo: {
+            /** Format: int64 */
+            bytes_sent: number;
+            connected_since: string;
+            id: string;
+            /** Format: double */
+            rtt_ms: number;
+        };
+        SourceBroadcastInfo: {
+            /** Format: int32 */
+            last_seq: number;
+            /** Format: int64 */
+            placeholder_frames: number;
+            /** Format: int64 */
+            real_frames: number;
+            /** Format: int32 */
+            target_fps: number;
+        };
+        SourceConsumerEntry: {
+            /** Format: int64 */
+            evicted_at_frame?: number;
+            /** Format: int64 */
+            fd: number;
+            /** Format: int64 */
+            frames_dropped: number;
+            /** Format: int64 */
+            frames_sent: number;
+        };
+        SourceConsumersInfo: {
+            /** Format: int64 */
+            count: number;
+            evicted: components["schemas"]["SourceConsumerEntry"][] | null;
+            live: components["schemas"]["SourceConsumerEntry"][] | null;
+        };
         SourceCreateBody: {
             /**
              * Format: uri
@@ -1596,6 +1743,10 @@ export interface components {
              */
             updated_at?: string;
         };
+        SourceDeviceInfo: {
+            multiplanar: boolean;
+            path: string;
+        };
         SourceFormatBody: {
             /**
              * @description Lowercase video format name (matches /api/devices/{id}/formats)
@@ -1622,6 +1773,18 @@ export interface components {
              */
             width: number;
         };
+        SourceFormatInfo: {
+            /** Format: int32 */
+            buffers: number;
+            fourcc: string;
+            /** Format: int32 */
+            fps: number;
+            /** Format: int32 */
+            h: number;
+            mode: string;
+            /** Format: int32 */
+            w: number;
+        };
         SourceListData: {
             /**
              * Format: uri
@@ -1647,8 +1810,15 @@ export interface components {
             /**
              * @description composer | stream
              * @example composer
+             * @enum {string}
              */
-            kind: string;
+            kind: "composer" | "stream";
+        };
+        SourceSignalInfo: {
+            cable_present: boolean;
+            dv_timings: string;
+            has_dv_timings: boolean;
+            signal_locked: boolean;
         };
         SourceUpdateBody: {
             /**
@@ -1669,6 +1839,31 @@ export interface components {
              * @example true
              */
             test_mode?: boolean;
+        };
+        StatusParams: {
+            broadcast: components["schemas"]["SourceBroadcastInfo"];
+            consumers: components["schemas"]["SourceConsumersInfo"];
+            device: components["schemas"]["SourceDeviceInfo"];
+            device_id: string;
+            format: components["schemas"]["SourceFormatInfo"];
+            health: string;
+            signal: components["schemas"]["SourceSignalInfo"];
+            /** Format: int64 */
+            started_at_us?: number;
+            /** Format: int64 */
+            ts_ms: number;
+        };
+        StreamConsumersPayload: {
+            /** Format: int64 */
+            rtsp: number;
+            /** Format: int64 */
+            srt: number;
+            srt_clients?: components["schemas"]["SRTClientInfo"][] | null;
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            webrtc: number;
+            webrtc_clients?: components["schemas"]["WebRTCClientInfo"][] | null;
         };
         StreamData: {
             /**
@@ -1756,6 +1951,18 @@ export interface components {
             /** @description List of active stream IDs */
             streams: string[] | null;
         };
+        StreamMetricsPayload: {
+            /** Format: double */
+            bytes_out: number;
+            /** Format: double */
+            dropped_frames: number;
+            /** Format: double */
+            duplicate_frames: number;
+            /** Format: double */
+            fps: number;
+            /** Format: double */
+            packets_out: number;
+        };
         StreamRequestData: {
             /**
              * Format: uri
@@ -1786,6 +1993,10 @@ export interface components {
              * @example source:hdmi0
              */
             upstream: string;
+        };
+        StreamStatusPayload: {
+            encoder_up: boolean;
+            state: string;
         };
         StreamUpdateRequestData: {
             /**
@@ -1847,6 +2058,14 @@ export interface components {
              * @description Daemon start time in Unix microseconds; render as uptime
              */
             started_at_us: number;
+        };
+        WebRTCClientInfo: {
+            /** Format: int64 */
+            bytes_sent: number;
+            connected_since: string;
+            id: string;
+            /** Format: double */
+            jitter_ms: number;
         };
     };
     responses: never;
@@ -2707,7 +2926,7 @@ export interface operations {
                         /** @description The retry time in milliseconds. */
                         retry?: number;
                     } | {
-                        data: components["schemas"]["EntityEvent"];
+                        data: components["schemas"]["EntitySourceCreated"] | components["schemas"]["EntitySourceUpdated"] | components["schemas"]["EntitySourceDeleted"] | components["schemas"]["EntitySourceStatus"] | components["schemas"]["EntitySourceConsumers"] | components["schemas"]["EntityComposerCreated"] | components["schemas"]["EntityComposerUpdated"] | components["schemas"]["EntityComposerDeleted"] | components["schemas"]["EntityStreamCreated"] | components["schemas"]["EntityStreamUpdated"] | components["schemas"]["EntityStreamDeleted"] | components["schemas"]["EntityStreamStatus"] | components["schemas"]["EntityStreamMetrics"] | components["schemas"]["EntityStreamConsumers"];
                         /**
                          * @description The event name.
                          * @constant

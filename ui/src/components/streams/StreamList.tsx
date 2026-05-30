@@ -76,13 +76,6 @@ function URLCell({ url, protocol, tone }: { readonly url: string | undefined; re
   );
 }
 
-interface ConsumerCounts {
-  total?: number;
-  rtsp?: number;
-  webrtc?: number;
-  srt?: number;
-}
-
 export function StreamList({
   streamIds,
   loading = false,
@@ -139,7 +132,7 @@ export function StreamList({
         id: 'readers',
         header: 'Readers',
         cell: (row) => {
-          const c = consumersById[row.streamId] as ConsumerCounts | undefined;
+          const c = consumersById[row.streamId];
           const total = c?.total ?? 0;
           const breakdown = c
             ? `RTSP ${c.rtsp ?? 0} · WebRTC ${c.webrtc ?? 0} · SRT ${c.srt ?? 0}`
@@ -150,7 +143,7 @@ export function StreamList({
             </span>
           );
         },
-        sortValue: (row) => (consumersById[row.streamId] as ConsumerCounts | undefined)?.total ?? 0,
+        sortValue: (row) => consumersById[row.streamId]?.total ?? 0,
         className: 'text-right',
       },
       {

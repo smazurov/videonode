@@ -2,24 +2,23 @@ import { StateCreator } from 'zustand';
 
 import type { Stream } from '../types';
 import { StreamStore } from '../../useStreamStore';
-import { assertNever, type EntityAction } from '../../entityTypes';
+import {
+  assertNever,
+  type StreamConsumers,
+  type StreamEvent,
+  type StreamMetrics,
+  type StreamStatus,
+} from '../../entityTypes';
 
-export interface StreamMetrics {
-  fps?: string | undefined;
-  dropped_frames?: string | undefined;
-  duplicate_frames?: string | undefined;
-  bytes_out?: number | undefined;
-  packets_out?: number | undefined;
-  [extra: string]: unknown;
-}
+export type { StreamMetrics };
 
 export interface StreamDataSlice {
   streamIds: string[];
   streamsById: Record<string, Stream>;
   metricsById: Record<string, StreamMetrics>;
-  // Live runtime slots populated by EntityEvent action=status|metrics|consumers.
-  statusById: Record<string, unknown>;
-  consumersById: Record<string, unknown>;
+  // Live runtime slots populated by stream.status|metrics|consumers events.
+  statusById: Record<string, StreamStatus>;
+  consumersById: Record<string, StreamConsumers>;
   streamRefreshKeys: Record<string, number>;
 
   setStreams: (streams: Stream[] | null | undefined) => void;
@@ -27,11 +26,7 @@ export interface StreamDataSlice {
   removeStream: (streamId: string) => void;
   bumpStreamRefreshKey: (streamId: string) => void;
   getStreamById: (streamId: string) => Stream | undefined;
-  applyEntityEvent: (
-    action: EntityAction,
-    id: string,
-    payload: unknown,
-  ) => void;
+  applyEntityEvent: (event: StreamEvent) => void;
 }
 
 // Alphabetical by id — stable grid order across refetches + SSE addStream.
@@ -116,39 +111,33 @@ export const createStreamDataSlice: StateCreator<
 
   getStreamById: (streamId) => get().streamsById[streamId],
 
-  applyEntityEvent: (action, id, payload) => {
+  applyEntityEvent: (event) => {
     const { addStream, removeStream } = get();
-    switch (action) {
-      case 'created':
-      case 'updated':
-        if (payload) addStream(payload as Stream);
+    switch (event.type) {
+      case 'stream.created':
+      case 'stream.updated':
+        addStream(event.payload);
         return;
-      case 'deleted':
-        removeStream(id);
+      case 'stream.deleted':
+        removeStream(event.id);
         return;
-      case 'status':
+      case 'stream.status':
         set((state) => ({
-          statusById: { ...state.statusById, [id]: payload },
+          statusById: { ...state.statusById, [event.id]: event.payload },
         }));
         return;
-      case 'metrics':
+      case 'stream.metrics':
         set((state) => ({
-          metricsById: {
-            ...state.metricsById,
-            [id]: {
-              ...(state.metricsById[id] ?? {}),
-              ...(payload as Record<string, unknown>),
-            },
-          },
+          metricsById: { ...state.metricsById, [event.id]: event.payload },
         }));
         return;
-      case 'consumers':
+      case 'stream.consumers':
         set((state) => ({
-          consumersById: { ...state.consumersById, [id]: payload },
+          consumersById: { ...state.consumersById, [event.id]: event.payload },
         }));
         return;
       default:
-        assertNever(action);
+        assertNever(event);
     }
   },
 });

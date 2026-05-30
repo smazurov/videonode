@@ -100,6 +100,6 @@ const (
 // (Location = "<kind>:<id>") when DELETE returns 409, and via the
 // denormalized SourceData.Consumers field on every Get/List response.
 type SourceReference struct {
-	Kind SourceReferenceKind `json:"kind" example:"composer" doc:"composer | stream"`
+	Kind SourceReferenceKind `json:"kind" enum:"composer,stream" example:"composer" doc:"composer | stream"`
 	ID   string              `json:"id" example:"main-scene" doc:"Referencing entity identifier"`
 }

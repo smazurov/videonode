@@ -8,19 +8,33 @@ import (
 )
 
 // EntityEvent is the uniform SSE envelope for all per-entity events.
-// One wire schema replaces the per-action structs (SourceCreatedEvent,
-// ComposerLayoutChangedEvent, StreamUpdatedEvent, etc.). Discriminate
-// on (EntityType, Action) to decode Payload.
+// The wire schema is a discriminated union: Kind ("<entity>.<action>",
+// e.g. "source.status") selects the Payload type. The OpenAPI schema is
+// produced by the SchemaProvider in variants.go, not by reflecting this
+// struct — so Payload stays `any` at runtime while the wire is typed.
 type EntityEvent struct {
-	EntityType string `json:"entity_type" example:"source" doc:"Entity type: source | composer | stream"`
-	ID         string `json:"id" example:"hdmi0" doc:"Entity identifier (empty allowed for global events)"`
-	Action     string `json:"action" example:"updated" doc:"created | updated | deleted | status | metrics | consumers"`
-	Payload    any    `json:"payload,omitempty" doc:"Action-specific payload (entity snapshot for lifecycle, status snapshot, metrics, or per-client consumer list)"`
-	Timestamp  string `json:"timestamp" example:"2026-05-23T10:30:00Z" doc:"RFC3339 server time"`
+	Kind      string `json:"type"`
+	ID        string `json:"id"`
+	Payload   any    `json:"payload,omitempty"`
+	Timestamp string `json:"timestamp"`
 }
 
-// Type identifies EntityEvent on the kelindar/event bus.
+// Type identifies EntityEvent on the kelindar/event bus. Distinct from the
+// Kind field (the wire discriminator); do not rename to Type (field/method
+// clash).
 func (EntityEvent) Type() uint32 { return TypeEntity }
+
+// newEntityEvent stamps the wire discriminator (Kind = "<entity>.<action>")
+// and timestamp. Single construction point so the discriminant can never
+// drift from the published (entityType, action).
+func newEntityEvent(entityType, action, id string, payload any) EntityEvent {
+	return EntityEvent{
+		Kind:      entityType + "." + action,
+		ID:        id,
+		Payload:   payload,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+}
 
 // Action constants for the uniform envelope.
 const (
@@ -99,13 +113,7 @@ func (e *Entity[T]) PublishUpdated(payload T) {
 func (e *Entity[T]) PublishUpdatedWith(prev, next T) {
 	id := e.idOf(next)
 	if e.bus != nil {
-		Publish(e.bus, EntityEvent{
-			EntityType: e.typ,
-			ID:         id,
-			Action:     ActionUpdated,
-			Payload:    next,
-			Timestamp:  time.Now().UTC().Format(time.RFC3339),
-		})
+		Publish(e.bus, newEntityEvent(e.typ, ActionUpdated, id, next))
 	}
 	if e.reg != nil {
 		ctx := context.Background()
@@ -141,13 +149,7 @@ func (e *Entity[T]) PublishDeleted(id string) {
 func (e *Entity[T]) PublishDeletedWith(prev T) {
 	id := e.idOf(prev)
 	if e.bus != nil {
-		Publish(e.bus, EntityEvent{
-			EntityType: e.typ,
-			ID:         id,
-			Action:     ActionDeleted,
-			Payload:    nil,
-			Timestamp:  time.Now().UTC().Format(time.RFC3339),
-		})
+		Publish(e.bus, newEntityEvent(e.typ, ActionDeleted, id, nil))
 	}
 	if e.reg != nil {
 		e.reg.DispatchDependencies(context.Background(), e.typ, ActionDeleted, prev)
@@ -200,13 +202,7 @@ func (e *Entity[T]) publish(action, id string, payload any) {
 	if e.bus == nil {
 		return
 	}
-	Publish(e.bus, EntityEvent{
-		EntityType: e.typ,
-		ID:         id,
-		Action:     action,
-		Payload:    payload,
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
-	})
+	Publish(e.bus, newEntityEvent(e.typ, action, id, payload))
 	// Lifecycle events trigger dependency fan-out so cross-entity
 	// rollups (Source.Consumers when a Stream changes, etc.) refresh
 	// in the same dispatch scope. Status/metrics/consumers events are

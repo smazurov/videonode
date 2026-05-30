@@ -7,6 +7,7 @@ import { cn } from '../../utils';
 import { API_BASE_URL } from '../../lib/api';
 import { getAuthCredentials } from '../../lib/auth';
 import { formatUptime } from '../../lib/formatUptime';
+import type { components } from '../../lib/api.generated';
 
 interface StreamConsumersPanelProps {
   readonly streamId: string;
@@ -35,28 +36,7 @@ interface ConsumerRow {
   readonly qualityLabel?: string | undefined;
 }
 
-interface WebRTCClient {
-  readonly id: string;
-  readonly connected_since: string;
-  readonly bytes_sent: number;
-  readonly jitter_ms: number;
-}
-
-interface SRTClient {
-  readonly id: string;
-  readonly connected_since: string;
-  readonly bytes_sent: number;
-  readonly rtt_ms: number;
-}
-
-interface ConsumerCounts {
-  total?: number;
-  rtsp?: number;
-  webrtc?: number;
-  srt?: number;
-  webrtc_clients?: WebRTCClient[];
-  srt_clients?: SRTClient[];
-}
+type ConsumerCounts = components['schemas']['StreamConsumersPayload'];
 
 function uptimeFrom(startMicros: number | undefined): string {
   return formatUptime(startMicros) ?? '—';
@@ -119,7 +99,7 @@ export function StreamConsumersPanel({ streamId, className }: StreamConsumersPan
   const [activeTab, setActiveTab] = useState<Protocol>('webrtc');
   const { processes } = useProcesses({ enabled: true });
   const stream = useStreamStore((state) => state.streamsById[streamId]);
-  const consumers = useStreamStore((state) => state.consumersById[streamId]) as ConsumerCounts | undefined;
+  const consumers = useStreamStore((state) => state.consumersById[streamId]);
 
   const encoderState = useMemo(() => deriveConsumers(processes, streamId), [processes, streamId]);
   const bitrates = useMemo(() => computeBitrates(streamId, consumers), [streamId, consumers]);

@@ -1083,9 +1083,12 @@ func (p *Pipeline) onStateChange(id string, _, newState process.State, _ error) 
 			sourceID := strings.TrimPrefix(id, "producer:")
 			p.cfg.Registry.Touch(context.Background(), "source", sourceID)
 			if newState == process.StateIdle {
-				p.cfg.Registry.Publish("source", events.ActionStatus, sourceID, map[string]any{
-					"started_at_us": nil,
-					"ts_ms":         time.Now().UnixMilli(),
+				// Full (zeroed) snapshot, never a partial: a partial status
+				// payload would clobber the UI's last-known signal/broadcast.
+				p.cfg.Registry.Publish("source", events.ActionStatus, sourceID, pipelinectl.StatusParams{
+					DeviceID:    sourceID,
+					Health:      "idle",
+					TimestampMs: time.Now().UnixMilli(),
 				})
 			}
 		case strings.HasPrefix(id, "composer:"):

@@ -12,10 +12,13 @@ import (
 
 // registerSSERoutes registers the native Huma SSE endpoint.
 func (s *Server) registerSSERoutes() {
+	// Must precede sse.Register: the single "entity" event's schema is a
+	// discriminated union built by EntityEvent.Schema from these variants.
+	registerEntityVariants()
 	// Register SSE endpoint with event type mapping. The wire carries the
 	// uniform entity envelope (all per-entity lifecycle/status/metrics/
 	// consumers events) plus a few genuinely-global events and a keep-alive
-	// heartbeat. The UI discriminates entity events on (entity_type, action).
+	// heartbeat. The UI discriminates entity events on the `type` tag.
 	sse.Register(s.api, huma.Operation{
 		OperationID: "events-stream",
 		Method:      http.MethodGet,

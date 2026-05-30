@@ -7,6 +7,7 @@ import (
 
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/metrics"
+	"github.com/smazurov/videonode/internal/streaming"
 )
 
 // EntityPublisher emits a per-entity event envelope. Backed by
@@ -97,12 +98,12 @@ func (s *SSEExporter) publishMetrics() {
 			packetsOut = eg.PacketsOut
 		}
 
-		s.registry.Publish("stream", events.ActionMetrics, streamID, map[string]any{
-			"fps":              fps,
-			"dropped_frames":   dropped,
-			"duplicate_frames": dup,
-			"bytes_out":        bytesOut,
-			"packets_out":      packetsOut,
+		s.registry.Publish("stream", events.ActionMetrics, streamID, streaming.StreamMetricsPayload{
+			FPS:             fps,
+			DroppedFrames:   dropped,
+			DuplicateFrames: dup,
+			BytesOut:        bytesOut,
+			PacketsOut:      packetsOut,
 		})
 	}
 }
