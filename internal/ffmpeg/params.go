@@ -31,12 +31,24 @@ type Params struct {
 	VideoFilters string
 	HWBackend    string // "rkmpp", "vaapi", "sw", or ""
 
-	AudioDevice  string
+	AudioDevice string
+
+	// AudioCodec is the logical output codec ("opus", "aac"); empty defaults
+	// to opus. AudioBitrate is the output audio bitrate (e.g. "128k"); empty
+	// defaults to 128k.
+	AudioCodec   string
+	AudioBitrate string
+
+	// AudioFilters, for multi-input audio, is a mix filtergraph (e.g.
+	// "amix=inputs=2:duration=shortest") applied after per-input aresample to
+	// produce a single mixed output track; for single-input audio it is an
+	// -af chain. Empty keeps the default one-track-per-input behavior.
 	AudioFilters string
 
 	// AudioInputs, when non-empty, supersedes AudioDevice and declares
-	// one ALSA input per entry. The builder emits an aresample-per-input
-	// filter_complex with one output audio track per input.
+	// one ALSA input per entry. With no AudioFilters the builder emits an
+	// aresample-per-input filter_complex with one output track per input;
+	// with AudioFilters set it mixes them into a single track.
 	AudioInputs []string
 
 	ProgressSocket string

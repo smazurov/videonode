@@ -18,7 +18,7 @@ function defaultEncoder(): EncoderConfig {
 }
 
 function defaultAudio(): AudioConfig {
-  return { codec: 'aac', devices: [] };
+  return { codec: 'opus', devices: [] };
 }
 
 function emptyValue(): StreamFormValue {

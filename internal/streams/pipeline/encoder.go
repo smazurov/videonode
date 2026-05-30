@@ -96,12 +96,15 @@ func (e *EncoderStage) buildFFmpegParams() *ffmpeg.Params {
 		p.RCMode = "VBR"
 	}
 
-	if alsa, ok := e.Media.Audio.(ALSADirectAudio); ok && len(alsa.Config.Devices) > 0 {
+	if alsa := e.Media.Audio; len(alsa.Config.Devices) > 0 {
 		devs := make([]string, len(alsa.Config.Devices))
 		for i, d := range alsa.Config.Devices {
 			devs[i] = ffmpeg.MapCaptureDevice(d)
 		}
 		p.AudioInputs = devs
+		p.AudioCodec = alsa.Config.Codec
+		p.AudioBitrate = alsa.Config.Bitrate
+		p.AudioFilters = alsa.Config.Filters
 	}
 
 	if e.OutputURL != "" {

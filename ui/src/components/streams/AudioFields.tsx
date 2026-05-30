@@ -91,8 +91,8 @@ export function AudioFields({
       <InputField
         label="Mix filter (optional)"
         type="text"
-        value={value.mix_filter ?? ''}
-        onChange={(e) => update('mix_filter', e.target.value || undefined)}
+        value={value.filters ?? ''}
+        onChange={(e) => update('filters', e.target.value || undefined)}
         placeholder="amix=inputs=2:duration=shortest"
         disabled={disabled}
         hint="Custom ffmpeg -filter_complex audio chain."
