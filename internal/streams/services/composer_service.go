@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,8 +11,10 @@ import (
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/process"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
 // ComposerServiceOptions wires the ComposerService to persistence and
@@ -22,11 +25,25 @@ type ComposerServiceOptions struct {
 	PipelineSwitch PipelineSwitch
 }
 
+// composerPipeline is the subset of *pipeline.Pipeline the composer
+// service drives. Declaring it at the point of use keeps the service
+// unit-testable with a small manual mock instead of a real supervised
+// pipeline.
+type composerPipeline interface {
+	ApplyComposer(c pipeline.Composer) error
+	RegisterComposer(c pipeline.Composer) error
+	UpdateComposerLayout(id string, layout []pipeline.LayoutSlot) error
+	UpdateComposerEffect(id, inputRef string, effect *pipeline.Effect) error
+	DeleteComposer(id string) error
+	RebuildStreamEncoder(s pipeline.Stream) error
+	Pool() process.Pool
+}
+
 // composerService implements api.ComposerService backed by the v2
 // EntityStore + pipeline.Pipeline.
 type composerService struct {
 	store  streams.EntityStore
-	pipe   *pipeline.Pipeline
+	pipe   composerPipeline
 	psw    PipelineSwitch
 	logger logging.Logger
 	mu     sync.Mutex
@@ -38,12 +55,17 @@ func NewComposerService(opts ComposerServiceOptions) api.ComposerService {
 	if opts.Store == nil {
 		panic("services.NewComposerService: Store is required")
 	}
-	return &composerService{
+	svc := &composerService{
 		store:  opts.Store,
-		pipe:   opts.Pipeline,
 		psw:    opts.PipelineSwitch,
 		logger: logging.GetLogger("composer_svc"),
 	}
+	// Assign through the nil check so a nil *pipeline.Pipeline doesn't become
+	// a non-nil interface value (which would defeat the s.pipe == nil guards).
+	if opts.Pipeline != nil {
+		svc.pipe = opts.Pipeline
+	}
+	return svc
 }
 
 func (s *composerService) pipelineSwitchEnabled() bool {
@@ -51,6 +73,66 @@ func (s *composerService) pipelineSwitchEnabled() bool {
 		return true
 	}
 	return s.psw.GetPipeline().Enabled
+}
+
+// editComposer is the shared shape of every in-place composer config edit:
+// lock, load, apply mutate (which edits AND validates the working copy and
+// returns the live-push thunk capturing exactly what changed), persist, then
+// sync onto the pipeline. A nil push thunk means "nothing to push". The store
+// write is the source of truth; the pipeline only mirrors it.
+func (s *composerService) editComposer(op, id string, mutate func(c *pipeline.Composer) (push func() error, err error)) (*models.ComposerData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prev, ok := s.store.GetComposerEntity(id)
+	if !ok {
+		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
+	}
+	c := prev
+	push, err := mutate(&c)
+	if err != nil {
+		return nil, err
+	}
+	c.UpdatedAt = time.Now()
+	if err := s.store.UpdateComposerEntity(id, c); err != nil {
+		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
+	}
+	if err := s.syncComposerEdit(op, id, prev, c, push); err != nil {
+		return nil, err
+	}
+	out := composerToAPI(c)
+	return &out, nil
+}
+
+// syncComposerEdit mirrors a persisted composer edit onto the pipeline.
+// Switch off (or no live push) → refresh the in-memory registry so
+// upstream-ref resolution stays current; the process reloads from the store
+// on its next spawn. Switch on → best-effort hot-apply: a not-live composer
+// (pipelinectl.ErrNoSuchComposer) is a non-fatal skip, while any other RPC
+// error rolls the store back to prev and surfaces so the composer's rejection
+// isn't lost.
+func (s *composerService) syncComposerEdit(op, id string, prev, c pipeline.Composer, push func() error) error {
+	if s.pipe == nil {
+		return nil
+	}
+	if !s.pipelineSwitchEnabled() || push == nil {
+		_ = s.pipe.RegisterComposer(c)
+		return nil
+	}
+	err := push()
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, pipelinectl.ErrNoSuchComposer) {
+		s.logger.Debug(op+": composer not live; config persisted, skipping live push",
+			logging.KeyComposerID, id, logging.KeyError, err)
+		return nil
+	}
+	if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
+		s.logger.Error(op+": rollback after pipeline failure also failed",
+			logging.KeyComposerID, id, logging.KeyApplyError, err, logging.KeyRollbackError, restoreErr)
+	}
+	return &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
 }
 
 // ListComposers returns all persisted composers in API wire shape.
@@ -145,79 +227,53 @@ func (s *composerService) CreateComposer(_ context.Context, data models.Composer
 // plane; canvas-dim or input-list diffs require a process restart and
 // re-apply via ApplyComposer.
 func (s *composerService) UpdateComposer(_ context.Context, id string, patch models.ComposerUpdateRequestData) (*models.ComposerData, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	prev, ok := s.store.GetComposerEntity(id)
-	if !ok {
-		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
-	}
-	c := prev
-	canvasChanged := false
-	inputsChanged := false
-	layoutChanged := false
-	if patch.Canvas != nil {
-		if patch.Canvas.W <= 0 || patch.Canvas.H <= 0 {
-			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "canvas dimensions must be positive"}
-		}
-		if patch.Canvas.FPS < 0 || patch.Canvas.FPS > 240 {
-			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "canvas fps must be in 0..240 (0 = daemon default)"}
-		}
-		next := pipeline.CanvasDims{W: patch.Canvas.W, H: patch.Canvas.H, FPS: patch.Canvas.FPS}
-		if next != c.Canvas {
-			canvasChanged = true
-		}
-		c.Canvas = next
-	}
-	if patch.Inputs != nil {
-		next := apiInputsToEntity(patch.Inputs)
-		if !inputsEqual(c.Inputs, next) {
-			inputsChanged = true
-		}
-		c.Inputs = next
-	}
-	if patch.Layout != nil {
-		next := apiLayoutToEntity(patch.Layout)
-		if !layoutEqual(c.Layout, next) {
-			layoutChanged = true
-		}
-		c.Layout = next
-	}
-	if err := validateComposerLayout(c); err != nil {
-		return nil, err
-	}
-	c.UpdatedAt = time.Now()
-	if err := s.store.UpdateComposerEntity(id, c); err != nil {
-		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
-	}
-	if s.pipe != nil && s.pipelineSwitchEnabled() {
-		var applyErr error
-		switch {
-		case canvasChanged || inputsChanged:
-			applyErr = s.pipe.ApplyComposer(c)
-		case layoutChanged:
-			applyErr = s.pipe.UpdateComposerLayout(id, c.Layout)
-		}
-		if applyErr != nil {
-			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
-				s.logger.Error("UpdateComposer: rollback after pipeline failure also failed",
-					logging.KeyComposerID, id, logging.KeyApplyError, applyErr, logging.KeyRollbackError, restoreErr)
+	return s.editComposer("UpdateComposer", id, func(c *pipeline.Composer) (func() error, error) {
+		canvasChanged, inputsChanged, layoutChanged := false, false, false
+		if patch.Canvas != nil {
+			if patch.Canvas.W <= 0 || patch.Canvas.H <= 0 {
+				return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "canvas dimensions must be positive"}
 			}
-			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + applyErr.Error()}
+			if patch.Canvas.FPS < 0 || patch.Canvas.FPS > 240 {
+				return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "canvas fps must be in 0..240 (0 = daemon default)"}
+			}
+			next := pipeline.CanvasDims{W: patch.Canvas.W, H: patch.Canvas.H, FPS: patch.Canvas.FPS}
+			canvasChanged = next != c.Canvas
+			c.Canvas = next
 		}
-		// A canvas resize changes the composer's broadcast dims, which each
-		// consuming stream's ffmpeg `-s` is fixed to at encoder-build time.
-		// Rebuild dependents (bounces only the running ones) so they pick up
-		// the new size; gated on canvasChanged so layout/input-only edits leave
-		// connected readers undisturbed.
-		if canvasChanged {
-			s.rebuildDependentEncoders(id)
+		if patch.Inputs != nil {
+			next := apiInputsToEntity(patch.Inputs)
+			inputsChanged = !inputsEqual(c.Inputs, next)
+			c.Inputs = next
 		}
-	} else if s.pipe != nil {
-		_ = s.pipe.RegisterComposer(c)
-	}
-	out := composerToAPI(c)
-	return &out, nil
+		if patch.Layout != nil {
+			next := apiLayoutToEntity(patch.Layout)
+			layoutChanged = !layoutEqual(c.Layout, next)
+			c.Layout = next
+		}
+		if err := validateComposerLayout(*c); err != nil {
+			return nil, err
+		}
+		return func() error {
+			switch {
+			case canvasChanged || inputsChanged:
+				if err := s.pipe.ApplyComposer(*c); err != nil {
+					return err
+				}
+				// A canvas resize changes the composer's broadcast dims, which each
+				// consuming stream's ffmpeg `-s` is fixed to at encoder-build time.
+				// Rebuild dependents (bounces only the running ones); gated on
+				// canvasChanged so layout/input-only edits leave readers undisturbed.
+				if canvasChanged {
+					s.rebuildDependentEncoders(id)
+				}
+				return nil
+			case layoutChanged:
+				return s.pipe.UpdateComposerLayout(id, c.Layout)
+			default:
+				return nil
+			}
+		}, nil
+	})
 }
 
 // rebuildDependentEncoders rebuilds the encoder of every stream that consumes
@@ -279,90 +335,44 @@ func (s *composerService) DeleteComposer(_ context.Context, id string) error {
 // the gRPC control plane — no process restart, so downstream vn-sink
 // consumers stay connected.
 func (s *composerService) ReplaceLayout(_ context.Context, id string, layout []models.LayoutSlotData) (*models.ComposerData, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	prev, ok := s.store.GetComposerEntity(id)
-	if !ok {
-		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
-	}
-	c := prev
-	c.Layout = apiLayoutToEntity(layout)
-	if err := validateComposerLayout(c); err != nil {
-		return nil, err
-	}
-	c.UpdatedAt = time.Now()
-	if err := s.store.UpdateComposerEntity(id, c); err != nil {
-		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
-	}
-	if s.pipe != nil && s.pipelineSwitchEnabled() {
-		if err := s.pipe.UpdateComposerLayout(id, c.Layout); err != nil {
-			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
-				s.logger.Error("ReplaceLayout: rollback after UpdateComposerLayout failure also failed",
-					logging.KeyComposerID, id, logging.KeyApplyError, err, logging.KeyRollbackError, restoreErr)
-			}
-			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
+	return s.editComposer("ReplaceLayout", id, func(c *pipeline.Composer) (func() error, error) {
+		c.Layout = apiLayoutToEntity(layout)
+		if err := validateComposerLayout(*c); err != nil {
+			return nil, err
 		}
-	}
-	out := composerToAPI(c)
-	return &out, nil
+		return func() error { return s.pipe.UpdateComposerLayout(id, c.Layout) }, nil
+	})
 }
 
 // SetInputEffect sets or clears the per-input effect for one input ref.
 // Hot-applies via the gRPC control plane — no process restart.
 func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effect *models.EffectData) (*models.ComposerData, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	prev, ok := s.store.GetComposerEntity(id)
-	if !ok {
-		return nil, &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
-	}
-	// Deep-copy Inputs so the in-flight mutation doesn't poison prev (used
-	// for rollback on pipeline failure).
-	c := prev
-	c.Inputs = make([]pipeline.ComposerInput, len(prev.Inputs))
-	copy(c.Inputs, prev.Inputs)
-	var applied *pipeline.Effect
-	found := false
-	for i := range c.Inputs {
-		if c.Inputs[i].Ref == ref {
-			if effect == nil {
-				c.Inputs[i].Effect = nil
-			} else {
+	return s.editComposer("SetInputEffect", id, func(c *pipeline.Composer) (func() error, error) {
+		// Copy Inputs so the mutation doesn't alias prev (used for rollback).
+		c.Inputs = append([]pipeline.ComposerInput(nil), c.Inputs...)
+		var applied *pipeline.Effect
+		for i := range c.Inputs {
+			if c.Inputs[i].Ref != ref {
+				continue
+			}
+			if effect != nil {
 				c.Inputs[i].Effect = &pipeline.Effect{
 					Type:      effect.Type,
 					Corners:   effect.Corners,
 					SnapshotW: effect.SnapshotW,
 					SnapshotH: effect.SnapshotH,
 				}
+			} else {
+				c.Inputs[i].Effect = nil
 			}
 			applied = c.Inputs[i].Effect
-			found = true
-			break
+			return func() error { return s.pipe.UpdateComposerEffect(id, ref, applied) }, nil
 		}
-	}
-	if !found {
 		return nil, &api.ComposerError{
 			Code:    api.ComposerErrInputNotFound,
 			Message: "input " + ref + " not found in composer " + id,
 		}
-	}
-	c.UpdatedAt = time.Now()
-	if err := s.store.UpdateComposerEntity(id, c); err != nil {
-		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
-	}
-	if s.pipe != nil && s.pipelineSwitchEnabled() {
-		if err := s.pipe.UpdateComposerEffect(id, ref, applied); err != nil {
-			if restoreErr := s.store.UpdateComposerEntity(id, prev); restoreErr != nil {
-				s.logger.Error("SetInputEffect: rollback after UpdateComposerEffect failure also failed",
-					logging.KeyComposerID, id, logging.KeyApplyError, err, logging.KeyRollbackError, restoreErr)
-			}
-			return nil, &api.ComposerError{Code: api.ComposerErrInvalid, Message: "pipeline rejected composer: " + err.Error()}
-		}
-	}
-	out := composerToAPI(c)
-	return &out, nil
+	})
 }
 
 // inputsEqual returns true when two ComposerInput slices have the same
