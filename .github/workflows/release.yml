@@ -177,13 +177,23 @@ jobs:
           merge-multiple: true
           path: dist/
       - name: Create GitHub Release
+        # Idempotent: a re-run (e.g. after a transient API 403) must not die on
+        # "already exists". If the release exists, converge by editing notes and
+        # clobbering assets; otherwise create it.
         run: |
           TAG="v${VERSION#v}"
-          gh release create "$TAG" dist/* \
-            --title "$TAG" \
-            --notes-file RELEASE_NOTES.md \
-            --target "${{ github.sha }}" \
-            ${{ contains(env.VERSION, 'rc') && '--prerelease' || '' }}
+          PRERELEASE=""
+          case "$VERSION" in *rc*) PRERELEASE="--prerelease";; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md $PRERELEASE
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "$TAG" \
+              --notes-file RELEASE_NOTES.md \
+              --target "${{ github.sha }}" \
+              $PRERELEASE
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
