@@ -18,10 +18,25 @@ interface SSEManagerOptions {
 let globalClient: SSEClient<"/api/events"> | null = null;
 // Backstop poll for the device list (see setupGlobalSSE).
 let deviceFallbackTimer: number | null = null;
+// Count of app-shell pins holding the connection open for the whole session
+// (see useAppSSEConnection). While > 0 the client stays connected even when
+// every per-route subscriber has unmounted, so navigating between pages no
+// longer tears down and reconnects the stream.
+let appConnectionPins = 0;
 
 // Global handlers for the two non-entity event streams.
 const globalConnectionHandlers = new Set<(status: ConnectionStatus) => void>();
 const globalPipelineStateHandlers = new Set<(event: PipelineStateChangedEvent) => void>();
+
+function teardownIfIdle(): void {
+  if (
+    appConnectionPins === 0 &&
+    globalConnectionHandlers.size === 0 &&
+    globalPipelineStateHandlers.size === 0
+  ) {
+    disconnectGlobalSSE();
+  }
+}
 
 function mapStatus(status: SSEStatus): ConnectionStatus {
   switch (status) {
@@ -76,7 +91,11 @@ function setupGlobalSSE(): void {
       }
     },
     onConnect: () => {
-      console.log('SSE connection established');
+      // The backend only broadcasts the device snapshot once at daemon
+      // startup, so a client connecting later never receives it over the
+      // stream. Pull the current list on every (re)connect to seed it and to
+      // resync any hotplug deltas missed during a disconnect.
+      void useDeviceStore.getState().fetchDevices();
     },
   });
 
@@ -142,10 +161,7 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
         globalPipelineStateHandlers.delete(onPipelineStateEvent);
       }
 
-      if (globalConnectionHandlers.size === 0 &&
-          globalPipelineStateHandlers.size === 0) {
-        disconnectGlobalSSE();
-      }
+      teardownIfIdle();
     };
   }, [onPipelineStateEvent, onConnectionStatusChange]);
 
@@ -153,4 +169,20 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
     disconnect: disconnectGlobalSSE,
     reconnect: setupGlobalSSE,
   };
+}
+
+// useAppSSEConnection pins the shared SSE client open for the entire
+// authenticated app session. Mount it once at the persistent route shell
+// (Root) so per-route subscribers that come and go on navigation (InfoBar,
+// page-level managers) no longer drive the connection up and down — they just
+// attach and detach their handlers against an already-open stream.
+export function useAppSSEConnection(): void {
+  useEffect(() => {
+    appConnectionPins += 1;
+    setupGlobalSSE();
+    return () => {
+      appConnectionPins -= 1;
+      teardownIfIdle();
+    };
+  }, []);
 }
