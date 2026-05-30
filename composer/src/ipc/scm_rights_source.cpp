@@ -19,6 +19,37 @@ namespace scm_rights_source {
 
 using vn::base::unique_fd;
 
+OwnedFrameView& OwnedFrameView::operator=(OwnedFrameView&& o) noexcept {
+    if (this == &o)
+        return *this;
+    fd = std::move(o.fd);
+    plane1_fd = std::move(o.plane1_fd);
+    width = o.width;
+    height = o.height;
+    plane0_pitch = o.plane0_pitch;
+    plane0_offset = o.plane0_offset;
+    plane1_pitch = o.plane1_pitch;
+    plane1_offset = o.plane1_offset;
+    format = std::move(o.format);
+    frame_idx = o.frame_idx;
+    slot_index = o.slot_index;
+    generation = o.generation;
+    credit_sink_ = o.credit_sink_;
+    o.credit_sink_ = nullptr;
+    return *this;
+}
+
+OwnedFrameView::~OwnedFrameView() {
+    if (credit_sink_ != nullptr && frame_idx > 0)
+        credit_sink_->return_credit(slot_index, generation);
+}
+
+void ScmRightsSource::return_credit(uint64_t slot_index, uint64_t generation) const {
+    std::lock_guard<std::mutex> g(credit_mu_);
+    if (client_fd_)
+        (void)scm_socket::SendCredit(client_fd_.get(), {slot_index, generation});
+}
+
 namespace {
 
 // Wait up to total_seconds for `listen_fd` to have an incoming connection.
@@ -198,6 +229,8 @@ void ScmRightsSource::thread_main_() {
         }
         nf.format = header.format;
         nf.frame_idx = header.frame_idx;
+        nf.slot_index = header.slot_index;
+        nf.generation = header.generation;
         nf.fd = incoming.size() >= 1 ? incoming[0].get() : -1;
         nf.plane1_fd = incoming.size() >= 2 ? incoming[1].get() : -1;
 
@@ -236,6 +269,9 @@ OwnedFrameView ScmRightsSource::latest_frame() const {
     out.plane1_offset = latest_.plane1_offset;
     out.format = latest_.format;
     out.frame_idx = latest_.frame_idx;
+    out.slot_index = latest_.slot_index;
+    out.generation = latest_.generation;
+    out.credit_sink_ = this;
     return out;
 }
 

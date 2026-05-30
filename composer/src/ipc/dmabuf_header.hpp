@@ -9,7 +9,7 @@
 //
 //   offset  size  field
 //     0      4    magic = 'D','B','U','F'  (0x46554244 LE)
-//     4      2    version = 1
+//     4      2    version = 2
 //     6      2    flags                    (reserved, must be 0)
 //     8      4    slot_index
 //    12      4    width
@@ -22,7 +22,8 @@
 //    35      1    plane_count = N          (1..3)
 //    36     4*N   plane_pitches[N]         (uint32 LE each)
 //   36+4N   4*N   plane_offsets[N]         (uint32 LE each)
-//   total = 36 + 8N bytes
+//   36+8N   8    generation               (uint64 LE; slot-reuse epoch)
+//   total = 44 + 8N bytes
 //
 // Framing: no length prefix — the header is self-describing (peek
 // plane_count after the fixed 36-byte prefix and read the rest). Magic
@@ -67,7 +68,7 @@ enum class ChromaSiting : uint8_t {
 };
 
 constexpr uint32_t kMagic = 0x46554244; // 'D','B','U','F' little-endian
-constexpr uint16_t kVersion = 1;
+constexpr uint16_t kVersion = 2;
 constexpr size_t kMaxPlanes = 3; // NV12 today, room for triplane
 
 struct Header {
@@ -86,11 +87,15 @@ struct Header {
     // equal plane_count on the wire (1..kMaxPlanes).
     std::vector<uint32_t> plane_pitches;
     std::vector<uint32_t> plane_offsets;
+    // Slot-reuse epoch. Consumer echoes (slot_index, generation) back as a
+    // credit; the producer rejects a stale generation so a late credit can't
+    // free a recycled slot.
+    uint64_t generation = 0;
 };
 
 // Encode the header into a freshly-allocated byte buffer ready to be
 // pushed through sendmsg() alongside the SCM_RIGHTS ancillary. The
-// returned vector is sized exactly 36 + 8*plane_count bytes.
+// returned vector is sized exactly 44 + 8*plane_count bytes.
 [[nodiscard]] std::vector<uint8_t> Encode(const Header& h);
 
 // Decode a Header from `bytes`. Returns true on success. On failure
@@ -103,7 +108,7 @@ struct Header {
 // SerializedSize returns the wire size of a header with the given
 // plane_count. Useful for consumer-side recv buffer sizing.
 [[nodiscard]] constexpr size_t SerializedSize(size_t plane_count) {
-    return 36 + 8 * plane_count;
+    return 44 + 8 * plane_count;
 }
 
 } // namespace dmabuf_header

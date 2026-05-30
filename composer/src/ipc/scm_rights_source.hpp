@@ -32,6 +32,8 @@
 
 namespace scm_rights_source {
 
+class ScmRightsSource;
+
 // FrameView is the snapshot a consumer reads from latest_frame(). Mirrors
 // ffmpeg_pipe_source::FrameView so the compose layer can substitute one
 // for the other.
@@ -48,10 +50,15 @@ struct FrameView {
     int plane1_fd = -1;
     std::string format;
     uint64_t frame_idx = 0;
+    uint64_t slot_index = 0;
+    uint64_t generation = 0;
 };
 
 // Consumer-facing snapshot with owned (dup'd) fds. Safe to hold across
 // frame boundaries — the dma-buf stays alive as long as this struct lives.
+// On destruction it returns a read-completion credit to the producer, so
+// the slot can be recycled. Contract: do not concurrently READ two
+// OwnedFrameViews of the same frame — the first destruction credits it.
 struct OwnedFrameView {
     vn::base::unique_fd fd;
     vn::base::unique_fd plane1_fd;
@@ -63,6 +70,19 @@ struct OwnedFrameView {
     uint32_t plane1_offset = 0;
     std::string format;
     uint64_t frame_idx = 0;
+    uint64_t slot_index = 0;
+    uint64_t generation = 0;
+
+    OwnedFrameView() = default;
+    OwnedFrameView(OwnedFrameView&& o) noexcept { *this = std::move(o); }
+    OwnedFrameView& operator=(OwnedFrameView&& o) noexcept;
+    OwnedFrameView(const OwnedFrameView&) = delete;
+    OwnedFrameView& operator=(const OwnedFrameView&) = delete;
+    ~OwnedFrameView();
+
+  private:
+    friend class ScmRightsSource;
+    const ScmRightsSource* credit_sink_ = nullptr;
 };
 
 struct InitParams {
@@ -106,6 +126,11 @@ class ScmRightsSource {
     int listen_fd() const { return listen_fd_.get(); }
     int client_fd() const { return client_fd_.get(); }
 
+    // Return a read-completion credit to the producer. Called by
+    // ~OwnedFrameView; non-blocking, drops the credit if the back-channel
+    // is full (a stale-gen guard on the producer keeps that safe).
+    void return_credit(uint64_t slot_index, uint64_t generation) const;
+
   private:
     void thread_main_();
 
@@ -120,6 +145,9 @@ class ScmRightsSource {
     vn::base::unique_fd notify_fd_;
 
     mutable std::mutex latest_mu_;
+    // Serializes credit writes on client_fd_ from consumer threads (the
+    // recv thread only reads frames; it never writes the back-channel).
+    mutable std::mutex credit_mu_;
     // FrameView's `fd`/`plane1_fd` borrow into latest_owned_fds_. Consumers
     // see raw ints (the view contract); ownership lives in unique_fd here.
     FrameView latest_;

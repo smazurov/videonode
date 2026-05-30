@@ -71,4 +71,22 @@ namespace scm_socket {
 [[nodiscard]] bool SendReady(int sock_fd);
 [[nodiscard]] bool WaitForReady(int sock_fd, int timeout_ms);
 
+// Read-completion credit a consumer returns once it is done reading a
+// frame, so the producer can free the slot for reuse. Travels on the same
+// socket in the consumer→producer direction (the producer never sends frame
+// data back, so that direction carries only credits).
+struct Credit {
+    uint64_t slot_index = 0;
+    uint64_t generation = 0;
+};
+
+// Non-blocking write of one credit. Returns false (errno set) on failure,
+// including EAGAIN if the back-channel buffer is full.
+[[nodiscard]] bool SendCredit(int sock_fd, Credit c);
+
+// Non-blocking drain of all pending credits on `sock_fd` into `out`.
+// Returns the number appended, or -1 on a hard error (peer gone). EAGAIN
+// (nothing pending) returns 0.
+[[nodiscard]] int RecvCredits(int sock_fd, std::vector<Credit>& out);
+
 } // namespace scm_socket

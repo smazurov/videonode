@@ -55,7 +55,20 @@ bool MmapAndPack(const Plane& plane, std::span<uint8_t> dst, size_t dst_offset, 
 
 void LatestFrameHolder::Update(FrameRef ref) {
     std::lock_guard<std::mutex> lock(mu_);
+    if (have_pin_ && pinner_ && ref_)
+        pinner_->release(ref_->slot_index, ref_->generation);
+    have_pin_ = false;
     ref_ = ref;
+    if (pinner_ && ref.slot_index != kNoSlot)
+        have_pin_ = pinner_->pin(ref.slot_index, ref.generation);
+}
+
+void LatestFrameHolder::SetSlotPinner(std::shared_ptr<SlotPinner> pinner) {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (have_pin_ && pinner_ && ref_)
+        pinner_->release(ref_->slot_index, ref_->generation);
+    have_pin_ = false;
+    pinner_ = std::move(pinner);
 }
 
 void LatestFrameHolder::SetMmapFnForTest(MmapFn fn) {
@@ -63,43 +76,54 @@ void LatestFrameHolder::SetMmapFnForTest(MmapFn fn) {
     mmap_fn_ = fn;
 }
 
+LatestFrameHolder::~LatestFrameHolder() {
+    if (have_pin_ && pinner_ && ref_)
+        pinner_->release(ref_->slot_index, ref_->generation);
+}
+
 bool LatestFrameHolder::Snapshot(FrameBytes& out) {
     FrameRef ref;
     MmapFn mfn = nullptr;
+    std::shared_ptr<SlotPinner> pinner;
+    bool read_pin = false;
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (!ref_)
             return false;
         ref = *ref_;
         mfn = mmap_fn_;
+        pinner = pinner_;
+        if (pinner && ref.slot_index != kNoSlot) {
+            read_pin = pinner->pin(ref.slot_index, ref.generation);
+            if (!read_pin)
+                return false; // slot recycled out from under us; no frame
+        }
     }
 
-    if (ref.width == 0 || ref.height == 0)
-        return false;
+    bool ok = ref.width != 0 && ref.height != 0;
+    if (ok) {
+        out.format = ref.format;
+        out.width = ref.width;
+        out.height = ref.height;
+        out.pitch_y = ref.pitch_y;
+        out.pitch_uv = ref.pitch_uv;
+        out.frame_idx = ref.frame_idx;
+        out.captured_at_ns = ref.captured_at_ns;
 
-    out.format = ref.format;
-    out.width = ref.width;
-    out.height = ref.height;
-    out.pitch_y = ref.pitch_y;
-    out.pitch_uv = ref.pitch_uv;
-    out.frame_idx = ref.frame_idx;
-    out.captured_at_ns = ref.captured_at_ns;
-
-    if (ref.format == Format::Nv12) {
-        const size_t y_bytes = size_t(ref.width) * ref.height;
-        const size_t uv_bytes = size_t(ref.width) * (ref.height / 2);
-        out.bytes.resize(y_bytes + uv_bytes);
-        if (!MmapAndPack(ref.planes[0], out.bytes, 0, mfn))
-            return false;
-        if (!MmapAndPack(ref.planes[1], out.bytes, y_bytes, mfn))
-            return false;
-    } else { // BGRA
-        const size_t bytes = size_t(ref.width) * ref.height * 4;
-        out.bytes.resize(bytes);
-        if (!MmapAndPack(ref.planes[0], out.bytes, 0, mfn))
-            return false;
+        if (ref.format == Format::Nv12) {
+            const size_t y_bytes = size_t(ref.width) * ref.height;
+            out.bytes.resize(y_bytes + size_t(ref.width) * (ref.height / 2));
+            ok = MmapAndPack(ref.planes[0], out.bytes, 0, mfn) &&
+                 MmapAndPack(ref.planes[1], out.bytes, y_bytes, mfn);
+        } else {
+            out.bytes.resize(size_t(ref.width) * ref.height * 4);
+            ok = MmapAndPack(ref.planes[0], out.bytes, 0, mfn);
+        }
     }
-    return true;
+
+    if (read_pin)
+        pinner->release(ref.slot_index, ref.generation);
+    return ok;
 }
 
 } // namespace vn::snapshot

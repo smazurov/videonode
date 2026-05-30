@@ -214,6 +214,10 @@ void SourceService::UpdateLastFrame(vn::snapshot::FrameRef ref) {
     frame_holder_.Update(ref);
 }
 
+void SourceService::SetSlotPinner(std::shared_ptr<vn::snapshot::SlotPinner> pinner) {
+    frame_holder_.SetSlotPinner(std::move(pinner));
+}
+
 void SourceService::StopStreams() {
     {
         std::lock_guard<std::mutex> lock(status_mu_);

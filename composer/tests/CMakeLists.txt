@@ -15,6 +15,7 @@ vn_add_test(snapshot
     DEPS vn_snapshot Threads::Threads
     LABELS snapshot)
 vn_add_test(scm_socket          DEPS scm_socket                   LABELS ipc)
+vn_add_test(credit_channel      DEPS scm_socket                   LABELS ipc)
 vn_add_test(dmabuf_header       DEPS dmabuf_header                LABELS ipc)
 
 vn_add_test(scm_rights_source
@@ -29,6 +30,7 @@ vn_add_test(scm_ctrunc_repro
     DEPS scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
 
+vn_add_test(slot_owner          DEPS slot_owner vn_snapshot Threads::Threads  LABELS render)
 vn_add_test(build_source_slot   DEPS build_source_slot            LABELS render)
 vn_add_test(placeholder_painter DEPS placeholder_painter          LABELS render)
 vn_add_test(homography          DEPS homography                   LABELS render)

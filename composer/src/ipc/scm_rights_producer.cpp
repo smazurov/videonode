@@ -133,13 +133,13 @@ void ScmRightsProducer::accept_loop_() {
     }
 }
 
-bool ScmRightsProducer::broadcast(const dmabuf_header::Header& header,
-                                  const std::vector<int>& fds) {
+int ScmRightsProducer::broadcast(const dmabuf_header::Header& header, const std::vector<int>& fds) {
     std::lock_guard<std::mutex> g(consumers_mu_);
     ++frame_counter_;
     if (consumers_.empty())
-        return false;
+        return 0;
 
+    int sent = 0;
     std::vector<size_t> to_evict;
     to_evict.reserve(consumers_.size());
     for (size_t i = 0; i < consumers_.size(); ++i) {
@@ -150,6 +150,7 @@ bool ScmRightsProducer::broadcast(const dmabuf_header::Header& header,
         bool ok = scm_socket::SendMessage(c.fd.get(), header, fds);
         if (ok) {
             ++c.frames_sent;
+            ++sent;
             continue;
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -173,7 +174,19 @@ bool ScmRightsProducer::broadcast(const dmabuf_header::Header& header,
     for (auto it = to_evict.rbegin(); it != to_evict.rend(); ++it) {
         consumers_.erase(consumers_.begin() + static_cast<std::ptrdiff_t>(*it));
     }
-    return true;
+    return sent;
+}
+
+void ScmRightsProducer::drain_credits(const std::function<void(uint64_t, uint64_t)>& on_credit) {
+    std::lock_guard<std::mutex> g(consumers_mu_);
+    std::vector<scm_socket::Credit> credits;
+    for (auto& c : consumers_) {
+        credits.clear();
+        if (scm_socket::RecvCredits(c.fd.get(), credits) < 0)
+            continue; // peer gone; prune_dead_consumers/broadcast will evict
+        for (const auto& cr : credits)
+            on_credit(cr.slot_index, cr.generation);
+    }
 }
 
 int ScmRightsProducer::prune_dead_consumers() {

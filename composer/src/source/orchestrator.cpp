@@ -47,52 +47,6 @@ namespace source {
 
 namespace {
 
-uint64_t monotonic_ns_() {
-    using namespace std::chrono;
-    return static_cast<uint64_t>(
-        duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count());
-}
-
-// Build a FrameRef for the source's NV12 holder. Plane[0] = Y, plane[1] =
-// UV. UV may reuse the Y fd (single-allocation dma_heap on rig) or have a
-// distinct fd (split GBM allocation on host); the source's DecodedNv12
-// already carries both shapes via plane1_fd.
-vn::snapshot::FrameRef make_frame_ref_(const jpeg_dec::DecodedNv12& d, uint64_t frame_idx) {
-    vn::snapshot::FrameRef r{};
-    r.format = vn::snapshot::Format::Nv12;
-    r.width = static_cast<uint32_t>(d.width);
-    r.height = static_cast<uint32_t>(d.height);
-    r.pitch_y = d.y_pitch;
-    r.pitch_uv = d.uv_pitch;
-    r.planes[0] = {.fd = d.fd,
-                   .offset = d.y_offset,
-                   .pitch = d.y_pitch,
-                   .row_bytes = static_cast<size_t>(d.width),
-                   .rows = static_cast<size_t>(d.height)};
-    const int uv_fd = d.plane1_fd >= 0 ? d.plane1_fd : d.fd;
-    r.planes[1] = {.fd = uv_fd,
-                   .offset = d.uv_offset,
-                   .pitch = d.uv_pitch,
-                   .row_bytes = static_cast<size_t>(d.width),
-                   .rows = static_cast<size_t>(d.height) / 2};
-    r.frame_idx = frame_idx;
-    r.captured_at_ns = monotonic_ns_();
-    return r;
-}
-
-vn::snapshot::FrameRef make_frame_ref_(const nv12_buf::Buffer& b, uint64_t frame_idx) {
-    jpeg_dec::DecodedNv12 d;
-    d.fd = b.y_fd;
-    d.plane1_fd = b.uv_fd;
-    d.width = b.width;
-    d.height = b.height;
-    d.y_pitch = b.y_pitch;
-    d.uv_pitch = b.uv_pitch;
-    d.y_offset = b.y_offset;
-    d.uv_offset = b.uv_offset;
-    return make_frame_ref_(d, frame_idx);
-}
-
 struct PlaceholderRing {
     int width = 0;
     int height = 0;
@@ -195,6 +149,15 @@ struct LoopState {
     std::chrono::nanoseconds broadcast_period;
 };
 
+// Point the gRPC snapshot holder at the freshly-opened session's slot gate
+// so Snapshot() reads pin against the right SlotOwner (a new one is built per
+// open). No-op without gRPC; on the MJPEG path slot_owner is null so the
+// holder simply never pins.
+void wire_slot_pinner_(LoopState& st) {
+    if (st.grpc_enabled)
+        st.grpc_svc.SetSlotPinner(st.cap.slot_owner);
+}
+
 // Handle V4L2 priority events (SOURCE_CHANGE).
 void handle_v4l2_events_(LoopState& st) {
     std::vector<v4l2_event> evs;
@@ -277,7 +240,7 @@ bool handle_dqbuf_(LoopState& st) {
         ++st.real_frame_idx;
         broadcast_nv12(st.prod, decoded, st.real_frame_idx);
         if (st.grpc_enabled)
-            st.grpc_svc.UpdateLastFrame(make_frame_ref_(decoded, st.real_frame_idx));
+            st.grpc_svc.UpdateLastFrame(make_frame_ref(decoded, st.real_frame_idx));
         st.last_good_decoded = decoded;
         st.next_broadcast = LoopState::clock::now() + st.broadcast_period;
     }
@@ -378,15 +341,20 @@ void maybe_publish_status_(LoopState& st, source_probe::Health h, bool health_ch
 void broadcast_tick_(LoopState& st, source_probe::Health h) {
     if (h == source_probe::Health::Transitioning && st.last_good_decoded.fd >= 0) {
         ++st.real_frame_idx;
-        broadcast_nv12(st.prod, st.last_good_decoded, st.real_frame_idx);
+        int sent = broadcast_nv12(st.prod, st.last_good_decoded, st.real_frame_idx);
+        // Re-broadcast adds in-flight readers on the same slot+gen, so the
+        // credits they return are balanced (else release would over-decrement
+        // and free the slot mid-read).
+        if (st.cap.slot_owner && st.last_good_decoded.slot_index != 0xFFFFFFFFu)
+            st.cap.slot_owner->add_refs(int(st.last_good_decoded.slot_index), sent);
         if (st.grpc_enabled)
-            st.grpc_svc.UpdateLastFrame(make_frame_ref_(st.last_good_decoded, st.real_frame_idx));
+            st.grpc_svc.UpdateLastFrame(make_frame_ref(st.last_good_decoded, st.real_frame_idx));
     } else {
         nv12_buf::Buffer& ph_buf = st.ph.paint_and_pick(now_ms(), source_probe::status_text(h));
         nv12_buf::stage_for_read(ph_buf);
         broadcast_buffer(st.prod, ph_buf, st.ph.tick_idx);
         if (st.grpc_enabled)
-            st.grpc_svc.UpdateLastFrame(make_frame_ref_(ph_buf, st.ph.tick_idx));
+            st.grpc_svc.UpdateLastFrame(make_frame_ref(ph_buf, st.ph.tick_idx));
     }
 }
 
@@ -416,6 +384,7 @@ void maybe_reinit_capture_(LoopState& st, nv12_buf::Allocator& allocator,
     case CaptureOpenStatus::Ok:
         st.probe.attach();
         publish_active_format(snap);
+        wire_slot_pinner_(st);
         st.need_reinit = false;
         break;
     case CaptureOpenStatus::Busy:
@@ -467,6 +436,7 @@ void handle_format_change_(LoopState& st, nv12_buf::Allocator& allocator,
     } else if (try_open_capture(st.cap, snap, allocator) == CaptureOpenStatus::Ok) {
         st.probe.attach();
         publish_active_format(snap);
+        wire_slot_pinner_(st);
         st.need_reinit = false;
     } else {
         clear_active_format();
@@ -636,6 +606,10 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                  .next_status_heartbeat = clock::now(),
                  .next_reinit_attempt = clock::now(),
                  .broadcast_period = broadcast_period};
+
+    // Startup may have opened the device before grpc_svc existed; wire the
+    // snapshot holder to that session's slot gate now.
+    wire_slot_pinner_(st);
 
     while (running.load()) {
         if (a.run_seconds > 0 && clock::now() - loop_start > std::chrono::seconds(a.run_seconds))

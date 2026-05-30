@@ -302,4 +302,70 @@ bool WaitForReady(int sock_fd, int timeout_ms) {
     return true;
 }
 
+namespace {
+
+constexpr size_t kCreditBytes = 16;
+
+void put_u64(std::span<uint8_t> p, uint64_t v) {
+    for (size_t i = 0; i < 8; ++i)
+        p[i] = static_cast<uint8_t>((v >> (i * 8)) & 0xff);
+}
+
+uint64_t get_u64(std::span<const uint8_t> p) {
+    uint64_t v = 0;
+    for (size_t i = 0; i < 8; ++i)
+        v |= static_cast<uint64_t>(p[i]) << (i * 8);
+    return v;
+}
+
+} // namespace
+
+bool SendCredit(int sock_fd, Credit c) {
+    std::array<uint8_t, kCreditBytes> buf{};
+    put_u64(std::span<uint8_t>(buf).subspan(0, 8), c.slot_index);
+    put_u64(std::span<uint8_t>(buf).subspan(8, 8), c.generation);
+    ssize_t n;
+    do {
+        n = ::send(sock_fd, buf.data(), buf.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
+    } while (n < 0 && errno == EINTR);
+    return n == static_cast<ssize_t>(buf.size());
+}
+
+int RecvCredits(int sock_fd, std::vector<Credit>& out) {
+    std::array<uint8_t, kCreditBytes * 64> buf{};
+    int appended = 0;
+    for (;;) {
+        ssize_t n;
+        do {
+            n = ::recv(sock_fd, buf.data(), buf.size(), MSG_DONTWAIT);
+        } while (n < 0 && errno == EINTR);
+        if (n == 0) {
+            errno = ECONNRESET;
+            return -1;
+        }
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                return appended;
+            return -1;
+        }
+        std::span<const uint8_t> got(buf.data(), static_cast<size_t>(n));
+        size_t records = got.size() / kCreditBytes;
+        for (size_t i = 0; i < records; ++i) {
+            auto rec = got.subspan(i * kCreditBytes, kCreditBytes);
+            out.push_back(Credit{.slot_index = get_u64(rec.subspan(0, 8)),
+                                 .generation = get_u64(rec.subspan(8, 8))});
+            ++appended;
+        }
+        if (got.size() % kCreditBytes != 0) {
+            // Partial trailing record: a 16-byte credit is written atomically,
+            // so this only happens on corruption. Dropping it delays one
+            // slot's reclaim until deadline eviction; it never causes a tear.
+            vn::log::warn("scm_socket: dropped %zu trailing credit bytes",
+                          got.size() % kCreditBytes);
+        }
+        if (static_cast<size_t>(n) < buf.size())
+            return appended;
+    }
+}
+
 } // namespace scm_socket
