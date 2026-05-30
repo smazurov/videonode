@@ -5,7 +5,7 @@ package pipeline
 // audio source (today: direct ALSA).
 type MediaSource struct {
 	Video FrameSource
-	Audio AudioSource
+	Audio ALSADirectAudio
 }
 
 // FrameKind tags the wire format the source emits, so consumers (the
@@ -71,32 +71,9 @@ func (c ComposerFrameSource) Dims() (int, int) { return c.Width, c.Height }
 // FPS returns the canvas framerate ffmpeg uses on its `-framerate` flag.
 func (c ComposerFrameSource) FPS() int { return c.Fps }
 
-// AudioSource emits the encoder's audio-input argv fragment.
-type AudioSource interface {
-	InputArgs() []string
-}
-
-// ALSADirectAudio opens ALSA from the ffmpeg process.
+// ALSADirectAudio opens ALSA from the ffmpeg process. Its devices are
+// projected onto ffmpeg.Params.AudioInputs in EncoderStage.buildFFmpegParams;
+// the shared builder emits the per-device input fragments.
 type ALSADirectAudio struct {
 	Config AudioConfig
-}
-
-// InputArgs returns one ffmpeg input fragment per audio device. Each
-// device produces one OUTPUT TRACK in the published stream.
-func (a ALSADirectAudio) InputArgs() []string {
-	if len(a.Config.Devices) == 0 {
-		return nil
-	}
-	out := make([]string, 0, 14*len(a.Config.Devices))
-	for _, dev := range a.Config.Devices {
-		out = append(out,
-			"-thread_queue_size", "1024",
-			"-f", "alsa",
-			"-sample_fmt", "s16",
-			"-ar", "48000",
-			"-ac", "2",
-			"-i", dev,
-		)
-	}
-	return out
 }

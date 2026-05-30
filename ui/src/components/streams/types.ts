@@ -18,7 +18,7 @@ export interface AudioConfig {
   devices: string[];
   codec: AudioCodec;
   bitrate?: string;
-  mix_filter?: string;
+  filters?: string;
 }
 
 export interface StreamFormValue {

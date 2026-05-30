@@ -57,8 +57,8 @@ func TestBuildCommand_MultiAudio_FilterComplex(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"-thread_queue_size 1024 -f alsa -sample_fmt s16 -ar 48000 -ac 2 -i hw:0,0",
-		"-thread_queue_size 1024 -f alsa -sample_fmt s16 -ar 48000 -ac 2 -i hw:1,0",
+		"-thread_queue_size 8192 -f alsa -sample_fmt s16 -ar 48000 -ac 2 -i hw:0,0",
+		"-thread_queue_size 8192 -f alsa -sample_fmt s16 -ar 48000 -ac 2 -i hw:1,0",
 		"-filter_complex [1:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a0];[2:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a1]",
 		"-map 0:v -map [a0] -map [a1]",
 		"-c:a libopus -b:a 128k -ar 48000",
@@ -66,6 +66,31 @@ func TestBuildCommand_MultiAudio_FilterComplex(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %q", want, got)
 		}
+	}
+}
+
+func TestBuildCommand_Audio_CodecBitrateAndMix(t *testing.T) {
+	got := BuildCommand(&Params{
+		InputPipe:    &PipeInput{Format: "yuv4mpegpipe"},
+		Encoder:      "libx264",
+		AudioInputs:  []string{"hw:0,0", "hw:1,0"},
+		AudioCodec:   "aac",
+		AudioBitrate: "192k",
+		AudioFilters: "amix=inputs=2:duration=shortest",
+		Outputs:      []OutputTarget{{Type: "rtsp", URL: "rtsp://x"}},
+	})
+
+	for _, want := range []string{
+		"-filter_complex [1:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[s0];[2:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[s1];[s0][s1]amix=inputs=2:duration=shortest[aout]",
+		"-map 0:v -map [aout]",
+		"-c:a aac -b:a 192k -ar 48000",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, " -af ") {
+		t.Errorf("multi-input audio must not emit -af, got %q", got)
 	}
 }
 
@@ -114,7 +139,7 @@ func TestBuildCommand_BackCompat_V4L2_Unchanged(t *testing.T) {
 		"-video_size 1920x1080",
 		"-framerate 30",
 		"-i /dev/video0",
-		"-thread_queue_size 1024",
+		"-thread_queue_size 8192",
 		"-f alsa -sample_fmt s16 -ar 48000 -ac 2",
 		"-i hw:0,0",
 		"-map 0:v -map 1:a",
