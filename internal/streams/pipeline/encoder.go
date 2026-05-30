@@ -97,7 +97,11 @@ func (e *EncoderStage) buildFFmpegParams() *ffmpeg.Params {
 	}
 
 	if alsa, ok := e.Media.Audio.(ALSADirectAudio); ok && len(alsa.Config.Devices) > 0 {
-		p.AudioInputs = append([]string(nil), alsa.Config.Devices...)
+		devs := make([]string, len(alsa.Config.Devices))
+		for i, d := range alsa.Config.Devices {
+			devs[i] = ffmpeg.MapCaptureDevice(d)
+		}
+		p.AudioInputs = devs
 	}
 
 	if e.OutputURL != "" {
