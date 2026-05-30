@@ -33,6 +33,7 @@ import { StreamConsumerTargetsPanel } from '../components/streams/StreamConsumer
 import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 import { WebRTCPlayer } from '../components/webrtc';
 import { api } from '../lib/api';
+import { isRestartable } from '../lib/pool-status';
 
 const MODE_OPTIONS: ReadonlyArray<{
   value: StreamPreviewMode;
@@ -127,8 +128,8 @@ export default function StreamDetail() {
   const handleRestart = useCallback(async () => {
     if (!streamId) return;
     try {
-      const { error } = await api.POST('/api/streams/{stream_id}/restart', {
-        params: { path: { stream_id: streamId } },
+      const { error } = await api.POST('/api/processes/{id}/restart', {
+        params: { path: { id: `encoder:${streamId}` } },
       });
       if (error) throw new Error(error.detail ?? 'Failed to restart stream');
       bumpStreamRefreshKey(streamId);
@@ -190,6 +191,7 @@ export default function StreamDetail() {
                 theme="light"
                 size="SM"
                 onClick={handleRestart}
+                disabled={!isRestartable(stream.status)}
                 LeadingIcon={ArrowPathIcon}
                 text="Restart"
               />

@@ -7,6 +7,14 @@ export function poolStateToPill(state: string | undefined): StatusPillStatus {
   return (state as StatusPillStatus) ?? 'idle';
 }
 
+// isRestartable reports whether a supervised process is live enough to bounce
+// via POST /api/processes/{id}/restart. Only running, mid-start, or crashed
+// processes qualify; idle (lazy/off) and stopping are skipped so the pool-keyed
+// restart endpoint never 404s on a process that isn't there.
+export function isRestartable(status: string | undefined): boolean {
+  return status === 'running' || status === 'starting' || status === 'error';
+}
+
 // LIVENESS_PILL maps a source-reported liveness token (decoupled from the
 // process pool state) to a pill appearance + label. Unknown tokens fall
 // back to an idle pill carrying the raw token as its label.

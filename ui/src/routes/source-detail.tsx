@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import toast from 'react-hot-toast';
+import { ArrowPathIcon } from '@heroicons/react/24/outline';
 
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useSourceStore } from '../hooks/useSourceStore';
@@ -16,6 +18,8 @@ import { SourceConsumersPanel } from '../components/sources/SourceConsumersPanel
 import { SourceLivePreview } from '../components/sources/SourceLivePreview';
 import { SourceDeleteDialog } from '../components/sources/SourceDeleteDialog';
 import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
+import { api } from '../lib/api';
+import { isRestartable } from '../lib/pool-status';
 
 export default function SourceDetail() {
   const navigate = useNavigate();
@@ -38,6 +42,21 @@ export default function SourceDetail() {
     logout();
     navigate('/login');
   };
+
+  const handleRestart = useCallback(async () => {
+    if (!sourceId) return;
+    try {
+      const { error } = await api.POST('/api/processes/{id}/restart', {
+        params: { path: { id: `source:${sourceId}` } },
+      });
+      if (error) throw new Error(error.detail ?? 'Failed to restart source');
+      toast.success(`Restart requested for '${sourceId}'`);
+      void fetchSources();
+    } catch (error_) {
+      console.error('Failed to restart source:', error_);
+      toast.error('Failed to restart source');
+    }
+  }, [sourceId, fetchSources]);
 
   if (lastUpdated === null && loading) {
     return (
@@ -89,6 +108,14 @@ export default function SourceDetail() {
                 onClick={() => setPreviewVisible((v) => !v)}
               />
               <Button theme="light" size="SM" text="Back" onClick={() => navigate('/sources')} />
+              <Button
+                theme="light"
+                size="SM"
+                text="Restart"
+                LeadingIcon={ArrowPathIcon}
+                disabled={!isRestartable(source.status)}
+                onClick={handleRestart}
+              />
               <Button
                 theme="primary"
                 size="SM"

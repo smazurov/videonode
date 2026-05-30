@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import toast from 'react-hot-toast';
+import { ArrowPathIcon } from '@heroicons/react/24/outline';
 
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useComposerStore } from '../hooks/useComposerStore';
@@ -20,6 +22,8 @@ import { ComposerDeleteDialog } from '../components/composers/ComposerDeleteDial
 import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 import type { ComposerData } from '../lib/composer-types';
 import { canvasFpsOrDefault } from '../lib/composer-types';
+import { api } from '../lib/api';
+import { isRestartable } from '../lib/pool-status';
 
 export default function ComposerDetail() {
   const navigate = useNavigate();
@@ -70,6 +74,21 @@ export default function ComposerDetail() {
     navigate('/login');
   };
 
+  const handleRestart = useCallback(async () => {
+    if (!composerId) return;
+    try {
+      const { error } = await api.POST('/api/processes/{id}/restart', {
+        params: { path: { id: `composer:${composerId}` } },
+      });
+      if (error) throw new Error(error.detail ?? 'Failed to restart composer');
+      toast.success(`Restart requested for '${composerId}'`);
+      void fetchComposers();
+    } catch (error_) {
+      console.error('Failed to restart composer:', error_);
+      toast.error('Failed to restart composer');
+    }
+  }, [composerId, fetchComposers]);
+
   if (lastUpdated === null && loading) {
     return (
       <DashboardLayout onLogout={handleLogout} bottomBar={<InfoBar />}>
@@ -118,6 +137,14 @@ export default function ComposerDetail() {
                 onClick={() => setPreviewVisible((v) => !v)}
               />
               <Button theme="light" size="SM" text="Back" onClick={() => navigate('/composers')} />
+              <Button
+                theme="light"
+                size="SM"
+                text="Restart"
+                LeadingIcon={ArrowPathIcon}
+                disabled={!isRestartable(data.status)}
+                onClick={handleRestart}
+              />
               <Button
                 theme="danger"
                 size="SM"
