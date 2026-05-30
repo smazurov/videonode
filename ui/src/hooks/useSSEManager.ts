@@ -146,6 +146,7 @@ export function useSSEManager(options: SSEManagerOptions = {}) {
   useEffect(() => {
     if (onConnectionStatusChange) {
       globalConnectionHandlers.add(onConnectionStatusChange);
+      onConnectionStatusChange(getGlobalConnectionStatus());
     }
     if (onPipelineStateEvent) {
       globalPipelineStateHandlers.add(onPipelineStateEvent);
