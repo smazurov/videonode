@@ -78,6 +78,7 @@ std::vector<uint8_t> Encode(const Header& h) {
     for (uint32_t p : h.plane_offsets) {
         put_u32_le(out, p);
     }
+    put_u64_le(out, h.generation);
     return out;
 }
 
@@ -124,6 +125,7 @@ bool Decode(std::span<const uint8_t> bytes, Header& out, std::string* err) {
         out.plane_pitches[i] = get_u32_le(pitches.subspan(4 * i, 4));
         out.plane_offsets[i] = get_u32_le(offsets.subspan(4 * i, 4));
     }
+    out.generation = get_u64_le(bytes.subspan(36 + 8 * plane_count, 8));
     return true;
 }
 

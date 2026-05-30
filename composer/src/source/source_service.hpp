@@ -26,6 +26,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -112,6 +113,11 @@ class SourceService final : public videonode::control::Source::Service {
     // copies the FrameRef under a mutex. Snapshot() does the mmap+pack
     // lazily so the broadcast loop never pays for unused snapshots.
     void UpdateLastFrame(vn::snapshot::FrameRef ref);
+
+    // Point the snapshot holder at the producer's ring-slot gate so a
+    // Snapshot() read pins the slot it copies, blocking recycle mid-read.
+    // Called on each capture (re)open with the session's SlotOwner.
+    void SetSlotPinner(std::shared_ptr<vn::snapshot::SlotPinner> pinner);
 
     // Tell every active StreamStatus to flush and return. Called from
     // the orchestrator's shutdown path so the server thread can join.

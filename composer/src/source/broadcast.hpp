@@ -6,6 +6,7 @@
 #include "src/capture/source_probe.hpp"
 #include "src/ipc/scm_rights_producer.hpp"
 #include "src/render/nv12_buf.hpp"
+#include "src/snapshot/snapshot.hpp"
 #include "src/source/args.hpp"
 #include "src/source/capture_session.hpp"
 
@@ -13,6 +14,12 @@
 #include <string>
 
 namespace source {
+
+// Build a snapshot FrameRef from a decoded NV12 frame (or a raw NV12
+// buffer). Carries the dma-buf fds + plane geometry + slot/generation so
+// the holder can pin the ring slot during a Snapshot read.
+vn::snapshot::FrameRef make_frame_ref(const jpeg_dec::DecodedNv12& d, uint64_t frame_idx);
+vn::snapshot::FrameRef make_frame_ref(const nv12_buf::Buffer& b, uint64_t frame_idx);
 
 // Monotonic milliseconds since steady_clock epoch.
 uint64_t now_ms();
@@ -22,9 +29,10 @@ uint64_t now_ms();
 // interval math (use now_ms() — it is immune to clock jumps).
 int64_t wall_ms();
 
-// Send a decoded NV12 frame to all connected SCM consumers.
-void broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec::DecodedNv12& d,
-                    uint64_t frame_idx);
+// Send a decoded NV12 frame to all connected SCM consumers. Returns the
+// number of consumers it was delivered to, for SlotOwner refcounting.
+int broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec::DecodedNv12& d,
+                   uint64_t frame_idx);
 
 // Thin shim for placeholder + transitioning re-broadcast paths. Reads
 // layout straight from the nv12_buf::Buffer so split-buffer and single-

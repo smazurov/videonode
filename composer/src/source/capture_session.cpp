@@ -203,7 +203,12 @@ bool setup_mjpeg_decoder_(CaptureSession& s, const Args& a, nv12_buf::Allocator&
 
 // Set up the RGA/GLES CSC output ring (NV12 buffers the CSC writes into).
 bool setup_rga_output_ring_(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator) {
-    int ring_depth = a.buffers + 1;
+    // +3 slack over the V4L2 buffer count: the snapshot holder pins the
+    // latest slot continuously and a Snapshot read pins transiently, so the
+    // ring needs headroom beyond in-flight consumer reads to avoid dropping
+    // every frame once a slot is held.
+    int ring_depth = a.buffers + 3;
+    s.slot_owner = std::make_shared<SlotOwner>(static_cast<size_t>(ring_depth));
     for (int i = 0; i < ring_depth; ++i) {
         nv12_buf::Buffer b = allocator.alloc(s.width, s.height);
         if (!b.valid()) {
@@ -246,6 +251,8 @@ void teardown_session_(CaptureSession& s) {
     s.in_maps.clear();
     s.in_map_sizes.clear();
     s.out_ring.clear();
+    s.out_ring_write = 0;
+    s.slot_owner.reset();
     s.cap.close(); // unmaps V4L2 in_maps inside Streamer
     s.active = false;
     s.width = 0;

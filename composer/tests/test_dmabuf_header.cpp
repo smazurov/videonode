@@ -19,6 +19,7 @@ dmabuf_header::Header make_nv12_single_buf() {
     h.chroma_siting = dmabuf_header::ChromaSiting::Mpeg2;
     h.plane_pitches = {1920, 1920};
     h.plane_offsets = {0, 1920 * 1080};
+    h.generation = 9000;
     return h;
 }
 
@@ -28,7 +29,7 @@ TEST(DmabufHeader, RoundTripNV12) {
     auto h = make_nv12_single_buf();
     auto bytes = dmabuf_header::Encode(h);
     EXPECT_EQ(bytes.size(), dmabuf_header::SerializedSize(2));
-    EXPECT_EQ(bytes.size(), 52u);
+    EXPECT_EQ(bytes.size(), 60u);
 
     dmabuf_header::Header decoded;
     std::string err;
@@ -47,6 +48,7 @@ TEST(DmabufHeader, RoundTripNV12) {
     ASSERT_EQ(decoded.plane_offsets.size(), 2u);
     EXPECT_EQ(decoded.plane_offsets[0], 0u);
     EXPECT_EQ(decoded.plane_offsets[1], 1920u * 1080u);
+    EXPECT_EQ(decoded.generation, 9000u);
 }
 
 TEST(DmabufHeader, RoundTripSinglePlane) {
@@ -59,7 +61,7 @@ TEST(DmabufHeader, RoundTripSinglePlane) {
     h.plane_offsets = {0};
     auto bytes = dmabuf_header::Encode(h);
     EXPECT_EQ(bytes.size(), dmabuf_header::SerializedSize(1));
-    EXPECT_EQ(bytes.size(), 44u);
+    EXPECT_EQ(bytes.size(), 52u);
 
     dmabuf_header::Header decoded;
     EXPECT_TRUE(dmabuf_header::Decode(bytes, decoded));
