@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { components } from '../lib/api.generated';
 import { api, unwrap } from '../lib/api';
+import { useConnectionStatus } from './useConnectionStatus';
 
 export type SystemStats = components['schemas']['SystemStatsResponseBody'];
 
@@ -24,13 +25,25 @@ export function useSystemStats({
   const [error, setError] = useState<string | null>(null);
   const hasDataRef = useRef(false);
 
+  const online = useConnectionStatus() === 'online';
+
   useEffect(() => {
-    if (!enabled) return;
+    // Rig offline: don't poll a dead host. The stale `stats` is masked at
+    // return time (online ? stats : null) so the InfoBar shows '—' rather than
+    // a frozen uptime; reset hasDataRef so the next online fetch shows loading.
+    // Polling resumes when the connection returns (effect re-runs on `online`).
+    if (!enabled || !online) {
+      hasDataRef.current = false;
+      return;
+    }
 
     let cancelled = false;
+    let fetching = false;
     let timer: number | null = null;
 
     const fetchOnce = async () => {
+      if (fetching) return; // in-flight guard: skip the tick if one is pending
+      fetching = true;
       try {
         if (!hasDataRef.current) setLoading(true);
         const data = unwrap(await api.GET('/api/system'), 'Failed to load system stats');
@@ -44,6 +57,7 @@ export function useSystemStats({
         if (e.name === 'AbortError') return;
         setError(e.message);
       } finally {
+        fetching = false;
         if (!cancelled) setLoading(false);
       }
     };
@@ -55,7 +69,7 @@ export function useSystemStats({
       cancelled = true;
       if (timer != null) window.clearInterval(timer);
     };
-  }, [enabled, intervalMs]);
+  }, [enabled, intervalMs, online]);
 
-  return { stats, loading, error };
+  return { stats: online ? stats : null, loading, error };
 }

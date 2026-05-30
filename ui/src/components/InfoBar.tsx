@@ -175,6 +175,10 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
   // whole pipeline, the daemon process included).
   const { stats: systemStats } = useSystemStats();
 
+  // Only the 'online' status carries live stats; anything else means the
+  // numbers below would be stale, so they get blanked.
+  const live = connectionStatus === 'online';
+
   // Local clock so the uptime label advances every second between the
   // 2s stat polls.
   const [now, setNow] = useState(Date.now);
@@ -276,17 +280,20 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
 
       {/* Right section - User info and system details */}
       <div className="flex items-center space-x-2 md:space-x-4 flex-shrink-0 ml-4">
-        {/* Pipeline-wide resource summary: uptime + combined CPU/memory */}
-        {systemStats && (
+        {/* Pipeline-wide resource summary: uptime + combined CPU/memory.
+            When the rig is offline systemStats is null (useSystemStats blanks
+            it) — render em-dash placeholders, dimmed, rather than a frozen
+            uptime that keeps ticking off a dead host. */}
+        {(systemStats || !live) && (
           <>
-            <div className="flex items-center gap-x-3 text-xs">
+            <div className={cn("flex items-center gap-x-3 text-xs", !live ? "opacity-50" : undefined)}>
               <Stat icon={ClockIcon} label="Uptime" valueWidth="min-w-[2.75rem]"
-                value={formatUptime(systemStats.started_at_us, now) ?? '—'} />
+                value={systemStats ? (formatUptime(systemStats.started_at_us, now) ?? '—') : '—'} />
               <Stat icon={CpuChipIcon} label="CPU" valueWidth="min-w-[2.5rem]"
-                value={`${systemStats.cpu_percent.toFixed(1)}%`} />
+                value={systemStats ? `${systemStats.cpu_percent.toFixed(1)}%` : '—'} />
               <Stat icon={CircleStackIcon} label="Mem" valueWidth="min-w-[3rem]"
-                value={formatRSS(systemStats.rss_bytes)} />
-              {systemStats.error_count > 0 ? (
+                value={systemStats ? formatRSS(systemStats.rss_bytes) : '—'} />
+              {systemStats && systemStats.error_count > 0 ? (
                 <Tooltip.Provider>
                   <Tooltip.Root>
                     <Tooltip.Trigger asChild>
@@ -324,7 +331,7 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
                 </Tooltip.Provider>
               ) : (
                 <Stat icon={Square3Stack3DIcon} label="Procs" valueWidth="min-w-[1rem]"
-                  value={systemStats.process_count} />
+                  value={systemStats ? systemStats.process_count : '—'} />
               )}
             </div>
 

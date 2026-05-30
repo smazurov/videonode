@@ -43,6 +43,20 @@ export function getGlobalConnectionStatus(): ConnectionStatus {
   return globalClient ? mapStatus(globalClient.getStatus()) : 'online';
 }
 
+// subscribeConnectionStatus is a non-hook handle onto the same connection
+// authority useConnectionStatus reads, for module-level consumers (the shared
+// pollers) that need to pause when the rig goes offline. Ensures the global
+// SSE client is alive and returns an unsubscribe.
+export function subscribeConnectionStatus(
+  fn: (status: ConnectionStatus) => void,
+): () => void {
+  globalConnectionHandlers.add(fn);
+  setupGlobalSSE();
+  return () => {
+    globalConnectionHandlers.delete(fn);
+  };
+}
+
 // SSEClient.on()'s keyof constraint is keyed on the generated event-name
 // union; cast to a permissive view to attach the uniform 'entity' handler.
 type UntypedSSEOn = {
