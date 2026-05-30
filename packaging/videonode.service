@@ -12,6 +12,7 @@ ExecStart=/usr/bin/videonode -c /etc/videonode/config.toml
 Restart=on-failure
 RestartSec=5
 SupplementaryGroups=video render shadow audio
+Environment=ALSA_CONFIG_PATH=/usr/share/videonode/videonode.asound.conf
 
 [Install]
 WantedBy=multi-user.target
