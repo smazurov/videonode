@@ -2,6 +2,10 @@ version: "2"
 
 linters:
   exclusions:
+    # .claude/ holds throwaway worktree copies; once one is deleted the
+    # shared cache replays its files as phantom issues (golangci-lint#3502).
+    paths:
+      - \.claude/
     rules:
       - linters:
           - govet
