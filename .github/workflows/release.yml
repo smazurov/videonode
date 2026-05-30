@@ -176,26 +176,23 @@ jobs:
           pattern: pkg-*
           merge-multiple: true
           path: dist/
-      - name: Create GitHub Release
-        # Idempotent: a re-run (e.g. after a transient API 403) must not die on
-        # "already exists". If the release exists, converge by editing notes and
-        # clobbering assets; otherwise create it.
+      - name: Compute release vars
+        id: rel
         run: |
           TAG="v${VERSION#v}"
-          PRERELEASE=""
-          case "$VERSION" in *rc*) PRERELEASE="--prerelease";; esac
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --notes-file RELEASE_NOTES.md $PRERELEASE
-            gh release upload "$TAG" dist/* --clobber
-          else
-            gh release create "$TAG" dist/* \
-              --title "$TAG" \
-              --notes-file RELEASE_NOTES.md \
-              --target "${{ github.sha }}" \
-              $PRERELEASE
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          case "$VERSION" in *rc*) echo "prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "prerelease=false" >> "$GITHUB_OUTPUT";; esac
+      - name: Create GitHub Release
+        # Idempotent: a re-run updates the existing release (clobbers assets)
+        # instead of failing on "already exists".
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: ${{ steps.rel.outputs.tag }}
+          body_path: RELEASE_NOTES.md
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ steps.rel.outputs.prerelease }}
+          files: dist/*
 
   publish-apt:
     needs: [package]
