@@ -1,3 +1,26 @@
+- semver: 4.0.0-rc8
+  date: 2026-05-30T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: de9c2d1
+      note: "RK3588 audio capture reworked: routed through an mmap plug->dsnoop PCM that converts the card-native format (the Hollyland Lyra is S32_LE-only) to whatever the encoder requests, with a larger dsnoop ring to kill xruns under the 1080p60 transcode load (opus output ~8kbps silence -> ~85kbps); the service unit gains the audio group and streams now honor per-stream audio config"
+    - commit: 661e15c
+      note: "native source/sink robustness: the source gates NV12 ring reuse on consumer read-completion (per-slot refcount + generation), fixing the venetian-blind tearing seen across snapshot, composer, and encoder output; vn-sink reconnects across a source/composer restart instead of feeding a dead RTSP relay; the composer fails fast on a GPU-less host"
+    - commit: 975e2d3
+      note: "hardware MJPEG decode adopts MPP's info-change handshake (two buffer groups, packet-owned input, one-shot SET_INFO_CHANGE_READY), fixing the per-frame jpegd reset that left Lyra MJPEG frames undecoded"
+    - commit: 56558e4
+      note: "SSE entity payload is typed end-to-end as a oneOf+discriminator keyed on a `type` tag, so the UI narrows on event.type with no casts; idle now publishes a full zeroed status, so partial payloads can no longer crash the source panel"
+    - commit: 02dcb7a
+      note: "connection robustness: the UI detects a dead rig in ~20s via an 8s request timeout and a 20s SSE heartbeat watchdog instead of waiting out the TCP timeout, the shared SSE connection persists across navigation, reconnect is health-gated, and offline stats blank to dimmed em-dashes instead of frozen fake-ticking values"
+    - commit: 3b5bfba
+      note: "unified POST /api/processes/{id}/restart for source/composer/encoder, with restart buttons on the detail pages"
+    - commit: c38e3bc
+      note: "the .deb no longer hard-depends on out-of-band board libraries (librga2, librockchip-mpp1) that come from a 3rd-party repo or a from-source build, fixing uninstallable 'apt install videonode' where no owning package exists"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc7
   date: 2026-05-29T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
