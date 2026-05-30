@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { PlayIcon, SignalSlashIcon } from '@heroicons/react/24/outline';
 import { webrtcSignaling } from '../../lib/api';
 import { StatsOverlay } from './StatsOverlay';
-import { useStreamStore } from '../../hooks/useStreamStore';
 import { cn } from '../../utils';
 
 const RECONNECT_BASE_MS = 2000;
@@ -101,7 +100,6 @@ async function performSignaling(
 }
 
 export function WebRTCPlayer({ streamId, className = '', muted = true, showStats = false }: Props) {
-  const pipelineEnabled = useStreamStore((s) => s.pipelineEnabled);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const cancelledRef = useRef(false);
@@ -116,7 +114,6 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
   const [playBlocked, setPlayBlocked] = useState(false);
 
   useEffect(() => {
-    if (pipelineEnabled !== true) return;
     if (typeof RTCPeerConnection === 'undefined') {
       queueMicrotask(() => setError('WebRTC not supported in this browser'));
       return;
@@ -200,7 +197,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         videoElement.srcObject = null;
       }
     };
-  }, [streamId, pipelineEnabled]);
+  }, [streamId]);
 
   const handleClickToPlay = () => {
     const video = videoRef.current;
