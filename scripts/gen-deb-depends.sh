@@ -11,13 +11,8 @@
 # reads each DT_NEEDED soname's owning package + symbols file to compute a
 # version-floored, ABI-correct dependency (e.g. `libplacebo349 (>= 7.349.0)`).
 #
-# Static binaries (the CGO_ENABLED=0 Go daemon) have no dynamic deps and are
-# skipped. The board libs (librga / librockchip_mpp, from the tsukumijima 3rd-party
-# repo) are filtered out below so they stay undeclared — they're provided out-of-band
-# by install-rockchip-libs.sh / the image, or built from source on the rig, and a
-# hard Depends would make the package uninstallable where no owning dpkg package
-# exists. --ignore-missing-info only covers the case where the build container lacks
-# their dpkg metadata entirely; the explicit filter covers the case where it has it.
+# Static Go binaries (CGO_ENABLED=0) have no dynamic deps and are skipped.
+# The board libs (librga / librockchip_mpp) are filtered out below — see note there.
 set -euo pipefail
 
 if [[ $# -eq 0 ]]; then
@@ -64,13 +59,8 @@ deps="${shlibs_line#shlibs:Depends=}"
 # it turns a wrong-release install into a readable "needs Debian 13" instead of a
 # pile of uninstallable-soname errors. The ~ admits any trixie point release.
 echo "base-files (>= 13~)"
-# Drop the board libs (librga* / librockchip-mpp* / librockchip_mpp*). They ship
-# from the tsukumijima 3rd-party apt repo, not trixie, and a rig may instead build
-# RGA/MPP from source — in which case no owning dpkg package exists and a hard
-# Depends makes `apt install videonode` uninstallable. They're provided out-of-band
-# (install-rockchip-libs.sh / the image), so they must stay undeclared regardless of
-# whether the build container happened to have the .debs dpkg-registered (which would
-# otherwise defeat --ignore-missing-info above).
+# Drop the board libs: provided out-of-band (tsukumijima repo / source-built on the
+# rig), so a hard Depends would make the package uninstallable.
 #
 # sed (not grep) to drop blank lines: returns 0 even when the lib list is empty
 # (e.g. a non-dpkg host), so set -e/pipefail don't kill the script on no-match.
