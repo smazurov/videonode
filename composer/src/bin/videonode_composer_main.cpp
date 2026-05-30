@@ -1,22 +1,9 @@
 // videonode-composer — daemon-driven GPU compositor.
 //
-// argv is intentionally minimal: videonode-composer is a passive render
-// server. The daemon dials `--grpc-listen` (a Unix socket the composer
-// binds), calls Composer.Describe() to capture identity, and pushes
-// everything dynamic (canvas dims, slot ↔ source bindings, layout,
-// effects, per-source state) as unary gRPC calls. Canvas_loop snapshots
-// that state every frame and renders BGRA to stdout. Pipe stdout to
-// ffmpeg for transcoding.
-//
-//   videonode-composer
-//       --drm-device /dev/dri/renderD130
-//       --grpc-listen /tmp/videonode-native/composer-canvas-composer.sock
-//       --composer-id <stream-id>-composer
-//       --seconds 0
-//
-// Until the daemon has pushed at least one canvas + one bound+placed
-// slot, we render a solid-black BGRA frame at a default 1280×720@30 so
-// the downstream pipe stays alive.
+// A passive render server: the daemon binds via --grpc-listen, calls
+// Composer.Describe() for identity, then pushes all dynamic state (canvas
+// dims, bindings, layout, effects, per-source state) as unary gRPC calls.
+// Until the daemon has pushed a ready canvas, it renders solid black.
 
 #include "src/common/flags_compat.hpp"
 #include "src/common/log_levels.hpp"
@@ -68,13 +55,15 @@ namespace {
 
 std::atomic<bool> g_running{true};
 
+// Distinct code for a permanent GPU/render-node-absent startup failure (78 ==
+// EX_UNAVAILABLE). Operator signal / future hook; the daemon doesn't branch yet.
+constexpr int kExitGpuUnavailable = 78;
+
 } // namespace
 
 int main(int argc, char** argv) {
     vn::raise_fd_limit();
 
-    // Same hand-rolled --version dance as the other binaries: absl doesn't
-    // own --version, and supervisors grep for the legacy spelling.
     const std::span<char*> args(argv, static_cast<size_t>(argc));
     for (size_t i = 1; i < args.size(); ++i) {
         if (std::strcmp(args[i], "--version") == 0) {
@@ -108,16 +97,34 @@ int main(int argc, char** argv) {
 
     vn::signal::install_shutdown(g_running);
 
-    egl_ctx::EglCtx ctx;
-    if (!ctx.init(drm_device))
-        return 1;
+    // Startup GPU gate: a render-node-absent host must exit non-retryable even
+    // if no canvas ever arrives. Scoped so the probe EglCtx is destroyed first.
+    {
+        auto probe = [&](const char* n) {
+            egl_ctx::EglCtx c;
+            return c.init(n);
+        };
+        bool gpu_ok = !drm_device.empty() && probe(drm_device.c_str());
+        if (!gpu_ok) {
+            for (const char* cand : render::kDrmRenderCandidates) {
+                if (drm_device == cand)
+                    continue;
+                if (probe(cand)) {
+                    gpu_ok = true;
+                    break;
+                }
+            }
+        }
+        if (!gpu_ok) {
+            vn::log::fatal("videonode-composer: no usable GPU render node; "
+                           "exiting non-retryable");
+            return kExitGpuUnavailable;
+        }
+    }
 
     render::World world;
     render::RenderStats render_stats;
 
-    // Control plane is optional. Without --grpc-listen + --composer-id
-    // the composer renders solid black until SIGINT — useful only for
-    // diagnostic smoke tests.
     nativerpc::GrpcServer grpc_srv;
     std::unique_ptr<nativerpc::ComposerService> grpc_svc;
     if (!grpc_listen.empty() && !composer_id.empty()) {
@@ -142,11 +149,8 @@ int main(int argc, char** argv) {
                       "composer will render black until SIGINT");
     }
 
-    // Seed the World with the requested pre-ready canvas dims so the
-    // very first frame is the correct size for the downstream encoder.
-    // SetCanvas RPC from the daemon will later refresh these if it
-    // disagrees. Required for inline-composer mode where the encoder's
-    // ffmpeg input is invoked with `-s WxH` matching these dims.
+    // Seed pre-ready canvas dims so the first frame matches the encoder's
+    // fixed `-s WxH` input; the daemon's SetCanvas can override later.
     if (canvas_w > 0 && canvas_h > 0) {
         composer_rpc::SetCanvasRequest seed;
         seed.w = uint32_t(canvas_w);
@@ -159,8 +163,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    int frames = render::RunCanvasLoop({
-        .ctx = ctx,
+    int rc = render::RunCanvasLoop({
         .world = world,
         .target_fps = target_fps,
         .run_seconds = run_seconds,
@@ -172,6 +175,11 @@ int main(int argc, char** argv) {
 
     grpc_srv.Shutdown();
 
-    vn::log::info("videonode-composer: %d frames composed", frames);
+    if (rc == render::kCanvasRuntimeError) {
+        vn::log::error("videonode-composer: canvas loop failed; exiting");
+        return EXIT_FAILURE;
+    }
+
+    vn::log::info("videonode-composer: %d frames composed", rc);
     return 0;
 }

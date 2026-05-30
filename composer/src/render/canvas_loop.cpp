@@ -53,10 +53,6 @@ bool write_full_(int fd, std::span<const uint8_t> buf) {
     return true;
 }
 
-// Reconcile our per-slot ScmRightsSource pool with the current snapshot.
-// Constructs new sources for new slot+scm_path pairs; tears down sources
-// for slots that disappeared or had their scm_path swapped. Cheap when
-// the snapshot is steady (no allocation).
 struct LiveSource {
     std::unique_ptr<scm_rights_source::ScmRightsSource> src;
     std::string scm_path;
@@ -106,8 +102,6 @@ void reconcile_sources_(std::map<std::string, LiveSource>& live,
     }
 }
 
-// Write a solid-black BGRA canvas to stdout; keeps the downstream pipe alive
-// before World is ready.
 bool write_black_canvas_(int w, int h) {
     if (w <= 0 || h <= 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(33));
@@ -120,7 +114,6 @@ bool write_black_canvas_(int w, int h) {
     return write_full_(STDOUT_FILENO, std::span(black.data(), black.size()));
 }
 
-// Broadcast the canvas BGRA dma-buf to all connected SCM consumers.
 bool broadcast_canvas_(scm_rights_producer::ScmRightsProducer& prod, int canvas_fd, int width,
                        int height, uint32_t stride, uint64_t frame_idx) {
     dmabuf_header::Header h;
@@ -180,7 +173,6 @@ RenderBatch build_render_slots_(const Snapshot& snap,
     return batch;
 }
 
-// Write canvas rows to stdout (stride-aware). Returns false on write failure.
 bool write_canvas_stdout_(void* canvas_map, int compose_w, int compose_h, uint32_t map_stride) {
     std::span<const uint8_t> canvas_span(static_cast<const uint8_t*>(canvas_map),
                                          size_t(compose_h) * map_stride);
@@ -194,7 +186,6 @@ bool write_canvas_stdout_(void* canvas_map, int compose_w, int compose_h, uint32
     return true;
 }
 
-// Notify the ComposerService of the latest canvas frame (SCM mode only).
 void notify_composer_svc_(nativerpc::ComposerService* composer_svc, int canvas_dmabuf_fd,
                           int compose_w, int compose_h, uint32_t stride, uint64_t frame_idx) {
     vn::snapshot::FrameRef r{};
@@ -221,15 +212,10 @@ struct ComposeState {
     int h = 0;
 };
 
-// Initialize the lazy pl_compose on the first ready snapshot.
-// Returns false on failure (caller should skip the frame and retry).
-bool init_compose_(ComposeState& cs, std::atomic<bool>& running, const Snapshot& snap,
-                   RenderStats* stats) {
+bool init_compose_(ComposeState& cs, const Snapshot& snap, RenderStats* stats) {
     cs.compose = std::make_unique<pl_compose::PlCompose>();
-    const char* drm_candidates[] = {"/dev/dri/renderD128", "/dev/dri/renderD129",
-                                    "/dev/dri/renderD130"};
     bool inited = false;
-    for (const char* d : drm_candidates) {
+    for (const char* d : kDrmRenderCandidates) {
         if (cs.compose->init(d, int(snap.canvas_w), int(snap.canvas_h))) {
             inited = true;
             break;
@@ -244,8 +230,7 @@ bool init_compose_(ComposeState& cs, std::atomic<bool>& running, const Snapshot&
     cs.w = int(snap.canvas_w);
     cs.h = int(snap.canvas_h);
     if (cs.compose->canvas_dmabuf_fd() < 0) {
-        vn::log::fatal("canvas_loop: canvas dma-buf fd invalid after init");
-        running.store(false);
+        vn::log::error("canvas_loop: canvas dma-buf fd invalid after init");
         return false;
     }
     vn::log::info("canvas_loop: ready canvas %dx%d (%u fps)", cs.w, cs.h, snap.canvas_fps);
@@ -257,7 +242,6 @@ bool init_compose_(ComposeState& cs, std::atomic<bool>& running, const Snapshot&
     return true;
 }
 
-// Prune dead SCM consumers and log consumer-count transitions.
 void prune_consumers_(scm_rights_producer::ScmRightsProducer& scm_out, int& prev_consumer_count,
                       std::chrono::steady_clock::time_point& next_consumer_prune,
                       RenderStats* stats) {
@@ -276,11 +260,9 @@ void prune_consumers_(scm_rights_producer::ScmRightsProducer& scm_out, int& prev
     next_consumer_prune = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 
-// Pool of snapshot memfds that rotate with the canvas triple-buffer.
-// Consumers receive the fd via SCM_RIGHTS (kernel dups it). The pool
-// must be deep enough that a consumer finishes reading snapshot N before
-// the pool wraps and the producer overwrites N's pages. With 3 slots
-// and 30fps, each slot is reused every ~100ms — plenty of margin.
+// Rotating pool of snapshot memfds broadcast via SCM_RIGHTS. Must be deep
+// enough that a consumer finishes reading slot N before the pool wraps and
+// overwrites N's pages.
 struct SnapPool {
     static constexpr int kPoolSize = 3;
     struct Slot {
@@ -371,7 +353,6 @@ bool render_scm_frame_(ComposeState& cs, SnapPool& pool,
     return true;
 }
 
-// Render one frame in stdout mode: mmap, write rows, unmap.
 bool render_stdout_frame_(ComposeState& cs) {
     uint32_t map_stride = 0;
     void* map_data = nullptr;
@@ -393,7 +374,6 @@ bool render_stdout_frame_(ComposeState& cs) {
     return ok;
 }
 
-// Update fps_observed_centi once per second.
 void update_fps_stats_(RenderStats& stats, int frames_rendered, int& frames_at_last_sample,
                        std::chrono::steady_clock::time_point& next_fps_sample) {
     auto now = std::chrono::steady_clock::now();
@@ -405,7 +385,6 @@ void update_fps_stats_(RenderStats& stats, int frames_rendered, int& frames_at_l
     stats.fps_observed_centi.store(uint32_t(delta * 100), std::memory_order_relaxed);
 }
 
-// Initialize SCM output producer. Returns false on fatal init failure.
 bool init_scm_out_(std::unique_ptr<scm_rights_producer::ScmRightsProducer>& scm_out,
                    const std::string& scm_out_path) {
     scm_out = std::make_unique<scm_rights_producer::ScmRightsProducer>();
@@ -433,27 +412,26 @@ struct LoopState {
     bool gpu_pending = false;
     RenderBatch pending_batch;
     SnapPool snap_pool;
+    int init_attempts = 0;   // consecutive init_compose_ failures
+    bool loop_error = false; // true => terminate with kCanvasRuntimeError
 };
 
 std::chrono::nanoseconds fps_period_(int fps) {
     return std::chrono::nanoseconds(fps > 0 ? 1'000'000'000LL / fps : 1'000'000'000LL / 30);
 }
 
-// Advance next_tick by period; rebase if we fell behind.
 void advance_tick_(LoopState& ls, std::chrono::nanoseconds period) {
     ls.next_tick += period;
     if (ls.next_tick < std::chrono::steady_clock::now())
         ls.next_tick = std::chrono::steady_clock::now() + period;
 }
 
-// Account for one rendered frame: update counter and fps sample.
 void count_frame_(LoopState& ls, RenderStats* stats) {
     ++ls.frames_rendered;
     if (stats)
         stats->frames_rendered.store(uint64_t(ls.frames_rendered), std::memory_order_relaxed);
 }
 
-// Tick fps sample and consumer prune, then advance the tick clock.
 void post_render_tick_(LoopState& ls, RenderStats* stats, int fps) {
     if (ls.scm_out && std::chrono::steady_clock::now() >= ls.next_consumer_prune)
         prune_consumers_(*ls.scm_out, ls.prev_consumer_count, ls.next_consumer_prune, stats);
@@ -464,8 +442,6 @@ void post_render_tick_(LoopState& ls, RenderStats* stats, int fps) {
     advance_tick_(ls, fps_period_(fps));
 }
 
-// Handle a not-ready tick: write black (stdout mode) or broadcast black
-// canvas (SCM mode). Returns false on fatal write/render error.
 bool handle_not_ready_(LoopState& ls, const Snapshot& snap, int target_fps, RenderStats* stats,
                        nativerpc::ComposerService* composer_svc) {
     if (!ls.scm_out) {
@@ -486,8 +462,7 @@ bool handle_not_ready_(LoopState& ls, const Snapshot& snap, int target_fps, Rend
     return true;
 }
 
-// Log a one-time warning when canvas dims change mid-stream (STUB: recreate
-// not yet implemented).
+// STUB: mid-stream canvas-dim recreate not implemented; warn once and ignore.
 void warn_dims_changed_(int old_w, int old_h, uint32_t new_w, uint32_t new_h) {
     static bool warned = false;
     if (warned)
@@ -498,23 +473,32 @@ void warn_dims_changed_(int old_w, int old_h, uint32_t new_w, uint32_t new_h) {
     warned = true;
 }
 
-// Ensure pl_compose is initialized for the current snapshot.
-// Returns false if compose init failed (caller should skip and retry).
-// Returns true with cs.compose valid on success.
+// Bounded so transient GPU/CMA pressure rides out, but a genuinely-absent
+// render node (fails every attempt) exits non-retryable after the budget.
+constexpr int kCanvasInitMaxAttempts = 5;
+constexpr auto kCanvasInitRetryDelay = std::chrono::milliseconds(1000);
+
 bool ensure_compose_(LoopState& ls, std::atomic<bool>& running, const Snapshot& snap,
-                     RenderStats* stats, int target_fps) {
+                     RenderStats* stats) {
     if (ls.cs.compose) {
         if (int(snap.canvas_w) != ls.cs.w || int(snap.canvas_h) != ls.cs.h)
             warn_dims_changed_(ls.cs.w, ls.cs.h, snap.canvas_w, snap.canvas_h);
         return true;
     }
-    if (init_compose_(ls.cs, running, snap, stats))
+    if (init_compose_(ls.cs, snap, stats)) {
+        ls.init_attempts = 0;
         return true;
-    ls.next_tick += fps_period_(target_fps);
+    }
+    if (++ls.init_attempts < kCanvasInitMaxAttempts) {
+        ls.next_tick += kCanvasInitRetryDelay; // back off, retry next tick
+        return false;
+    }
+    vn::log::error("canvas_loop: pl_compose init exhausted retries; giving up");
+    ls.loop_error = true;
+    running.store(false, std::memory_order_release);
     return false;
 }
 
-// Submit GPU commands for one frame (non-blocking). Returns false on error.
 bool submit_frame_(LoopState& ls, const Snapshot& snap,
                    std::map<std::string, LiveSource>& live_sources) {
     ls.pending_batch = build_render_slots_(snap, live_sources);
@@ -526,7 +510,6 @@ bool submit_frame_(LoopState& ls, const Snapshot& snap,
     return true;
 }
 
-// Wait for the GPU to finish the previous frame, broadcast it, and swap.
 bool complete_frame_(LoopState& ls, nativerpc::ComposerService* composer_svc) {
     if (!ls.gpu_pending)
         return true;
@@ -543,7 +526,6 @@ bool complete_frame_(LoopState& ls, nativerpc::ComposerService* composer_svc) {
 } // namespace
 
 int RunCanvasLoop(CanvasLoopConfig cfg) {
-    (void)cfg.ctx; // pl_compose manages its own EGL context
     auto start = std::chrono::steady_clock::now();
 
     std::unique_ptr<scm_rights_producer::ScmRightsProducer> scm_out_owned;
@@ -562,11 +544,11 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
             std::chrono::steady_clock::now() - start > std::chrono::seconds(cfg.run_seconds))
             break;
 
-        // Complete the previous tick's GPU work (near-zero wait if the
-        // GPU finished during the sleep). This pipelines rendering: the
-        // GPU runs concurrently with sleep_until, so finish() returns
-        // immediately for workloads that complete within one tick period.
+        // Pipelined: previous tick's GPU work ran during sleep_until, so this
+        // finish() is near-zero wait for workloads under one tick period.
         if (!complete_frame_(ls, cfg.composer_svc)) {
+            if (ls.scm_out)
+                ls.loop_error = true;
             cfg.running.store(false);
             break;
         }
@@ -575,12 +557,14 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
         Snapshot snap = cfg.world.snapshot();
 
         if (snap.canvas_w > 0 && snap.canvas_h > 0) {
-            if (!ensure_compose_(ls, cfg.running, snap, cfg.stats, cfg.target_fps))
+            if (!ensure_compose_(ls, cfg.running, snap, cfg.stats))
                 continue;
         }
 
         if (!snap.ready) {
             if (!handle_not_ready_(ls, snap, cfg.target_fps, cfg.stats, cfg.composer_svc)) {
+                if (ls.scm_out)
+                    ls.loop_error = true;
                 cfg.running.store(false);
                 break;
             }
@@ -590,6 +574,7 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
         reconcile_sources_(live_sources, snap.slots);
 
         if (!submit_frame_(ls, snap, live_sources)) {
+            ls.loop_error = true;
             cfg.running.store(false);
             break;
         }
@@ -606,7 +591,7 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
             lsrc.src->stop();
     if (scm_out_owned)
         scm_out_owned->stop();
-    return ls.frames_rendered;
+    return ls.loop_error ? kCanvasRuntimeError : ls.frames_rendered;
 }
 
 } // namespace render
