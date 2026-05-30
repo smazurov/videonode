@@ -179,6 +179,14 @@ ScmRightsSource::~ScmRightsSource() {
 }
 
 void ScmRightsSource::thread_main_() {
+    // Clear running_ on every exit path (peer closed, reset, truncation
+    // give-up, stop) so a consumer can distinguish a dropped connection from
+    // an idle one and re-dial. start() sets running_ true before spawning us.
+    struct ClearOnExit {
+        std::atomic<bool>& flag;
+        ~ClearOnExit() { flag.store(false); }
+    } clear_on_exit{running_};
+
     int consecutive_truncations = 0;
     while (!stop_requested_.load()) {
         dmabuf_header::Header header;
