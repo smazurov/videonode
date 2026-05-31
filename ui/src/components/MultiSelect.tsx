@@ -14,7 +14,13 @@ interface MultiSelectProps {
   readonly placeholder?: string;
   readonly className?: string;
   readonly label?: string;
+  readonly size?: 'sm' | 'md';
 }
+
+const TRIGGER_SIZES = {
+  sm: 'pl-2 pr-1.5 py-0.5 text-xs min-w-[70px]',
+  md: 'px-3 py-2 text-sm w-full',
+} as const;
 
 export function MultiSelect({
   options,
@@ -23,6 +29,7 @@ export function MultiSelect({
   placeholder = 'Select...',
   className = '',
   label,
+  size = 'sm',
 }: MultiSelectProps) {
   const allSelected = selected.length === options.length;
   const noneSelected = selected.length === 0;
@@ -42,10 +49,12 @@ export function MultiSelect({
       <div className={`relative ${className}`}>
         <ListboxButton
           aria-label={label ?? placeholder}
-          className="flex items-center gap-1 pl-2 pr-1.5 py-0.5 text-xs bg-surface-muted border border-border rounded text-fg cursor-pointer min-w-[70px] focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring hover:bg-surface-muted/80"
+          className={`flex items-center gap-1 ${TRIGGER_SIZES[size]} bg-surface-muted border border-border rounded text-fg cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring hover:bg-surface-muted/80`}
         >
           <span className="flex-1 truncate">{noneSelected ? placeholder : getDisplayText()}</span>
-          <ChevronDownIcon className="w-3.5 h-3.5 shrink-0 text-fg-subtle stroke-[1.5]" />
+          <ChevronDownIcon
+            className={`${size === 'md' ? 'w-4 h-4' : 'w-3.5 h-3.5'} shrink-0 text-fg-subtle stroke-[1.5]`}
+          />
         </ListboxButton>
 
         <ListboxOptions

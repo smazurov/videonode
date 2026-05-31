@@ -50,20 +50,21 @@ export function AudioFields({
   return (
     <section className="space-y-4">
       <h2 className="text-lg font-semibold text-fg">Audio</h2>
-      <div className="space-y-1">
-        <label className="block text-sm font-medium text-fg">ALSA Devices</label>
-        <MultiSelect
-          options={options}
-          selected={value.devices ?? []}
-          onChange={(next) => update('devices', next)}
-          placeholder={loading ? 'Loading devices...' : 'Select audio inputs'}
-          label="ALSA devices"
-        />
-        <p className="text-xs text-fg-muted">
-          Pick one or more capture devices. Multiple devices are mixed via the filter below.
-        </p>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+        <div className="space-y-1 md:col-span-2">
+          <label className="block text-sm font-medium text-fg">ALSA Devices</label>
+          <MultiSelect
+            options={options}
+            selected={value.devices ?? []}
+            onChange={(next) => update('devices', next)}
+            placeholder={loading ? 'Loading devices...' : 'Select audio inputs'}
+            label="ALSA devices"
+            size="md"
+          />
+          <p className="text-xs text-fg-muted">
+            Pick one or more capture devices. Multiple devices are mixed via the filter below.
+          </p>
+        </div>
         <Select
           label="Codec"
           value={value.codec}
