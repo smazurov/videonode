@@ -33,10 +33,9 @@ const (
 // Format describes the raw pixel format returned by the upstream Fetcher.
 type Format int
 
-// Raw pixel formats handed by upstream sources/composers.
+// Raw pixel formats handed by upstream sources/composers. Both emit NV12.
 const (
 	FormatNV12 Format = iota
-	FormatBGRA
 )
 
 // Frame is the upstream-fetched raw frame plus metadata.
