@@ -22,6 +22,7 @@
 //
 // Exit status: 0 on full success; non-zero with a diagnostic line on failure.
 
+#include "src/common/file_ptr.hpp"
 #include "src/common/probe_check.hpp"
 #include "src/render/egl_ctx.hpp"
 
@@ -79,7 +80,7 @@ void dump_modifier_matrix(EGLDisplay dpy) {
 }
 
 int write_ppm(const char* outpath, const void* mapped, uint32_t map_stride, int W, int H) {
-    std::unique_ptr<FILE, decltype(&std::fclose)> f(std::fopen(outpath, "wb"), &std::fclose);
+    vn::FilePtr f(std::fopen(outpath, "wb"));
     VN_CHECK(f, "fopen(%s): %s", outpath, std::strerror(errno));
     std::fprintf(f.get(), "P6\n%d %d\n255\n", W, H);
     int red_pixels = 0;
