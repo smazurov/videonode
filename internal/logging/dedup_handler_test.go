@@ -113,6 +113,23 @@ func TestDedupHandler_DifferentMessagesNotSuppressed(t *testing.T) {
 	}
 }
 
+func TestDedupHandler_SameMessageDifferentAttrsNotSuppressed(t *testing.T) {
+	rec := &recordingHandler{}
+	h := NewDedupHandler(rec, time.Minute)
+
+	now := time.Now()
+	for i := range 3 {
+		r := makeRecord(now.Add(time.Duration(i)*time.Millisecond), "frame")
+		r.AddAttrs(slog.Int("n", i))
+		_ = h.Handle(context.Background(), r)
+	}
+
+	// Identical message but distinct attributes => distinct keys => none folded.
+	if records := rec.getRecords(); len(records) != 3 {
+		t.Fatalf("expected 3 records (distinct attrs), got %d", len(records))
+	}
+}
+
 func TestDedupHandler_LiveCallbackUpdates(t *testing.T) {
 	// Set up global buffer and callback to verify live updates
 	buf := NewRingBuffer(100)
@@ -229,8 +246,12 @@ func TestDedupHandler_PublishedAttributesNotMutated(t *testing.T) {
 	cbMu.Unlock()
 
 	// Subsequent duplicates update suppression state on the ring buffer entry.
+	// They must carry the same attribute as the first record, or full-key dedup
+	// treats them as distinct records and never folds.
 	for i := 1; i <= 3; i++ {
-		_ = h.Handle(context.Background(), makeRecord(now.Add(time.Duration(i)*time.Millisecond), "spam"))
+		dup := makeRecord(now.Add(time.Duration(i)*time.Millisecond), "spam")
+		dup.AddAttrs(slog.String("k", "v"))
+		_ = h.Handle(context.Background(), dup)
 	}
 
 	if v, mutated := published["suppressed"]; mutated {
@@ -278,8 +299,9 @@ func TestDedupHandler_ConcurrentStreamWhileSuppressing(t *testing.T) {
 			case <-done:
 				return
 			default:
-				_ = h.Handle(context.Background(),
-					makeRecord(base.Add(time.Duration(i)*time.Microsecond), "spam"))
+				dup := makeRecord(base.Add(time.Duration(i)*time.Microsecond), "spam")
+				dup.AddAttrs(slog.String("a", "1"), slog.String("b", "2"))
+				_ = h.Handle(context.Background(), dup)
 			}
 		}
 	}()
