@@ -16,12 +16,8 @@ type FrameKind int
 const (
 	FrameKindUnknown FrameKind = iota
 	// FrameKindNV12Raw — raw NV12 bytes (Y + UV planes) on stdout. Both
-	// sources and composers now emit this.
+	// sources and composers emit this.
 	FrameKindNV12Raw
-	// FrameKindBGRARaw — raw BGRA bytes. No longer emitted (the composer
-	// converts its canvas to NV12 in hardware); retained for the ffmpeg
-	// input mapping in case a raw-BGRA upstream returns.
-	FrameKindBGRARaw
 )
 
 // FrameSource describes one upstream video source the encoder dials.

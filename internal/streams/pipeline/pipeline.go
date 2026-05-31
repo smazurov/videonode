@@ -838,12 +838,7 @@ func localRTSPURL(portSpec, streamID string) string {
 func (p *Pipeline) resolveEncoder(codec string, video FrameSource) EncoderResolution {
 	inputPixFmt := ""
 	if video != nil {
-		switch video.Kind() {
-		case FrameKindBGRARaw:
-			inputPixFmt = "bgra"
-		default:
-			inputPixFmt = "nv12"
-		}
+		inputPixFmt = "nv12"
 	}
 
 	if p.cfg.EncoderResolver != nil {
@@ -1065,13 +1060,15 @@ func (p *Pipeline) SnapshotSource(ctx context.Context, sourceID string) (snapsho
 	if err != nil {
 		return snapshots.Frame{}, err
 	}
+	cm, _ := p.cfg.ControlServer.SourceColorMatrix(sourceID)
 	return snapshots.Frame{
-		Bytes:      resp.GetNv12(),
-		Format:     snapshots.FormatNV12,
-		Width:      int(resp.GetWidth()),
-		Height:     int(resp.GetHeight()),
-		FrameIdx:   resp.GetFrameIdx(),
-		CapturedNs: resp.GetCapturedAtNs(),
+		Bytes:       resp.GetNv12(),
+		Format:      snapshots.FormatNV12,
+		Width:       int(resp.GetWidth()),
+		Height:      int(resp.GetHeight()),
+		FrameIdx:    resp.GetFrameIdx(),
+		CapturedNs:  resp.GetCapturedAtNs(),
+		ColorMatrix: cm,
 	}, nil
 }
 
@@ -1086,12 +1083,13 @@ func (p *Pipeline) SnapshotComposer(ctx context.Context, composerID string) (sna
 		return snapshots.Frame{}, err
 	}
 	return snapshots.Frame{
-		Bytes:      resp.GetNv12(),
-		Format:     snapshots.FormatNV12,
-		Width:      int(resp.GetWidth()),
-		Height:     int(resp.GetHeight()),
-		FrameIdx:   resp.GetFrameIdx(),
-		CapturedNs: resp.GetCapturedAtNs(),
+		Bytes:       resp.GetNv12(),
+		Format:      snapshots.FormatNV12,
+		Width:       int(resp.GetWidth()),
+		Height:      int(resp.GetHeight()),
+		FrameIdx:    resp.GetFrameIdx(),
+		CapturedNs:  resp.GetCapturedAtNs(),
+		ColorMatrix: "bt709", // composer always outputs BT.709 limited
 	}, nil
 }
 

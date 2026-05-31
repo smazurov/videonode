@@ -102,6 +102,37 @@ func (c ColorTags) IsZero() bool {
 	return c.Space == "" && c.Primaries == "" && c.TRC == "" && c.Range == ""
 }
 
+// ColorTagsForMatrix maps a detected YCbCr matrix ("bt601"/"bt709") to ffmpeg
+// VUI flags. Unknown ("") yields no tags. Range is always limited (tv).
+func ColorTagsForMatrix(matrix string) ColorTags {
+	switch matrix {
+	case "bt709":
+		return ColorTags{Space: "bt709", Primaries: "bt709", TRC: "bt709", Range: "tv"}
+	case "bt601":
+		return ColorTags{Space: "smpte170m", Primaries: "smpte170m", TRC: "smpte170m", Range: "tv"}
+	default:
+		return ColorTags{}
+	}
+}
+
+// FFArgs renders the non-empty tags as ordered ffmpeg flag pairs.
+func (c ColorTags) FFArgs() []string {
+	var a []string
+	if c.Space != "" {
+		a = append(a, "-colorspace", c.Space)
+	}
+	if c.Primaries != "" {
+		a = append(a, "-color_primaries", c.Primaries)
+	}
+	if c.TRC != "" {
+		a = append(a, "-color_trc", c.TRC)
+	}
+	if c.Range != "" {
+		a = append(a, "-color_range", c.Range)
+	}
+	return a
+}
+
 // OutputTarget is one publish destination. Type names a transport
 // ("rtsp", "srt", "hls"); URL is the full ffmpeg output URL.
 type OutputTarget struct {

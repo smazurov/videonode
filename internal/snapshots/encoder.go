@@ -15,7 +15,7 @@ type FFmpegEncoder struct{}
 func (FFmpegEncoder) EncodeJPEG(f Frame) ([]byte, error) {
 	switch f.Format {
 	case FormatNV12:
-		return ffmpeg.EncodeNV12ToJPEG(f.Bytes, f.Width, f.Height)
+		return ffmpeg.EncodeNV12ToJPEG(f.Bytes, f.Width, f.Height, f.ColorMatrix)
 	default:
 		return nil, fmt.Errorf("snapshots: unsupported format %v", f.Format)
 	}

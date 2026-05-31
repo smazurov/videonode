@@ -46,6 +46,9 @@ type Frame struct {
 	Height     int
 	FrameIdx   uint64
 	CapturedNs uint64
+	// ColorMatrix ("bt601"/"bt709"/"") tags the NV12 so the JPEG encode
+	// decodes YUV→RGB with the right matrix; empty = ffmpeg default.
+	ColorMatrix string
 }
 
 // Entry is the cached JPEG-encoded snapshot served to HTTP clients.
