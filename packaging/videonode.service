@@ -11,6 +11,10 @@ ExecStartPre=-/usr/bin/videonode validate-encoders --quiet
 ExecStart=/usr/bin/videonode -c /etc/videonode/config.toml
 Restart=on-failure
 RestartSec=5
+# slog's JournalHandler already writes structured entries to journald; discard
+# stdout so systemd doesn't capture a second plain-text copy of every line.
+StandardOutput=null
+StandardError=journal
 SupplementaryGroups=video render shadow audio
 Environment=ALSA_CONFIG_PATH=/usr/share/videonode/videonode.asound.conf
 
