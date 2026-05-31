@@ -9,6 +9,7 @@ import (
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
 	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph264"
+	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph265"
 	"github.com/pion/rtp"
 	pion "github.com/pion/webrtc/v4"
 	"github.com/smazurov/videonode/internal/logging"
@@ -37,6 +38,8 @@ type webrtcPeer struct {
 	peerID       string
 	tracks       map[*description.Media]*pion.TrackLocalStaticRTP
 	h264Encoders map[*description.Media]*rtph264.Encoder
+	h265Encoders map[*description.Media]*rtph265.Encoder
+	h265Params   map[*description.Media][][]byte
 	connectedAt  time.Time
 	bytesSent    atomic.Int64
 }
@@ -66,26 +69,27 @@ func (m *WebRTCManager) generatePeerID() string {
 	return generateClientID()
 }
 
-// CreateConsumer creates a WebRTC consumer for a stream.
-func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
+// CreateConsumer creates a WebRTC consumer for a stream. It returns the
+// generated peer ID (used as the WHEP session ID) and the SDP answer.
+func (m *WebRTCManager) CreateConsumer(streamID, offer string) (peerID, sdp string, err error) {
 	stream := m.streams.EnsureStreamReady(streamID, 3*time.Second)
 	if stream == nil {
-		return "", ErrStreamNotFound
+		return "", "", ErrStreamNotFound
 	}
 
-	peerID := m.generatePeerID()
+	peerID = m.generatePeerID()
 
 	// Create WebRTC API with optimized settings
 	api, err := NewWebRTCAPI(streamID, peerID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	pc, err := api.NewPeerConnection(pion.Configuration{
 		ICEServers: m.config.ICEServers,
 	})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Set up peer state
@@ -95,6 +99,8 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 		peerID:       peerID,
 		tracks:       make(map[*description.Media]*pion.TrackLocalStaticRTP),
 		h264Encoders: make(map[*description.Media]*rtph264.Encoder),
+		h265Encoders: make(map[*description.Media]*rtph265.Encoder),
+		h265Params:   make(map[*description.Media][][]byte),
 		connectedAt:  time.Now(),
 	}
 
@@ -136,6 +142,23 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 				peer.h264Encoders[medi] = encoder
 			}
 
+			// Create H265 encoder for re-packetizing access units for WebRTC.
+			// Raw RTP passthrough produced oversized packets (loss) and never
+			// carried in-band VPS/SPS/PPS, so subscribers joining mid-stream
+			// could not decode; re-packetizing fixes both.
+			if h265, ok := forma.(*format.H265); ok {
+				encoder := &rtph265.Encoder{
+					PayloadType:    96,
+					PayloadMaxSize: 1188,
+				}
+				if err := encoder.Init(); err != nil {
+					m.logger.Warn("Failed to init H265 encoder", logging.KeyStreamID, streamID, logging.KeyError, err)
+					continue
+				}
+				peer.h265Encoders[medi] = encoder
+				peer.h265Params[medi] = h265ParamSets(h265)
+			}
+
 			// Start RTCP reader goroutine
 			go func(s *pion.RTPSender) {
 				for {
@@ -154,14 +177,14 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 		SDP:  offer,
 	}); err != nil {
 		_ = pc.Close()
-		return "", err
+		return "", "", err
 	}
 
 	// Create answer
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
 		_ = pc.Close()
-		return "", err
+		return "", "", err
 	}
 
 	// Create channel to wait for ICE gathering
@@ -176,7 +199,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 	// Set local description
 	if err := pc.SetLocalDescription(answer); err != nil {
 		_ = pc.Close()
-		return "", err
+		return "", "", err
 	}
 
 	// Check if gathering already complete (race condition)
@@ -209,6 +232,31 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 
 				// pts is already in the 90kHz RTP clock (PacketPTS returns
 				// clock-rate units, not nanoseconds).
+				rtpTimestamp := uint32(pts)
+
+				for _, pkt := range packets {
+					pkt.Timestamp = rtpTimestamp
+					size := pkt.MarshalSize()
+					IncrementPacketsSent(streamID, size)
+					peer.bytesSent.Add(int64(size))
+					_ = currentTrack.WriteRTP(pkt)
+				}
+				return nil
+			})
+		} else if encoder, has := peer.h265Encoders[currentMedia]; has {
+			params := peer.h265Params[currentMedia]
+			// Re-encode H265 access units to WebRTC RTP, prepending parameter
+			// sets to keyframes so mid-stream subscribers can decode.
+			peer.reader.OnUnit(currentMedia, func(pts, _ int64, au [][]byte) error {
+				if len(au) == 0 {
+					return nil
+				}
+
+				packets, err := encoder.Encode(prependH265ParamSets(au, params))
+				if err != nil {
+					return err
+				}
+
 				rtpTimestamp := uint32(pts)
 
 				for _, pkt := range packets {
@@ -255,7 +303,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 	})
 
 	// Return the local description with all ICE candidates
-	return pc.LocalDescription().SDP, nil
+	return peerID, pc.LocalDescription().SDP, nil
 }
 
 // createTrack creates a WebRTC track for the given format; audioIdx becomes
@@ -316,6 +364,45 @@ func (m *WebRTCManager) createTrack(forma format.Format, audioIdx int) (*pion.Tr
 	default:
 		return nil, nil
 	}
+}
+
+// h265ParamSets returns the VPS/SPS/PPS NAL units carried out-of-band in the
+// stream's SDP, in decode order, skipping any that are absent.
+func h265ParamSets(f *format.H265) [][]byte {
+	var params [][]byte
+	for _, p := range [][]byte{f.VPS, f.SPS, f.PPS} {
+		if len(p) > 0 {
+			params = append(params, p)
+		}
+	}
+	return params
+}
+
+// prependH265ParamSets prepends VPS/SPS/PPS to an access unit that contains an
+// IRAP (keyframe) slice but lacks in-band parameter sets, so a subscriber that
+// joins mid-stream can configure its decoder. Non-keyframe AUs pass through.
+func prependH265ParamSets(au, params [][]byte) [][]byte {
+	if len(params) == 0 {
+		return au
+	}
+
+	var hasIRAP, hasParams bool
+	for _, nalu := range au {
+		if len(nalu) == 0 {
+			continue
+		}
+		switch naluType := (nalu[0] >> 1) & 0x3f; {
+		case naluType >= 16 && naluType <= 23:
+			hasIRAP = true
+		case naluType >= 32 && naluType <= 34:
+			hasParams = true
+		}
+	}
+	if !hasIRAP || hasParams {
+		return au
+	}
+
+	return append(append(make([][]byte, 0, len(params)+len(au)), params...), au...)
 }
 
 // closePeer cleans up a peer connection.

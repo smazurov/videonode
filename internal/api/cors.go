@@ -38,6 +38,8 @@ func NewCORSMiddleware(config CORSConfig) func(huma.Context, func(huma.Context))
 		ctx.SetHeader("Access-Control-Allow-Origin", config.AllowOrigin)
 		ctx.SetHeader("Access-Control-Allow-Methods", allowMethods)
 		ctx.SetHeader("Access-Control-Allow-Headers", allowHeaders)
+		// Expose Location so browser WHEP clients can read the resource URL
+		ctx.SetHeader("Access-Control-Expose-Headers", "Location")
 		ctx.SetHeader("Access-Control-Max-Age", maxAge)
 
 		// Handle preflight OPTIONS requests

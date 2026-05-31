@@ -37,7 +37,7 @@ func RegisterStreamingAPI(api huma.API, webrtcManager *WebRTCManager, srtServer 
 		Description: "Exchange SDP offer/answer for WebRTC streaming",
 		Tags:        []string{"streaming"},
 	}, func(_ context.Context, input *WebRTCOfferInput) (*WebRTCAnswerOutput, error) {
-		answer, err := webrtcManager.CreateConsumer(input.StreamID, string(input.RawBody))
+		_, answer, err := webrtcManager.CreateConsumer(input.StreamID, string(input.RawBody))
 		if err != nil {
 			return nil, huma.Error404NotFound("stream not found or connection failed", err)
 		}
@@ -46,6 +46,8 @@ func RegisterStreamingAPI(api huma.API, webrtcManager *WebRTCManager, srtServer 
 			Body:        []byte(answer),
 		}, nil
 	})
+
+	registerWHEP(api, webrtcManager)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "list-live-streams",
