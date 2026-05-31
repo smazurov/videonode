@@ -9,7 +9,6 @@ require (
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/danielgtaylor/huma/v2 v2.38.0
 	github.com/datarhei/gosrt v0.11.0
-	github.com/dustinkirkland/golang-petname v0.0.0-20260215035315-f0c533e9ce9b
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-logfmt/logfmt v0.6.1
 	github.com/kelindar/event v1.5.2

@@ -1,8 +1,6 @@
 package streaming
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"log/slog"
 	"sync"
@@ -92,7 +90,7 @@ func (s *SRTServer) handleConnect(req srt.ConnRequest) srt.ConnType {
 // handleSubscribe is called when a subscriber connection is accepted.
 func (s *SRTServer) handleSubscribe(conn srt.Conn) {
 	streamID := conn.StreamId()
-	consumerID := generateConsumerID()
+	consumerID := generateClientID()
 
 	s.logger.Info("SRT subscriber connected",
 		logging.KeyStreamID, streamID,
@@ -272,13 +270,4 @@ func (s *SRTServer) DisconnectConsumer(consumerID string) bool {
 	}
 	_ = found.Stop()
 	return true
-}
-
-// generateConsumerID creates a unique consumer ID.
-func generateConsumerID() string {
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		slog.Error("Failed to generate random bytes for consumer ID", logging.KeyError, err)
-	}
-	return hex.EncodeToString(b)
 }

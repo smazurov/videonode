@@ -1,8 +1,6 @@
 package streaming
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -11,7 +9,6 @@ import (
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
 	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph264"
-	petname "github.com/dustinkirkland/golang-petname"
 	"github.com/pion/rtp"
 	pion "github.com/pion/webrtc/v4"
 	"github.com/smazurov/videonode/internal/logging"
@@ -55,23 +52,18 @@ func NewWebRTCManager(streams StreamProvider, config WebRTCConfig, logger loggin
 	}
 }
 
-// generatePeerID generates a unique memorable peer ID.
+// generatePeerID returns a unique peer ID, retrying on the rare hex collision.
 func (m *WebRTCManager) generatePeerID() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for range 100 {
-		name := petname.Generate(2, "-")
-		if _, exists := m.peers[name]; !exists {
-			return name
+		id := generateClientID()
+		if _, exists := m.peers[id]; !exists {
+			return id
 		}
 	}
-	// Fallback
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		m.logger.Error("Failed to generate random bytes for peer ID", logging.KeyError, err)
-	}
-	return petname.Generate(2, "-") + "-" + hex.EncodeToString(b)
+	return generateClientID()
 }
 
 // CreateConsumer creates a WebRTC consumer for a stream.
