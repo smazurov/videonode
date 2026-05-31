@@ -2,7 +2,7 @@ package streaming
 
 import (
 	"crypto/rand"
-	"encoding/base64"
+	"encoding/hex"
 	"log/slog"
 	"strings"
 
@@ -30,8 +30,8 @@ const SRTPReplayProtectionWindow = 10000
 // streaming. This uses a larger NACK buffer than the default (64 packets) to
 // support retransmission requests from browsers like Firefox that are more
 // sensitive to packet loss.
-// The peerID is used as the ICE username fragment (ice-ufrag), which is visible
-// to the client in the SDP answer for identification.
+// A sanitized form of peerID is used as the ICE username fragment (ice-ufrag),
+// which is visible to the client in the SDP answer for identification.
 func NewWebRTCAPI(streamID, peerID string) (*pion.API, error) {
 	m := &pion.MediaEngine{}
 	if err := registerCodecs(m); err != nil {
@@ -50,8 +50,8 @@ func NewWebRTCAPI(streamID, peerID string) (*pion.API, error) {
 	s.SetDTLSInsecureSkipHelloVerify(true)
 	// Set SRTP replay protection window to match NACK buffer
 	s.SetSRTPReplayProtectionWindow(SRTPReplayProtectionWindow)
-	// Set peer ID as ice-ufrag (visible to client in SDP answer)
-	s.SetICECredentials(peerID, generateICEPassword())
+	// Use a sanitized peer ID as ice-ufrag (visible to client in SDP answer)
+	s.SetICECredentials(iceUfragFromPeerID(peerID), generateICEPassword())
 	// Filter out Docker bridge and veth interfaces from ICE candidates
 	s.SetInterfaceFilter(func(iface string) bool {
 		if strings.HasPrefix(iface, "docker") || strings.HasPrefix(iface, "br-") || strings.HasPrefix(iface, "veth") {
@@ -68,13 +68,35 @@ func NewWebRTCAPI(streamID, peerID string) (*pion.API, error) {
 }
 
 // generateICEPassword generates a secure password for ICE authentication.
-// ICE requires at least 128 bits of randomness for the password.
+// ICE requires at least 128 bits of randomness for the password. Hex keeps the
+// output within RFC 5245's ice-char set (ALPHA / DIGIT / "+" / "/"); base64's
+// URL alphabet ("-", "_") is rejected by strict SDP parsers like gstreamer.
 func generateICEPassword() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		slog.Error("Failed to generate random bytes for ICE password", logging.KeyError, err)
 	}
-	return base64.RawURLEncoding.EncodeToString(b)
+	return hex.EncodeToString(b)
+}
+
+// iceUfragFromPeerID derives an RFC 5245-compliant ice-ufrag from the peer ID.
+// Petname-style peer IDs ("causal-treefrog") contain a hyphen, which is outside
+// the ice-char set; lenient clients (Chrome, pion) accept it but strict parsers
+// (gstreamer) reject the SDP with "invalid 'ice-ufrag' attribute". We keep only
+// alphanumerics so the name stays recognizable, padding to the 4-char minimum.
+func iceUfragFromPeerID(peerID string) string {
+	var b strings.Builder
+	for _, r := range peerID {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		}
+	}
+	ufrag := b.String()
+	if len(ufrag) < 4 {
+		ufrag += "peer"
+	}
+	return ufrag
 }
 
 // registerCodecs registers audio and video codecs with RTCP feedback support.
