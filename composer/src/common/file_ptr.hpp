@@ -10,10 +10,12 @@
 #include <cstdio>
 #include <memory>
 
+#include "src/common/owner.hpp"
+
 namespace vn {
 
 struct FileCloser {
-    void operator()(std::FILE* f) const noexcept {
+    void operator()(gsl::owner<std::FILE*> f) const noexcept {
         if (f != nullptr) {
             std::fclose(f);
         }
