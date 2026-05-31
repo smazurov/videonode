@@ -145,7 +145,3 @@ func (e *EncoderStage) LogAttrs() []slog.Attr {
 		slog.String(logging.KeyStageInstance, e.ID()),
 	}
 }
-
-// Reconfigure always returns ErrRequiresRestart: encoder has no live
-// control plane today; any change requires restart.
-func (e *EncoderStage) Reconfigure(_ any) error { return ErrRequiresRestart }

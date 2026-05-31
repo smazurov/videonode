@@ -88,9 +88,6 @@ type Options struct {
 	// Snapshot preview settings
 	PreviewMaxFPS int `help:"Max fps for snapshot preview streams" default:"10" toml:"preview.max_fps" env:"PREVIEW_MAX_FPS"`
 
-	// Vision settings
-	VisionDefaultFPS int `help:"Default FPS for vision raw-frame pipes" default:"10" toml:"vision.default_fps" env:"VISION_DEFAULT_FPS"`
-
 	// Native pipeline binaries. When present + executable, single V4L2
 	// streams and GPU canvases route through these instead of the legacy
 	// ffmpeg-direct path. Empty path == component unavailable; legacy

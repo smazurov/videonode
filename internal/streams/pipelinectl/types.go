@@ -121,11 +121,6 @@ type SetSourceParams struct {
 	FPS      uint32 `json:"fps"`
 }
 
-// ClearSourceParams unbinds a slot.
-type ClearSourceParams struct {
-	Slot string `json:"slot"`
-}
-
 // SetLayoutParams replaces the whole layout (set of placed slots) for
 // the composer. Order doesn't matter; the composer keys by slot name.
 type SetLayoutParams struct {
@@ -165,13 +160,4 @@ type EffectParams struct {
 type SetEffectsParams struct {
 	SourceID string         `json:"source_id"`
 	Effects  []EffectParams `json:"effects"`
-}
-
-// SetSourceStateParams notifies composer that a source's collapsed
-// health state has changed. Composer applies the user warp only when
-// State is "live" or "transitioning"; for "placeholder" it falls back
-// to identity so any NO-SIGNAL overlay stays readable.
-type SetSourceStateParams struct {
-	SourceID string `json:"source_id"`
-	State    string `json:"state"` // "live" | "transitioning" | "placeholder"
 }

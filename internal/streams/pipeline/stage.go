@@ -1,7 +1,6 @@
 package pipeline
 
 import (
-	"errors"
 	"log/slog"
 
 	"github.com/smazurov/videonode/internal/process"
@@ -36,12 +35,6 @@ func (k Kind) String() string {
 		return "unknown"
 	}
 }
-
-// ErrRequiresRestart is returned by Stage.Reconfigure when a spec change
-// can't be applied via the stage's live control plane and requires a
-// full process restart. The Pipeline catches this and orchestrates the
-// restart, preserving sibling stages where possible.
-var ErrRequiresRestart = errors.New("pipeline: stage reconfigure requires restart")
 
 // Stage is the unified contract every supervised process implements.
 // One instance per running process. The Pipeline owns the lifecycle and
@@ -78,11 +71,4 @@ type Stage interface {
 	// this stage's stderr. At minimum: stream_id (when applicable),
 	// stage_instance (the pool key), device (producer), slot (composer).
 	LogAttrs() []slog.Attr
-
-	// Reconfigure attempts to apply a new spec without restarting. The
-	// stage may live-update via its control plane (e.g. composer's
-	// SetLayout RPC) and return nil; if the change can't be applied
-	// live it returns ErrRequiresRestart and the Pipeline orchestrates
-	// the restart.
-	Reconfigure(spec any) error
 }

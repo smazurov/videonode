@@ -499,25 +499,6 @@ func (m *Manager) SendSetFormat(ctx context.Context, deviceID string, p SetForma
 	return SetFormatResult{Applied: resp.GetApplied()}, nil
 }
 
-// SendSetDevice swaps the V4L2 device path the source registered under
-// deviceID captures from. Empty devicePath detaches: the source process
-// stays alive, closes any open capture, and resumes placeholder
-// broadcast until the daemon calls SendSetDevice with a non-empty path.
-func (m *Manager) SendSetDevice(ctx context.Context, deviceID, devicePath string) error {
-	m.mu.RLock()
-	c, ok := m.sources[deviceID]
-	m.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("pipelinectl: no source for device %q", deviceID)
-	}
-	resp, err := c.srcClient.SetDevice(ctx, &pb.SetDeviceRequest{DevicePath: devicePath})
-	if err != nil {
-		return fmt.Errorf("pipelinectl: set_device %s: %w", deviceID, err)
-	}
-	_ = resp.GetApplied()
-	return nil
-}
-
 // Snapshot pulls a raw NV12 frame from the source's broadcast loop via
 // the Source.Snapshot unary RPC. Replaces the legacy SCM_RIGHTS dma-buf
 // consumer; the daemon's existing ffmpeg-subprocess JPEG encoder reads
@@ -554,14 +535,6 @@ func (m *Manager) SendSetSource(ctx context.Context, composerID string, p SetSou
 			Slot: p.Slot, SourceId: p.SourceID, ScmPath: p.ScmPath,
 			Width: p.Width, Height: p.Height, Fps: p.FPS,
 		})
-		return err
-	})
-}
-
-// SendClearSource unbinds a slot.
-func (m *Manager) SendClearSource(ctx context.Context, composerID string, p ClearSourceParams) error {
-	return m.callComposer(ctx, composerID, func(c pb.ComposerClient) error {
-		_, err := c.ClearSource(ctx, &pb.ClearSourceRequest{Slot: p.Slot})
 		return err
 	})
 }
@@ -605,14 +578,6 @@ func (m *Manager) SendSetEffects(ctx context.Context, composerID string, p SetEf
 	}
 	return m.callComposer(ctx, composerID, func(c pb.ComposerClient) error {
 		_, err := c.SetEffects(ctx, &pb.SetEffectsRequest{SourceId: p.SourceID, Effects: effects})
-		return err
-	})
-}
-
-// SendSetSourceState pushes a per-source state update to the composer.
-func (m *Manager) SendSetSourceState(ctx context.Context, composerID string, p SetSourceStateParams) error {
-	return m.callComposer(ctx, composerID, func(c pb.ComposerClient) error {
-		_, err := c.SetSourceState(ctx, &pb.SetSourceStateRequest{SourceId: p.SourceID, State: p.State})
 		return err
 	})
 }
