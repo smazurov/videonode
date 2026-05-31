@@ -127,6 +127,20 @@ type ComposerEffectRequestData struct {
 	Effect Nullable[EffectData] `json:"effect" doc:"New effect; null clears the existing effect"`
 }
 
+// ComposerImportRequest carries a raw TOML composer document. The body is
+// taken verbatim (not JSON-decoded) so an exported .toml file round-trips.
+type ComposerImportRequest struct {
+	RawBody []byte `contentType:"application/toml"`
+}
+
+// ComposerExportResponse streams a composer's configuration as a TOML
+// document with attachment headers so browsers save it as <id>.toml.
+type ComposerExportResponse struct {
+	ContentType        string `header:"Content-Type"`
+	ContentDisposition string `header:"Content-Disposition"`
+	Body               []byte
+}
+
 // ComposerDeleteConflictBody is the 409 body returned when a composer
 // cannot be deleted because streams still reference it.
 type ComposerDeleteConflictBody struct {

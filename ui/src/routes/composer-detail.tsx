@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import toast from 'react-hot-toast';
-import { ArrowPathIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowPathIcon,
+  DocumentArrowDownIcon,
+  DocumentArrowUpIcon,
+} from '@heroicons/react/24/outline';
 
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useComposerStore } from '../hooks/useComposerStore';
@@ -19,6 +23,8 @@ import { ComposerLayoutPanel } from '../components/composers/ComposerLayoutPanel
 import { ComposerConsumersPanel } from '../components/composers/ComposerConsumersPanel';
 import { ComposerLivePreview } from '../components/composers/ComposerLivePreview';
 import { ComposerDeleteDialog } from '../components/composers/ComposerDeleteDialog';
+import { ComposerExportDialog } from '../components/composers/ComposerExportDialog';
+import { ComposerImportDialog } from '../components/composers/ComposerImportDialog';
 import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 import type { ComposerData } from '../lib/composer-types';
 import { canvasFpsOrDefault } from '../lib/composer-types';
@@ -37,6 +43,7 @@ export default function ComposerDetail() {
     useShallow((s) => ({ loading: s.loading, error: s.error, lastUpdated: s.lastUpdated })),
   );
   const fetchComposers = useComposerStore((s) => s.fetchComposers);
+  const importComposerTomlInto = useComposerStore((s) => s.importComposerTomlInto);
 
   const streamIds = useStreamStore((s) => s.streamIds);
   const streamsById = useStreamStore((s) => s.streamsById);
@@ -67,6 +74,8 @@ export default function ComposerDetail() {
   );
 
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
 
   const handleLogout = () => {
@@ -88,6 +97,15 @@ export default function ComposerDetail() {
       toast.error('Failed to restart composer');
     }
   }, [composerId, fetchComposers]);
+
+  const handleImport = useCallback(
+    async (toml: string) => {
+      if (!composerId) return;
+      await importComposerTomlInto(composerId, toml);
+      toast.success(`Imported TOML into '${composerId}'`);
+    },
+    [composerId, importComposerTomlInto],
+  );
 
   if (lastUpdated === null && loading) {
     return (
@@ -140,6 +158,20 @@ export default function ComposerDetail() {
               <Button
                 theme="light"
                 size="SM"
+                text="Export TOML"
+                LeadingIcon={DocumentArrowDownIcon}
+                onClick={() => setExportOpen(true)}
+              />
+              <Button
+                theme="light"
+                size="SM"
+                text="Import TOML"
+                LeadingIcon={DocumentArrowUpIcon}
+                onClick={() => setImportOpen(true)}
+              />
+              <Button
+                theme="light"
+                size="SM"
                 text="Restart"
                 LeadingIcon={ArrowPathIcon}
                 disabled={!isRestartable(data.status)}
@@ -174,6 +206,21 @@ export default function ComposerDetail() {
             description={`Live logs for composer ${data.composer_id}.`}
           />
         </div>
+
+        <ComposerExportDialog
+          composerId={data.composer_id}
+          open={exportOpen}
+          onClose={() => setExportOpen(false)}
+        />
+
+        <ComposerImportDialog
+          open={importOpen}
+          title={`Import TOML into "${data.composer_id}"`}
+          description="Paste or load a composer TOML document. Its settings overwrite this composer; the id in the document is ignored."
+          submitText="Overwrite"
+          onClose={() => setImportOpen(false)}
+          onImport={handleImport}
+        />
 
         <ComposerDeleteDialog
           composerId={data.composer_id}
