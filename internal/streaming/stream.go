@@ -23,7 +23,8 @@ type StreamProvider interface {
 }
 
 // OnDataFunc is called when media data is received.
-// For video: pts/dts are in nanosecond units (90kHz clock), au contains NAL units.
+// For video: pts/dts are in the format's RTP clock-rate units (90kHz), as
+// returned by gortsplib's PacketPTS; au contains NAL units.
 // For audio: pts is the presentation timestamp, au contains audio samples.
 type OnDataFunc func(pts int64, dts int64, au [][]byte) error
 

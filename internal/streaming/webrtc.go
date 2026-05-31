@@ -207,8 +207,9 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 					return err
 				}
 
-				// Convert PTS from nanoseconds to 90kHz clock
-				rtpTimestamp := uint32(pts * 90000 / 1e9)
+				// pts is already in the 90kHz RTP clock (PacketPTS returns
+				// clock-rate units, not nanoseconds).
+				rtpTimestamp := uint32(pts)
 
 				for _, pkt := range packets {
 					pkt.Timestamp = rtpTimestamp
