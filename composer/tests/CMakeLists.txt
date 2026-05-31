@@ -57,6 +57,10 @@ if(HAVE_PLACEBO AND HAVE_GBM)
         DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc
         LABELS render)
 
+    vn_add_test(canvas_clear
+        DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc
+        LABELS render)
+
     vn_add_test(canvas_tearing
         DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc Threads::Threads
         LABELS render)
