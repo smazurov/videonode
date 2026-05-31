@@ -37,20 +37,20 @@ const (
 
 // Process manages the lifecycle of a subprocess.
 type Process struct {
-	id               string
-	command          string
-	commandMu        sync.RWMutex
-	cmd              *exec.Cmd
-	logger           logging.Logger
-	processLogger    logging.Logger
-	logParser        LogParser
-	ctx              context.Context
-	cancel           context.CancelFunc
-	restartChan      chan string
-	outputHandler    OutputHandler
-	gracefulTimeout  time.Duration
-	killTimeout      time.Duration
-	pid              atomic.Int32
+	id              string
+	command         string
+	commandMu       sync.RWMutex
+	cmd             *exec.Cmd
+	logger          logging.Logger
+	processLogger   logging.Logger
+	logParser       LogParser
+	ctx             context.Context
+	cancel          context.CancelFunc
+	restartChan     chan string
+	outputHandler   OutputHandler
+	gracefulTimeout time.Duration
+	killTimeout     time.Duration
+	pid             atomic.Int32
 }
 
 // NewProcess creates a new process.
@@ -84,7 +84,6 @@ func (p *Process) GetCommand() string {
 	defer p.commandMu.RUnlock()
 	return p.command
 }
-
 
 // SetLogParser sets the logger and parser used for child process output.
 func (p *Process) SetLogParser(logger logging.Logger, parser LogParser) {
