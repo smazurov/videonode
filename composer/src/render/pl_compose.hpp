@@ -69,10 +69,12 @@ class PlCompose {
     int canvas_w_ = 0;
     int canvas_h_ = 0;
     uint32_t canvas_stride_ = 0;
-    static constexpr int kBufCount = 3;
+    // Must be >= max concurrent consumers + 1 (broadcast fds are zero-copy).
+    static constexpr int kBufCount = 4;
     int back_ = 0;
     gbm_bo* canvas_bo_[kBufCount] = {};
-    int canvas_fd_[kBufCount] = {-1, -1, -1};
+    int canvas_fd_[kBufCount] = {-1, -1, -1, -1};
+    bool cpu_clear_ = false; // VIDEONODE_COMPOSER_CPU_CLEAR fallback (sync hazard)
 };
 
 } // namespace pl_compose
