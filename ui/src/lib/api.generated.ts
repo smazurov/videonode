@@ -620,6 +620,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/whep/{stream}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * WHEP egress
+         * @description WebRTC-HTTP Egress Protocol: POST an SDP offer, receive an SDP answer with a resource Location.
+         */
+        post: operations["whep-offer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/whep/{stream}/{session}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * WHEP teardown
+         * @description Tear down a WHEP session created via POST /whep/{stream}.
+         */
+        delete: operations["whep-delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1776,6 +1816,7 @@ export interface components {
         SourceFormatInfo: {
             /** Format: int32 */
             buffers: number;
+            color_matrix: string;
             fourcc: string;
             /** Format: int32 */
             fps: number;
@@ -4108,6 +4149,112 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "whep-offer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stream ID to connect to */
+                stream: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/sdp": string;
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    "Content-Type"?: string;
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "whep-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stream ID */
+                stream: string;
+                /** @description Session ID returned in the Location header */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

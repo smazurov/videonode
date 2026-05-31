@@ -10,8 +10,22 @@ interface SourceStatusPanelProps {
   source: SourceEntry;
 }
 
+function colorimetryLabel(matrix: string | undefined): string {
+  if (matrix === 'bt709') return 'BT.709';
+  if (matrix === 'bt601') return 'BT.601';
+  return '—';
+}
+
 export function SourceStatusPanel({ source }: Readonly<SourceStatusPanelProps>) {
   const status = source.latest_status;
+
+  const formatEntries: KVEntry[] = status
+    ? [
+        { label: 'pixel_format', value: status.format.fourcc || '—' },
+        { label: 'mode', value: status.format.mode || '—' },
+        { label: 'colorimetry', value: colorimetryLabel(status.format.color_matrix) },
+      ]
+    : [];
 
   const signalEntries: KVEntry[] = status
     ? [
@@ -58,7 +72,11 @@ export function SourceStatusPanel({ source }: Readonly<SourceStatusPanelProps>) 
           </div>
         }
       />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div>
+          <h3 className="text-sm font-medium text-fg mb-2">Format</h3>
+          <KVInspector entries={formatEntries} emptyText="No format data yet" />
+        </div>
         <div>
           <h3 className="text-sm font-medium text-fg mb-2">Signal</h3>
           <KVInspector entries={signalEntries} emptyText="No signal data yet" />
