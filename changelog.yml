@@ -1,3 +1,18 @@
+- semver: 4.0.0-rc10
+  date: 2026-05-31T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 7e869b2
+      note: "rkmpp encoders ingest BGRA/RGB32 directly, converting in hardware instead of via a CPU-heavy software nv12 filter"
+    - commit: 89b821e
+      note: "readers dialing a stream that isn't configured now get a clean 404 instead of a logged warning and a spawned encoder"
+    - commit: e533874
+      note: "the .deb ships the videonode asound.conf so the RK3588 audio capture config is present on install"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc9
   date: 2026-05-31T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
