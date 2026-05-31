@@ -316,16 +316,27 @@ struct SnapPool {
     }
 };
 
-bool render_scm_frame_(ComposeState& cs, SnapPool& pool,
-                       scm_rights_producer::ScmRightsProducer& scm_out,
-                       uint64_t broadcast_frame_idx, nativerpc::ComposerService* composer_svc) {
-    uint32_t stride = cs.compose->canvas_stride();
-    size_t frame_bytes = size_t(stride) * cs.h;
+void copy_canvas_to_(void* dst, const void* src, uint32_t dst_stride, uint32_t src_stride, int w,
+                     int h) {
+    if (src_stride == dst_stride) {
+        std::memcpy(dst, src, size_t(dst_stride) * h);
+        return;
+    }
+    auto* d = static_cast<uint8_t*>(dst);
+    const auto* s = static_cast<const uint8_t*>(src);
+    size_t row_bytes = size_t(w) * 4;
+    for (int row = 0; row < h; ++row)
+        std::memcpy(d + size_t(row) * dst_stride, s + size_t(row) * src_stride, row_bytes);
+}
 
+// On-demand: copy the just-rendered canvas into a stable memfd for the
+// Snapshot RPC. Never runs on the steady-state path.
+void fill_snapshot_(ComposeState& cs, SnapPool& pool, uint32_t stride, uint64_t frame_idx,
+                    nativerpc::ComposerService* composer_svc) {
     auto& snap = pool.advance();
-    if (!pool.ensure_slot(snap, frame_bytes))
-        return false;
-
+    if (!pool.ensure_slot(snap, size_t(stride) * cs.h))
+        return;
+    bool ok = false;
     {
         std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
         uint32_t map_stride = 0;
@@ -333,23 +344,25 @@ bool render_scm_frame_(ComposeState& cs, SnapPool& pool,
         void* src = gbm_bo_map(cs.compose->canvas_bo(), 0, 0, cs.w, cs.h, GBM_BO_TRANSFER_READ,
                                &map_stride, &map_handle);
         if (src) {
-            if (map_stride == stride) {
-                std::memcpy(snap.map, src, frame_bytes);
-            } else {
-                auto* dst = static_cast<uint8_t*>(snap.map);
-                auto* s = static_cast<const uint8_t*>(src);
-                size_t row_bytes = size_t(cs.w) * 4;
-                for (int row = 0; row < cs.h; ++row)
-                    std::memcpy(dst + size_t(row) * stride, s + size_t(row) * map_stride,
-                                row_bytes);
-            }
+            copy_canvas_to_(snap.map, src, stride, map_stride, cs.w, cs.h);
             gbm_bo_unmap(cs.compose->canvas_bo(), map_handle);
+            ok = true;
         }
     }
+    if (ok)
+        notify_composer_svc_(composer_svc, snap.fd, cs.w, cs.h, stride, frame_idx);
+}
 
-    (void)broadcast_canvas_(scm_out, snap.fd, cs.w, cs.h, stride, broadcast_frame_idx);
-    if (composer_svc)
-        notify_composer_svc_(composer_svc, snap.fd, cs.w, cs.h, stride, broadcast_frame_idx);
+bool render_scm_frame_(ComposeState& cs, SnapPool& pool,
+                       scm_rights_producer::ScmRightsProducer& scm_out,
+                       uint64_t broadcast_frame_idx, nativerpc::ComposerService* composer_svc) {
+    uint32_t stride = cs.compose->canvas_stride();
+    // Zero-copy: broadcast the canvas BO's own dma-buf fd; the swap() ring
+    // keeps it stable until the ring laps.
+    (void)broadcast_canvas_(scm_out, cs.compose->canvas_dmabuf_fd(), cs.w, cs.h, stride,
+                            broadcast_frame_idx);
+    if (composer_svc && composer_svc->snapshot_pending())
+        fill_snapshot_(cs, pool, stride, broadcast_frame_idx, composer_svc);
     return true;
 }
 
@@ -439,6 +452,24 @@ void post_render_tick_(LoopState& ls, RenderStats* stats, int fps) {
     if (stats)
         update_fps_stats_(*stats, ls.frames_rendered, ls.frames_at_last_sample, ls.next_fps_sample);
 
+    advance_tick_(ls, fps_period_(fps));
+}
+
+// Consumer gating: render only when someone is consuming or a snapshot is
+// pending. stdout mode is never gated.
+bool should_render_(LoopState& ls, nativerpc::ComposerService* composer_svc) {
+    if (!ls.scm_out)
+        return true;
+    if (ls.scm_out->consumer_count() > 0)
+        return true;
+    return composer_svc != nullptr && composer_svc->snapshot_pending();
+}
+
+// Idle: advance the monotonic tick and keep pruning so a new consumer is
+// picked up within ~one tick. No GPU work, no frame counted.
+void idle_tick_(LoopState& ls, RenderStats* stats, int fps) {
+    if (ls.scm_out && std::chrono::steady_clock::now() >= ls.next_consumer_prune)
+        prune_consumers_(*ls.scm_out, ls.prev_consumer_count, ls.next_consumer_prune, stats);
     advance_tick_(ls, fps_period_(fps));
 }
 
@@ -561,6 +592,12 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
                 continue;
         }
 
+        int fps = snap.canvas_fps ? int(snap.canvas_fps) : cfg.target_fps;
+        if (!should_render_(ls, cfg.composer_svc)) {
+            idle_tick_(ls, cfg.stats, fps);
+            continue;
+        }
+
         if (!snap.ready) {
             if (!handle_not_ready_(ls, snap, cfg.target_fps, cfg.stats, cfg.composer_svc)) {
                 if (ls.scm_out)
@@ -579,7 +616,6 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
             break;
         }
         count_frame_(ls, cfg.stats);
-        int fps = snap.canvas_fps ? int(snap.canvas_fps) : cfg.target_fps;
         post_render_tick_(ls, cfg.stats, fps);
     }
 

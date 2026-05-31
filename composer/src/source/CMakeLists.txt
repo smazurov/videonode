@@ -13,14 +13,11 @@ vn_add_library(source_service
     SOURCES source_service.cpp
     PUBLIC_DEPS source_probe vn_proto grpc_server vn_snapshot)
 
-# slot_owner: per-slot in-flight refcount + generation gating ring reuse.
-vn_add_library(slot_owner SOURCES slot_owner.cpp PUBLIC_DEPS vn_snapshot)
-
 vn_add_library(orchestrator
     SOURCES orchestrator.cpp orchestrator_flags.cpp capture_session.cpp broadcast.cpp
     PUBLIC_DEPS v4l2_capture csc nv12_buf placeholder_painter source_probe
                 scm_rights_producer dmabuf_header dma_heap
-                jpeg_dec_turbo slot_owner
+                jpeg_dec_turbo
                 source_service grpc_server vn_proto
                 vn_snapshot
                 absl_bundle

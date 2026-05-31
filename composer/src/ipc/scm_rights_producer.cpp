@@ -177,18 +177,6 @@ int ScmRightsProducer::broadcast(const dmabuf_header::Header& header, const std:
     return sent;
 }
 
-void ScmRightsProducer::drain_credits(const std::function<void(uint64_t, uint64_t)>& on_credit) {
-    std::lock_guard<std::mutex> g(consumers_mu_);
-    std::vector<scm_socket::Credit> credits;
-    for (auto& c : consumers_) {
-        credits.clear();
-        if (scm_socket::RecvCredits(c.fd.get(), credits) < 0)
-            continue; // peer gone; prune_dead_consumers/broadcast will evict
-        for (const auto& cr : credits)
-            on_credit(cr.slot_index, cr.generation);
-    }
-}
-
 int ScmRightsProducer::prune_dead_consumers() {
     std::lock_guard<std::mutex> g(consumers_mu_);
     if (consumers_.empty())
