@@ -189,8 +189,12 @@ bool setup_mjpeg_decoder_(CaptureSession& s, const Args& a, nv12_buf::Allocator&
         }
         s.out_y.push_back(m.y);
         s.out_uv.push_back(m.uv);
-        slots.push_back({buf.y_fd, buf.uv_fd, static_cast<uint8_t*>(m.y),
-                         static_cast<uint8_t*>(m.uv), buf.y_pitch, buf.uv_pitch});
+        slots.push_back({.y_fd = buf.y_fd,
+                         .uv_fd = buf.uv_fd,
+                         .y_mapped = static_cast<uint8_t*>(m.y),
+                         .uv_mapped = static_cast<uint8_t*>(m.uv),
+                         .y_pitch = buf.y_pitch,
+                         .uv_pitch = buf.uv_pitch});
     }
     auto tj = std::make_unique<jpeg_dec::TurboJpegDec>();
     if (!tj->init(s.width, s.height, std::move(slots))) {

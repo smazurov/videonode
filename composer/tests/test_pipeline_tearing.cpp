@@ -43,17 +43,17 @@ constexpr int kFrames = 200;
 struct YuvColor {
     uint8_t y, cb, cr;
 };
-constexpr YuvColor kRed{81, 90, 240};
-constexpr YuvColor kBlue{41, 240, 110};
+constexpr YuvColor kRed{.y = 81, .cb = 90, .cr = 240};
+constexpr YuvColor kBlue{.y = 41, .cb = 240, .cr = 110};
 
 struct BgraColor {
     uint8_t b, g, r, a;
 };
-constexpr BgraColor kRedBgra{0, 0, 255, 255};
-constexpr BgraColor kBlueBgra{255, 0, 0, 255};
+constexpr BgraColor kRedBgra{.b = 0, .g = 0, .r = 255, .a = 255};
+constexpr BgraColor kBlueBgra{.b = 255, .g = 0, .r = 0, .a = 255};
 constexpr int kTolerance = 8;
 
-bool pixel_matches(const uint8_t* px, BgraColor c) {
+bool pixel_matches(std::span<const uint8_t> px, BgraColor c) {
     return std::abs(int(px[0]) - c.b) <= kTolerance && std::abs(int(px[1]) - c.g) <= kTolerance &&
            std::abs(int(px[2]) - c.r) <= kTolerance;
 }
@@ -189,7 +189,7 @@ TEST(PipelineTearing, SourceToComposerToConsumer) {
             for (int row = 0; row < kH; ++row) {
                 auto row_span = canvas.subspan(size_t(row) * canvas_stride, size_t(kW) * 4);
                 for (int col = 0; col < kW; ++col) {
-                    const uint8_t* px = row_span.subspan(size_t(col) * 4, 4).data();
+                    auto px = row_span.subspan(size_t(col) * 4, 4);
                     if (pixel_matches(px, kRedBgra))
                         has_red = true;
                     else if (pixel_matches(px, kBlueBgra))

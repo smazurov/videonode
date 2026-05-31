@@ -48,8 +48,8 @@ struct YuvColor {
     uint8_t cr;
 };
 
-constexpr YuvColor kRed{81, 90, 240};
-constexpr YuvColor kBlue{41, 240, 110};
+constexpr YuvColor kRed{.y = 81, .cb = 90, .cr = 240};
+constexpr YuvColor kBlue{.y = 41, .cb = 240, .cr = 110};
 
 // Expected BGRA after BT.601 limited-range → full-range RGB conversion.
 // Exact values depend on libplacebo's conversion; we allow ±8 tolerance.
@@ -57,14 +57,15 @@ struct BgraColor {
     uint8_t b, g, r, a;
 };
 
-constexpr BgraColor kRedBgra{0, 0, 255, 255};
-constexpr BgraColor kBlueBgra{255, 0, 0, 255};
+constexpr BgraColor kRedBgra{.b = 0, .g = 0, .r = 255, .a = 255};
+constexpr BgraColor kBlueBgra{.b = 255, .g = 0, .r = 0, .a = 255};
 constexpr int kTolerance = 8;
 
 bool pixel_matches(const uint8_t* px, BgraColor expected) {
-    return std::abs(int(px[0]) - expected.b) <= kTolerance &&
-           std::abs(int(px[1]) - expected.g) <= kTolerance &&
-           std::abs(int(px[2]) - expected.r) <= kTolerance;
+    std::span<const uint8_t> pixel(px, 4);
+    return std::abs(int(pixel[0]) - expected.b) <= kTolerance &&
+           std::abs(int(pixel[1]) - expected.g) <= kTolerance &&
+           std::abs(int(pixel[2]) - expected.r) <= kTolerance;
 }
 
 pl_compose::SourceSlot make_slot(const gbm_alloc::Nv12Buf& buf) {

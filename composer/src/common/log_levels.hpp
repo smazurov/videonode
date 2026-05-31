@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdarg>
+#include <cstddef>
 #include <cstdio>
 #include <initializer_list>
+#include <span>
 
 namespace vn::log {
 
@@ -15,15 +17,13 @@ inline void vlog_prefixed(const char* level_prefix, const char* fmt, std::va_lis
 inline void vlog_prefixed_kv(const char* prefix, const char* msg,
                              std::initializer_list<const char*> kvs) {
     std::fprintf(stderr, "%s%s", prefix, msg);
-    auto it = kvs.begin();
-    if (it != kvs.end())
+    const std::span<const char* const> kv(kvs.begin(), kvs.size());
+    if (!kv.empty())
         std::fputc('\t', stderr);
-    while (it != kvs.end()) {
-        const char* k = *it++;
-        if (it == kvs.end())
-            break;
-        const char* v = *it++;
-        if (it != kvs.end())
+    for (size_t i = 0; i + 1 < kv.size(); i += 2) {
+        const char* k = kv[i];
+        const char* v = kv[i + 1];
+        if (i + 2 < kv.size())
             std::fprintf(stderr, "%s=%s ", k, v);
         else
             std::fprintf(stderr, "%s=%s", k, v);

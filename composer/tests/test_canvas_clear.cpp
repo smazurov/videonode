@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <mutex>
+#include <span>
 
 namespace {
 
@@ -37,12 +38,14 @@ void expect_black_canvas(const char* why) {
     ASSERT_NE(px, nullptr) << why;
 
     int nonblack = 0;
-    const auto* base = static_cast<const uint8_t*>(px);
+    const auto* base_ptr = static_cast<const uint8_t*>(px);
+    const size_t total_bytes = size_t(kH) * map_stride;
+    const auto buf = std::span<const uint8_t>(base_ptr, total_bytes);
     for (int y = 0; y < kH; ++y) {
-        const uint8_t* row = base + size_t(y) * map_stride;
+        const auto row = buf.subspan(size_t(y) * map_stride, map_stride);
         for (int x = 0; x < kW; ++x) {
-            const uint8_t* p = row + size_t(x) * 4;
-            if (p[0] != 0 || p[1] != 0 || p[2] != 0)
+            const auto pixel = row.subspan(size_t(x) * 4, 4);
+            if (pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0)
                 ++nonblack;
         }
     }

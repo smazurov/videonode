@@ -80,7 +80,7 @@ ImportedTex import_plane(const PlaneImport& p) {
         ::close(fd_dup);
         return {};
     }
-    return {tex, fd_dup};
+    return {.tex = tex, .fd = fd_dup};
 }
 
 // Owns imported textures; destroys each tex and closes its dup'd fd on
@@ -145,7 +145,8 @@ void set_src_frame(pl_frame& f, const CscTextures& t) {
         f.planes[1].shift_y = t.src_is_nv12 ? -1 : 0;
         pl_frame_set_chroma_location(&f, PL_CHROMA_LEFT);
     }
-    f.crop = {0, 0, static_cast<float>(t.src_w), static_cast<float>(t.src_h)};
+    f.crop = {
+        .x0 = 0, .y0 = 0, .x1 = static_cast<float>(t.src_w), .y1 = static_cast<float>(t.src_h)};
 }
 
 bool render_csc(pl_renderer renderer, pl_gpu gpu, const CscTextures& t) {
@@ -166,7 +167,8 @@ bool render_csc(pl_renderer renderer, pl_gpu gpu, const CscTextures& t) {
     dst_frame.planes[1].shift_x = -1;
     dst_frame.planes[1].shift_y = -1;
     pl_frame_set_chroma_location(&dst_frame, PL_CHROMA_LEFT);
-    dst_frame.crop = {0, 0, static_cast<float>(t.dst_w), static_cast<float>(t.dst_h)};
+    dst_frame.crop = {
+        .x0 = 0, .y0 = 0, .x1 = static_cast<float>(t.dst_w), .y1 = static_cast<float>(t.dst_h)};
 
     struct pl_render_params params = pl_render_fast_params;
     params.skip_anti_aliasing = true;

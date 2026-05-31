@@ -171,7 +171,7 @@ TEST(FdLifetime, DupBeforeUseKeepsDmabufAlive) {
     // OwnedFrameView's fd should still be valid — mmap and verify the marker.
     void* m = ::mmap(nullptr, kBufSize, PROT_READ, MAP_SHARED, v.fd.get(), 0);
     ASSERT_NE(m, MAP_FAILED);
-    auto* bytes = static_cast<const uint8_t*>(m);
+    auto bytes = std::span(static_cast<const uint8_t*>(m), kBufSize);
     EXPECT_EQ(bytes[0], 0xAB) << "mmap of dup'd fd should see original data";
     EXPECT_EQ(bytes[kBufSize - 1], 0xAB);
     ::munmap(m, kBufSize);
