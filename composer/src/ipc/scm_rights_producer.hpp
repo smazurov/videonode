@@ -27,7 +27,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -84,11 +83,6 @@ class ScmRightsProducer {
     // (excludes EAGAIN-dropped and evicted consumers) so the caller can
     // refcount in-flight readers by the exact sent count.
     int broadcast(const dmabuf_header::Header& header, const std::vector<int>& fds);
-
-    // Drain read-completion credits each consumer has returned, invoking
-    // `on_credit(slot_index, generation)` for each. Non-blocking; call from
-    // the producer's steady tick before picking the next write slot.
-    void drain_credits(const std::function<void(uint64_t, uint64_t)>& on_credit);
 
     // prune_dead_consumers polls every connected consumer fd for hangup
     // (POLLHUP/POLLERR/POLLNVAL) and evicts + closes any that have lost
