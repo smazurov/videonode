@@ -343,6 +343,24 @@ void post_render_tick_(LoopState& ls, RenderStats* stats, int fps) {
     advance_tick_(ls, fps_period_(fps));
 }
 
+// Consumer gating: render only when someone is consuming or a snapshot is
+// pending. stdout mode is never gated.
+bool should_render_(LoopState& ls, nativerpc::ComposerService* composer_svc) {
+    if (!ls.scm_out)
+        return true;
+    if (ls.scm_out->consumer_count() > 0)
+        return true;
+    return composer_svc != nullptr && composer_svc->snapshot_pending();
+}
+
+// Idle: advance the monotonic tick and keep pruning so a new consumer is
+// picked up within ~one tick. No GPU work, no frame counted.
+void idle_tick_(LoopState& ls, RenderStats* stats, int fps) {
+    if (ls.scm_out && std::chrono::steady_clock::now() >= ls.next_consumer_prune)
+        prune_consumers_(*ls.scm_out, ls.prev_consumer_count, ls.next_consumer_prune, stats);
+    advance_tick_(ls, fps_period_(fps));
+}
+
 bool handle_not_ready_(LoopState& ls, const Snapshot& snap, int target_fps, RenderStats* stats,
                        nativerpc::ComposerService* composer_svc) {
     if (!ls.scm_out) {
@@ -462,6 +480,12 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
                 continue;
         }
 
+        int fps = snap.canvas_fps ? int(snap.canvas_fps) : cfg.target_fps;
+        if (!should_render_(ls, cfg.composer_svc)) {
+            idle_tick_(ls, cfg.stats, fps);
+            continue;
+        }
+
         if (!snap.ready) {
             if (!handle_not_ready_(ls, snap, cfg.target_fps, cfg.stats, cfg.composer_svc)) {
                 if (ls.scm_out)
@@ -480,7 +504,6 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
             break;
         }
         count_frame_(ls, cfg.stats);
-        int fps = snap.canvas_fps ? int(snap.canvas_fps) : cfg.target_fps;
         post_render_tick_(ls, cfg.stats, fps);
     }
 

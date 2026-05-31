@@ -129,7 +129,7 @@
         "outputOnFailure": true
       },
       "environment": {
-        "TSAN_OPTIONS": "suppressions=${sourceDir}/tsan-suppressions.txt:second_deadlock_stack=1"
+        "TSAN_OPTIONS": "suppressions=${sourceDir}/tsan-suppressions.txt:second_deadlock_stack=1:ignore_noninstrumented_modules=1"
       }
     }
   ]

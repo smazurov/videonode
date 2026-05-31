@@ -35,21 +35,10 @@ OwnedFrameView& OwnedFrameView::operator=(OwnedFrameView&& o) noexcept {
     frame_idx = o.frame_idx;
     slot_index = o.slot_index;
     generation = o.generation;
-    credit_sink_ = o.credit_sink_;
-    o.credit_sink_ = nullptr;
     return *this;
 }
 
-OwnedFrameView::~OwnedFrameView() {
-    if (credit_sink_ != nullptr && frame_idx > 0)
-        credit_sink_->return_credit(slot_index, generation);
-}
-
-void ScmRightsSource::return_credit(uint64_t slot_index, uint64_t generation) const {
-    std::lock_guard<std::mutex> g(credit_mu_);
-    if (client_fd_)
-        (void)scm_socket::SendCredit(client_fd_.get(), {slot_index, generation});
-}
+OwnedFrameView::~OwnedFrameView() = default;
 
 namespace {
 
@@ -282,7 +271,6 @@ OwnedFrameView ScmRightsSource::latest_frame() const {
     out.frame_idx = latest_.frame_idx;
     out.slot_index = latest_.slot_index;
     out.generation = latest_.generation;
-    out.credit_sink_ = this;
     return out;
 }
 

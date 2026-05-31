@@ -36,10 +36,11 @@ enum class Format { Nv12 };
 // FrameView → FrameRef round-trip as kNoSlot. pin()/release() ignore it.
 inline constexpr uint64_t kNoSlot = 0xFFFFFFFFull;
 
-// Gate for recycling a producer ring slot. SlotOwner (source/) implements
-// it; the holder pins the slot it is about to read so the producer cannot
-// recycle it mid-read. Defined here to keep the snapshot lib free of a
-// source/ dependency.
+// Gate for recycling a producer ring slot. A producer that refcounts its
+// ring slots can implement it so the holder pins the slot it is about to
+// read, blocking recycle mid-read. No producer wires one today (slots are
+// always kNoSlot), so the holder never pins — see Update/Snapshot, which
+// short-circuit on kNoSlot.
 struct SlotPinner {
     SlotPinner() = default;
     SlotPinner(const SlotPinner&) = delete;

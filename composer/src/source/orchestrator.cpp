@@ -149,15 +149,6 @@ struct LoopState {
     std::chrono::nanoseconds broadcast_period;
 };
 
-// Point the gRPC snapshot holder at the freshly-opened session's slot gate
-// so Snapshot() reads pin against the right SlotOwner (a new one is built per
-// open). No-op without gRPC; on the MJPEG path slot_owner is null so the
-// holder simply never pins.
-void wire_slot_pinner_(LoopState& st) {
-    if (st.grpc_enabled)
-        st.grpc_svc.SetSlotPinner(st.cap.slot_owner);
-}
-
 // Handle V4L2 priority events (SOURCE_CHANGE).
 void handle_v4l2_events_(LoopState& st) {
     std::vector<v4l2_event> evs;
@@ -341,13 +332,8 @@ void maybe_publish_status_(LoopState& st, source_probe::Health h, bool health_ch
 void broadcast_tick_(LoopState& st, source_probe::Health h) {
     if (h == source_probe::Health::Transitioning && st.last_good_decoded.fd >= 0) {
         ++st.real_frame_idx;
-        int sent = broadcast_nv12(st.prod, st.last_good_decoded, st.real_frame_idx,
-                                  to_header_matrix(st.cap.color_matrix));
-        // Re-broadcast adds in-flight readers on the same slot+gen, so the
-        // credits they return are balanced (else release would over-decrement
-        // and free the slot mid-read).
-        if (st.cap.slot_owner && st.last_good_decoded.slot_index != 0xFFFFFFFFu)
-            st.cap.slot_owner->add_refs(int(st.last_good_decoded.slot_index), sent);
+        broadcast_nv12(st.prod, st.last_good_decoded, st.real_frame_idx,
+                       to_header_matrix(st.cap.color_matrix));
         if (st.grpc_enabled)
             st.grpc_svc.UpdateLastFrame(make_frame_ref(st.last_good_decoded, st.real_frame_idx));
     } else {
@@ -385,7 +371,6 @@ void maybe_reinit_capture_(LoopState& st, nv12_buf::Allocator& allocator,
     case CaptureOpenStatus::Ok:
         st.probe.attach();
         publish_active_format(snap);
-        wire_slot_pinner_(st);
         st.need_reinit = false;
         break;
     case CaptureOpenStatus::Busy:
@@ -437,7 +422,6 @@ void handle_format_change_(LoopState& st, nv12_buf::Allocator& allocator,
     } else if (try_open_capture(st.cap, snap, allocator) == CaptureOpenStatus::Ok) {
         st.probe.attach();
         publish_active_format(snap);
-        wire_slot_pinner_(st);
         st.need_reinit = false;
     } else {
         clear_active_format();
@@ -607,10 +591,6 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                  .next_status_heartbeat = clock::now(),
                  .next_reinit_attempt = clock::now(),
                  .broadcast_period = broadcast_period};
-
-    // Startup may have opened the device before grpc_svc existed; wire the
-    // snapshot holder to that session's slot gate now.
-    wire_slot_pinner_(st);
 
     while (running.load()) {
         if (a.run_seconds > 0 && clock::now() - loop_start > std::chrono::seconds(a.run_seconds))

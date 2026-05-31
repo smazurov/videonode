@@ -34,8 +34,9 @@ struct DecodedNv12 {
     uint32_t uv_pitch = 0;
     uint32_t y_offset = 0;
     uint32_t uv_offset = 0;
-    // Producer ring slot + reuse epoch for SlotOwner credit gating.
-    // UINT32_MAX = not ring-backed (MJPEG pool / placeholder; no recycle hazard).
+    // Producer ring slot + reuse epoch carried into the dma-buf header for
+    // the consumer credit back-channel. UINT32_MAX = not ring-backed (MJPEG
+    // pool / placeholder; no recycle hazard).
     uint32_t slot_index = 0xFFFFFFFFu;
     uint64_t generation = 0;
 };

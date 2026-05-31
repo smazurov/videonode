@@ -16,6 +16,7 @@
 #include <libplacebo/shaders/custom.h>
 #include <libplacebo/vulkan.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <unistd.h>
 
@@ -156,6 +157,7 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
 
     canvas_w_ = canvas_w;
     canvas_h_ = canvas_h;
+    cpu_clear_ = std::getenv("VIDEONODE_COMPOSER_CPU_CLEAR") != nullptr;
     for (int i = 0; i < kBufCount; ++i) {
         canvas_bo_[i] = gbm_bo_create(impl_->ctx.gbm(), canvas_w, canvas_h, GBM_FORMAT_ARGB8888,
                                       GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
@@ -190,8 +192,8 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
         }
     }
 
-    vn::log::info("pl_compose: ready %dx%d (stride=%u, double-buffered)", canvas_w, canvas_h,
-                  canvas_stride_);
+    vn::log::info("pl_compose: ready %dx%d (stride=%u, ring=%d, clear=%s)", canvas_w, canvas_h,
+                  canvas_stride_, kBufCount, cpu_clear_ ? "cpu" : "gpu");
     return true;
 }
 
@@ -203,10 +205,9 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
     if (!impl_)
         return false;
 
-    // CPU-clear the canvas to black via gbm_bo_map + memset. None of
-    // libplacebo's GPU clear paths (blit_dst, storable, null-image render)
-    // work reliably on all drivers with imported linear dma-buf textures.
-    {
+    // GPU clear keeps the CPU off the canvas BO; memset fallback for drivers
+    // where GPU clear is unreliable on imported linear dma-bufs.
+    if (cpu_clear_) {
         std::lock_guard<std::mutex> g(gbm_alloc::gbm_device_mu());
         uint32_t stride = 0;
         void* map_handle = nullptr;
@@ -216,6 +217,9 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
             std::memset(ptr, 0, size_t(stride) * canvas_h_);
             gbm_bo_unmap(canvas_bo_[back_], map_handle);
         }
+    } else {
+        const float black[4] = {0.0F, 0.0F, 0.0F, 1.0F};
+        pl_tex_clear(impl_->gpu, impl_->canvas_tex[back_], black);
     }
 
     const uint64_t src_mod = normalize_mod(kModInvalid, impl_->using_vulkan);
