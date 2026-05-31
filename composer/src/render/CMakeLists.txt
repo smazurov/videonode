@@ -98,6 +98,12 @@ if(HAVE_GBM)
             PUBLIC_DEPS egl_ctx gles_bundle placebo_bundle)
     endif()
 
+    # canvas_broadcast: BGRA canvas → NV12 (BT.709) via csc::convert into a
+    # depth-N round-robin ring, broadcast over SCM_RIGHTS.
+    vn_add_library(canvas_broadcast
+        SOURCES canvas_broadcast.cpp
+        PUBLIC_DEPS csc nv12_buf vn_snapshot scm_rights_producer dmabuf_header)
+
     # canvas_loop: composer compose-render-stdout-or-SCM loop, extracted
     # from videonode_composer_main.cpp so the binary stays argv-only.
     # Reads state from `world` (mutated by the gRPC service handlers on
@@ -105,6 +111,15 @@ if(HAVE_GBM)
     # plus an optional ScmRightsProducer for SCM canvas output.
     vn_add_library(canvas_loop
         SOURCES canvas_loop.cpp
-        PUBLIC_DEPS pl_compose egl_ctx scm_rights_source scm_rights_producer dmabuf_header world
-                    build_source_slot gbm_alloc composer_service vn_snapshot)
+        PUBLIC_DEPS pl_compose egl_ctx scm_rights_source scm_rights_producer world
+                    build_source_slot gbm_alloc composer_service vn_snapshot canvas_broadcast)
+    # Mirror csc's backend selection so canvas_loop knows whether the active
+    # CSC backend is csc_placebo (Mesa) — it seeds the NV12 ring's gbm device.
+    if(HAVE_RGA)
+        target_compile_definitions(canvas_loop PRIVATE HAVE_RGA=1)
+    endif()
+    if(HAVE_PLACEBO AND HAVE_GBM)
+        target_compile_definitions(canvas_loop PRIVATE HAVE_PLACEBO_CSC=1)
+        target_link_libraries(canvas_loop PUBLIC csc_placebo)
+    endif()
 endif()

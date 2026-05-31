@@ -9,8 +9,8 @@
 // If neither is compiled in, convert() logs once and returns false; the
 // caller drops the frame.
 //
-// All backends MUST produce the contract declared in dmabuf_msg.hpp:
-// BT.601 limited range with MPEG-2 chroma siting.
+// Output is always NV12 / MPEG-2 siting; luma matrix/range per call via
+// ConvertParams::color_space (Default = BT.601 limited, Bt709Limited = BT.709).
 
 #pragma once
 
@@ -18,15 +18,21 @@
 
 namespace csc {
 
-// PixelFormat is the input/output format of one convert() call. Mirrors
-// the V4L2 four-cc set this pipeline handles. Output is always Nv12.
+// PixelFormat is the input/output format of one convert() call. Output is
+// always Nv12. Bgra is the composer canvas (ARGB8888 byte order).
 enum class PixelFormat {
     Nv12,
     Nv16,
     Nv24,
     Bgr3,
+    Bgra,
     Yuyv,
     Uyvy,
+};
+
+enum class ColorSpace {
+    Default,
+    Bt709Limited,
 };
 
 // ConvertParams describes one source or destination dma-buf. fd is borrowed
@@ -47,6 +53,7 @@ struct ConvertParams {
     int wstride = 0;    // Y-plane row stride (bytes); 0 → derive from width+fmt
     int hstride = 0;    // image height in lines; 0 → equals height
     int uv_wstride = 0; // UV-plane row stride (bytes); 0 → derive
+    ColorSpace color_space = ColorSpace::Default; // read from dst param
 };
 
 // convert runs one src→dst conversion using the active backend. Returns

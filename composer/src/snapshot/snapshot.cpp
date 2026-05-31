@@ -110,15 +110,10 @@ bool LatestFrameHolder::Snapshot(FrameBytes& out) {
         out.frame_idx = ref.frame_idx;
         out.captured_at_ns = ref.captured_at_ns;
 
-        if (ref.format == Format::Nv12) {
-            const size_t y_bytes = size_t(ref.width) * ref.height;
-            out.bytes.resize(y_bytes + size_t(ref.width) * (ref.height / 2));
-            ok = MmapAndPack(ref.planes[0], out.bytes, 0, mfn) &&
-                 MmapAndPack(ref.planes[1], out.bytes, y_bytes, mfn);
-        } else {
-            out.bytes.resize(size_t(ref.width) * ref.height * 4);
-            ok = MmapAndPack(ref.planes[0], out.bytes, 0, mfn);
-        }
+        const size_t y_bytes = size_t(ref.width) * ref.height;
+        out.bytes.resize(y_bytes + size_t(ref.width) * (ref.height / 2));
+        ok = MmapAndPack(ref.planes[0], out.bytes, 0, mfn) &&
+             MmapAndPack(ref.planes[1], out.bytes, y_bytes, mfn);
     }
 
     if (read_pin)

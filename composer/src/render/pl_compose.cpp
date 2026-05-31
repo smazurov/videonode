@@ -286,7 +286,7 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
         src_frame.planes[1].components = 2;
         src_frame.planes[1].component_mapping[0] = 1;
         src_frame.planes[1].component_mapping[1] = 2;
-        src_frame.repr.sys = PL_COLOR_SYSTEM_BT_601;
+        src_frame.repr.sys = slot.src_bt709 ? PL_COLOR_SYSTEM_BT_709 : PL_COLOR_SYSTEM_BT_601;
         src_frame.repr.levels = PL_COLOR_LEVELS_LIMITED;
         src_frame.planes[1].shift_x = -1;
         src_frame.planes[1].shift_y = -1;

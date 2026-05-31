@@ -22,6 +22,8 @@ int to_rk_format(PixelFormat f) {
         return RK_FORMAT_YCbCr_444_SP;
     case PixelFormat::Bgr3:
         return RK_FORMAT_BGR_888;
+    case PixelFormat::Bgra:
+        return RK_FORMAT_BGRA_8888;
     case PixelFormat::Yuyv:
         return RK_FORMAT_YUYV_422;
     case PixelFormat::Uyvy:
@@ -49,6 +51,13 @@ struct ImportedBuffer {
     [[nodiscard]] bool valid() const { return handle != 0; }
 };
 
+// Spelling must match the rig's /usr/include/rga/im2d_type.h (rig-verify).
+int to_color_mode(ColorSpace cs) {
+    if (cs == ColorSpace::Bt709Limited)
+        return IM_RGB_TO_YUV_BT709_LIMIT;
+    return IM_COLOR_SPACE_DEFAULT;
+}
+
 ImportedBuffer import_(const ConvertParams& p) {
     ImportedBuffer ib;
     int wstride = p.wstride > 0 ? p.wstride : default_wstride(p.fmt, p.width);
@@ -70,6 +79,13 @@ ImportedBuffer import_(const ConvertParams& p) {
 } // namespace
 
 bool convert(const ConvertParams& src, const ConvertParams& dst) {
+    if (src.width != dst.width || src.height != dst.height) {
+        // RGA scale+CSC (improcess) not yet wired; libplacebo handles
+        // downscale today. Output defaults to canvas dims, so this is unhit.
+        vn::log::error("rga_csc: scaling convert not implemented (%dx%d -> %dx%d)", src.width,
+                       src.height, dst.width, dst.height);
+        return false;
+    }
     ImportedBuffer sb = import_(src);
     if (!sb.valid())
         return false;
@@ -80,7 +96,7 @@ bool convert(const ConvertParams& src, const ConvertParams& dst) {
     }
 
     IM_STATUS st = imcvtcolor(sb.buf, db.buf, to_rk_format(src.fmt), to_rk_format(dst.fmt),
-                              IM_COLOR_SPACE_DEFAULT);
+                              to_color_mode(dst.color_space));
 
     releasebuffer_handle(sb.handle);
     releasebuffer_handle(db.handle);

@@ -44,6 +44,8 @@ message FormatInfo {
   uint32 buffers = 5;
   // "rga" | "mjpeg-mpp" | "mjpeg-turbojpeg"
   string mode = 6;
+  // Detected YCbCr matrix: "bt601" | "bt709".
+  string color_matrix = 7;
 }
 
 message BroadcastInfo {

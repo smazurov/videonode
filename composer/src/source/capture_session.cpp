@@ -107,6 +107,8 @@ bool negotiate_format_(CaptureSession& s, const Args& a) {
     s.width = int(cur.width);
     s.height = int(cur.height);
     s.fps = cur.fps; // actual negotiated rate from VIDIOC_G_PARM
+    // MJPEG (JFIF) is BT.601; the RGA path carries the detected matrix.
+    s.color_matrix = (s.mode == DecodeMode::Mjpeg) ? v4l2::ColorMatrix::Bt601 : cur.color_matrix;
     if (s.width <= 0 || s.height <= 0) {
         s.cap.close();
         return false;

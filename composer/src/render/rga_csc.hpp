@@ -23,8 +23,15 @@ enum class PixelFormat {
     Nv16,
     Nv24,
     Bgr3,
+    Bgra,
     Yuyv,
     Uyvy,
+};
+
+// Default maps to IM_COLOR_SPACE_DEFAULT (BT.601 limited for RGB→YUV).
+enum class ColorSpace {
+    Default,
+    Bt709Limited,
 };
 
 #if defined(HAVE_RGA)
@@ -40,13 +47,14 @@ struct ConvertParams {
     PixelFormat fmt = PixelFormat::Nv12;
     int width = 0;
     int height = 0;
-    int wstride = 0; // bytes per row; 0 → derive from width+fmt
-    int hstride = 0; // image height in lines; 0 → equals height
+    int wstride = 0;                              // pixels per row; 0 → derive from width
+    int hstride = 0;                              // image height in lines; 0 → equals height
+    ColorSpace color_space = ColorSpace::Default; // read from dst param
 };
 
-// convert() runs one imcvtcolor pass: src dma-buf -> dst dma-buf. Returns
-// false on librga error. Caller passes already-allocated buffers; this
-// does not allocate.
+// convert() runs one src dma-buf -> dst dma-buf conversion: pure CSC
+// (imcvtcolor) when dimensions match, resize+CSC (improcess) when they
+// differ. Caller passes already-allocated buffers.
 [[nodiscard]] bool convert(const ConvertParams& src, const ConvertParams& dst);
 
 } // namespace rga

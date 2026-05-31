@@ -27,6 +27,8 @@ rga::PixelFormat to_rga(PixelFormat f) {
         return rga::PixelFormat::Nv24;
     case PixelFormat::Bgr3:
         return rga::PixelFormat::Bgr3;
+    case PixelFormat::Bgra:
+        return rga::PixelFormat::Bgra;
     case PixelFormat::Yuyv:
         return rga::PixelFormat::Yuyv;
     case PixelFormat::Uyvy:
@@ -35,14 +37,26 @@ rga::PixelFormat to_rga(PixelFormat f) {
     return rga::PixelFormat::Nv12;
 }
 
+rga::ColorSpace to_rga(ColorSpace c) {
+    switch (c) {
+    case ColorSpace::Bt709Limited:
+        return rga::ColorSpace::Bt709Limited;
+    case ColorSpace::Default:
+        break;
+    }
+    return rga::ColorSpace::Default;
+}
+
 rga::ConvertParams to_rga(const ConvertParams& p) {
     rga::ConvertParams r;
     r.fd = p.fd;
     r.fmt = to_rga(p.fmt);
     r.width = p.width;
     r.height = p.height;
-    r.wstride = p.wstride;
+    // librga wants pixel stride; we carry bytes. Only 4-byte BGRA differs.
+    r.wstride = (p.fmt == PixelFormat::Bgra && p.wstride > 0) ? p.wstride / 4 : p.wstride;
     r.hstride = p.hstride;
+    r.color_space = to_rga(p.color_space);
     return r;
 }
 

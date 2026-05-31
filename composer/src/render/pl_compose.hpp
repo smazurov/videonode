@@ -36,7 +36,8 @@ struct SourceSlot {
     int w = 0;
     int h = 0;
     Warp warp;
-    int rotation = 0; // 0, 90, 180, 270 clockwise degrees
+    int rotation = 0;       // 0, 90, 180, 270 clockwise degrees
+    bool src_bt709 = false; // input YCbCr matrix (false = BT.601)
     float src_crop_x0 = 0.0F;
     float src_crop_y0 = 0.0F;
     float src_crop_x1 = 1.0F;

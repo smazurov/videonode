@@ -60,7 +60,7 @@ int64_t wall_ms() {
 }
 
 int broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec::DecodedNv12& d,
-                   uint64_t frame_idx) {
+                   uint64_t frame_idx, dmabuf_header::ColorMatrix matrix) {
     dmabuf_header::Header h_;
     h_.slot_index = d.slot_index;
     h_.generation = d.generation;
@@ -69,10 +69,9 @@ int broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec:
     h_.format = "NV12";
     h_.plane_pitches = {d.y_pitch, d.uv_pitch};
     h_.plane_offsets = {d.y_offset, d.uv_offset};
-    // Color contract — see ipc/dmabuf_header.hpp. RGA's
-    // IM_COLOR_SPACE_DEFAULT and csc_gles's BT.601 shader both emit
-    // BT.601 limited / MPEG-2.
-    h_.color_matrix = dmabuf_header::ColorMatrix::Bt601;
+    // Limited range / MPEG-2 siting are fixed; the matrix is the detected
+    // capture colorimetry (samples pass through CSC matrix-preserved).
+    h_.color_matrix = matrix;
     h_.color_range = dmabuf_header::ColorRange::Limited;
     h_.chroma_siting = dmabuf_header::ChromaSiting::Mpeg2;
     h_.frame_idx = frame_idx;
@@ -81,7 +80,7 @@ int broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec:
 }
 
 void broadcast_buffer(scm_rights_producer::ScmRightsProducer& prod, const nv12_buf::Buffer& b,
-                      uint64_t frame_idx) {
+                      uint64_t frame_idx, dmabuf_header::ColorMatrix matrix) {
     jpeg_dec::DecodedNv12 d;
     d.fd = (b.staged_y_fd >= 0) ? b.staged_y_fd : b.y_fd;
     d.plane1_fd = (b.staged_uv_fd >= 0) ? b.staged_uv_fd : b.uv_fd;
@@ -91,7 +90,7 @@ void broadcast_buffer(scm_rights_producer::ScmRightsProducer& prod, const nv12_b
     d.uv_pitch = b.uv_pitch;
     d.y_offset = (b.staged_y_fd >= 0) ? 0 : b.y_offset;
     d.uv_offset = (b.staged_uv_fd >= 0) ? 0 : b.uv_offset;
-    broadcast_nv12(prod, d, frame_idx);
+    broadcast_nv12(prod, d, frame_idx, matrix);
 }
 
 void build_status_proto(::videonode::control::Status& out, const StatusContext& ctx) {
@@ -122,6 +121,7 @@ void build_status_proto(::videonode::control::Status& out, const StatusContext& 
                                     ? (ctx.cap.using_mpp ? "mjpeg-mpp" : "mjpeg-turbojpeg")
                                     : "rga";
         fmt->set_mode(mode_name);
+        fmt->set_color_matrix(ctx.cap.color_matrix == v4l2::ColorMatrix::Bt709 ? "bt709" : "bt601");
     } else {
         // V4L2 not negotiated (test_mode sources, or capture still
         // initialising). Broadcasts are NV12 placeholder frames at
@@ -133,6 +133,7 @@ void build_status_proto(::videonode::control::Status& out, const StatusContext& 
         fmt->set_h(static_cast<uint32_t>(ctx.args.placeholder_h));
         fmt->set_fps(static_cast<uint32_t>(ctx.args.placeholder_broadcast_fps));
         fmt->set_mode("placeholder");
+        fmt->set_color_matrix("bt601");
     }
 
     auto* bc = out.mutable_broadcast();

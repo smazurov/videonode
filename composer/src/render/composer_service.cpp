@@ -177,10 +177,11 @@ grpc::Status ComposerService::Snapshot(grpc::ServerContext* /*ctx*/,
     if (!frame_holder_.Snapshot(fb)) {
         return grpc::Status(grpc::StatusCode::UNAVAILABLE, "no canvas frame produced yet");
     }
-    resp->set_bgra(fb.bytes.data(), fb.bytes.size());
+    resp->set_nv12(fb.bytes.data(), fb.bytes.size());
     resp->set_width(fb.width);
     resp->set_height(fb.height);
-    resp->set_pitch(fb.pitch_y);
+    resp->set_pitch_y(fb.pitch_y);
+    resp->set_pitch_uv(fb.pitch_uv);
     resp->set_frame_idx(fb.frame_idx);
     resp->set_captured_at_ns(fb.captured_at_ns);
     return grpc::Status::OK;

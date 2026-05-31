@@ -29,16 +29,25 @@ uint64_t now_ms();
 // interval math (use now_ms() — it is immune to clock jumps).
 int64_t wall_ms();
 
+// Map the capture-detected matrix to the wire enum. The samples pass
+// through CSC matrix-preserved, so the header just labels them.
+inline dmabuf_header::ColorMatrix to_header_matrix(v4l2::ColorMatrix m) {
+    return m == v4l2::ColorMatrix::Bt709 ? dmabuf_header::ColorMatrix::Bt709
+                                         : dmabuf_header::ColorMatrix::Bt601;
+}
+
 // Send a decoded NV12 frame to all connected SCM consumers. Returns the
-// number of consumers it was delivered to, for SlotOwner refcounting.
+// number of consumers it was delivered to.
 int broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec::DecodedNv12& d,
-                   uint64_t frame_idx);
+                   uint64_t frame_idx,
+                   dmabuf_header::ColorMatrix matrix = dmabuf_header::ColorMatrix::Bt601);
 
 // Thin shim for placeholder + transitioning re-broadcast paths. Reads
 // layout straight from the nv12_buf::Buffer so split-buffer and single-
 // buffer backends both work.
 void broadcast_buffer(scm_rights_producer::ScmRightsProducer& prod, const nv12_buf::Buffer& b,
-                      uint64_t frame_idx);
+                      uint64_t frame_idx,
+                      dmabuf_header::ColorMatrix matrix = dmabuf_header::ColorMatrix::Bt601);
 
 } // namespace source
 

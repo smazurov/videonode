@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <vector>
 
 #include <unistd.h>
 
@@ -82,29 +83,74 @@ ImportedTex import_plane(const PlaneImport& p) {
     return {tex, fd_dup};
 }
 
-struct CscTextures {
-    pl_tex src_y;
-    pl_tex src_uv;
-    pl_tex dst_y;
-    pl_tex dst_uv;
-    bool src_is_nv12;
+// Owns imported textures; destroys each tex and closes its dup'd fd on
+// scope exit, so convert() needs no per-error-path cleanup.
+class TexBag {
+  public:
+    explicit TexBag(pl_gpu gpu) : gpu_(gpu) {}
+    ~TexBag() {
+        for (auto& t : items_) {
+            pl_tex_destroy(gpu_, &t.tex);
+            ::close(t.fd);
+        }
+    }
+    TexBag(const TexBag&) = delete;
+    TexBag& operator=(const TexBag&) = delete;
+
+    pl_tex add(const PlaneImport& p) {
+        ImportedTex t = import_plane(p);
+        if (t.tex)
+            items_.push_back(t);
+        return t.tex;
+    }
+
+  private:
+    pl_gpu gpu_;
+    std::vector<ImportedTex> items_;
 };
+
+struct CscTextures {
+    pl_tex src_y = nullptr;
+    pl_tex src_uv = nullptr;
+    pl_tex src_rgb = nullptr; // non-null => single-plane RGB source
+    pl_tex dst_y = nullptr;
+    pl_tex dst_uv = nullptr;
+    bool src_is_nv12 = false;
+    int src_w = 0, src_h = 0;
+    int dst_w = 0, dst_h = 0;
+    bool dst_bt709 = false;
+};
+
+void set_src_frame(pl_frame& f, const CscTextures& t) {
+    if (t.src_rgb) {
+        f.num_planes = 1;
+        f.planes[0].texture = t.src_rgb;
+        f.planes[0].components = 4;
+        for (int i = 0; i < 4; ++i)
+            f.planes[0].component_mapping[i] = i;
+        f.repr.sys = PL_COLOR_SYSTEM_RGB;
+        f.repr.levels = PL_COLOR_LEVELS_FULL;
+    } else {
+        f.num_planes = 2;
+        f.planes[0].texture = t.src_y;
+        f.planes[0].components = 1;
+        f.planes[0].component_mapping[0] = 0;
+        f.planes[1].texture = t.src_uv;
+        f.planes[1].components = 2;
+        f.planes[1].component_mapping[0] = 1;
+        f.planes[1].component_mapping[1] = 2;
+        f.repr.sys = PL_COLOR_SYSTEM_BT_601;
+        f.repr.levels = PL_COLOR_LEVELS_LIMITED;
+        f.planes[1].shift_x = t.src_is_nv12 ? -1 : 0;
+        f.planes[1].shift_y = t.src_is_nv12 ? -1 : 0;
+        pl_frame_set_chroma_location(&f, PL_CHROMA_LEFT);
+    }
+    f.crop = {0, 0, static_cast<float>(t.src_w), static_cast<float>(t.src_h)};
+}
 
 bool render_csc(pl_renderer renderer, pl_gpu gpu, const CscTextures& t) {
     struct pl_frame src_frame = {};
-    src_frame.num_planes = 2;
-    src_frame.planes[0].texture = t.src_y;
-    src_frame.planes[0].components = 1;
-    src_frame.planes[0].component_mapping[0] = 0;
-    src_frame.planes[1].texture = t.src_uv;
-    src_frame.planes[1].components = 2;
-    src_frame.planes[1].component_mapping[0] = 1;
-    src_frame.planes[1].component_mapping[1] = 2;
-    src_frame.repr.sys = PL_COLOR_SYSTEM_BT_601;
-    src_frame.repr.levels = PL_COLOR_LEVELS_LIMITED;
-    src_frame.planes[1].shift_x = t.src_is_nv12 ? -1 : 0;
-    src_frame.planes[1].shift_y = t.src_is_nv12 ? -1 : 0;
-    pl_frame_set_chroma_location(&src_frame, PL_CHROMA_LEFT);
+    set_src_frame(src_frame, t);
 
     struct pl_frame dst_frame = {};
     dst_frame.num_planes = 2;
@@ -115,17 +161,105 @@ bool render_csc(pl_renderer renderer, pl_gpu gpu, const CscTextures& t) {
     dst_frame.planes[1].components = 2;
     dst_frame.planes[1].component_mapping[0] = 1;
     dst_frame.planes[1].component_mapping[1] = 2;
-    dst_frame.repr.sys = PL_COLOR_SYSTEM_BT_601;
+    dst_frame.repr.sys = t.dst_bt709 ? PL_COLOR_SYSTEM_BT_709 : PL_COLOR_SYSTEM_BT_601;
     dst_frame.repr.levels = PL_COLOR_LEVELS_LIMITED;
     dst_frame.planes[1].shift_x = -1;
     dst_frame.planes[1].shift_y = -1;
     pl_frame_set_chroma_location(&dst_frame, PL_CHROMA_LEFT);
+    dst_frame.crop = {0, 0, static_cast<float>(t.dst_w), static_cast<float>(t.dst_h)};
 
     struct pl_render_params params = pl_render_fast_params;
     params.skip_anti_aliasing = true;
     bool ok = pl_render_image(renderer, &src_frame, &dst_frame, &params);
     pl_gpu_finish(gpu);
     return ok;
+}
+
+bool import_src(pl_gpu gpu, TexBag& bag, const csc::ConvertParams& src, CscTextures& t) {
+    const int W = src.width;
+    const int H = src.height;
+    if (src.fmt == csc::PixelFormat::Bgra) {
+        pl_fmt fmt = pl_find_named_fmt(gpu, "bgra8");
+        if (!fmt)
+            fmt = pl_find_named_fmt(gpu, "rgba8");
+        if (!fmt)
+            return false;
+        const int pitch = src.wstride > 0 ? src.wstride : W * 4;
+        t.src_rgb = bag.add({.gpu = gpu,
+                             .fmt = fmt,
+                             .fd = src.fd,
+                             .w = W,
+                             .h = H,
+                             .pitch = pitch,
+                             .offset = 0,
+                             .renderable = false});
+        return t.src_rgb != nullptr;
+    }
+    pl_fmt fmt_r8 = pl_find_named_fmt(gpu, "r8");
+    pl_fmt fmt_rg8 = pl_find_named_fmt(gpu, "rg8");
+    if (!fmt_r8 || !fmt_rg8)
+        return false;
+    t.src_is_nv12 = (src.fmt == csc::PixelFormat::Nv12);
+    const int y_pitch = src.wstride > 0 ? src.wstride : W;
+    const int uv_pitch =
+        src.uv_wstride > 0 ? src.uv_wstride : (t.src_is_nv12 ? y_pitch : y_pitch * 2);
+    const int uv_w = t.src_is_nv12 ? W / 2 : W;
+    const int uv_h = t.src_is_nv12 ? H / 2 : H;
+    const bool split = src.uv_fd >= 0;
+    const int uv_fd = split ? src.uv_fd : src.fd;
+    const int uv_off = split ? 0 : y_pitch * H;
+    t.src_y = bag.add({.gpu = gpu,
+                       .fmt = fmt_r8,
+                       .fd = src.fd,
+                       .w = W,
+                       .h = H,
+                       .pitch = y_pitch,
+                       .offset = 0,
+                       .renderable = false});
+    if (!t.src_y)
+        return false;
+    t.src_uv = bag.add({.gpu = gpu,
+                        .fmt = fmt_rg8,
+                        .fd = uv_fd,
+                        .w = uv_w,
+                        .h = uv_h,
+                        .pitch = uv_pitch,
+                        .offset = uv_off,
+                        .renderable = false});
+    return t.src_uv != nullptr;
+}
+
+bool import_dst(pl_gpu gpu, TexBag& bag, const csc::ConvertParams& dst, CscTextures& t) {
+    pl_fmt fmt_r8 = pl_find_named_fmt(gpu, "r8");
+    pl_fmt fmt_rg8 = pl_find_named_fmt(gpu, "rg8");
+    if (!fmt_r8 || !fmt_rg8)
+        return false;
+    const int W = dst.width;
+    const int H = dst.height;
+    const int y_pitch = dst.wstride > 0 ? dst.wstride : W;
+    const int uv_pitch = dst.uv_wstride > 0 ? dst.uv_wstride : y_pitch;
+    const bool split = dst.uv_fd >= 0;
+    const int uv_fd = split ? dst.uv_fd : dst.fd;
+    const int uv_off = split ? 0 : y_pitch * H;
+    t.dst_y = bag.add({.gpu = gpu,
+                       .fmt = fmt_r8,
+                       .fd = dst.fd,
+                       .w = W,
+                       .h = H,
+                       .pitch = y_pitch,
+                       .offset = 0,
+                       .renderable = true});
+    if (!t.dst_y)
+        return false;
+    t.dst_uv = bag.add({.gpu = gpu,
+                        .fmt = fmt_rg8,
+                        .fd = uv_fd,
+                        .w = W / 2,
+                        .h = H / 2,
+                        .pitch = uv_pitch,
+                        .offset = uv_off,
+                        .renderable = true});
+    return t.dst_uv != nullptr;
 }
 
 } // namespace
@@ -215,111 +349,27 @@ bool convert(const csc::ConvertParams& src, const csc::ConvertParams& dst) {
         log_once("dst.fmt != Nv12 — only NV12 output is supported");
         return false;
     }
-    if (src.fmt != csc::PixelFormat::Nv24 && src.fmt != csc::PixelFormat::Nv12) {
-        log_once("only NV12/NV24 input is implemented; other formats are TODO");
+    if (src.fmt != csc::PixelFormat::Nv24 && src.fmt != csc::PixelFormat::Nv12 &&
+        src.fmt != csc::PixelFormat::Bgra) {
+        log_once("only NV12/NV24/BGRA input is implemented");
         return false;
     }
     if (src.width <= 0 || src.height <= 0 || (src.width & 1) || (src.height & 1))
         return false;
-    if (dst.width != src.width || dst.height != src.height)
+    if (dst.width <= 0 || dst.height <= 0 || (dst.width & 1) || (dst.height & 1))
         return false;
 
-    const int W = src.width;
-    const int H = src.height;
-    const bool src_is_nv12 = (src.fmt == csc::PixelFormat::Nv12);
-    const int src_y_pitch = (src.wstride > 0 ? src.wstride : W);
-    const int src_uv_pitch = src_is_nv12 ? src_y_pitch : src_y_pitch * 2;
-    const int src_uv_w = src_is_nv12 ? (W / 2) : W;
-    const int src_uv_h = src_is_nv12 ? (H / 2) : H;
-    const int dst_y_pitch = (dst.wstride > 0 ? dst.wstride : W);
-    const int dst_uv_pitch = (dst.uv_wstride > 0 ? dst.uv_wstride : dst_y_pitch);
-    const int dst_y_size = dst_y_pitch * H;
+    CscTextures t;
+    t.src_w = src.width;
+    t.src_h = src.height;
+    t.dst_w = dst.width;
+    t.dst_h = dst.height;
+    t.dst_bt709 = (dst.color_space == csc::ColorSpace::Bt709Limited);
 
-    const bool src_split = (src.uv_fd >= 0);
-    const bool dst_split = (dst.uv_fd >= 0);
-    const int src_uv_actual_fd = src_split ? src.uv_fd : src.fd;
-    const int src_uv_actual_offset = src_split ? 0 : (src_y_pitch * H);
-    const int src_uv_actual_pitch = (src.uv_wstride > 0 ? src.uv_wstride : src_uv_pitch);
-    const int dst_uv_actual_fd = dst_split ? dst.uv_fd : dst.fd;
-    const int dst_uv_actual_offset = dst_split ? 0 : dst_y_size;
-
-    pl_fmt fmt_r8 = pl_find_named_fmt(s.gpu, "r8");
-    pl_fmt fmt_rg8 = pl_find_named_fmt(s.gpu, "rg8");
-    if (!fmt_r8 || !fmt_rg8)
+    TexBag bag(s.gpu);
+    if (!import_src(s.gpu, bag, src, t) || !import_dst(s.gpu, bag, dst, t))
         return false;
-
-    auto imp_src_y = import_plane({.gpu = s.gpu,
-                                   .fmt = fmt_r8,
-                                   .fd = src.fd,
-                                   .w = W,
-                                   .h = H,
-                                   .pitch = src_y_pitch,
-                                   .offset = 0,
-                                   .renderable = false});
-    if (!imp_src_y.tex)
-        return false;
-    auto imp_src_uv = import_plane({.gpu = s.gpu,
-                                    .fmt = fmt_rg8,
-                                    .fd = src_uv_actual_fd,
-                                    .w = src_uv_w,
-                                    .h = src_uv_h,
-                                    .pitch = src_uv_actual_pitch,
-                                    .offset = src_uv_actual_offset,
-                                    .renderable = false});
-    if (!imp_src_uv.tex) {
-        pl_tex_destroy(s.gpu, &imp_src_y.tex);
-        ::close(imp_src_y.fd);
-        return false;
-    }
-    auto imp_dst_y = import_plane({.gpu = s.gpu,
-                                   .fmt = fmt_r8,
-                                   .fd = dst.fd,
-                                   .w = W,
-                                   .h = H,
-                                   .pitch = dst_y_pitch,
-                                   .offset = 0,
-                                   .renderable = true});
-    if (!imp_dst_y.tex) {
-        pl_tex_destroy(s.gpu, &imp_src_y.tex);
-        pl_tex_destroy(s.gpu, &imp_src_uv.tex);
-        ::close(imp_src_y.fd);
-        ::close(imp_src_uv.fd);
-        return false;
-    }
-    auto imp_dst_uv = import_plane({.gpu = s.gpu,
-                                    .fmt = fmt_rg8,
-                                    .fd = dst_uv_actual_fd,
-                                    .w = W / 2,
-                                    .h = H / 2,
-                                    .pitch = dst_uv_pitch,
-                                    .offset = dst_uv_actual_offset,
-                                    .renderable = true});
-    if (!imp_dst_uv.tex) {
-        pl_tex_destroy(s.gpu, &imp_src_y.tex);
-        pl_tex_destroy(s.gpu, &imp_src_uv.tex);
-        pl_tex_destroy(s.gpu, &imp_dst_y.tex);
-        ::close(imp_src_y.fd);
-        ::close(imp_src_uv.fd);
-        ::close(imp_dst_y.fd);
-        return false;
-    }
-
-    bool ok = render_csc(s.renderer, s.gpu,
-                         {.src_y = imp_src_y.tex,
-                          .src_uv = imp_src_uv.tex,
-                          .dst_y = imp_dst_y.tex,
-                          .dst_uv = imp_dst_uv.tex,
-                          .src_is_nv12 = src_is_nv12});
-
-    pl_tex_destroy(s.gpu, &imp_src_y.tex);
-    pl_tex_destroy(s.gpu, &imp_src_uv.tex);
-    pl_tex_destroy(s.gpu, &imp_dst_y.tex);
-    pl_tex_destroy(s.gpu, &imp_dst_uv.tex);
-    ::close(imp_src_y.fd);
-    ::close(imp_src_uv.fd);
-    ::close(imp_dst_y.fd);
-    ::close(imp_dst_uv.fd);
-    return ok;
+    return render_csc(s.renderer, s.gpu, t);
 }
 
 } // namespace csc_placebo

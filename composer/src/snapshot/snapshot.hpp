@@ -8,7 +8,7 @@
 //
 // Used by:
 //   - composer/src/source/source_service       (NV12 sources, 2 planes)
-//   - composer/src/render/composer_service     (BGRA canvas, 1 plane)
+//   - composer/src/render/composer_service     (NV12 canvas, 2 planes)
 //
 // Lifetime: the fds referenced by a stashed FrameRef must remain valid for
 // the duration of Snapshot(); in practice both producers hold their slot
@@ -28,7 +28,7 @@
 
 namespace vn::snapshot {
 
-enum class Format { Nv12, Bgra };
+enum class Format { Nv12 };
 
 // Sentinel slot_index for frames not backed by a refcounted ring slot
 // (placeholder / MJPEG frames). Matches the uint32 wire sentinel widened
@@ -67,18 +67,18 @@ struct FrameRef {
     Format format = Format::Nv12;
     uint32_t width = 0;
     uint32_t height = 0;
-    std::array<Plane, 2> planes{}; // [0]=Y or BGRA; [1]=UV (NV12 only)
+    std::array<Plane, 2> planes{}; // [0]=Y; [1]=UV
     uint32_t pitch_y = 0;          // surfaces pitches for the response metadata
-    uint32_t pitch_uv = 0;         // 0 for BGRA
+    uint32_t pitch_uv = 0;
     uint64_t frame_idx = 0;
     uint64_t captured_at_ns = 0;
     uint64_t slot_index = kNoSlot;
     uint64_t generation = 0;
 };
 
-// Output of Snapshot(): tight-packed bytes plus metadata. For NV12 the
-// bytes are Y plane (width*height) followed by UV plane (width*height/2,
-// interleaved). For BGRA it's width*height*4.
+// Output of Snapshot(): tight-packed bytes plus metadata. The bytes are
+// the Y plane (width*height) followed by the interleaved UV plane
+// (width*height/2).
 struct FrameBytes {
     Format format = Format::Nv12;
     uint32_t width = 0;

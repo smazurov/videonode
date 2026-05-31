@@ -31,6 +31,7 @@ OwnedFrameView& OwnedFrameView::operator=(OwnedFrameView&& o) noexcept {
     plane1_pitch = o.plane1_pitch;
     plane1_offset = o.plane1_offset;
     format = std::move(o.format);
+    color_matrix = o.color_matrix;
     frame_idx = o.frame_idx;
     slot_index = o.slot_index;
     generation = o.generation;
@@ -236,6 +237,7 @@ void ScmRightsSource::thread_main_() {
             nf.plane1_offset = header.plane_offsets[1];
         }
         nf.format = header.format;
+        nf.color_matrix = header.color_matrix;
         nf.frame_idx = header.frame_idx;
         nf.slot_index = header.slot_index;
         nf.generation = header.generation;
@@ -276,6 +278,7 @@ OwnedFrameView ScmRightsSource::latest_frame() const {
     out.plane1_pitch = latest_.plane1_pitch;
     out.plane1_offset = latest_.plane1_offset;
     out.format = latest_.format;
+    out.color_matrix = latest_.color_matrix;
     out.frame_idx = latest_.frame_idx;
     out.slot_index = latest_.slot_index;
     out.generation = latest_.generation;

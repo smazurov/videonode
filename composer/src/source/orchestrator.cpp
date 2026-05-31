@@ -238,7 +238,7 @@ bool handle_dqbuf_(LoopState& st) {
 
     if (ok) {
         ++st.real_frame_idx;
-        broadcast_nv12(st.prod, decoded, st.real_frame_idx);
+        broadcast_nv12(st.prod, decoded, st.real_frame_idx, to_header_matrix(st.cap.color_matrix));
         if (st.grpc_enabled)
             st.grpc_svc.UpdateLastFrame(make_frame_ref(decoded, st.real_frame_idx));
         st.last_good_decoded = decoded;
@@ -341,7 +341,8 @@ void maybe_publish_status_(LoopState& st, source_probe::Health h, bool health_ch
 void broadcast_tick_(LoopState& st, source_probe::Health h) {
     if (h == source_probe::Health::Transitioning && st.last_good_decoded.fd >= 0) {
         ++st.real_frame_idx;
-        int sent = broadcast_nv12(st.prod, st.last_good_decoded, st.real_frame_idx);
+        int sent = broadcast_nv12(st.prod, st.last_good_decoded, st.real_frame_idx,
+                                  to_header_matrix(st.cap.color_matrix));
         // Re-broadcast adds in-flight readers on the same slot+gen, so the
         // credits they return are balanced (else release would over-decrement
         // and free the slot mid-read).

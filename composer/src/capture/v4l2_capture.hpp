@@ -35,6 +35,10 @@ namespace v4l2 {
 // StreamFormat is the capture configuration applied via VIDIOC_S_FMT.
 // Multiplanar is derived from QUERYCAP, not chosen by the caller — Open
 // detects and fills it on the Streamer.
+// Resolved YCbCr matrix of the captured stream. The pipeline always emits
+// limited range, so only the matrix is tracked.
+enum class ColorMatrix { Bt601, Bt709 };
+
 struct StreamFormat {
     uint32_t pixel_format = 0; // V4L2_PIX_FMT_* fourcc
     uint32_t width = 0;
@@ -42,6 +46,7 @@ struct StreamFormat {
     // FPS as time-per-frame via VIDIOC_S_PARM. Some drivers ignore this
     // (rk_hdmirx is one). 0 = don't call S_PARM.
     uint32_t fps = 0;
+    ColorMatrix color_matrix = ColorMatrix::Bt601;
 };
 
 // PlaneRef is one plane of a V4L2 buffer. For single-plane formats there's

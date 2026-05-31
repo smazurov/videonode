@@ -27,6 +27,26 @@ int xioctl(int fd, unsigned long req, void* arg) {
     return r;
 }
 
+// Resolve the V4L2 colorimetry to our BT.601/709 matrix. Explicit ycbcr_enc
+// wins; else derive from colorspace; else fall back to the SD/HD convention
+// (height >= 720 → BT.709), since rk_hdmirx often reports DEFAULT.
+ColorMatrix resolve_matrix(uint32_t colorspace, uint32_t ycbcr_enc, uint32_t height) {
+    if (ycbcr_enc == V4L2_YCBCR_ENC_709)
+        return ColorMatrix::Bt709;
+    if (ycbcr_enc == V4L2_YCBCR_ENC_601)
+        return ColorMatrix::Bt601;
+    switch (colorspace) {
+    case V4L2_COLORSPACE_REC709:
+        return ColorMatrix::Bt709;
+    case V4L2_COLORSPACE_SMPTE170M:
+    case V4L2_COLORSPACE_470_SYSTEM_M:
+    case V4L2_COLORSPACE_470_SYSTEM_BG:
+        return ColorMatrix::Bt601;
+    default:
+        return height >= 720 ? ColorMatrix::Bt709 : ColorMatrix::Bt601;
+    }
+}
+
 } // namespace
 
 bool Streamer::get_format(StreamFormat& out) const {
@@ -44,10 +64,14 @@ bool Streamer::get_format(StreamFormat& out) const {
         out.width = vfmt.fmt.pix_mp.width;
         out.height = vfmt.fmt.pix_mp.height;
         out.pixel_format = vfmt.fmt.pix_mp.pixelformat;
+        out.color_matrix =
+            resolve_matrix(vfmt.fmt.pix_mp.colorspace, vfmt.fmt.pix_mp.ycbcr_enc, out.height);
     } else {
         out.width = vfmt.fmt.pix.width;
         out.height = vfmt.fmt.pix.height;
         out.pixel_format = vfmt.fmt.pix.pixelformat;
+        out.color_matrix =
+            resolve_matrix(vfmt.fmt.pix.colorspace, vfmt.fmt.pix.ycbcr_enc, out.height);
     }
     out.fps = query_capture_fps(xioctl, fd_, buf_type_());
     return true;

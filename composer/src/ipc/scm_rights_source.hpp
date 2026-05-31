@@ -22,6 +22,7 @@
 #pragma once
 
 #include "src/common/unique_fd.hpp"
+#include "src/ipc/dmabuf_header.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -49,6 +50,7 @@ struct FrameView {
     uint32_t plane1_offset = 0;
     int plane1_fd = -1;
     std::string format;
+    dmabuf_header::ColorMatrix color_matrix = dmabuf_header::ColorMatrix::Unspecified;
     uint64_t frame_idx = 0;
     uint64_t slot_index = 0;
     uint64_t generation = 0;
@@ -69,6 +71,7 @@ struct OwnedFrameView {
     uint32_t plane1_pitch = 0;
     uint32_t plane1_offset = 0;
     std::string format;
+    dmabuf_header::ColorMatrix color_matrix = dmabuf_header::ColorMatrix::Unspecified;
     uint64_t frame_idx = 0;
     uint64_t slot_index = 0;
     uint64_t generation = 0;

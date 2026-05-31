@@ -246,34 +246,6 @@ TEST(LatestFrameHolder, RoundTripNv12PaddedPitch) {
     ::close(fd);
 }
 
-TEST(LatestFrameHolder, RoundTripBgra) {
-    const uint32_t W = 5, H = 3;
-    const size_t row_bytes = size_t(W) * 4;
-    const size_t pitch = row_bytes + 11; // some non-multiple padding
-    std::vector<uint8_t> src;
-    fill_padded_(src, H, row_bytes, pitch, /*seed=*/0x40);
-    const int fd = make_memfd_with(src);
-    ASSERT_GE(fd, 0);
-
-    vn::snapshot::FrameRef ref{};
-    ref.format = vn::snapshot::Format::Bgra;
-    ref.width = W;
-    ref.height = H;
-    ref.pitch_y = static_cast<uint32_t>(pitch);
-    ref.planes[0] = {.fd = fd, .offset = 0, .pitch = pitch, .row_bytes = row_bytes, .rows = H};
-
-    vn::snapshot::LatestFrameHolder h;
-    h.Update(ref);
-
-    vn::snapshot::FrameBytes out;
-    ASSERT_TRUE(h.Snapshot(out));
-    EXPECT_EQ(out.format, vn::snapshot::Format::Bgra);
-    EXPECT_EQ(out.bytes.size(), row_bytes * H);
-    auto expected = packed_expected_(H, row_bytes, 0x40);
-    EXPECT_EQ(out.bytes, expected);
-    ::close(fd);
-}
-
 TEST(LatestFrameHolder, UpdateOverwrites) {
     const uint32_t W = 2, H = 2;
     std::vector<uint8_t> bufA(W * H, 0xAA);
@@ -315,11 +287,13 @@ TEST(LatestFrameHolder, MmapFailureLeavesRefIntact) {
     ASSERT_GE(fd, 0);
 
     vn::snapshot::FrameRef ref{};
-    ref.format = vn::snapshot::Format::Bgra;
+    ref.format = vn::snapshot::Format::Nv12;
     ref.width = 2;
     ref.height = 2;
-    ref.pitch_y = 8;
-    ref.planes[0] = {.fd = fd, .offset = 0, .pitch = 8, .row_bytes = 8, .rows = 2};
+    ref.pitch_y = 2;
+    ref.pitch_uv = 2;
+    ref.planes[0] = {.fd = fd, .offset = 0, .pitch = 2, .row_bytes = 2, .rows = 2};
+    ref.planes[1] = {.fd = fd, .offset = 4, .pitch = 2, .row_bytes = 2, .rows = 1};
 
     vn::snapshot::LatestFrameHolder h;
     h.Update(ref);

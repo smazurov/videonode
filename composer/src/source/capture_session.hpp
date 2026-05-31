@@ -40,6 +40,7 @@ struct CaptureSession {
     int width = 0;
     int height = 0;
     uint32_t fps = 0; // actual negotiated capture rate (VIDIOC_G_PARM)
+    v4l2::ColorMatrix color_matrix = v4l2::ColorMatrix::Bt601;
 
     DecodeMode mode = DecodeMode::Rga;
 
