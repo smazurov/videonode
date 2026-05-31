@@ -200,6 +200,11 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+    # morph027/apt-repo-action@v3 still pulls Node 20 JS actions (actions/cache,
+    # robinraju/release-downloader). Force them to Node 24 until the upstream
+    # action bumps them. See github.blog/changelog/2025-09-19-deprecation-of-node-20.
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     concurrency:
       group: pages-deploy
       cancel-in-progress: false
