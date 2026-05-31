@@ -42,7 +42,12 @@ struct CaptureSession {
 
     // MJPEG path:
     std::unique_ptr<jpeg_dec::JpegDec> jpeg;
-    bool using_mpp = false;     // log-only
+    bool using_mpp = false; // log-only
+    // MPP HW decode passes 4:2:2 / 4:4:4 sources through as NV16 / NV24. Those
+    // need a CSC pass to NV12 before broadcast, into this out_ring. Allocated
+    // lazily on the first non-NV12 frame so the common 4:2:0 camera pays
+    // nothing; latched here so it only allocates once per session.
+    bool mpp_csc_ring_ready = false;
     std::vector<void*> in_maps; // V4L2 capture buffer mmaps (JPEG bytes)
     std::vector<size_t> in_map_sizes;
     // TurboJPEG decode writes NV12 directly into the bo: per-slot Y/UV
@@ -57,6 +62,12 @@ uint32_t v4l2_pix_fmt_(const std::string& s);
 
 // Release every fd/mmap held by `s` and reset it to a fresh state.
 void teardown_session_(CaptureSession& s);
+
+// Lazily allocate the NV12 output ring used to CSC non-NV12 MPP frames
+// (NV16/NV24) down to NV12. No-op if already allocated. Returns false if any
+// buffer allocation fails. Depth matches the RGA path (a.buffers + 3).
+[[nodiscard]] bool ensure_mpp_output_ring(CaptureSession& s, const Args& a,
+                                          nv12_buf::Allocator& allocator);
 
 // Outcome of try_open_capture, classified from the open() errno so the
 // reopen loop can map each case to the right health/liveness:

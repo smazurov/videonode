@@ -133,6 +133,7 @@ struct LoopState {
     nativerpc::SourceService& grpc_svc;
     nativerpc::SourceContext& gctx;
     Args& a;
+    nv12_buf::Allocator& allocator; // for lazy MPP-CSC ring allocation (NV16/NV24 sources)
     bool grpc_enabled;
 
     uint64_t real_frame_idx = 0;
@@ -168,6 +169,51 @@ void handle_v4l2_events_(LoopState& st) {
         teardown_session_(st.cap);
         st.need_reinit = true;
     }
+}
+
+// CSC a non-NV12 MPP decode (NV16 4:2:2 / NV24 4:4:4) down to NV12 in place.
+// `decoded` enters describing the padded MPP frame and, on success, is rewritten
+// to point at the NV12 out_ring slot (so the rest of the path is format-agnostic).
+// Split out of handle_dqbuf_ to keep that function under the clang-tidy size cap.
+bool convert_mpp_to_nv12_(LoopState& st, jpeg_dec::DecodedNv12& decoded) {
+    if (!ensure_mpp_output_ring(st.cap, st.a, st.allocator))
+        return false;
+
+    uint32_t ring_idx = st.cap.out_ring_write;
+    nv12_buf::Buffer& dst_buf = st.cap.out_ring[ring_idx];
+
+    csc::ConvertParams src_p, dst_p;
+    src_p.fd = decoded.fd;
+    src_p.fmt = (decoded.pixel_format == jpeg_dec::PixelFormat::Nv24) ? csc::PixelFormat::Nv24
+                                                                      : csc::PixelFormat::Nv16;
+    src_p.width = decoded.width;
+    src_p.height = decoded.height;
+    // The MPP buffer is padded: Y row stride = y_pitch (hor_stride), and the UV
+    // plane starts at uv_offset == y_pitch*ver_stride. RGA derives the UV offset
+    // from wstride*hstride, so hstride must equal ver_stride to find it.
+    src_p.wstride = int(decoded.y_pitch);
+    src_p.hstride = int(decoded.uv_offset / decoded.y_pitch);
+
+    dst_p.fd = dst_buf.y_fd;
+    dst_p.uv_fd = (dst_buf.uv_fd != dst_buf.y_fd) ? dst_buf.uv_fd : -1;
+    dst_p.uv_wstride = int(dst_buf.uv_pitch);
+    dst_p.fmt = csc::PixelFormat::Nv12;
+    dst_p.width = decoded.width;
+    dst_p.height = decoded.height;
+    dst_p.wstride = int(dst_buf.y_pitch);
+    if (!csc::convert(src_p, dst_p))
+        return false;
+
+    st.cap.out_ring_write = (ring_idx + 1) % static_cast<uint32_t>(st.cap.out_ring.size());
+    nv12_buf::stage_for_read(dst_buf);
+    decoded.fd = (dst_buf.staged_y_fd >= 0) ? dst_buf.staged_y_fd : dst_buf.y_fd;
+    decoded.plane1_fd = (dst_buf.staged_uv_fd >= 0) ? dst_buf.staged_uv_fd : dst_buf.uv_fd;
+    decoded.y_pitch = dst_buf.y_pitch;
+    decoded.uv_pitch = dst_buf.uv_pitch;
+    decoded.y_offset = (dst_buf.staged_y_fd >= 0) ? 0 : dst_buf.y_offset;
+    decoded.uv_offset = (dst_buf.staged_uv_fd >= 0) ? 0 : dst_buf.uv_offset;
+    decoded.pixel_format = jpeg_dec::PixelFormat::Nv12; // now genuinely NV12
+    return true;
 }
 
 // Dequeue one frame, CSC/decode it, and broadcast it. Returns true if a
@@ -223,7 +269,14 @@ bool handle_dqbuf_(LoopState& st) {
     } else { // DecodeMode::Mjpeg
         if (df.index < st.cap.in_maps.size() && df.bytesused > 0) {
             const auto* jpeg = static_cast<const uint8_t*>(st.cap.in_maps[df.index]);
-            ok = st.cap.jpeg->decode(std::span<const uint8_t>(jpeg, df.bytesused), decoded);
+            if (st.cap.jpeg->decode(std::span<const uint8_t>(jpeg, df.bytesused), decoded)) {
+                // NV12 broadcasts zero-copy from the MPP pool; NV16/NV24 (4:2:2 /
+                // 4:4:4 sources, e.g. the MACROSILICON dongle) get CSC'd to NV12
+                // first so the wire/sink/snapshot stay NV12-only.
+                ok = (decoded.pixel_format == jpeg_dec::PixelFormat::Nv12)
+                         ? true
+                         : convert_mpp_to_nv12_(st, decoded);
+            }
         }
     }
 
@@ -641,6 +694,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                  .grpc_svc = grpc_svc,
                  .gctx = gctx,
                  .a = a,
+                 .allocator = allocator,
                  .grpc_enabled = grpc_enabled,
                  .need_reinit = !cap.active,
                  .next_broadcast = clock::now(),

@@ -20,6 +20,14 @@
 
 namespace jpeg_dec {
 
+// Chroma subsampling the backend actually decoded into. TurboJPEG always
+// downconverts to Nv12; MPP HW decode passes through the JPEG's native
+// subsampling, so a 4:2:2 / 4:4:4 source surfaces as Nv16 / Nv24 here. The
+// orchestrator runs a CSC pass to NV12 for the non-Nv12 cases before broadcast
+// (the wire/sink/snapshot contract is NV12-only). Kept local to jpeg_dec so the
+// base capture interface stays independent of render/csc.hpp.
+enum class PixelFormat { Nv12, Nv16, Nv24 };
+
 // One decoded NV12 frame. The dma-buf fd is owned by the backend — for
 // MPP it points into the decoder's pool, for TurboJPEG into the caller's
 // out_ring slot. Either way, the fd stays valid until the NEXT decode()
@@ -39,6 +47,10 @@ struct DecodedNv12 {
     // pool / placeholder; no recycle hazard).
     uint32_t slot_index = 0xFFFFFFFFu;
     uint64_t generation = 0;
+    // Subsampling the backend decoded into. Nv16 / Nv24 mean the planes carry
+    // 4:2:2 / 4:4:4 chroma at the geometry described above and must be CSC'd to
+    // NV12 before broadcast; Nv12 frames broadcast zero-copy.
+    PixelFormat pixel_format = PixelFormat::Nv12;
 };
 
 class JpegDec {

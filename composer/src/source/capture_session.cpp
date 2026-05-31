@@ -264,6 +264,20 @@ void teardown_session_(CaptureSession& s) {
     s.src_fmt_name.clear();
     s.mode = DecodeMode::Rga;
     s.using_mpp = false;
+    s.mpp_csc_ring_ready = false;
+}
+
+bool ensure_mpp_output_ring(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator) {
+    if (s.mpp_csc_ring_ready)
+        return true;
+    if (!setup_rga_output_ring_(s, a, allocator))
+        return false;
+    s.out_ring_write = 0;
+    s.mpp_csc_ring_ready = true;
+    vn::log::info("videonode-source: MPP CSC ring allocated (%dx%d, depth=%d) — "
+                  "non-NV12 MJPEG source, converting to NV12",
+                  s.width, s.height, a.buffers + 3);
+    return true;
 }
 
 CaptureOpenStatus try_open_capture(CaptureSession& s, const Args& a, nv12_buf::Allocator& allocator,

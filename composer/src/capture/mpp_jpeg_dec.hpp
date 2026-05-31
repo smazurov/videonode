@@ -77,6 +77,7 @@ class FrameRef {
     int hor_stride() const; // padded stride, may exceed width()
     int ver_stride() const; // padded vert stride, may exceed height()
     int dmabuf_fd() const;  // dma-buf fd of the NV12 backing buffer
+    MppFrameFormat fmt() const; // decoded subsampling (YUV420SP / 422SP / 444SP)
     uint32_t plane0_offset() const { return 0; }
     uint32_t plane0_pitch() const { return hor_stride(); }
     uint32_t plane1_offset() const { return hor_stride() * ver_stride(); } // NV12 UV starts after Y

@@ -98,6 +98,9 @@ int FrameRef::dmabuf_fd() const {
         return -1;
     return mpp_buffer_get_fd(buf);
 }
+MppFrameFormat FrameRef::fmt() const {
+    return frame_ ? mpp_frame_get_fmt(frame_) : MPP_FMT_YUV420SP;
+}
 
 void MppJpegDec::teardown_() {
     pending_.reset(); // release held frame back to buf_group_ before tearing it down
@@ -335,9 +338,27 @@ bool MppJpegDec::decode(std::span<const uint8_t> jpeg, jpeg_dec::DecodedNv12& ou
     out.width = f.width();
     out.height = f.height();
     out.y_pitch = hs;
-    out.uv_pitch = hs;
     out.y_offset = 0;
+    // Y plane is hor_stride*ver_stride bytes for every semi-planar layout, so
+    // the UV offset is the same regardless of subsampling. Only the chroma
+    // pitch and the reported format differ — a 4:2:2 (NV16) / 4:4:4 (NV24)
+    // source must NOT be reported as NV12, or the consumer reads the full-height
+    // chroma plane with half-height geometry (the red-ghosting bug).
     out.uv_offset = hs * vs;
+    switch (f.fmt() & MPP_FRAME_FMT_MASK) {
+    case MPP_FMT_YUV422SP:
+        out.pixel_format = jpeg_dec::PixelFormat::Nv16;
+        out.uv_pitch = hs;
+        break;
+    case MPP_FMT_YUV444SP:
+        out.pixel_format = jpeg_dec::PixelFormat::Nv24;
+        out.uv_pitch = 2 * hs;
+        break;
+    default: // MPP_FMT_YUV420SP
+        out.pixel_format = jpeg_dec::PixelFormat::Nv12;
+        out.uv_pitch = hs;
+        break;
+    }
     // Stash the new frame; this drops the previous one (and returns its
     // buffer to the MPP pool). The fd we just exposed in `out` therefore
     // stays valid until the *next* call.

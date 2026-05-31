@@ -159,6 +159,9 @@ bool TurboJpegDec::decode(std::span<const uint8_t> jpeg, DecodedNv12& out) {
     // Contiguous slot: UV trails Y inside the same bo, at y_pitch*H. Split
     // slot: UV is its own bo, offset 0.
     out.uv_offset = (s.uv_fd == s.y_fd) ? s.y_pitch * static_cast<uint32_t>(height_) : 0;
+    // TurboJPEG always downconverts 4:2:2 → NV12 (see chroma loop above), so the
+    // output is genuinely NV12 regardless of the source subsampling.
+    out.pixel_format = PixelFormat::Nv12;
     return true;
 }
 
