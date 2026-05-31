@@ -195,6 +195,15 @@ func TestRkmppValidator_GetProductionSettings(t *testing.T) {
 			wantErr:        false,
 		},
 		{
+			name:           "BGRA composer canvas (supported directly, no sw convert)",
+			encoderName:    "hevc_rkmpp",
+			inputFormat:    "bgra",
+			wantFilters:    "",
+			wantGlobalArgs: []string{},
+			wantRcMode:     "VBR",
+			wantErr:        false,
+		},
+		{
 			name:           "Unknown format with fallback",
 			encoderName:    "h264_rkmpp",
 			inputFormat:    "some_unknown_format",
