@@ -104,7 +104,11 @@ func (s *Server) EnsureStreamReady(streamID string, timeout time.Duration) *Stre
 
 	if ensure != nil {
 		if err := ensure(streamID); err != nil {
-			s.logger.Warn("EnsureStream hook failed", logging.KeyStreamID, streamID, logging.KeyError, err)
+			if errors.Is(err, ErrStreamNotFound) {
+				s.logger.Debug("Stream not configured", logging.KeyStreamID, streamID)
+			} else {
+				s.logger.Warn("EnsureStream hook failed", logging.KeyStreamID, streamID, logging.KeyError, err)
+			}
 			return nil
 		}
 	}

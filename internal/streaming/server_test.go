@@ -85,6 +85,24 @@ func TestEnsureStreamReady_HookErrorReturnsNil(t *testing.T) {
 	}
 }
 
+func TestEnsureStreamReady_NotConfiguredReturnsNilWithoutPolling(t *testing.T) {
+	s := newTestServer(t)
+	s.SetOnEnsureStream(func(string) error { return ErrStreamNotFound })
+
+	start := time.Now()
+	got := s.EnsureStreamReady("unconfigured", time.Second)
+	elapsed := time.Since(start)
+
+	if got != nil {
+		t.Fatalf("EnsureStreamReady returned %v, want nil for unconfigured stream", got)
+	}
+	// The sentinel short-circuits to a 404 immediately; it must not wait out
+	// the full timeout polling for a producer that will never announce.
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("returned in %v, expected an immediate not-found result", elapsed)
+	}
+}
+
 func TestEnsureStreamReady_TimesOutWhenNotPublished(t *testing.T) {
 	s := newTestServer(t)
 	s.SetOnEnsureStream(func(string) error { return nil })

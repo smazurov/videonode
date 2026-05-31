@@ -307,6 +307,10 @@ func main() {
 			)
 		}
 
+		// Shared v2 entity store; also lets the ensure hook below reject
+		// consumers for streams that aren't configured at all.
+		entityStore, _ := streamStore.(streams.EntityStore)
+
 		// Lazy encoder lifecycle: idle the encoder once the last consumer
 		// disconnects, restart it on the next consumer attach. Mirror
 		// encoder teardown on the entity envelope so the UI's per-stream
@@ -321,6 +325,11 @@ func main() {
 			}
 		})
 		streamingServer.SetOnEnsureStream(func(streamID string) error {
+			if entityStore != nil {
+				if _, ok := entityStore.GetPipelineStream(streamID); !ok {
+					return streaming.ErrStreamNotFound
+				}
+			}
 			if !streamStore.GetPipeline().Enabled {
 				return fmt.Errorf("pipeline is disabled")
 			}
@@ -331,9 +340,6 @@ func main() {
 		if err := streamStore.Load(); err != nil {
 			logger.Warn("Failed to load streams.toml", logging.KeyError, err)
 		}
-
-		// All three v2 services share the same EntityStore + pipeline.
-		entityStore, _ := streamStore.(streams.EntityStore)
 		var (
 			sourceSvc   api.SourceService
 			composerSvc api.ComposerService
