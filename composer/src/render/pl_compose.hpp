@@ -66,6 +66,9 @@ class PlCompose {
 
   private:
     struct Impl;
+    [[nodiscard]] bool init_backend();
+    [[nodiscard]] bool alloc_canvas(int canvas_w, int canvas_h);
+
     gsl::owner<Impl*> impl_ = nullptr;
     int canvas_w_ = 0;
     int canvas_h_ = 0;

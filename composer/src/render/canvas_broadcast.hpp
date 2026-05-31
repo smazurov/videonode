@@ -19,6 +19,14 @@ class ScmRightsProducer;
 
 namespace render {
 
+// The source BGRA canvas dma-buf to convert from.
+struct CanvasSrc {
+    int fd;
+    int width;
+    int height;
+    uint32_t stride;
+};
+
 class CanvasBroadcast {
   public:
     // gbm: null on the rig (dma_heap backend), the csc_placebo gbm device on
@@ -27,8 +35,7 @@ class CanvasBroadcast {
 
     // CSC the BGRA canvas dma-buf into the next ring slot and broadcast it.
     // Fills `snap` with a FrameRef for the written slot (raw fds, no pin).
-    [[nodiscard]] bool convert_and_broadcast(int canvas_fd, int canvas_w, int canvas_h,
-                                             uint32_t canvas_stride,
+    [[nodiscard]] bool convert_and_broadcast(const CanvasSrc& canvas,
                                              scm_rights_producer::ScmRightsProducer& prod,
                                              uint64_t frame_idx, vn::snapshot::FrameRef& snap);
 

@@ -35,6 +35,134 @@ uint64_t normalize_mod(uint64_t mod, bool vulkan) {
     return mod;
 }
 
+// GPU state a single render_slot pass needs, bundled to keep the call narrow.
+struct SlotRenderCtx {
+    pl_gpu gpu;
+    pl_renderer renderer;
+    pl_tex canvas_tex;
+    pl_fmt fmt_r8;
+    pl_fmt fmt_rg8;
+    uint64_t src_mod;
+};
+
+// Import one NV12 source slot's planes and composite it onto the canvas region.
+// On any per-slot failure the slot is skipped (matches the original loop body).
+void render_slot(const SlotRenderCtx& ctx, const SourceSlot& slot) {
+    if (slot.src_y_fd < 0 || slot.src_uv_fd < 0)
+        return;
+    if (slot.src_w <= 0 || slot.src_h <= 0 || slot.w <= 0 || slot.h <= 0)
+        return;
+
+    int src_y_pitch = slot.src_y_pitch > 0 ? slot.src_y_pitch : slot.src_w;
+    int src_uv_pitch = slot.src_uv_pitch > 0 ? slot.src_uv_pitch : slot.src_w;
+
+    // Import source Y — caller owns the dup'd fd; libplacebo does not
+    // close it on pl_tex_destroy.
+    int fd_y = dup(slot.src_y_fd);
+    struct pl_tex_params tp_y = {};
+    tp_y.w = slot.src_w;
+    tp_y.h = slot.src_h;
+    tp_y.format = ctx.fmt_r8;
+    tp_y.sampleable = true;
+    tp_y.import_handle = PL_HANDLE_DMA_BUF;
+    tp_y.shared_mem.handle.fd = fd_y;
+    tp_y.shared_mem.offset = static_cast<size_t>(slot.src_y_offset);
+    tp_y.shared_mem.size = static_cast<size_t>(src_y_pitch) * slot.src_h + slot.src_y_offset;
+    tp_y.shared_mem.drm_format_mod = ctx.src_mod;
+    tp_y.shared_mem.stride_w = src_y_pitch;
+    pl_tex tex_y = pl_tex_create(ctx.gpu, &tp_y);
+    if (!tex_y) {
+        ::close(fd_y);
+        return;
+    }
+
+    // Import source UV
+    int fd_uv = dup(slot.src_uv_fd);
+    struct pl_tex_params tp_uv = {};
+    tp_uv.w = slot.src_w / 2;
+    tp_uv.h = slot.src_h / 2;
+    tp_uv.format = ctx.fmt_rg8;
+    tp_uv.sampleable = true;
+    tp_uv.import_handle = PL_HANDLE_DMA_BUF;
+    tp_uv.shared_mem.handle.fd = fd_uv;
+    tp_uv.shared_mem.offset = static_cast<size_t>(slot.src_uv_offset);
+    tp_uv.shared_mem.size =
+        static_cast<size_t>(src_uv_pitch) * (slot.src_h / 2) + slot.src_uv_offset;
+    tp_uv.shared_mem.drm_format_mod = ctx.src_mod;
+    tp_uv.shared_mem.stride_w = src_uv_pitch;
+    pl_tex tex_uv = pl_tex_create(ctx.gpu, &tp_uv);
+    if (!tex_uv) {
+        pl_tex_destroy(ctx.gpu, &tex_y);
+        ::close(fd_y);
+        ::close(fd_uv);
+        return;
+    }
+
+    // Use pl_renderer to convert NV12 source to the BGRA canvas region.
+    // pl_renderer handles YCbCr→RGB + scaling in one pass.
+    struct pl_frame src_frame = {};
+    src_frame.num_planes = 2;
+    src_frame.planes[0].texture = tex_y;
+    src_frame.planes[0].components = 1;
+    src_frame.planes[0].component_mapping[0] = 0;
+    src_frame.planes[1].texture = tex_uv;
+    src_frame.planes[1].components = 2;
+    src_frame.planes[1].component_mapping[0] = 1;
+    src_frame.planes[1].component_mapping[1] = 2;
+    src_frame.repr.sys = slot.src_bt709 ? PL_COLOR_SYSTEM_BT_709 : PL_COLOR_SYSTEM_BT_601;
+    src_frame.repr.levels = PL_COLOR_LEVELS_LIMITED;
+    src_frame.planes[1].shift_x = -1;
+    src_frame.planes[1].shift_y = -1;
+    pl_frame_set_chroma_location(&src_frame, PL_CHROMA_LEFT);
+
+    // Apply source crop (used by crop aspect-ratio mode)
+    src_frame.crop.x0 = slot.src_crop_x0 * static_cast<float>(slot.src_w);
+    src_frame.crop.y0 = slot.src_crop_y0 * static_cast<float>(slot.src_h);
+    src_frame.crop.x1 = slot.src_crop_x1 * static_cast<float>(slot.src_w);
+    src_frame.crop.y1 = slot.src_crop_y1 * static_cast<float>(slot.src_h);
+
+    switch (slot.rotation) {
+    case 90:
+        src_frame.rotation = PL_ROTATION_90;
+        break;
+    case 180:
+        src_frame.rotation = PL_ROTATION_180;
+        break;
+    case 270:
+        src_frame.rotation = PL_ROTATION_270;
+        break;
+    default:
+        break;
+    }
+
+    struct pl_frame dst_frame = {};
+    dst_frame.num_planes = 1;
+    dst_frame.planes[0].texture = ctx.canvas_tex;
+    dst_frame.planes[0].components = 4;
+    dst_frame.planes[0].component_mapping[0] = 0;
+    dst_frame.planes[0].component_mapping[1] = 1;
+    dst_frame.planes[0].component_mapping[2] = 2;
+    dst_frame.planes[0].component_mapping[3] = 3;
+    dst_frame.repr.sys = PL_COLOR_SYSTEM_RGB;
+    dst_frame.repr.levels = PL_COLOR_LEVELS_FULL;
+    // Crop the destination to the slot's canvas region
+    dst_frame.crop.x0 = static_cast<float>(slot.x);
+    dst_frame.crop.y0 = static_cast<float>(slot.y);
+    dst_frame.crop.x1 = static_cast<float>(slot.x + slot.w);
+    dst_frame.crop.y1 = static_cast<float>(slot.y + slot.h);
+
+    struct pl_render_params params = pl_render_fast_params;
+    params.skip_anti_aliasing = true;
+    params.border = PL_CLEAR_SKIP;
+    // TODO: per-source warp via pl_shader_custom when warp != identity
+    pl_render_image(ctx.renderer, &src_frame, &dst_frame, &params);
+
+    pl_tex_destroy(ctx.gpu, &tex_y);
+    pl_tex_destroy(ctx.gpu, &tex_uv);
+    ::close(fd_y);
+    ::close(fd_uv);
+}
+
 } // namespace
 
 struct PlCompose::Impl {
@@ -88,11 +216,22 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
     if (!impl_->ctx.init(device_path)) {
         vn::log::error("pl_compose: EglCtx::init(%.*s)", int(device_path.size()),
                        device_path.data());
-        delete impl_;
-        impl_ = nullptr;
-        return false;
+    } else if (!init_backend()) {
+        // init_backend logs the specific failure.
+    } else if (!alloc_canvas(canvas_w, canvas_h)) {
+        // alloc_canvas logs the specific failure.
+    } else {
+        vn::log::info("pl_compose: ready %dx%d (stride=%u, ring=%d, clear=%s)", canvas_w, canvas_h,
+                      canvas_stride_, kBufCount, cpu_clear_ ? "cpu" : "gpu");
+        return true;
     }
 
+    delete impl_;
+    impl_ = nullptr;
+    return false;
+}
+
+bool PlCompose::init_backend() {
     struct pl_log_params lp = {};
     lp.log_cb = nullptr;
     lp.log_level = PL_LOG_ERR;
@@ -127,8 +266,6 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
         impl_->gl = pl_opengl_create(impl_->logger, &glp);
         if (!impl_->gl) {
             vn::log::error("pl_compose: both Vulkan and OpenGL backends failed");
-            delete impl_;
-            impl_ = nullptr;
             return false;
         }
         impl_->gpu = impl_->gl->gpu;
@@ -139,19 +276,18 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
     impl_->dispatch = pl_dispatch_create(impl_->logger, impl_->gpu);
     if (!impl_->renderer || !impl_->dispatch) {
         vn::log::error("pl_compose: renderer/dispatch create failed");
-        delete impl_;
-        impl_ = nullptr;
         return false;
     }
+    return true;
+}
 
+bool PlCompose::alloc_canvas(int canvas_w, int canvas_h) {
     // Allocate double-buffered canvas via GBM (ARGB8888).
     pl_fmt fmt_bgra = pl_find_named_fmt(impl_->gpu, "bgra8");
     if (!fmt_bgra)
         fmt_bgra = pl_find_named_fmt(impl_->gpu, "rgba8");
     if (!fmt_bgra) {
         vn::log::error("pl_compose: no rgba8/bgra8 format");
-        delete impl_;
-        impl_ = nullptr;
         return false;
     }
 
@@ -163,8 +299,6 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
                                       GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
         if (!canvas_bo_[i]) {
             vn::log::error("pl_compose: gbm_bo_create canvas[%d] %dx%d", i, canvas_w, canvas_h);
-            delete impl_;
-            impl_ = nullptr;
             return false;
         }
         canvas_fd_[i] = gbm_bo_get_fd(canvas_bo_[i]);
@@ -186,14 +320,9 @@ bool PlCompose::init(std::string_view device_path, int canvas_w, int canvas_h) {
         impl_->canvas_tex[i] = pl_tex_create(impl_->gpu, &tp);
         if (!impl_->canvas_tex[i]) {
             vn::log::error("pl_compose: canvas pl_tex_create[%d] failed", i);
-            delete impl_;
-            impl_ = nullptr;
             return false;
         }
     }
-
-    vn::log::info("pl_compose: ready %dx%d (stride=%u, ring=%d, clear=%s)", canvas_w, canvas_h,
-                  canvas_stride_, kBufCount, cpu_clear_ ? "cpu" : "gpu");
     return true;
 }
 
@@ -222,127 +351,19 @@ bool PlCompose::render(const std::vector<SourceSlot>& slots) {
         pl_tex_clear(impl_->gpu, impl_->canvas_tex[back_], black);
     }
 
-    const uint64_t src_mod = normalize_mod(kModInvalid, impl_->using_vulkan);
     pl_fmt fmt_r8 = pl_find_named_fmt(impl_->gpu, "r8");
     pl_fmt fmt_rg8 = pl_find_named_fmt(impl_->gpu, "rg8");
     if (!fmt_r8 || !fmt_rg8)
         return false;
 
-    for (const auto& slot : slots) {
-        if (slot.src_y_fd < 0 || slot.src_uv_fd < 0)
-            continue;
-        if (slot.src_w <= 0 || slot.src_h <= 0 || slot.w <= 0 || slot.h <= 0)
-            continue;
-
-        int src_y_pitch = slot.src_y_pitch > 0 ? slot.src_y_pitch : slot.src_w;
-        int src_uv_pitch = slot.src_uv_pitch > 0 ? slot.src_uv_pitch : slot.src_w;
-
-        // Import source Y — caller owns the dup'd fd; libplacebo does not
-        // close it on pl_tex_destroy.
-        int fd_y = dup(slot.src_y_fd);
-        struct pl_tex_params tp_y = {};
-        tp_y.w = slot.src_w;
-        tp_y.h = slot.src_h;
-        tp_y.format = fmt_r8;
-        tp_y.sampleable = true;
-        tp_y.import_handle = PL_HANDLE_DMA_BUF;
-        tp_y.shared_mem.handle.fd = fd_y;
-        tp_y.shared_mem.offset = static_cast<size_t>(slot.src_y_offset);
-        tp_y.shared_mem.size = static_cast<size_t>(src_y_pitch) * slot.src_h + slot.src_y_offset;
-        tp_y.shared_mem.drm_format_mod = src_mod;
-        tp_y.shared_mem.stride_w = src_y_pitch;
-        pl_tex tex_y = pl_tex_create(impl_->gpu, &tp_y);
-        if (!tex_y) {
-            ::close(fd_y);
-            continue;
-        }
-
-        // Import source UV
-        int fd_uv = dup(slot.src_uv_fd);
-        struct pl_tex_params tp_uv = {};
-        tp_uv.w = slot.src_w / 2;
-        tp_uv.h = slot.src_h / 2;
-        tp_uv.format = fmt_rg8;
-        tp_uv.sampleable = true;
-        tp_uv.import_handle = PL_HANDLE_DMA_BUF;
-        tp_uv.shared_mem.handle.fd = fd_uv;
-        tp_uv.shared_mem.offset = static_cast<size_t>(slot.src_uv_offset);
-        tp_uv.shared_mem.size =
-            static_cast<size_t>(src_uv_pitch) * (slot.src_h / 2) + slot.src_uv_offset;
-        tp_uv.shared_mem.drm_format_mod = src_mod;
-        tp_uv.shared_mem.stride_w = src_uv_pitch;
-        pl_tex tex_uv = pl_tex_create(impl_->gpu, &tp_uv);
-        if (!tex_uv) {
-            pl_tex_destroy(impl_->gpu, &tex_y);
-            ::close(fd_y);
-            ::close(fd_uv);
-            continue;
-        }
-
-        // Use pl_renderer to convert NV12 source to the BGRA canvas region.
-        // pl_renderer handles YCbCr→RGB + scaling in one pass.
-        struct pl_frame src_frame = {};
-        src_frame.num_planes = 2;
-        src_frame.planes[0].texture = tex_y;
-        src_frame.planes[0].components = 1;
-        src_frame.planes[0].component_mapping[0] = 0;
-        src_frame.planes[1].texture = tex_uv;
-        src_frame.planes[1].components = 2;
-        src_frame.planes[1].component_mapping[0] = 1;
-        src_frame.planes[1].component_mapping[1] = 2;
-        src_frame.repr.sys = slot.src_bt709 ? PL_COLOR_SYSTEM_BT_709 : PL_COLOR_SYSTEM_BT_601;
-        src_frame.repr.levels = PL_COLOR_LEVELS_LIMITED;
-        src_frame.planes[1].shift_x = -1;
-        src_frame.planes[1].shift_y = -1;
-        pl_frame_set_chroma_location(&src_frame, PL_CHROMA_LEFT);
-
-        // Apply source crop (used by crop aspect-ratio mode)
-        src_frame.crop.x0 = slot.src_crop_x0 * static_cast<float>(slot.src_w);
-        src_frame.crop.y0 = slot.src_crop_y0 * static_cast<float>(slot.src_h);
-        src_frame.crop.x1 = slot.src_crop_x1 * static_cast<float>(slot.src_w);
-        src_frame.crop.y1 = slot.src_crop_y1 * static_cast<float>(slot.src_h);
-
-        switch (slot.rotation) {
-        case 90:
-            src_frame.rotation = PL_ROTATION_90;
-            break;
-        case 180:
-            src_frame.rotation = PL_ROTATION_180;
-            break;
-        case 270:
-            src_frame.rotation = PL_ROTATION_270;
-            break;
-        default:
-            break;
-        }
-
-        struct pl_frame dst_frame = {};
-        dst_frame.num_planes = 1;
-        dst_frame.planes[0].texture = impl_->canvas_tex[back_];
-        dst_frame.planes[0].components = 4;
-        dst_frame.planes[0].component_mapping[0] = 0;
-        dst_frame.planes[0].component_mapping[1] = 1;
-        dst_frame.planes[0].component_mapping[2] = 2;
-        dst_frame.planes[0].component_mapping[3] = 3;
-        dst_frame.repr.sys = PL_COLOR_SYSTEM_RGB;
-        dst_frame.repr.levels = PL_COLOR_LEVELS_FULL;
-        // Crop the destination to the slot's canvas region
-        dst_frame.crop.x0 = static_cast<float>(slot.x);
-        dst_frame.crop.y0 = static_cast<float>(slot.y);
-        dst_frame.crop.x1 = static_cast<float>(slot.x + slot.w);
-        dst_frame.crop.y1 = static_cast<float>(slot.y + slot.h);
-
-        struct pl_render_params params = pl_render_fast_params;
-        params.skip_anti_aliasing = true;
-        params.border = PL_CLEAR_SKIP;
-        // TODO: per-source warp via pl_shader_custom when warp != identity
-        pl_render_image(impl_->renderer, &src_frame, &dst_frame, &params);
-
-        pl_tex_destroy(impl_->gpu, &tex_y);
-        pl_tex_destroy(impl_->gpu, &tex_uv);
-        ::close(fd_y);
-        ::close(fd_uv);
-    }
+    const SlotRenderCtx ctx{.gpu = impl_->gpu,
+                            .renderer = impl_->renderer,
+                            .canvas_tex = impl_->canvas_tex[back_],
+                            .fmt_r8 = fmt_r8,
+                            .fmt_rg8 = fmt_rg8,
+                            .src_mod = normalize_mod(kModInvalid, impl_->using_vulkan)};
+    for (const auto& slot : slots)
+        render_slot(ctx, slot);
 
     return true;
 }

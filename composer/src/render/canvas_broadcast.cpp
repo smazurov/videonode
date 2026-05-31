@@ -64,8 +64,7 @@ bool CanvasBroadcast::init(gbm_device* gbm, int out_w, int out_h) {
     return true;
 }
 
-bool CanvasBroadcast::convert_and_broadcast(int canvas_fd, int canvas_w, int canvas_h,
-                                            uint32_t canvas_stride,
+bool CanvasBroadcast::convert_and_broadcast(const CanvasSrc& canvas,
                                             scm_rights_producer::ScmRightsProducer& prod,
                                             uint64_t frame_idx, vn::snapshot::FrameRef& snap) {
     if (ring_.empty())
@@ -74,11 +73,11 @@ bool CanvasBroadcast::convert_and_broadcast(int canvas_fd, int canvas_w, int can
     write_idx_ = (write_idx_ + 1) % static_cast<uint32_t>(ring_.size());
 
     csc::ConvertParams src;
-    src.fd = canvas_fd;
+    src.fd = canvas.fd;
     src.fmt = csc::PixelFormat::Bgra;
-    src.width = canvas_w;
-    src.height = canvas_h;
-    src.wstride = static_cast<int>(canvas_stride);
+    src.width = canvas.width;
+    src.height = canvas.height;
+    src.wstride = static_cast<int>(canvas.stride);
 
     csc::ConvertParams dst;
     dst.fd = b.y_fd;

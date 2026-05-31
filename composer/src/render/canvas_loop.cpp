@@ -246,9 +246,11 @@ void prune_consumers_(scm_rights_producer::ScmRightsProducer& scm_out, int& prev
 bool render_scm_frame_(ComposeState& cs, scm_rights_producer::ScmRightsProducer& scm_out,
                        uint64_t broadcast_frame_idx, nativerpc::ComposerService* composer_svc) {
     vn::snapshot::FrameRef snap;
-    if (!cs.bcast.convert_and_broadcast(cs.compose->canvas_dmabuf_fd(), cs.w, cs.h,
-                                        cs.compose->canvas_stride(), scm_out, broadcast_frame_idx,
-                                        snap))
+    if (!cs.bcast.convert_and_broadcast({.fd = cs.compose->canvas_dmabuf_fd(),
+                                         .width = cs.w,
+                                         .height = cs.h,
+                                         .stride = cs.compose->canvas_stride()},
+                                        scm_out, broadcast_frame_idx, snap))
         return false;
     if (composer_svc)
         composer_svc->UpdateLatestCanvas(snap);
@@ -442,6 +444,35 @@ bool complete_frame_(LoopState& ls, nativerpc::ComposerService* composer_svc) {
     return ok;
 }
 
+bool process_render_iteration_(LoopState& ls, const Snapshot& snap,
+                               std::map<std::string, LiveSource>& live_sources,
+                               const CanvasLoopConfig& cfg) {
+    int fps = snap.canvas_fps ? int(snap.canvas_fps) : cfg.target_fps;
+    if (!should_render_(ls, cfg.composer_svc)) {
+        idle_tick_(ls, cfg.stats, fps);
+        return true;
+    }
+
+    if (!snap.ready) {
+        if (!handle_not_ready_(ls, snap, cfg.target_fps, cfg.stats, cfg.composer_svc)) {
+            if (ls.scm_out)
+                ls.loop_error = true;
+            return false;
+        }
+        return true;
+    }
+
+    reconcile_sources_(live_sources, snap.slots);
+
+    if (!submit_frame_(ls, snap, live_sources)) {
+        ls.loop_error = true;
+        return false;
+    }
+    count_frame_(ls, cfg.stats);
+    post_render_tick_(ls, cfg.stats, fps);
+    return true;
+}
+
 } // namespace
 
 int RunCanvasLoop(CanvasLoopConfig cfg) {
@@ -480,31 +511,10 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
                 continue;
         }
 
-        int fps = snap.canvas_fps ? int(snap.canvas_fps) : cfg.target_fps;
-        if (!should_render_(ls, cfg.composer_svc)) {
-            idle_tick_(ls, cfg.stats, fps);
-            continue;
-        }
-
-        if (!snap.ready) {
-            if (!handle_not_ready_(ls, snap, cfg.target_fps, cfg.stats, cfg.composer_svc)) {
-                if (ls.scm_out)
-                    ls.loop_error = true;
-                cfg.running.store(false);
-                break;
-            }
-            continue;
-        }
-
-        reconcile_sources_(live_sources, snap.slots);
-
-        if (!submit_frame_(ls, snap, live_sources)) {
-            ls.loop_error = true;
+        if (!process_render_iteration_(ls, snap, live_sources, cfg)) {
             cfg.running.store(false);
             break;
         }
-        count_frame_(ls, cfg.stats);
-        post_render_tick_(ls, cfg.stats, fps);
     }
 
     // Flush any in-flight GPU work before shutdown.

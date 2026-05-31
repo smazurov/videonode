@@ -512,6 +512,71 @@ void shutdown_(LoopState& st, nativerpc::GrpcServer& grpc_srv, PlaceholderRing& 
     ph.destroy();
 }
 
+// Attempt to open capture at startup if device is configured.
+void try_initial_capture_(CaptureSession& cap, source_probe::SourceProbe& probe, const Args& a,
+                          nv12_buf::Allocator& allocator, auto& publish_active_format) {
+    if (!a.device.empty()) {
+        if (try_open_capture(cap, a, allocator) == CaptureOpenStatus::Ok) {
+            probe.attach();
+            publish_active_format(a);
+        } else {
+            vn::log::warn("videonode-source: capture not ready at startup");
+        }
+    }
+}
+
+// Main event loop: process frames, poll for events, handle state transitions.
+void main_loop_(std::atomic<bool>& running, LoopState& st, nv12_buf::Allocator& allocator,
+                auto& publish_active_format, auto& clear_active_format) {
+    using clock = std::chrono::steady_clock;
+    auto loop_start = clock::now();
+
+    while (running.load()) {
+        if (st.a.run_seconds > 0 &&
+            clock::now() - loop_start > std::chrono::seconds(st.a.run_seconds))
+            break;
+
+        (void)st.prod.prune_dead_consumers();
+
+        handle_format_change_(st, allocator, publish_active_format, clear_active_format);
+        maybe_reinit_capture_(st, allocator, publish_active_format);
+        poll_and_dispatch_(st);
+
+        if (clock::now() >= st.next_power_poll) {
+            st.probe.refresh_power_present();
+            st.next_power_poll = clock::now() + std::chrono::seconds(1);
+        }
+
+        source_probe::Health h = st.probe.health();
+        bool health_changed = (h != st.prev_health);
+        if (health_changed) {
+            vn::log::info_s("videonode-source: state change",
+                            {vn::key::state, source_probe::status_text(h)});
+            st.prev_health = h;
+        }
+
+        maybe_publish_status_(st, h, health_changed, st.ph.tick_idx);
+
+        if (clock::now() < st.next_broadcast)
+            continue;
+
+        if (h == source_probe::Health::Live) {
+            st.next_broadcast += st.broadcast_period;
+            // Catch up if we've fallen behind (e.g. real frames stalled while
+            // health still reads Live) so the deadline never sits in the past,
+            // which would collapse the poll timeout to 0 and busy-spin.
+            if (st.next_broadcast < clock::now())
+                st.next_broadcast = clock::now() + st.broadcast_period;
+            continue;
+        }
+
+        broadcast_tick_(st, h);
+        st.next_broadcast += st.broadcast_period;
+        if (st.next_broadcast < clock::now())
+            st.next_broadcast = clock::now() + st.broadcast_period;
+    }
+}
+
 } // namespace
 
 int Run(const Args& a_in, std::atomic<bool>& running) {
@@ -558,14 +623,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
         active_format.reset();
     };
 
-    if (!a.device.empty()) {
-        if (try_open_capture(cap, a, allocator) == CaptureOpenStatus::Ok) {
-            probe.attach();
-            publish_active_format(a);
-        } else {
-            vn::log::warn("videonode-source: capture not ready at startup");
-        }
-    }
+    try_initial_capture_(cap, probe, a, allocator, publish_active_format);
 
     nativerpc::SourceService grpc_svc(&gctx);
     nativerpc::GrpcServer grpc_srv;
@@ -575,7 +633,6 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     using clock = std::chrono::steady_clock;
     const auto broadcast_period =
         std::chrono::nanoseconds(1'000'000'000LL / std::max(1, a.placeholder_broadcast_fps));
-    auto loop_start = clock::now();
 
     LoopState st{.ph = ph,
                  .prod = prod,
@@ -592,49 +649,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
                  .next_reinit_attempt = clock::now(),
                  .broadcast_period = broadcast_period};
 
-    while (running.load()) {
-        if (a.run_seconds > 0 && clock::now() - loop_start > std::chrono::seconds(a.run_seconds))
-            break;
-
-        (void)prod.prune_dead_consumers();
-
-        handle_format_change_(st, allocator, publish_active_format, clear_active_format);
-        maybe_reinit_capture_(st, allocator, publish_active_format);
-        poll_and_dispatch_(st);
-
-        if (clock::now() >= st.next_power_poll) {
-            probe.refresh_power_present();
-            st.next_power_poll = clock::now() + std::chrono::seconds(1);
-        }
-
-        source_probe::Health h = probe.health();
-        bool health_changed = (h != st.prev_health);
-        if (health_changed) {
-            vn::log::info_s("videonode-source: state change",
-                            {vn::key::state, source_probe::status_text(h)});
-            st.prev_health = h;
-        }
-
-        maybe_publish_status_(st, h, health_changed, ph.tick_idx);
-
-        if (clock::now() < st.next_broadcast)
-            continue;
-
-        if (h == source_probe::Health::Live) {
-            st.next_broadcast += broadcast_period;
-            // Catch up if we've fallen behind (e.g. real frames stalled while
-            // health still reads Live) so the deadline never sits in the past,
-            // which would collapse the poll timeout to 0 and busy-spin.
-            if (st.next_broadcast < clock::now())
-                st.next_broadcast = clock::now() + broadcast_period;
-            continue;
-        }
-
-        broadcast_tick_(st, h);
-        st.next_broadcast += broadcast_period;
-        if (st.next_broadcast < clock::now())
-            st.next_broadcast = clock::now() + broadcast_period;
-    }
+    main_loop_(running, st, allocator, publish_active_format, clear_active_format);
 
     shutdown_(st, grpc_srv, ph);
     return 0;

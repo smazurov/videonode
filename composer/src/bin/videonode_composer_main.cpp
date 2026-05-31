@@ -59,6 +59,52 @@ std::atomic<bool> g_running{true};
 // EX_UNAVAILABLE). Operator signal / future hook; the daemon doesn't branch yet.
 constexpr int kExitGpuUnavailable = 78;
 
+[[nodiscard]] static bool check_gpu_available(const std::string& drm_device) {
+    auto probe = [](const char* n) {
+        egl_ctx::EglCtx c;
+        return c.init(n);
+    };
+    bool gpu_ok = !drm_device.empty() && probe(drm_device.c_str());
+    if (!gpu_ok) {
+        for (const char* cand : render::kDrmRenderCandidates) {
+            if (drm_device == cand)
+                continue;
+            if (probe(cand)) {
+                gpu_ok = true;
+                break;
+            }
+        }
+    }
+    return gpu_ok;
+}
+
+static void setup_grpc_service(const std::string& grpc_listen, const std::string& composer_id,
+                               render::World& world, render::RenderStats& render_stats,
+                               nativerpc::GrpcServer& grpc_srv,
+                               std::unique_ptr<nativerpc::ComposerService>& grpc_svc) {
+    if (!grpc_listen.empty() && !composer_id.empty()) {
+        nativerpc::ComposerContext gctx;
+        gctx.world = &world;
+        gctx.running = &g_running;
+        gctx.stats = &render_stats;
+        gctx.composer_id = composer_id;
+        gctx.version = vn::kVersion;
+        grpc_svc = std::make_unique<nativerpc::ComposerService>(std::move(gctx));
+        std::vector<grpc::Service*> services = {grpc_svc.get()};
+        if (!grpc_srv.Start(grpc_listen, services)) {
+            vn::log::fatal("videonode-composer: gRPC server failed to start on %s",
+                           grpc_listen.c_str());
+            std::exit(1);
+        }
+        vn::log::info("videonode-composer: grpc server listening on %s id=%s", grpc_listen.c_str(),
+                      composer_id.c_str());
+    } else {
+        vn::log::warn("videonode-composer: control plane disabled "
+                      "(missing --grpc-listen / --composer-id) — "
+                      "composer will render black until SIGINT");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -97,29 +143,10 @@ int main(int argc, char** argv) {
 
     vn::signal::install_shutdown(g_running);
 
-    // Startup GPU gate: a render-node-absent host must exit non-retryable even
-    // if no canvas ever arrives. Scoped so the probe EglCtx is destroyed first.
-    {
-        auto probe = [&](const char* n) {
-            egl_ctx::EglCtx c;
-            return c.init(n);
-        };
-        bool gpu_ok = !drm_device.empty() && probe(drm_device.c_str());
-        if (!gpu_ok) {
-            for (const char* cand : render::kDrmRenderCandidates) {
-                if (drm_device == cand)
-                    continue;
-                if (probe(cand)) {
-                    gpu_ok = true;
-                    break;
-                }
-            }
-        }
-        if (!gpu_ok) {
-            vn::log::fatal("videonode-composer: no usable GPU render node; "
-                           "exiting non-retryable");
-            return kExitGpuUnavailable;
-        }
+    if (!check_gpu_available(drm_device)) {
+        vn::log::fatal("videonode-composer: no usable GPU render node; "
+                       "exiting non-retryable");
+        return kExitGpuUnavailable;
     }
 
     render::World world;
@@ -127,27 +154,7 @@ int main(int argc, char** argv) {
 
     nativerpc::GrpcServer grpc_srv;
     std::unique_ptr<nativerpc::ComposerService> grpc_svc;
-    if (!grpc_listen.empty() && !composer_id.empty()) {
-        nativerpc::ComposerContext gctx;
-        gctx.world = &world;
-        gctx.running = &g_running;
-        gctx.stats = &render_stats;
-        gctx.composer_id = composer_id;
-        gctx.version = vn::kVersion;
-        grpc_svc = std::make_unique<nativerpc::ComposerService>(std::move(gctx));
-        std::vector<grpc::Service*> services = {grpc_svc.get()};
-        if (!grpc_srv.Start(grpc_listen, services)) {
-            vn::log::fatal("videonode-composer: gRPC server failed to start on %s",
-                           grpc_listen.c_str());
-            return 1;
-        }
-        vn::log::info("videonode-composer: grpc server listening on %s id=%s", grpc_listen.c_str(),
-                      composer_id.c_str());
-    } else {
-        vn::log::warn("videonode-composer: control plane disabled "
-                      "(missing --grpc-listen / --composer-id) — "
-                      "composer will render black until SIGINT");
-    }
+    setup_grpc_service(grpc_listen, composer_id, world, render_stats, grpc_srv, grpc_svc);
 
     // Seed pre-ready canvas dims so the first frame matches the encoder's
     // fixed `-s WxH` input; the daemon's SetCanvas can override later.
