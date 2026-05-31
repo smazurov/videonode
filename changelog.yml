@@ -1,3 +1,24 @@
+- semver: 4.0.0-rc11
+  date: 2026-05-31T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 8ed71b8
+      note: "composer pipeline goes NV12 end-to-end: GPU NV12 canvas output, NV12 composer inputs, an NV12-only sink carrier, and snapshots that read the staged NV12 fds, with colorimetry/VUI tags carried through"
+    - commit: 7746e7b
+      note: "zero-copy canvas broadcast gated on per-consumer read completion, plus a GPU canvas clear and depth-4 ring, cutting per-frame CPU on the compositor"
+    - commit: 4057bcb
+      note: "UI surfaces the detected source colorimetry, and the stream audio config now lays out on a single line"
+    - commit: 9069dd2
+      note: "composer config exports to and imports from TOML — copy-paste in the browser or a .toml file, including overwriting an existing composer in place"
+    - commit: ba2024f
+      note: "pipeline start is best-effort so one failing stage no longer blocks the rest; the composer also clears a stuck snapshot request on RPC timeout"
+    - commit: 2403997
+      note: "journald logging de-noised: dedup is keyed on the full record rather than message text, and the packaged service no longer double-logs to the journal"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc10
   date: 2026-05-31T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
