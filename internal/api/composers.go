@@ -21,6 +21,9 @@ type ComposerService interface {
 	DeleteComposer(ctx context.Context, id string) error
 	ReplaceLayout(ctx context.Context, id string, layout []models.LayoutSlotData) (*models.ComposerData, error)
 	SetInputEffect(ctx context.Context, id, ref string, effect *models.EffectData) (*models.ComposerData, error)
+	ExportComposer(ctx context.Context, id string) ([]byte, error)
+	ImportComposer(ctx context.Context, data []byte) (composer *models.ComposerData, created bool, err error)
+	ImportComposerInto(ctx context.Context, id string, data []byte) (*models.ComposerData, error)
 }
 
 // ComposerErrorCode tags ComposerError values so the API layer can map them
@@ -246,6 +249,78 @@ func (s *Server) registerComposerRoutes() {
 			effect = &v
 		}
 		c, err := svc.SetInputEffect(ctx, input.ID, input.Ref, effect)
+		if err != nil {
+			return nil, mapComposerError(err)
+		}
+		if s.composerEntity != nil {
+			s.composerEntity.PublishUpdated(*c)
+		}
+		return &models.ComposerResponse{Body: *c}, nil
+	})
+
+	huma.Register(s.api, huma.Operation{
+		OperationID: "export-composer",
+		Method:      http.MethodGet,
+		Path:        "/api/composers/{id}/export",
+		Summary:     "Export Composer as TOML",
+		Description: "Download a composer's full configuration as a standalone TOML document.",
+		Tags:        []string{"composers"},
+		Errors:      []int{401, 404, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *struct {
+		ID string `path:"id" example:"main-scene" doc:"Composer identifier"`
+	},
+	) (*models.ComposerExportResponse, error) {
+		data, err := svc.ExportComposer(ctx, input.ID)
+		if err != nil {
+			return nil, mapComposerError(err)
+		}
+		return &models.ComposerExportResponse{
+			ContentType:        "application/toml",
+			ContentDisposition: fmt.Sprintf("attachment; filename=%q", input.ID+".toml"),
+			Body:               data,
+		}, nil
+	})
+
+	huma.Register(s.api, huma.Operation{
+		OperationID: "import-composer",
+		Method:      http.MethodPost,
+		Path:        "/api/composers/import",
+		Summary:     "Import Composer from TOML",
+		Description: "Create or overwrite a composer from a TOML document. Upserts by the id in the document.",
+		Tags:        []string{"composers"},
+		Errors:      []int{400, 401, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *models.ComposerImportRequest) (*models.ComposerResponse, error) {
+		c, created, err := svc.ImportComposer(ctx, input.RawBody)
+		if err != nil {
+			return nil, mapComposerError(err)
+		}
+		if s.composerEntity != nil {
+			if created {
+				s.composerEntity.PublishCreated(*c)
+			} else {
+				s.composerEntity.PublishUpdated(*c)
+			}
+		}
+		return &models.ComposerResponse{Body: *c}, nil
+	})
+
+	huma.Register(s.api, huma.Operation{
+		OperationID: "import-composer-into",
+		Method:      http.MethodPost,
+		Path:        "/api/composers/{id}/import",
+		Summary:     "Import TOML into an existing Composer",
+		Description: "Overwrite an existing composer from a TOML document. The document's id is ignored — the config is applied to the composer named in the path.",
+		Tags:        []string{"composers"},
+		Errors:      []int{400, 401, 404, 500},
+		Security:    withAuth(),
+	}, func(ctx context.Context, input *struct {
+		ID      string `path:"id" example:"main-scene" doc:"Composer identifier"`
+		RawBody []byte `contentType:"application/toml"`
+	},
+	) (*models.ComposerResponse, error) {
+		c, err := svc.ImportComposerInto(ctx, input.ID, input.RawBody)
 		if err != nil {
 			return nil, mapComposerError(err)
 		}
