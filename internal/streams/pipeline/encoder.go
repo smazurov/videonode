@@ -120,35 +120,34 @@ func ProgressSocketPathFor(streamID string) string {
 	return filepath.Join(NativeUdsDir, "progress-"+sanitizeForFilename(streamID)+".sock")
 }
 
-// pipeInputFor maps a FrameSource to the ffmpeg.PipeInput shape:
-// NV12-Y4M is self-describing; BGRA-raw needs explicit dims + framerate.
+// colorTagsFor maps a detected YCbCr matrix to ffmpeg VUI flags. Unknown
+// ("") yields no tags (ffmpeg defaults). Range is always limited (tv).
+func colorTagsFor(matrix string) ffmpeg.ColorTags {
+	switch matrix {
+	case "bt709":
+		return ffmpeg.ColorTags{Space: "bt709", Primaries: "bt709", TRC: "bt709", Range: "tv"}
+	case "bt601":
+		return ffmpeg.ColorTags{Space: "smpte170m", Primaries: "smpte170m", TRC: "smpte170m", Range: "tv"}
+	default:
+		return ffmpeg.ColorTags{}
+	}
+}
+
+// pipeInputFor maps a FrameSource to the ffmpeg.PipeInput shape. Sources and
+// composers both emit raw NV12; the colorimetry tag distinguishes them.
 func pipeInputFor(fs FrameSource) *ffmpeg.PipeInput {
 	w, h := fs.Dims()
-	switch fs.Kind() {
-	case FrameKindNV12Raw:
-		return &ffmpeg.PipeInput{
-			Format:      "rawvideo",
-			PixelFormat: "nv12",
-			Width:       w,
-			Height:      h,
-			FPS:         fs.FPS(),
-		}
-	case FrameKindBGRARaw:
-		return &ffmpeg.PipeInput{
-			Format:      "rawvideo",
-			PixelFormat: "bgra",
-			Width:       w,
-			Height:      h,
-			FPS:         fs.FPS(),
-		}
-	default:
-		return &ffmpeg.PipeInput{
-			Format:      "rawvideo",
-			PixelFormat: "nv12",
-			Width:       w,
-			Height:      h,
-			FPS:         fs.FPS(),
-		}
+	pixfmt := "nv12"
+	if fs.Kind() == FrameKindBGRARaw {
+		pixfmt = "bgra"
+	}
+	return &ffmpeg.PipeInput{
+		Format:      "rawvideo",
+		PixelFormat: pixfmt,
+		Width:       w,
+		Height:      h,
+		FPS:         fs.FPS(),
+		Color:       colorTagsFor(fs.Colorimetry()),
 	}
 }
 

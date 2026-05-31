@@ -233,7 +233,9 @@ type FormatInfo struct {
 	Fps     uint32                 `protobuf:"varint,4,opt,name=fps,proto3" json:"fps,omitempty"`
 	Buffers uint32                 `protobuf:"varint,5,opt,name=buffers,proto3" json:"buffers,omitempty"`
 	// "rga" | "mjpeg-mpp" | "mjpeg-turbojpeg"
-	Mode          string `protobuf:"bytes,6,opt,name=mode,proto3" json:"mode,omitempty"`
+	Mode string `protobuf:"bytes,6,opt,name=mode,proto3" json:"mode,omitempty"`
+	// Detected YCbCr matrix: "bt601" | "bt709".
+	ColorMatrix   string `protobuf:"bytes,7,opt,name=color_matrix,json=colorMatrix,proto3" json:"color_matrix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -306,6 +308,13 @@ func (x *FormatInfo) GetBuffers() uint32 {
 func (x *FormatInfo) GetMode() string {
 	if x != nil {
 		return x.Mode
+	}
+	return ""
+}
+
+func (x *FormatInfo) GetColorMatrix() string {
+	if x != nil {
+		return x.ColorMatrix
 	}
 	return ""
 }
@@ -511,7 +520,8 @@ type Status struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	DeviceId string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	TsMs     int64                  `protobuf:"varint,2,opt,name=ts_ms,json=tsMs,proto3" json:"ts_ms,omitempty"`
-	// "live" | "transitioning" | "noCable" | "noLock" | "gone" | "probing"
+	// Source liveness token (videonode-source/source_probe::health_token):
+	// "live" | "transitioning" | "no_cable" | "no_signal" | "initializing" | "offline"
 	Health        string         `protobuf:"bytes,3,opt,name=health,proto3" json:"health,omitempty"`
 	Device        *DeviceInfo    `protobuf:"bytes,4,opt,name=device,proto3" json:"device,omitempty"`
 	Signal        *SignalInfo    `protobuf:"bytes,5,opt,name=signal,proto3" json:"signal,omitempty"`
@@ -630,7 +640,7 @@ const file_control_common_proto_rawDesc = "" +
 	"\rcable_present\x18\x02 \x01(\bR\fcablePresent\x12#\n" +
 	"\rsignal_locked\x18\x03 \x01(\bR\fsignalLocked\x12\x1d\n" +
 	"\n" +
-	"dv_timings\x18\x04 \x01(\tR\tdvTimings\"\x80\x01\n" +
+	"dv_timings\x18\x04 \x01(\tR\tdvTimings\"\xa3\x01\n" +
 	"\n" +
 	"FormatInfo\x12\x16\n" +
 	"\x06fourcc\x18\x01 \x01(\tR\x06fourcc\x12\f\n" +
@@ -638,7 +648,8 @@ const file_control_common_proto_rawDesc = "" +
 	"\x01h\x18\x03 \x01(\rR\x01h\x12\x10\n" +
 	"\x03fps\x18\x04 \x01(\rR\x03fps\x12\x18\n" +
 	"\abuffers\x18\x05 \x01(\rR\abuffers\x12\x12\n" +
-	"\x04mode\x18\x06 \x01(\tR\x04mode\"\x99\x01\n" +
+	"\x04mode\x18\x06 \x01(\tR\x04mode\x12!\n" +
+	"\fcolor_matrix\x18\a \x01(\tR\vcolorMatrix\"\x99\x01\n" +
 	"\rBroadcastInfo\x12\x1d\n" +
 	"\n" +
 	"target_fps\x18\x01 \x01(\rR\ttargetFps\x12\x1f\n" +

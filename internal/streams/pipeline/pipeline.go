@@ -889,6 +889,17 @@ func (p *Pipeline) resolveUpstream(upstream string) (FrameSource, error) {
 		if pfs.Fps == 0 {
 			pfs.Fps = 30
 		}
+		// Prefer the source's detected matrix; until the first status frame
+		// arrives, fall back to the SD/HD convention (height >= 720 → 709).
+		pfs.ColorMatrix = "bt601"
+		if pfs.Height >= 720 {
+			pfs.ColorMatrix = "bt709"
+		}
+		if p.cfg.ControlServer != nil {
+			if matrix, haveMatrix := p.cfg.ControlServer.SourceColorMatrix(id); haveMatrix {
+				pfs.ColorMatrix = matrix
+			}
+		}
 		return pfs, nil
 	case "composer":
 		c, found := p.composers.Get(id)
@@ -1065,7 +1076,7 @@ func (p *Pipeline) SnapshotSource(ctx context.Context, sourceID string) (snapsho
 }
 
 // SnapshotComposer dials the composer's gRPC Snapshot RPC and returns
-// the raw BGRA canvas frame + metadata.
+// the raw NV12 canvas frame + metadata (symmetric with SnapshotSource).
 func (p *Pipeline) SnapshotComposer(ctx context.Context, composerID string) (snapshots.Frame, error) {
 	if p.cfg.ControlServer == nil {
 		return snapshots.Frame{}, fmt.Errorf("no control server for snapshot")
@@ -1075,8 +1086,8 @@ func (p *Pipeline) SnapshotComposer(ctx context.Context, composerID string) (sna
 		return snapshots.Frame{}, err
 	}
 	return snapshots.Frame{
-		Bytes:      resp.GetBgra(),
-		Format:     snapshots.FormatBGRA,
+		Bytes:      resp.GetNv12(),
+		Format:     snapshots.FormatNV12,
 		Width:      int(resp.GetWidth()),
 		Height:     int(resp.GetHeight()),
 		FrameIdx:   resp.GetFrameIdx(),

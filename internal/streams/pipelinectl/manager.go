@@ -99,6 +99,11 @@ type nativeConn struct {
 	// recent status frame, cached so REST reads can seed the count
 	// synchronously (consumers ride a change-driven SSE event otherwise).
 	lastConsumerCount int
+
+	// lastColorMatrix is the detected YCbCr matrix ("bt601"/"bt709") from
+	// the most recent status frame; cached so encoder-build can tag the
+	// ffmpeg VUI synchronously. Empty until the first status frame.
+	lastColorMatrix string
 }
 
 // New constructs an unstarted Manager.
@@ -193,6 +198,19 @@ func (m *Manager) SourceConsumerCount(id string) (int, bool) {
 		return 0, false
 	}
 	return c.lastConsumerCount, true
+}
+
+// SourceColorMatrix returns the detected YCbCr matrix ("bt601"/"bt709")
+// from the source's most recent status frame, or ok=false when the source
+// is unknown or no status frame has reported a matrix yet. Pure cache read.
+func (m *Manager) SourceColorMatrix(id string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, exists := m.sources[id]
+	if !exists || c.lastColorMatrix == "" {
+		return "", false
+	}
+	return c.lastColorMatrix, true
 }
 
 // ConnectedComposers returns a snapshot of registered composer IDs.
@@ -445,6 +463,9 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 			m.mu.Lock()
 			c.lastHealth = params.Health
 			c.lastConsumerCount = params.Consumers.Count
+			if params.Format.ColorMatrix != "" {
+				c.lastColorMatrix = params.Format.ColorMatrix
+			}
 			closed := m.statusClosed
 			m.mu.Unlock()
 			if closed {
@@ -596,7 +617,7 @@ func (m *Manager) SendSetSourceState(ctx context.Context, composerID string, p S
 	})
 }
 
-// ComposerSnapshot pulls one BGRA canvas frame from the composer via the
+// ComposerSnapshot pulls one NV12 canvas frame from the composer via the
 // Composer.Snapshot unary RPC. Returns UNAVAILABLE-wrapped error when no
 // canvas frame has been rendered yet.
 func (m *Manager) ComposerSnapshot(ctx context.Context, composerID string) (*pb.ComposerSnapshotResponse, error) {
@@ -654,12 +675,13 @@ func statusFromProto(s *pb.Status) StatusParams {
 	}
 	if f := s.GetFormat(); f != nil {
 		out.Format = SourceFormatInfo{
-			FourCC:  f.GetFourcc(),
-			W:       f.GetW(),
-			H:       f.GetH(),
-			FPS:     f.GetFps(),
-			Buffers: f.GetBuffers(),
-			Mode:    f.GetMode(),
+			FourCC:      f.GetFourcc(),
+			W:           f.GetW(),
+			H:           f.GetH(),
+			FPS:         f.GetFps(),
+			Buffers:     f.GetBuffers(),
+			Mode:        f.GetMode(),
+			ColorMatrix: f.GetColorMatrix(),
 		}
 	}
 	if b := s.GetBroadcast(); b != nil {

@@ -186,11 +186,11 @@ func (v *RkmppValidator) GetProductionSettings(encoderName string, inputFormat s
 	case "yuyv422", "yuvj422":
 		settings.GlobalArgs = append(settings.GlobalArgs, "-init_hw_device", "rkmpp=hw", "-filter_hw_device", "hw")
 		settings.VideoFilters = "hwupload,scale_rkrga=format=nv12:afbc=0"
-	case "bgr24", "rgb24", "nv24", "nv16",
+	case "nv12", "bgr24", "rgb24", "nv24", "nv16",
 		"bgra", "rgba", "argb", "abgr", "bgr0", "rgb0", "0rgb", "0bgr", "":
-		// rkmpp ingests these natively and converts in hardware; a software
-		// `format=nv12` filter here would burn CPU on every frame (e.g. BGRA
-		// composer canvas at 1080p60).
+		// rkmpp ingests these natively (nv12 needs no conversion at all);
+		// a software `format=nv12` filter here would burn CPU on every frame
+		// (e.g. the composer's NV12 canvas at 1080p60).
 		settings.VideoFilters = ""
 	default:
 		settings.VideoFilters = "format=nv12"

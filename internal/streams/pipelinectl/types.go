@@ -59,12 +59,13 @@ type SourceSignalInfo struct {
 
 // SourceFormatInfo describes the currently-negotiated capture format.
 type SourceFormatInfo struct {
-	FourCC  string `json:"fourcc"`
-	W       uint32 `json:"w"`
-	H       uint32 `json:"h"`
-	FPS     uint32 `json:"fps"`
-	Buffers uint32 `json:"buffers"`
-	Mode    string `json:"mode"`
+	FourCC      string `json:"fourcc"`
+	W           uint32 `json:"w"`
+	H           uint32 `json:"h"`
+	FPS         uint32 `json:"fps"`
+	Buffers     uint32 `json:"buffers"`
+	Mode        string `json:"mode"`
+	ColorMatrix string `json:"color_matrix"` // "bt601" | "bt709"
 }
 
 // SourceBroadcastInfo describes the dma-buf publish rate + counters.

@@ -48,6 +48,30 @@ func TestBuildCommand_PipeInput_BGRA(t *testing.T) {
 	}
 }
 
+func TestBuildCommand_PipeInput_ColorTags(t *testing.T) {
+	got := BuildCommand(&Params{
+		InputPipe: &PipeInput{
+			Format:      "rawvideo",
+			PixelFormat: "nv12",
+			Width:       1920,
+			Height:      1080,
+			FPS:         30,
+			Color:       ColorTags{Space: "bt709", Primaries: "bt709", TRC: "bt709", Range: "tv"},
+		},
+		Encoder: "h264_rkmpp",
+		Outputs: []OutputTarget{{Type: "rtsp", URL: "rtsp://x"}},
+	})
+
+	// Input side: color flags before -i pipe:0.
+	if !strings.Contains(got, "-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv -i pipe:0") {
+		t.Errorf("expected input-side VUI flags before -i; got %q", got)
+	}
+	// Output side: color flags after -c:v.
+	if !strings.Contains(got, "-c:v h264_rkmpp -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv") {
+		t.Errorf("expected output-side VUI flags after -c:v; got %q", got)
+	}
+}
+
 func TestBuildCommand_MultiAudio_FilterComplex(t *testing.T) {
 	got := BuildCommand(&Params{
 		InputPipe:   &PipeInput{Format: "yuv4mpegpipe"},

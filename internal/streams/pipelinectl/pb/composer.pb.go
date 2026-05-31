@@ -60,18 +60,17 @@ func (*ComposerSnapshotRequest) Descriptor() ([]byte, []int) {
 
 type ComposerSnapshotResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Tight-packed BGRA pixels: width * height * 4 bytes.
-	Bgra   []byte `protobuf:"bytes,1,opt,name=bgra,proto3" json:"bgra,omitempty"`
-	Width  uint32 `protobuf:"varint,2,opt,name=width,proto3" json:"width,omitempty"`
-	Height uint32 `protobuf:"varint,3,opt,name=height,proto3" json:"height,omitempty"`
-	// Source dma-buf pitch (>= width*4) — reported for callers that want
-	// to know about padding the source had. The `bgra` bytes themselves
-	// are always width-packed.
-	Pitch uint32 `protobuf:"varint,4,opt,name=pitch,proto3" json:"pitch,omitempty"`
+	// Tight-packed NV12 planes: Y (width*height) then interleaved UV
+	// (width*height/2). BT.709 limited / MPEG-2 siting.
+	Nv12    []byte `protobuf:"bytes,1,opt,name=nv12,proto3" json:"nv12,omitempty"`
+	Width   uint32 `protobuf:"varint,2,opt,name=width,proto3" json:"width,omitempty"`
+	Height  uint32 `protobuf:"varint,3,opt,name=height,proto3" json:"height,omitempty"`
+	PitchY  uint32 `protobuf:"varint,4,opt,name=pitch_y,json=pitchY,proto3" json:"pitch_y,omitempty"`
+	PitchUv uint32 `protobuf:"varint,5,opt,name=pitch_uv,json=pitchUv,proto3" json:"pitch_uv,omitempty"`
 	// Monotonically increasing index of the rendered frame.
-	FrameIdx uint64 `protobuf:"varint,5,opt,name=frame_idx,json=frameIdx,proto3" json:"frame_idx,omitempty"`
+	FrameIdx uint64 `protobuf:"varint,6,opt,name=frame_idx,json=frameIdx,proto3" json:"frame_idx,omitempty"`
 	// CLOCK_MONOTONIC nanoseconds at the moment Update stashed the ref.
-	CapturedAtNs  uint64 `protobuf:"varint,6,opt,name=captured_at_ns,json=capturedAtNs,proto3" json:"captured_at_ns,omitempty"`
+	CapturedAtNs  uint64 `protobuf:"varint,7,opt,name=captured_at_ns,json=capturedAtNs,proto3" json:"captured_at_ns,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -106,9 +105,9 @@ func (*ComposerSnapshotResponse) Descriptor() ([]byte, []int) {
 	return file_control_composer_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ComposerSnapshotResponse) GetBgra() []byte {
+func (x *ComposerSnapshotResponse) GetNv12() []byte {
 	if x != nil {
-		return x.Bgra
+		return x.Nv12
 	}
 	return nil
 }
@@ -127,9 +126,16 @@ func (x *ComposerSnapshotResponse) GetHeight() uint32 {
 	return 0
 }
 
-func (x *ComposerSnapshotResponse) GetPitch() uint32 {
+func (x *ComposerSnapshotResponse) GetPitchY() uint32 {
 	if x != nil {
-		return x.Pitch
+		return x.PitchY
+	}
+	return 0
+}
+
+func (x *ComposerSnapshotResponse) GetPitchUv() uint32 {
+	if x != nil {
+		return x.PitchUv
 	}
 	return 0
 }
@@ -824,14 +830,15 @@ var File_control_composer_proto protoreflect.FileDescriptor
 const file_control_composer_proto_rawDesc = "" +
 	"\n" +
 	"\x16control/composer.proto\x12\x11videonode.control\x1a\x1bgoogle/protobuf/empty.proto\x1a\x14control/common.proto\"\x19\n" +
-	"\x17ComposerSnapshotRequest\"\xb5\x01\n" +
+	"\x17ComposerSnapshotRequest\"\xd3\x01\n" +
 	"\x18ComposerSnapshotResponse\x12\x12\n" +
-	"\x04bgra\x18\x01 \x01(\fR\x04bgra\x12\x14\n" +
+	"\x04nv12\x18\x01 \x01(\fR\x04nv12\x12\x14\n" +
 	"\x05width\x18\x02 \x01(\rR\x05width\x12\x16\n" +
-	"\x06height\x18\x03 \x01(\rR\x06height\x12\x14\n" +
-	"\x05pitch\x18\x04 \x01(\rR\x05pitch\x12\x1b\n" +
-	"\tframe_idx\x18\x05 \x01(\x04R\bframeIdx\x12$\n" +
-	"\x0ecaptured_at_ns\x18\x06 \x01(\x04R\fcapturedAtNs\"\xd7\x01\n" +
+	"\x06height\x18\x03 \x01(\rR\x06height\x12\x17\n" +
+	"\apitch_y\x18\x04 \x01(\rR\x06pitchY\x12\x19\n" +
+	"\bpitch_uv\x18\x05 \x01(\rR\apitchUv\x12\x1b\n" +
+	"\tframe_idx\x18\x06 \x01(\x04R\bframeIdx\x12$\n" +
+	"\x0ecaptured_at_ns\x18\a \x01(\x04R\fcapturedAtNs\"\xd7\x01\n" +
 	"\rComposerStats\x12'\n" +
 	"\x0fframes_rendered\x18\x01 \x01(\x04R\x0eframesRendered\x12!\n" +
 	"\ffps_observed\x18\x02 \x01(\x01R\vfpsObserved\x12\x19\n" +

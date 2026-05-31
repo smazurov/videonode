@@ -83,6 +83,23 @@ type PipeInput struct {
 	Width       int    // only used for rawvideo
 	Height      int    // only used for rawvideo
 	FPS         int    // only used for rawvideo
+	// Color tags the colorimetry of the raw frames. Raw pipe input carries
+	// no embedded metadata, so these are emitted on both the input (so
+	// ffmpeg interprets correctly) and the encoder output (the stream VUI).
+	Color ColorTags
+}
+
+// ColorTags are the ffmpeg colorimetry flags. Empty fields are omitted.
+type ColorTags struct {
+	Space     string // -colorspace (e.g. "bt709", "smpte170m")
+	Primaries string // -color_primaries
+	TRC       string // -color_trc
+	Range     string // -color_range ("tv" = limited, "pc" = full)
+}
+
+// IsZero reports whether no color tag is set.
+func (c ColorTags) IsZero() bool {
+	return c.Space == "" && c.Primaries == "" && c.TRC == "" && c.Range == ""
 }
 
 // OutputTarget is one publish destination. Type names a transport

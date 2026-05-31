@@ -69,9 +69,9 @@ type ComposerClient interface {
 	// in the Go process supervisor and is not duplicated here.
 	GetStats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ComposerStats, error)
 	// Snapshot captures one rendered frame from the canvas loop and
-	// returns the raw BGRA bytes plus dimensions. Cost is on-demand
-	// (mmap + memcpy out of the canvas dma-buf on the gRPC thread),
-	// not per produced frame.
+	// returns the raw NV12 bytes plus dimensions (symmetric with
+	// Source.Snapshot). Cost is on-demand (mmap + memcpy out of the NV12
+	// broadcast buffer on the gRPC thread), not per produced frame.
 	Snapshot(ctx context.Context, in *ComposerSnapshotRequest, opts ...grpc.CallOption) (*ComposerSnapshotResponse, error)
 	// Shutdown asks the composer to exit cleanly.
 	Shutdown(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -222,9 +222,9 @@ type ComposerServer interface {
 	// in the Go process supervisor and is not duplicated here.
 	GetStats(context.Context, *emptypb.Empty) (*ComposerStats, error)
 	// Snapshot captures one rendered frame from the canvas loop and
-	// returns the raw BGRA bytes plus dimensions. Cost is on-demand
-	// (mmap + memcpy out of the canvas dma-buf on the gRPC thread),
-	// not per produced frame.
+	// returns the raw NV12 bytes plus dimensions (symmetric with
+	// Source.Snapshot). Cost is on-demand (mmap + memcpy out of the NV12
+	// broadcast buffer on the gRPC thread), not per produced frame.
 	Snapshot(context.Context, *ComposerSnapshotRequest) (*ComposerSnapshotResponse, error)
 	// Shutdown asks the composer to exit cleanly.
 	Shutdown(context.Context, *emptypb.Empty) (*emptypb.Empty, error)

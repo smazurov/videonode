@@ -232,6 +232,12 @@ func BuildCommand(p *Params) string {
 
 	cmd.WriteString(" -c:v " + p.Encoder)
 
+	// Tag the encoded stream VUI to match the input colorimetry (raw pipe
+	// carries none, so the encoder would otherwise leave it unspecified).
+	if p.InputPipe != nil && !p.InputPipe.Color.IsZero() {
+		writeColorTags(&cmd, p.InputPipe.Color)
+	}
+
 	if strings.Contains(p.Encoder, "h264") {
 		cmd.WriteString(" -profile:v high -level:v 5.2")
 	}
@@ -312,6 +318,24 @@ func BuildCommand(p *Params) string {
 	return cmd.String()
 }
 
+// writeColorTags emits the non-empty colorimetry flags. Used on both the
+// raw input (before -i, so ffmpeg interprets the untagged pipe correctly)
+// and the encoder output (sets the encoded stream VUI).
+func writeColorTags(cmd *strings.Builder, c ColorTags) {
+	if c.Space != "" {
+		cmd.WriteString(" -colorspace " + c.Space)
+	}
+	if c.Primaries != "" {
+		cmd.WriteString(" -color_primaries " + c.Primaries)
+	}
+	if c.TRC != "" {
+		cmd.WriteString(" -color_trc " + c.TRC)
+	}
+	if c.Range != "" {
+		cmd.WriteString(" -color_range " + c.Range)
+	}
+}
+
 // writePipeInput emits the `-f <muxer> [-pix_fmt -s -framerate] -i pipe:0`
 // fragment for the InputPipe case. Y4M is self-describing; rawvideo
 // needs explicit pix_fmt + dims + framerate.
@@ -328,6 +352,7 @@ func writePipeInput(cmd *strings.Builder, pi *PipeInput) {
 		if pi.FPS > 0 {
 			fmt.Fprintf(cmd, " -framerate %d", pi.FPS)
 		}
+		writeColorTags(cmd, pi.Color)
 		cmd.WriteString(" -i pipe:0")
 	case "yuv4mpegpipe", "":
 		cmd.WriteString(" -f yuv4mpegpipe -i pipe:0")
