@@ -1,5 +1,5 @@
 Package: videonode
-Version: 4.0.0~rc11
+Version: 4.0.0~rc12
 Architecture: arm64
 Maintainer: Stepan Mazurov <smazurov@gmail.com>
 Installed-Size: 25173
@@ -7,12 +7,12 @@ Depends: base-files (>= 13~), libabsl20240722 (>= 20240722.0-1), libc6 (>= 2.38)
 Homepage: https://github.com/smazurov/videonode
 Priority: optional
 Section: video
-Filename: pool/main/v/videonode/videonode_4.0.0~rc11_arm64.deb
-Size: 9959044
-SHA512: d8ae29699b6081dd5c819cc4776570f411366bb986bdcdcde9950a89ea963f482b47d6681bf4963b492811c09742445dd0bbe1622fd0e0545524c1bd95d6c6a7
-SHA256: e2ee920868b45840177a3c6f599159a85f7a6431f6ef75ed79cb90260e10286b
-SHA1: 57f86c65fc34b43a99b9b87a08a2a87f8f37ee6a
-MD5sum: b64a18b78cdf195fe8be4b00aeb3f10c
+Filename: pool/main/v/videonode/videonode_4.0.0~rc12_arm64.deb
+Size: 9959952
+SHA512: fef1a7207d542250019dc14d79899e1a0ad15ce6bee36e084c3ea4d64cab075c0e153e3d761747373a13006e129f21c7c2263bab74f40841323341e32279dcb2
+SHA256: 2c55a9c3e4f0650d0140f61eb891178a94c2da9c64ba52ded02c4ad9074c54b8
+SHA1: b0ba7a2723189fe88601c9e8c0b96fb1f2bbc9ea
+MD5sum: 134e37c294f6411195e6ef3b3a9e7199
 Description: RK3588 video streaming server with native dma-buf pipeline.
  Turns V4L2 capture devices into RTSP, WebRTC, and SRT streams
  with GPU-accelerated compositing via EGL/GLES on Mali-G610.
@@ -27,9 +27,9 @@ Priority: optional
 Section: 
 Filename: pool/main/v/videonode-keyring/videonode-keyring_1779921143_all.deb
 Size: 986
-SHA512: 4ebb8cb6ae6ef9b9bf418e696d74eaeb384fb1a7e3ceb397faed454d36e04ac618b7ac388bb216eb6ba2c1d345ffe4bbb42ccdb7bce1ee15b24243395d061a16
-SHA256: 1720e53c4a5845c33c7e33d39e6826efd66783740e081ca2490397bed0db9b96
-SHA1: cc4a378c6e86d6444699501397897b8e2969e520
-MD5sum: 9a0b8f3f8ed739f5ac913790927681aa
+SHA512: 6af12a8f1974698f7c99a0f08d070c80aea55781497751de0d878a05d5a16a0bb6f43aee110cabb786e0dcc3a9e81f0ca45cf8bf7485aa06df0181ed7934ad8c
+SHA256: 1374630ab10141cd723f027f352d0347198b1ce2e17489f37558a7dab10c26d0
+SHA1: ddd032d014f3cd67c4f3b817eddc6f1a49b17ab0
+MD5sum: 338e714008f0f6358fca64cab3e43664
 Description: videonode keyring
 
