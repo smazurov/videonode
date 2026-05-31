@@ -7,7 +7,6 @@
 #include "src/render/csc.hpp"
 #include "src/render/nv12_buf.hpp"
 #include "src/source/orchestrator.hpp"
-#include "src/source/slot_owner.hpp"
 
 #include <memory>
 #include <string>
@@ -32,9 +31,6 @@ struct CaptureSession {
     v4l2::Streamer cap;
     std::vector<nv12_buf::Buffer> out_ring;
     uint32_t out_ring_write = 0;
-    // Gates out_ring reuse on consumer read-completion (RGA path). Shared
-    // with the snapshot holder (SlotPinner) and the producer credit drain.
-    std::shared_ptr<SlotOwner> slot_owner;
     csc::PixelFormat src_fmt = csc::PixelFormat::Nv12;
     std::string src_fmt_name;
     int width = 0;

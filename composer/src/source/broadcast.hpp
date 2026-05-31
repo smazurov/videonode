@@ -30,7 +30,7 @@ uint64_t now_ms();
 int64_t wall_ms();
 
 // Send a decoded NV12 frame to all connected SCM consumers. Returns the
-// number of consumers it was delivered to, for SlotOwner refcounting.
+// number of consumers it was delivered to.
 int broadcast_nv12(scm_rights_producer::ScmRightsProducer& prod, const jpeg_dec::DecodedNv12& d,
                    uint64_t frame_idx);
 
