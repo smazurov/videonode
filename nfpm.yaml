@@ -63,6 +63,9 @@ contents:
     dst: /etc/videonode/config.toml
     type: config
 
+  - src: ./packaging/videonode.asound.conf
+    dst: /usr/share/videonode/videonode.asound.conf
+
   - src: ./packaging/copyright
     dst: /usr/share/doc/videonode/copyright
 
