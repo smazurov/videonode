@@ -64,6 +64,9 @@ export interface ComposerAPISlice {
     inputRef: string,
     effect: Effect | null,
   ) => Promise<Composer>;
+  exportComposerToml: (composerId: string) => Promise<string>;
+  importComposerToml: (toml: string) => Promise<Composer>;
+  importComposerTomlInto: (composerId: string, toml: string) => Promise<Composer>;
 }
 
 export const createComposerAPISlice: StateCreator<
@@ -171,4 +174,57 @@ export const createComposerAPISlice: StateCreator<
     addComposer(composer);
     return composer;
   },
+
+  exportComposerToml: async (composerId) => {
+    const credentials = getAuthCredentials();
+    const headers: HeadersInit = {};
+    if (credentials) headers['Authorization'] = `Basic ${credentials}`;
+    const response = await fetch(
+      `${API_BASE_URL}${COMPOSERS_PATH}/${encodeURIComponent(composerId)}/export`,
+      { method: 'GET', headers },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to export composer (${response.status})`);
+    }
+    return response.text();
+  },
+
+  importComposerToml: async (toml) => {
+    const { addComposer } = get();
+    const composer = await postToml(`${COMPOSERS_PATH}/import`, toml);
+    addComposer(composer);
+    return composer;
+  },
+
+  importComposerTomlInto: async (composerId, toml) => {
+    const { addComposer } = get();
+    const composer = await postToml(
+      `${COMPOSERS_PATH}/${encodeURIComponent(composerId)}/import`,
+      toml,
+    );
+    addComposer(composer);
+    return composer;
+  },
 });
+
+async function postToml(path: string, toml: string): Promise<Composer> {
+  const credentials = getAuthCredentials();
+  const headers: HeadersInit = { 'Content-Type': 'application/toml' };
+  if (credentials) headers['Authorization'] = `Basic ${credentials}`;
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers,
+    body: toml,
+  });
+  if (!response.ok) {
+    let detail = 'Failed to import composer';
+    try {
+      const data = (await response.json()) as { detail?: string };
+      if (data.detail) detail = data.detail;
+    } catch {
+      // ignore body parse failures
+    }
+    throw new Error(detail);
+  }
+  return (await response.json()) as Composer;
+}
