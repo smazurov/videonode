@@ -1,25 +1,16 @@
 // videonode-sink — SCM_RIGHTS → stdout frame carrier. Dials an SCM_RIGHTS
-// socket exposed by either a videonode-source (NV12 capture frames) or a
-// videonode-composer with --scm-out (BGRA composed frames), mmaps each
-// incoming dma-buf, and writes frames to stdout for the downstream ffmpeg
-// consumer.
+// socket exposed by a videonode-source or a videonode-composer with
+// --scm-out (both broadcast NV12 dma-bufs), mmaps each incoming dma-buf,
+// and writes raw NV12 bytes (Y plane, then UV plane) to stdout for the
+// downstream ffmpeg consumer.
 //
 //   videonode-source --device /dev/videoN --out-socket /tmp/vn-bus-<id>.sock
 //   videonode-sink --socket /tmp/vn-bus-<id>.sock
 //     | ffmpeg -f rawvideo -pix_fmt nv12 -video_size WxH -framerate N
 //              -i pipe:0 <encoder ...> -f rtsp rtsp://127.0.0.1:8554/<id>
 //
-//   videonode-composer ... --scm-out /tmp/vn-bus-composer-<id>.sock
-//   videonode-sink --socket /tmp/vn-bus-composer-<id>.sock
-//     | ffmpeg -f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0
-//              <encoder ...> -f rtsp ...
-//
-// Output format is auto-selected from the first frame's fourcc:
-//   - NV12            → raw NV12 bytes (Y plane, then UV plane).
-//   - BGRA / ARGB     → raw bytes per frame, no header.
-//
-// The first frame announces dims + format on stderr so callers can size
-// the downstream ffmpeg invocation accordingly.
+// The first frame announces dims on stderr so callers can size the
+// downstream ffmpeg invocation accordingly.
 
 #include "src/common/log_levels.hpp"
 #include "src/common/raise_fd_limit.hpp"
@@ -214,44 +205,6 @@ bool emit_frame_nv12_raw(const scm_rights_source::FrameView& v) {
     return true;
 }
 
-bool emit_frame_raw_bgra(const scm_rights_source::FrameView& v) {
-    if (v.fd < 0 || v.width <= 0 || v.height <= 0)
-        return true;
-    const size_t row_bytes = size_t(v.width) * 4;
-    const size_t stride = v.plane0_pitch ? v.plane0_pitch : row_bytes;
-    if (stride < row_bytes) {
-        vn::log::error("videonode-sink: BGRA stride %zu < row_bytes %zu (width=%d); dropping frame",
-                       stride, row_bytes, v.width);
-        return true;
-    }
-    const size_t frame_bytes = row_bytes * v.height;
-    uint8_t* scratch = aligned_scratch(frame_bytes);
-
-    const size_t map_size = v.plane0_offset + stride * v.height;
-    void* m = ::mmap(nullptr, map_size, PROT_READ, MAP_SHARED, v.fd, 0);
-    if (m == MAP_FAILED) {
-        vn::log::error("videonode-sink: mmap fd=%d failed: %s", v.fd, strerror(errno));
-        return true;
-    }
-    dmabuf_sync_start(v.fd);
-    std::span<const uint8_t> m_span(static_cast<const uint8_t*>(m), map_size);
-    const auto* base = m_span.subspan(v.plane0_offset).data();
-    copy_plane(scratch, base, row_bytes, stride, size_t(v.height));
-    dmabuf_sync_end(v.fd);
-    ::munmap(m, map_size);
-
-    bool ok = write_full(STDOUT_FILENO, std::span(scratch, frame_bytes));
-    if (!ok) {
-        vn::log::info("videonode-sink: stdout closed, exiting");
-        return false;
-    }
-    return true;
-}
-
-bool is_nv12_format(const std::string& fourcc) {
-    return fourcc.empty() || fourcc == "NV12";
-}
-
 } // namespace
 
 namespace {
@@ -275,15 +228,11 @@ void print_help(const Args& d) {
             "  --settle-ms N                delay after dial before reading (default %d)\n"
             "  --first-frame-timeout N      seconds to wait for first frame (default %d)\n"
             "\n"
-            "Output mode is auto-selected from the first frame's fourcc:\n"
-            "  NV12              → raw NV12 bytes (Y + UV planes).\n"
-            "                      Pipe to `ffmpeg -f rawvideo -pix_fmt nv12 -video_size WxH\n"
-            "                      -framerate N -i pipe:0 ...`.\n"
-            "  BGRA / ARGB       → raw bytes per frame (no header).\n"
-            "                      Pipe to `ffmpeg -f rawvideo -pix_fmt bgra -s WxH\n"
-            "                      -framerate N -i pipe:0 ...`.\n"
+            "Emits raw NV12 bytes (Y plane, then UV plane) per frame.\n"
+            "  Pipe to `ffmpeg -f rawvideo -pix_fmt nv12 -video_size WxH\n"
+            "           -framerate N -i pipe:0 ...`.\n"
             "\n"
-            "Stderr announces the dims + format on the first frame.\n",
+            "Stderr announces the dims on the first frame.\n",
             d.poll_ms, d.settle_ms, d.first_frame_timeout_s);
 }
 
@@ -345,7 +294,6 @@ struct StreamShape {
     bool announced = false;
     int width = 0;
     int height = 0;
-    bool nv12_mode = true;
 };
 
 void wait_for_frame(int notify_fd, int timeout_ms) {
@@ -381,24 +329,18 @@ void wait_for_frame(int notify_fd, int timeout_ms) {
             wait_for_frame(nfd, a.poll_ms);
             continue;
         }
-        const bool new_nv12 = is_nv12_format(owned.format);
-        if (shape.announced && (owned.width != shape.width || owned.height != shape.height ||
-                                new_nv12 != shape.nv12_mode)) {
-            vn::log::warn("videonode-sink: source reconfigured %dx%d %s -> %dx%d %s; exiting so "
+        if (shape.announced && (owned.width != shape.width || owned.height != shape.height)) {
+            vn::log::warn("videonode-sink: source reconfigured %dx%d -> %dx%d; exiting so "
                           "the encoder rebuilds",
-                          shape.width, shape.height, shape.nv12_mode ? "NV12" : "BGRA", owned.width,
-                          owned.height, new_nv12 ? "NV12" : "BGRA");
+                          shape.width, shape.height, owned.width, owned.height);
             return LoopExit::FormatChanged;
         }
         if (!shape.announced) {
-            shape.nv12_mode = new_nv12;
             shape.width = owned.width;
             shape.height = owned.height;
             shape.announced = true;
-            vn::log::info("videonode-sink: streaming raw %dx%d (%s fourcc=%s) from %s", owned.width,
-                          owned.height, shape.nv12_mode ? "NV12" : "BGRA",
-                          owned.format.empty() ? "NV12" : owned.format.c_str(),
-                          a.socket_path.c_str());
+            vn::log::info("videonode-sink: streaming raw NV12 %dx%d from %s", owned.width,
+                          owned.height, a.socket_path.c_str());
         }
         if (a.verbose) {
             vn::log::info("videonode-sink: frame_idx=%llu fd=%d",
@@ -416,7 +358,7 @@ void wait_for_frame(int notify_fd, int timeout_ms) {
         v.plane1_offset = owned.plane1_offset;
         v.format = owned.format;
         v.frame_idx = owned.frame_idx;
-        bool ok = shape.nv12_mode ? emit_frame_nv12_raw(v) : emit_frame_raw_bgra(v);
+        bool ok = emit_frame_nv12_raw(v);
         if (!ok)
             return LoopExit::StdoutClosed;
     }
