@@ -205,12 +205,9 @@ bool emit_frame_nv12_raw(const scm_rights_source::FrameView& v) {
     dmabuf_sync_end(v.fd);
     ::munmap(y_map, y_map_size);
 
-    bool ok = write_full(STDOUT_FILENO, std::span(scratch, frame_bytes));
-    if (!ok) {
-        vn::log::info("videonode-sink: stdout closed, exiting");
-        return false;
-    }
-    return true;
+    // On a short write (downstream ffmpeg gone) return false; run_frame_loop
+    // maps that to LoopExit::StdoutClosed and logs the single exit message.
+    return write_full(STDOUT_FILENO, std::span(scratch, frame_bytes));
 }
 
 } // namespace
