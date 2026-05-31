@@ -18,21 +18,24 @@ uint64_t now_ns() {
         duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
-vn::snapshot::FrameRef make_snapshot_ref(const nv12_buf::Buffer& b, uint64_t frame_idx) {
+// fds/offsets are the staged (CPU-coherent) plane fds the snapshot mmaps —
+// on the gbm/Mesa path the raw GPU dma-buf is not coherent for a separate
+// read, so the snapshot must use the same staged copy the broadcast sends.
+vn::snapshot::FrameRef make_snapshot_ref(const nv12_buf::Buffer& b, uint64_t frame_idx, int y_fd,
+                                         int uv_fd, uint32_t y_off, uint32_t uv_off) {
     vn::snapshot::FrameRef r{};
     r.format = vn::snapshot::Format::Nv12;
     r.width = static_cast<uint32_t>(b.width);
     r.height = static_cast<uint32_t>(b.height);
     r.pitch_y = b.y_pitch;
     r.pitch_uv = b.uv_pitch;
-    r.planes[0] = {.fd = b.y_fd,
-                   .offset = b.y_offset,
+    r.planes[0] = {.fd = y_fd,
+                   .offset = y_off,
                    .pitch = b.y_pitch,
                    .row_bytes = static_cast<size_t>(b.width),
                    .rows = static_cast<size_t>(b.height)};
-    const int uv_fd = b.uv_fd >= 0 ? b.uv_fd : b.y_fd;
     r.planes[1] = {.fd = uv_fd,
-                   .offset = b.uv_offset,
+                   .offset = uv_off,
                    .pitch = b.uv_pitch,
                    .row_bytes = static_cast<size_t>(b.width),
                    .rows = static_cast<size_t>(b.height) / 2};
@@ -108,7 +111,7 @@ bool CanvasBroadcast::convert_and_broadcast(int canvas_fd, int canvas_w, int can
     h.frame_idx = frame_idx;
     (void)prod.broadcast(h, {y_fd, uv_fd});
 
-    snap = make_snapshot_ref(b, frame_idx);
+    snap = make_snapshot_ref(b, frame_idx, y_fd, uv_fd, y_off, uv_off);
     return true;
 }
 
