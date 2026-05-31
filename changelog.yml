@@ -1,3 +1,16 @@
+- semver: 4.0.0-rc9
+  date: 2026-05-31T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: f412934
+      note: "WHEP egress endpoint (POST/DELETE /whep/{stream}) for WebRTC playback, with working H265 and a fix for motion smearing"
+    - commit: cde5b5c
+      note: "WebRTC peers and SRT consumers now share a single hex client-ID scheme"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc8
   date: 2026-05-30T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
