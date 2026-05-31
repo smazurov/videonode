@@ -173,6 +173,17 @@ grpc::Status ComposerService::GetStats(grpc::ServerContext* /*ctx*/,
 grpc::Status ComposerService::Snapshot(grpc::ServerContext* /*ctx*/,
                                        const ::videonode::control::ComposerSnapshotRequest* /*req*/,
                                        ::videonode::control::ComposerSnapshotResponse* resp) {
+    // Trigger an on-demand fill and wait for the loop to publish it, so the
+    // steady-state path never copies the canvas.
+    {
+        std::unique_lock<std::mutex> lk(snap_mu_);
+        uint64_t want = snap_seq_ + 1;
+        snapshot_requested_.store(true, std::memory_order_release);
+        if (!snap_cv_.wait_for(lk, std::chrono::milliseconds(200),
+                               [&] { return snap_seq_ >= want; })) {
+            return grpc::Status(grpc::StatusCode::UNAVAILABLE, "no canvas frame produced yet");
+        }
+    }
     vn::snapshot::FrameBytes fb;
     if (!frame_holder_.Snapshot(fb)) {
         return grpc::Status(grpc::StatusCode::UNAVAILABLE, "no canvas frame produced yet");
@@ -197,6 +208,12 @@ grpc::Status ComposerService::Shutdown(grpc::ServerContext* /*ctx*/,
 
 void ComposerService::UpdateLatestCanvas(vn::snapshot::FrameRef ref) {
     frame_holder_.Update(ref);
+    {
+        std::lock_guard<std::mutex> lk(snap_mu_);
+        ++snap_seq_;
+        snapshot_requested_.store(false, std::memory_order_release);
+    }
+    snap_cv_.notify_all();
 }
 
 } // namespace nativerpc

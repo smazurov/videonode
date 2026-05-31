@@ -14,6 +14,8 @@
 #include "src/snapshot/snapshot.hpp"
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <string>
 
 namespace render {
@@ -72,13 +74,24 @@ class ComposerService final : public videonode::control::Composer::Service {
     grpc::Status Shutdown(grpc::ServerContext* ctx, const ::google::protobuf::Empty* req,
                           ::google::protobuf::Empty* resp) override;
 
-    // Canvas-loop entry point: stash a reference to the latest rendered
-    // BGRA canvas. Cheap — Snapshot() does the mmap+pack lazily.
+    // Canvas-loop entry point: publish the latest rendered BGRA canvas,
+    // fulfilling a pending Snapshot() request.
     void UpdateLatestCanvas(vn::snapshot::FrameRef ref);
+
+    // True when a Snapshot() RPC is waiting; the canvas loop fills one frame
+    // on demand instead of copying every frame.
+    [[nodiscard]] bool snapshot_pending() const {
+        return snapshot_requested_.load(std::memory_order_acquire);
+    }
 
   private:
     ComposerContext ctx_;
     vn::snapshot::LatestFrameHolder frame_holder_;
+
+    std::atomic<bool> snapshot_requested_{false};
+    mutable std::mutex snap_mu_;
+    std::condition_variable snap_cv_;
+    uint64_t snap_seq_ = 0;
 };
 
 } // namespace nativerpc
