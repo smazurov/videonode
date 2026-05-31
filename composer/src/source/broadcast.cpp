@@ -133,7 +133,9 @@ void build_status_proto(::videonode::control::Status& out, const StatusContext& 
         fmt->set_h(static_cast<uint32_t>(ctx.args.placeholder_h));
         fmt->set_fps(static_cast<uint32_t>(ctx.args.placeholder_broadcast_fps));
         fmt->set_mode("placeholder");
-        fmt->set_color_matrix("bt601");
+        // Leave color_matrix unset: no real signal to detect yet, so the
+        // daemon falls back to its own resolution heuristic instead of being
+        // pinned to a guess that may mislabel a 1080p source.
     }
 
     auto* bc = out.mutable_broadcast();
