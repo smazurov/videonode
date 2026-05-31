@@ -181,6 +181,9 @@ grpc::Status ComposerService::Snapshot(grpc::ServerContext* /*ctx*/,
         snapshot_requested_.store(true, std::memory_order_release);
         if (!snap_cv_.wait_for(lk, std::chrono::milliseconds(200),
                                [&] { return snap_seq_ >= want; })) {
+            // Clear the request so a fill that never lands (GPU map failure)
+            // doesn't pin should_render_ on and keep the loop off its idle path.
+            snapshot_requested_.store(false, std::memory_order_release);
             return grpc::Status(grpc::StatusCode::UNAVAILABLE, "no canvas frame produced yet");
         }
     }
