@@ -50,8 +50,6 @@ type Process struct {
 	outputHandler    OutputHandler
 	gracefulTimeout  time.Duration
 	killTimeout      time.Duration
-	visionPipeReads  []*os.File
-	visionPipeWrites []*os.File // write ends passed to child as fd 3, 4, 5, ...
 	pid              atomic.Int32
 }
 
@@ -87,16 +85,6 @@ func (p *Process) GetCommand() string {
 	return p.command
 }
 
-// SetupVisionPipe creates a vision frame pipe; the nth call maps to fd (3+n-1). Call before Start.
-func (p *Process) SetupVisionPipe() (*os.File, error) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		return nil, fmt.Errorf("create vision pipe: %w", err)
-	}
-	p.visionPipeReads = append(p.visionPipeReads, r)
-	p.visionPipeWrites = append(p.visionPipeWrites, w)
-	return r, nil
-}
 
 // SetLogParser sets the logger and parser used for child process output.
 func (p *Process) SetLogParser(logger logging.Logger, parser LogParser) {
@@ -144,10 +132,6 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 		Pdeathsig: syscall.SIGKILL,
 	}
 
-	if len(p.visionPipeWrites) > 0 {
-		p.cmd.ExtraFiles = append([]*os.File{}, p.visionPipeWrites...)
-	}
-
 	stdout, err := p.cmd.StdoutPipe()
 	if err != nil {
 		p.logger.Error("Failed to create stdout pipe", logging.KeyError, err)
@@ -166,12 +150,6 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 	}
 
 	p.pid.Store(int32(p.cmd.Process.Pid))
-
-	// Close parent's copy of write ends; child inherited them.
-	for _, w := range p.visionPipeWrites {
-		_ = w.Close()
-	}
-	p.visionPipeWrites = nil
 
 	p.logger.Info("Process started", logging.KeyPoolID, p.id, logging.KeyPID, p.cmd.Process.Pid, logging.KeyCommand, command)
 
