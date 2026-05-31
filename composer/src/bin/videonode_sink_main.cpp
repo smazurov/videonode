@@ -96,22 +96,30 @@ void streaming_memcpy(uint8_t* dst, const uint8_t* src, size_t len) {
     size_t n = len / 16;
     std::span<uint8_t> dst_bytes(dst, len);
     std::span<const uint8_t> src_bytes(src, len);
-    std::span<__m128i> dst_blocks(reinterpret_cast<__m128i*>(dst_bytes.data()), n);
-    std::span<__m128i> src_blocks(
-        const_cast<__m128i*>(reinterpret_cast<const __m128i*>(src_bytes.data())), n);
+    // std::span<__m128i> would trip -Wignored-attributes (the SSE vector type
+    // carries may_alias, stripped on a template argument). Derive each aligned
+    // 16-byte block pointer from the byte spans instead — subspan keeps the
+    // bounds check without raw pointer arithmetic.
+    auto src_block = [&](size_t k) {
+        return reinterpret_cast<__m128i*>(
+            const_cast<uint8_t*>(src_bytes.subspan(k * 16, 16).data()));
+    };
+    auto dst_block = [&](size_t k) {
+        return reinterpret_cast<__m128i*>(dst_bytes.subspan(k * 16, 16).data());
+    };
     size_t i = 0;
     for (; i + 4 <= n; i += 4) {
-        __m128i r0 = _mm_stream_load_si128(&src_blocks[i + 0]);
-        __m128i r1 = _mm_stream_load_si128(&src_blocks[i + 1]);
-        __m128i r2 = _mm_stream_load_si128(&src_blocks[i + 2]);
-        __m128i r3 = _mm_stream_load_si128(&src_blocks[i + 3]);
-        _mm_store_si128(&dst_blocks[i + 0], r0);
-        _mm_store_si128(&dst_blocks[i + 1], r1);
-        _mm_store_si128(&dst_blocks[i + 2], r2);
-        _mm_store_si128(&dst_blocks[i + 3], r3);
+        __m128i r0 = _mm_stream_load_si128(src_block(i + 0));
+        __m128i r1 = _mm_stream_load_si128(src_block(i + 1));
+        __m128i r2 = _mm_stream_load_si128(src_block(i + 2));
+        __m128i r3 = _mm_stream_load_si128(src_block(i + 3));
+        _mm_store_si128(dst_block(i + 0), r0);
+        _mm_store_si128(dst_block(i + 1), r1);
+        _mm_store_si128(dst_block(i + 2), r2);
+        _mm_store_si128(dst_block(i + 3), r3);
     }
     for (; i < n; ++i) {
-        _mm_store_si128(&dst_blocks[i], _mm_stream_load_si128(&src_blocks[i]));
+        _mm_store_si128(dst_block(i), _mm_stream_load_si128(src_block(i)));
     }
     size_t tail = len & 15;
     if (tail > 0)

@@ -12,6 +12,7 @@
 //
 // Usage: ./import-probe [device] [src_w] [src_h]
 
+#include "src/common/file_ptr.hpp"
 #include "src/common/probe_check.hpp"
 #include "src/render/egl_ctx.hpp"
 #include "src/render/fake_source.hpp"
@@ -153,8 +154,7 @@ static void draw_fullscreen_triangle(int W, int H) {
 }
 
 static bool dump_ppm(const void* mapped, uint32_t map_stride, int W, int H) {
-    std::unique_ptr<FILE, decltype(&std::fclose)> f(std::fopen("/tmp/import-probe.ppm", "wb"),
-                                                    &std::fclose);
+    vn::FilePtr f(std::fopen("/tmp/import-probe.ppm", "wb"));
     if (!f) {
         fprintf(stderr, "warn: fopen /tmp/import-probe.ppm failed (errno=%d)\n", errno);
         return false;

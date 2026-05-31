@@ -6,6 +6,7 @@
 //
 // Usage:  ./source-probe [W] [H] [frames] [source_index] [out.y4m]
 
+#include "src/common/file_ptr.hpp"
 #include "src/render/fake_source.hpp"
 #include "src/ipc/dma_heap.hpp"
 
@@ -45,7 +46,7 @@ int main(int argc, char** argv) {
     }
 
     // YUV4MPEG (Y4M) header + frame loop dumped from source[pick_src].
-    std::unique_ptr<FILE, decltype(&std::fclose)> f(std::fopen(out, "wb"), &std::fclose);
+    vn::FilePtr f(std::fopen(out, "wb"));
     if (!f) {
         fprintf(stderr, "FAIL fopen(%s)\n", out);
         return 1;
