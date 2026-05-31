@@ -246,7 +246,7 @@ func main() {
 			VNSinkBin:      native.VNSink,
 			DRMDevice:      "/dev/dri/renderD128",
 			RTSPPort:       opts.StreamingRTSPPort,
-			DeviceResolver: streams.MakeDeviceResolver(logger),
+			DeviceResolver: streams.MakeDeviceResolver(),
 			ControlServer:  ctlServer,
 			Registry:       eventRegistry,
 			EncoderResolver: func(codec, inputPixFmt string) (pipeline.EncoderResolution, error) {

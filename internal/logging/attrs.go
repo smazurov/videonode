@@ -136,6 +136,7 @@ const (
 	KeyStreams          = "streams"
 	KeyStreamsApplied   = "streams_applied"
 	KeyStreamsPersisted = "streams_persisted"
+	KeyFailed           = "failed"
 	KeySuppressed       = "suppressed"
 	KeyReason           = "reason"
 	KeyVersion          = "version"
@@ -163,7 +164,7 @@ var AllowedKeys = map[string]struct{}{
 	KeyAttempt: {}, KeyAttempts: {}, KeyRetries: {}, KeyChanges: {},
 	KeyDeviceCount: {}, KeyPacketsLost: {},
 	KeySources: {}, KeyComposers: {}, KeyStreams: {},
-	KeyStreamsApplied: {}, KeyStreamsPersisted: {},
+	KeyStreamsApplied: {}, KeyStreamsPersisted: {}, KeyFailed: {},
 	KeySuppressed: {}, KeyReason: {}, KeyVersion: {},
 	// C++ structured log keys (not used on Go side directly).
 	"fd": {}, "total": {}, "buffers": {}, "mode": {},
