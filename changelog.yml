@@ -1,3 +1,14 @@
+- semver: 4.0.0-rc12
+  date: 2026-05-31T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 0df70cf
+      note: "MJPEG sources with 4:2:2/4:4:4 chroma (e.g. HDMI-USB capture dongles) no longer show a red color ghost — the source converts them to NV12 instead of mislabeling the decode"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0-rc11
   date: 2026-05-31T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
