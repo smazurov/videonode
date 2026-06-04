@@ -15,6 +15,7 @@ const (
 	TypePipelineStateChanged
 	TypeEntity
 	TypeProcesses
+	TypeProcessRemoved
 )
 
 // Event interface required by kelindar/event.
@@ -94,6 +95,18 @@ type ProcessesEvent struct {
 
 // Type returns the event type identifier for ProcessesEvent.
 func (e ProcessesEvent) Type() uint32 { return TypeProcesses }
+
+// ProcessRemovedEvent fires when a supervised process leaves the pool. A
+// removed process emits no further state or stats events, so this is the
+// signal for subscribers to drop its row. Carries the same user-facing id as
+// the ProcessesEvent rows (normalized at the API edge).
+type ProcessRemovedEvent struct {
+	ID        string `json:"id" doc:"Pool key of the removed process (e.g. 'source:hdmi0')"`
+	Timestamp string `json:"timestamp" doc:"Server time when the process was removed"`
+}
+
+// Type returns the event type identifier for ProcessRemovedEvent.
+func (e ProcessRemovedEvent) Type() uint32 { return TypeProcessRemoved }
 
 // PipelineStateChangedEvent fires when the daemon-wide pipeline master
 // switch is toggled. UI uses it to keep the start/stop button in sync.

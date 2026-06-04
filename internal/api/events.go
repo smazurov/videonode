@@ -33,6 +33,7 @@ func (s *Server) registerSSERoutes() {
 		"device-discovery":       events.DeviceDiscoveryEvent{},
 		"pipeline-state-changed": events.PipelineStateChangedEvent{},
 		"processes":              events.ProcessesEvent{},
+		"process-removed":        events.ProcessRemovedEvent{},
 		"heartbeat":              events.HeartbeatEvent{},
 	}, func(ctx context.Context, _ *sseInput, send sse.Sender) {
 		eventCh := make(chan any, 10)
@@ -48,6 +49,13 @@ func (s *Server) registerSSERoutes() {
 			events.Subscribe(s.eventBus, func(e events.ProcessesEvent) {
 				select {
 				case eventCh <- normalizeProcessesEvent(e):
+				default:
+				}
+			}),
+			events.Subscribe(s.eventBus, func(e events.ProcessRemovedEvent) {
+				e.ID = normalizeProcessID(e.ID)
+				select {
+				case eventCh <- e:
 				default:
 				}
 			}),

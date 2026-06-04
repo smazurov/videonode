@@ -253,6 +253,52 @@ func TestPoolOnStatsQuietWhenIdle(t *testing.T) {
 	}
 }
 
+func TestPoolOnRemoveFiresAfterStop(t *testing.T) {
+	var removed []string
+	var mu sync.Mutex
+	pool := NewPool(&PoolOptions{
+		CommandProvider: func(id string) (string, error) {
+			return fmt.Sprintf(`sh -c "trap 'exit 0' INT TERM; echo %s; while :; do sleep 0.05; done"`, id), nil
+		},
+		OnRemove: func(id string) {
+			mu.Lock()
+			removed = append(removed, id)
+			mu.Unlock()
+		},
+		Logger: poolTestLogger(),
+	})
+
+	if err := pool.Start("test1"); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := pool.Stop("test1"); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(removed) != 1 || removed[0] != "test1" {
+		t.Fatalf("expected OnRemove(test1), got %v", removed)
+	}
+}
+
+func TestPoolOnRemoveQuietForUnknownID(t *testing.T) {
+	var calls int
+	pool := NewPool(&PoolOptions{
+		CommandProvider: func(id string) (string, error) { return fmt.Sprintf("echo %s", id), nil },
+		OnRemove:        func(string) { calls++ },
+		Logger:          poolTestLogger(),
+	})
+
+	if err := pool.Stop("never-started"); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected no OnRemove for an unknown id, got %d", calls)
+	}
+}
+
 func TestPoolConfigureProcess(t *testing.T) {
 	configured := false
 	var configuredID string

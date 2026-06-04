@@ -212,6 +212,7 @@ func (p *pool) Stop(id string) error {
 	delete(p.processes, id)
 	p.mu.Unlock()
 
+	p.notifyRemoved(id)
 	return nil
 }
 
@@ -421,5 +422,13 @@ func (p *pool) notifyStateChange(id string, oldState, newState State, err error)
 func (p *pool) notifyStatsChange() {
 	if p.opts.OnStats != nil {
 		p.opts.OnStats()
+	}
+}
+
+// notifyRemoved invokes the OnRemove callback if configured. Called from Stop
+// after the process has been deleted from the pool.
+func (p *pool) notifyRemoved(id string) {
+	if p.opts.OnRemove != nil {
+		p.opts.OnRemove(id)
 	}
 }

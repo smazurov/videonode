@@ -133,6 +133,7 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 		ConfigureProcess: p.configureProcess,
 		OnStateChange:    p.onStateChange,
 		OnStats:          p.publishProcesses,
+		OnRemove:         p.publishProcessRemoved,
 	})
 	return p
 }
@@ -1247,6 +1248,20 @@ func (p *Pipeline) publishProcesses() {
 	}
 	events.Publish(p.cfg.EventBus, events.ProcessesEvent{
 		Processes: infos,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
+}
+
+// publishProcessRemoved emits a ProcessRemovedEvent on the dedicated process
+// stream. Wired as the pool's OnRemove callback so a deleted/stopped process
+// is dropped from the operator UI immediately, even when nothing else is
+// running to trigger the next stats sample. No-op when EventBus is nil.
+func (p *Pipeline) publishProcessRemoved(id string) {
+	if p.cfg.EventBus == nil {
+		return
+	}
+	events.Publish(p.cfg.EventBus, events.ProcessRemovedEvent{
+		ID:        id,
 		Timestamp: time.Now().Format(time.RFC3339),
 	})
 }

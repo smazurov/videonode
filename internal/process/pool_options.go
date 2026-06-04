@@ -17,6 +17,12 @@ type StateChangeCallback func(id string, oldState, newState State, err error)
 // quiet.
 type StatsChangeCallback func()
 
+// RemovedCallback is called after a process has been removed from the pool
+// (its final transition already fired via OnStateChange). Lets consumers emit
+// an explicit "gone" signal — a removed process produces no further state or
+// stats events, so without this the last-known row would linger.
+type RemovedCallback func(id string)
+
 // Configurer configures a Process before it starts.
 // Used for domain-specific setup (e.g., log parser, output handler).
 type Configurer func(id string, proc *Process)
@@ -33,6 +39,10 @@ type PoolOptions struct {
 	// running processes (optional). Used to push process metrics over SSE
 	// without a steady-state REST poll.
 	OnStats StatsChangeCallback
+
+	// OnRemove is called after a process is removed from the pool (optional).
+	// Used to push an explicit removal so subscribers drop the stale row.
+	OnRemove RemovedCallback
 
 	// ConfigureProcess allows customization of the Process before start (optional).
 	ConfigureProcess Configurer
