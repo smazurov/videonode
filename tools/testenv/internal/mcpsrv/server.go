@@ -8,8 +8,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,7 +28,29 @@ var (
 	selfModTime time.Time
 	selfOnce    sync.Once
 	mcpServer   *mcp.Server
+
+	inflight    atomic.Int64
+	reloadArmed atomic.Bool
+
+	// Grace window after the last request drains, giving the SDK time to
+	// flush its response to stdout before we replace the process image.
+	// Overridable in tests.
+	reloadGrace = 200 * time.Millisecond
+
+	// Indirection points so reload behaviour is unit-testable without
+	// actually stat'ing the binary or exec'ing the process.
+	binaryUpdatedFn = binaryUpdated
+	execReloadFn    = execReload
+
+	// Diagnostic logs go to stderr. This must never be os.Stdout — stdout
+	// is the JSON-RPC transport for the stdio MCP server, and any stray
+	// bytes there corrupt the protocol.
+	logSink io.Writer = os.Stderr
 )
+
+func logf(format string, args ...any) {
+	_, _ = fmt.Fprintf(logSink, "testenv-mcp: "+format+"\n", args...)
+}
 
 func initSelf() {
 	selfOnce.Do(func() {
@@ -52,25 +77,58 @@ func binaryUpdated() bool {
 	return fi.ModTime().After(selfModTime)
 }
 
-func execIfUpdated() {
-	if !binaryUpdated() || mcpServer == nil {
+// reloadIfUpdated arms a one-shot background hot-reload when the on-disk
+// binary is newer than this running process. It MUST be called only after
+// a tool handler has produced its result. The previous implementation
+// exec'd at the *start* of every handler: if the binary had been rebuilt
+// (which happens routinely — parallel sessions reinstall testenv), the
+// re-exec replaced the process image mid-request and abandoned the
+// in-flight JSON-RPC response, so the MCP client hung forever waiting for
+// a reply the new image never sent. We instead let the current response
+// flush, wait for all in-flight requests to drain, then exec — so the
+// triggering call always completes and no request is ever dropped.
+func reloadIfUpdated() {
+	if !binaryUpdatedFn() || mcpServer == nil {
 		return
 	}
+	if !reloadArmed.CompareAndSwap(false, true) {
+		return
+	}
+	logf("binary rebuilt on disk; hot-reload armed, draining in-flight requests")
+	go func() {
+		for inflight.Load() > 0 {
+			time.Sleep(20 * time.Millisecond)
+		}
+		time.Sleep(reloadGrace)
+		logf("in-flight requests drained; re-exec'ing %s", selfExe)
+		if !execReloadFn() {
+			reloadArmed.Store(false) // exec failed — let a later call retry
+			logf("hot-reload could not complete; continuing on current image")
+		}
+	}()
+}
+
+// execReload replaces the process image with a fresh copy of the binary,
+// passing the current session state so the reconnect is transparent to the
+// client. It does not return on success (the image is gone); it returns
+// false only when the reload could not be attempted or exec failed.
+func execReload() bool {
 	var params *mcp.InitializeParams
 	for ss := range mcpServer.Sessions() {
 		params = ss.InitializeParams()
 		break
 	}
 	if params == nil {
-		return
+		return false
 	}
 	data, err := json.Marshal(params)
 	if err != nil {
-		return
+		return false
 	}
 	env := os.Environ()
 	env = append(env, resumeEnvKey+"="+base64.StdEncoding.EncodeToString(data))
 	_ = syscall.Exec(selfExe, os.Args, env)
+	return false
 }
 
 // ResumeState returns saved InitializeParams if this is a hot-reload
@@ -92,10 +150,16 @@ func ResumeState() *mcp.InitializeParams {
 	return &params
 }
 
-// addTool wraps mcp.AddTool with hot-reload middleware.
+// addTool wraps mcp.AddTool with deferred hot-reload middleware: the
+// handler runs and responds first, then a reload is armed if the binary
+// was rebuilt — never mid-request.
 func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
 	wrapped := func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
-		execIfUpdated()
+		inflight.Add(1)
+		defer func() {
+			inflight.Add(-1)
+			reloadIfUpdated()
+		}()
 		return h(ctx, req, in)
 	}
 	mcp.AddTool(s, t, mcp.ToolHandlerFor[In, Out](wrapped))
