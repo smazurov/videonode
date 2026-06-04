@@ -13,6 +13,7 @@ interface HeaderProps {
 const NAV_TABS = [
   { to: "/sources", label: "Sources" },
   { to: "/composers", label: "Composers" },
+  { to: "/sensors", label: "Sensors" },
   { to: "/streams", label: "Streams" },
   { to: "/logs", label: "Logs" },
 ] as const;

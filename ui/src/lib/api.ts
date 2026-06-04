@@ -73,10 +73,12 @@ type Pick<P extends keyof paths> = { [K in P]: paths[K] };
 type SourcePath = Extract<keyof paths, `/api/sources${string}`>;
 type ComposerPath = Extract<keyof paths, `/api/composers${string}`>;
 type StreamPath = Extract<keyof paths, `/api/streams${string}` | `/api/v2/streams${string}`>;
+type SensorPath = Extract<keyof paths, `/api/sensors${string}`>;
 
 export const apiSources = api as unknown as ReturnType<typeof createClient<Pick<SourcePath>>>;
 export const apiComposers = api as unknown as ReturnType<typeof createClient<Pick<ComposerPath>>>;
 export const apiStreams = api as unknown as ReturnType<typeof createClient<Pick<StreamPath>>>;
+export const apiSensors = api as unknown as ReturnType<typeof createClient<Pick<SensorPath>>>;
 
 export function buildStreamURL(partialUrl: string | undefined, protocol: 'http' | 'rtsp' | 'srt' = 'http'): string | undefined {
   if (!partialUrl) return undefined;

@@ -16,6 +16,7 @@ export type EntityEvent = Extract<EntitySSEData, { event: 'entity' }>['data'];
 export type SourceEvent = Extract<EntityEvent, { type: `source.${string}` }>;
 export type ComposerEvent = Extract<EntityEvent, { type: `composer.${string}` }>;
 export type StreamEvent = Extract<EntityEvent, { type: `stream.${string}` }>;
+export type SensorEvent = Extract<EntityEvent, { type: `sensor.${string}` }>;
 
 // Payload aliases for the typed slots stores keep keyed by id.
 export type StatusParams = components['schemas']['StatusParams'];
