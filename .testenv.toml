@@ -44,10 +44,55 @@ VIDEONODE_METRICS_SSE_ENABLED = "true"
 VITE_DEV_PORT = "${TESTENV_PORT_VITE}"
 PC_PORT_NUM = "${TESTENV_PORT_PC}"
 
+# Point the daemon at the worktree's freshly-built native binaries. Each is
+# exported only if the file exists; when a worktree hasn't built composer/,
+# the daemon falls back to its ~/.local/bin default. Built by the
+# relwithdebinfo preset (see composer/ build docs); override the preset path
+# in .testenv.local.toml when iterating with the dev preset.
+[[spawn.binaries]]
+env = "VIDEONODE_NATIVE_PIPELINE_SOURCE"
+path = "${TESTENV_WORKTREE}/composer/build/relwithdebinfo/src/bin/videonode-source"
+
+[[spawn.binaries]]
+env = "VIDEONODE_NATIVE_PIPELINE_SINK"
+path = "${TESTENV_WORKTREE}/composer/build/relwithdebinfo/src/bin/videonode-sink"
+
+[[spawn.binaries]]
+env = "VIDEONODE_NATIVE_PIPELINE_COMPOSER"
+path = "${TESTENV_WORKTREE}/composer/build/relwithdebinfo/src/bin/videonode-composer"
+
 [[spawn.files]]
 path = "${TESTENV_WORKTREE}/streams.toml"
 content = """
 version = 2
+
+# Encoder validation baked in from `videonode validate-encoders` on this
+# host. The daemon reads [validation.*] at startup to pick a working
+# encoder — it does not self-validate. Regenerate after an ffmpeg/hardware
+# change: run `videonode validate-encoders` and paste its [validation.*]
+# block here.
+[validation]
+ffmpeg_version = '8.1.1'
+test_duration = 2
+test_resolution = '640x480'
+
+[validation.h264]
+working = ['h264_vaapi', 'libx264']
+failed = []
+
+[validation.h265]
+working = ['hevc_vaapi', 'libx265']
+failed = []
+
+[validation.backends]
+[validation.backends.vaapi]
+[validation.backends.vaapi.decoders]
+working = ['h264', 'hevc']
+failed = ['mjpeg']
+
+[validation.backends.vaapi.filters]
+working = []
+failed = ['scale_vaapi', 'scale_vaapi_bgra', 'transpose_vaapi', 'overlay_vaapi', 'hevc_alignment']
 
 [[sources]]
 id = "${TESTENV_ENV_ID}-src"
