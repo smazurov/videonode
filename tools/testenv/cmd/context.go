@@ -16,10 +16,6 @@ type Context struct {
 	SessionID string
 }
 
-var (
-	stdoutW io.Writer = os.Stdout
-	stderrW io.Writer = os.Stderr
-)
+var stdoutW io.Writer = os.Stdout
 
 func stdout() io.Writer { return stdoutW }
-func stderr() io.Writer { return stderrW }

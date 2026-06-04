@@ -70,7 +70,7 @@ func execIfUpdated() {
 	}
 	env := os.Environ()
 	env = append(env, resumeEnvKey+"="+base64.StdEncoding.EncodeToString(data))
-	syscall.Exec(selfExe, os.Args, env)
+	_ = syscall.Exec(selfExe, os.Args, env)
 }
 
 // ResumeState returns saved InitializeParams if this is a hot-reload
@@ -294,4 +294,3 @@ func releaseHandler(sp string) mcp.ToolHandlerFor[leaseIn, leaseOut] {
 		return nil, leaseOut{ResourceID: in.ResourceID}, nil
 	}
 }
-

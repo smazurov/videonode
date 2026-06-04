@@ -7,8 +7,10 @@ import (
 	"github.com/smazurov/videonode/tools/testenv/internal/envctl"
 )
 
+// DoctorCmd prints diagnostic information about the testenv installation and current session.
 type DoctorCmd struct{}
 
+// Run executes the doctor command, printing version and environment state.
 func (c *DoctorCmd) Run(ctx *Context) error {
 	w := stdout()
 
@@ -19,7 +21,7 @@ func (c *DoctorCmd) Run(ctx *Context) error {
 	if v == "" {
 		v = "dev"
 	}
-	fmt.Fprintf(w, "%-14s%s\n", "version:", v)
+	_, _ = fmt.Fprintf(w, "%-14s%s\n", "version:", v)
 
 	session := ctx.SessionID
 	if session == "" {
@@ -27,7 +29,7 @@ func (c *DoctorCmd) Run(ctx *Context) error {
 	}
 
 	for _, f := range envctl.Doctor(ctx.StatePath, session) {
-		fmt.Fprintf(w, "%-14s%s\n", f.Key+":", f.Value)
+		_, _ = fmt.Fprintf(w, "%-14s%s\n", f.Key+":", f.Value)
 	}
 	return nil
 }

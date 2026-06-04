@@ -20,9 +20,9 @@ func hookLog(statePath, hook, session string, kv ...string) {
 	defer f.Close()
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\t%s\tsess=%s", time.Now().UTC().Format(time.RFC3339), hook, shortID(session))
+	_, _ = fmt.Fprintf(&b, "%s\t%s\tsess=%s", time.Now().UTC().Format(time.RFC3339), hook, shortID(session))
 	for i := 0; i+1 < len(kv); i += 2 {
-		fmt.Fprintf(&b, "\t%s=%s", kv[i], kv[i+1])
+		_, _ = fmt.Fprintf(&b, "\t%s=%s", kv[i], kv[i+1])
 	}
 	b.WriteByte('\n')
 	f.WriteString(b.String())

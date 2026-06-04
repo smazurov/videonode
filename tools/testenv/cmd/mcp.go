@@ -9,6 +9,7 @@ import (
 // MCPCmd runs testenv as a stdio MCP server.
 type MCPCmd struct{}
 
+// Run starts the stdio MCP server, resuming prior session state if available.
 func (c *MCPCmd) Run(ctx *Context) error {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "testenv", Version: Version},

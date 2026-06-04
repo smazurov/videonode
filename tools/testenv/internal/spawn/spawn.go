@@ -170,7 +170,7 @@ func buildEnv(cfg *config.V1, vars map[string]string) []string {
 	present, missing := cfg.ResolveBinaries(vars)
 	env = append(env, present...)
 	for _, name := range missing {
-		fmt.Fprintf(os.Stderr, "testenv: %s binary not built in worktree — using daemon default\n", name)
+		_, _ = fmt.Fprintf(os.Stderr, "testenv: %s binary not built in worktree — using daemon default\n", name)
 	}
 	return env
 }
@@ -182,7 +182,7 @@ func waitHealthy(ctx context.Context, url, auth string, timeout time.Duration) e
 	client := &http.Client{Timeout: 1 * time.Second}
 	var lastErr error
 	for time.Now().Before(deadline) {
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return err
 		}
@@ -195,7 +195,7 @@ func waitHealthy(ctx context.Context, url, auth string, timeout time.Duration) e
 		resp, err := client.Do(req)
 		if err == nil {
 			resp.Body.Close()
-			if resp.StatusCode == 200 {
+			if resp.StatusCode == http.StatusOK {
 				return nil
 			}
 			lastErr = fmt.Errorf("status %d", resp.StatusCode)
@@ -224,10 +224,7 @@ func tailFile(path string, n int) string {
 	if fi == nil {
 		return ""
 	}
-	off := fi.Size() - int64(n)
-	if off < 0 {
-		off = 0
-	}
+	off := max(fi.Size()-int64(n), 0)
 	f.Seek(off, io.SeekStart)
 	b, _ := io.ReadAll(f)
 	return strings.TrimRight(string(b), "\n")

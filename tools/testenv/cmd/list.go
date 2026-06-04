@@ -11,15 +11,16 @@ import (
 	"github.com/smazurov/videonode/tools/testenv/internal/envctl"
 )
 
+// ListCmd prints a table of all registered test environments.
 type ListCmd struct {
 	Mine bool `help:"Only show envs owned by the current session."`
 }
 
-func truncateLease(id string, max int) string {
-	if len(id) <= max {
+func truncateLease(id string, maxLen int) string {
+	if len(id) <= maxLen {
 		return id
 	}
-	return id[:max-1] + "…"
+	return id[:maxLen-1] + "…"
 }
 
 func probeHealth(envs []envctl.EnvInfo) map[string]string {
@@ -60,6 +61,7 @@ func probeHealth(envs []envctl.EnvInfo) map[string]string {
 	return result
 }
 
+// Run lists registered test environments to stdout.
 func (c *ListCmd) Run(ctx *Context) error {
 	envs, err := envctl.List(ctx.Ctx, envctl.ListParams{
 		StatePath: ctx.StatePath,
@@ -71,22 +73,22 @@ func (c *ListCmd) Run(ctx *Context) error {
 	}
 	if len(envs) == 0 {
 		if c.Mine {
-			fmt.Fprintln(stdout(), "no envs owned by current session")
+			_, _ = fmt.Fprintln(stdout(), "no envs owned by current session")
 		} else {
-			fmt.Fprintln(stdout(), "no envs registered")
+			_, _ = fmt.Fprintln(stdout(), "no envs registered")
 		}
 		return nil
 	}
 	health := probeHealth(envs)
 
 	w := tabwriter.NewWriter(stdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tURL\tWORKTREE\tPID\tAGE")
+	_, _ = fmt.Fprintln(w, "ID\tSTATUS\tURL\tWORKTREE\tPID\tAGE")
 	for _, e := range envs {
 		age := time.Since(e.CreatedAt).Round(time.Second)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
 			e.ID, health[e.ID], e.HTTPURL, e.Worktree, e.PID, age)
 		for _, l := range e.Leases {
-			fmt.Fprintf(w, "\t\t└ %s\t\t\t\n", truncateLease(l, 30))
+			_, _ = fmt.Fprintf(w, "\t\t└ %s\t\t\t\n", truncateLease(l, 30))
 		}
 	}
 	return w.Flush()

@@ -206,12 +206,12 @@ func (s *Store) DeleteEnvsForSession(session string) ([]string, error) {
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		ids = append(ids, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, id := range ids {
 		if delErr := s.DeleteEnv(id); delErr != nil {
 			return ids, delErr
@@ -244,7 +244,7 @@ func (s *Store) ListEnvs() ([]Env, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Env
 	for rows.Next() {
 		e, err := scanEnv(rows)
@@ -262,7 +262,7 @@ func (s *Store) TakenSlots() ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []int
 	for rows.Next() {
 		var n int
@@ -308,7 +308,7 @@ func (s *Store) ListLeasesFor(envID string) ([]Lease, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Lease
 	for rows.Next() {
 		var l Lease
@@ -340,7 +340,7 @@ func scanEnv(r rowScanner) (Env, error) {
 }
 
 // isUniqueErr returns true when err is a SQLite UNIQUE-constraint failure.
-// modernc.org/sqlite returns errors whose string contains "UNIQUE constraint failed".
+// The modernc.org/sqlite driver returns errors whose message contains "UNIQUE constraint failed".
 func isUniqueErr(err error) bool {
 	if err == nil {
 		return false

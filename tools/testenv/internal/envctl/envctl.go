@@ -27,12 +27,14 @@ import (
 
 // --- params / results ---
 
+// UpParams holds the parameters for bringing up a test environment.
 type UpParams struct {
 	StatePath string
 	Session   string
 	Locks     []string // exclusive resource leases
 }
 
+// UpResult holds the result of a successful Up call.
 type UpResult struct {
 	EnvID         string
 	Slot          int
@@ -44,23 +46,27 @@ type UpResult struct {
 	PID           int
 }
 
+// DownParams holds the parameters for tearing down a test environment.
 type DownParams struct {
 	StatePath string
 	EnvID     string
 	Session   string
 }
 
+// DownResult holds the result of a successful Down call.
 type DownResult struct {
 	EnvID string
 	PID   int
 }
 
+// ListParams holds the parameters for listing test environments.
 type ListParams struct {
 	StatePath string
 	Mine      bool
 	Session   string
 }
 
+// EnvInfo holds the display information for a single test environment.
 type EnvInfo struct {
 	ID         string
 	Slot       int
@@ -75,18 +81,21 @@ type EnvInfo struct {
 	CreatedAt  time.Time
 }
 
+// LeaseParams holds the parameters for acquiring a resource lease.
 type LeaseParams struct {
 	StatePath  string
 	Session    string
 	ResourceID string
 }
 
+// ReapResult holds the result of a Reap call.
 type ReapResult struct {
 	Released []string
 }
 
 // --- operations ---
 
+// Up brings up a new test environment for the given session, or returns the existing one.
 func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	if p.Session == "" {
 		p.Session = "unattached-" + randHex(4)
@@ -109,7 +118,7 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	if err != nil {
 		return UpResult{}, err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	reapAndClean(s)
 
 	localOverride := filepath.Base(cfg.LocalPath)
@@ -122,7 +131,7 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 			EnvID: existing.ID, Slot: existing.Slot,
 			HTTPURL: existing.HTTPURL, Auth: existing.HealthAuth,
 			LocalOverride: localOverride,
-			DataDir: existing.DataDir, PID: existing.OwnerPID,
+			DataDir:       existing.DataDir, PID: existing.OwnerPID,
 		}, nil
 	}
 
@@ -148,9 +157,9 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 			OwnerWorktree: worktree, Target: "host", SourceMode: derivedSourceMode(p.Locks),
 			Slot: held.Slot, HTTPURL: fmt.Sprintf("http://localhost:%d", primaryPort),
 			RTSPURL: "", SRTURL: "",
-			HealthURL: config.ExpandVars(cfg.Spawn.HealthURL, vars),
+			HealthURL:  config.ExpandVars(cfg.Spawn.HealthURL, vars),
 			HealthAuth: cfg.Spawn.HealthAuth,
-			DataDir: dataDir, StreamsTOML: filepath.Join(dataDir, "streams.toml"),
+			DataDir:    dataDir, StreamsTOML: filepath.Join(dataDir, "streams.toml"),
 		}
 		if err := s.CreateEnv(env); err != nil {
 			held.Release()
@@ -158,7 +167,7 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 		}
 		for _, lock := range p.Locks {
 			if err := s.LeaseAcquire(lock, envID); err != nil {
-				s.DeleteEnv(envID)
+				_ = s.DeleteEnv(envID)
 				held.Release()
 				return err
 			}
@@ -178,10 +187,10 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 		Held:     held,
 	})
 	if err != nil {
-		s.DeleteEnv(envID)
+		_ = s.DeleteEnv(envID)
 		return UpResult{}, fmt.Errorf("spawn: %w", err)
 	}
-	s.UpdateEnvAfterSpawn(envID, res.PID, "")
+	_ = s.UpdateEnvAfterSpawn(envID, res.PID, "")
 
 	httpURL := fmt.Sprintf("http://localhost:%d", held.Ports[cfg.PrimaryPortName()])
 	return UpResult{
@@ -191,12 +200,13 @@ func Up(ctx context.Context, p UpParams) (UpResult, error) {
 	}, nil
 }
 
-func Down(ctx context.Context, p DownParams) (DownResult, error) {
+// Down tears down a running test environment, signalling its daemon and removing its state.
+func Down(_ context.Context, p DownParams) (DownResult, error) {
 	s, err := openStore(p.StatePath)
 	if err != nil {
 		return DownResult{}, err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	reapAndClean(s)
 
 	envID := p.EnvID
@@ -229,12 +239,13 @@ func Down(ctx context.Context, p DownParams) (DownResult, error) {
 	return DownResult{EnvID: envID, PID: e.OwnerPID}, nil
 }
 
-func List(ctx context.Context, p ListParams) ([]EnvInfo, error) {
+// List returns all (or current-session) test environments from the registry.
+func List(_ context.Context, p ListParams) ([]EnvInfo, error) {
 	s, err := openStore(p.StatePath)
 	if err != nil {
 		return nil, err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	reapAndClean(s)
 
 	envs, err := s.ListEnvs()
@@ -255,18 +266,19 @@ func List(ctx context.Context, p ListParams) ([]EnvInfo, error) {
 			ID: e.ID, Slot: e.Slot, Target: e.Target, Source: e.SourceMode,
 			HTTPURL: e.HTTPURL, HealthURL: e.HealthURL, HealthAuth: e.HealthAuth,
 			Worktree: DisplayWorktree(e.OwnerWorktree),
-			PID: e.OwnerPID, Leases: ids, CreatedAt: e.CreatedAt,
+			PID:      e.OwnerPID, Leases: ids, CreatedAt: e.CreatedAt,
 		})
 	}
 	return out, nil
 }
 
-func Lease(ctx context.Context, p LeaseParams) error {
+// Lease acquires an exclusive resource lease for the session's current environment.
+func Lease(_ context.Context, p LeaseParams) error {
 	s, err := openStore(p.StatePath)
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	reapAndClean(s)
 
 	if p.Session == "" {
@@ -285,16 +297,18 @@ func Lease(ctx context.Context, p LeaseParams) error {
 	return s.LeaseAcquire(p.ResourceID, env.ID)
 }
 
-func Release(ctx context.Context, statePath, resourceID string) error {
+// Release releases a previously acquired resource lease.
+func Release(_ context.Context, statePath, resourceID string) error {
 	s, err := openStore(statePath)
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	return s.LeaseRelease(resourceID)
 }
 
-func ReleaseSession(ctx context.Context, statePath, session string) ([]string, error) {
+// ReleaseSession tears down all environments owned by the given session.
+func ReleaseSession(_ context.Context, statePath, session string) ([]string, error) {
 	if session == "" {
 		return nil, errors.New("no session id")
 	}
@@ -302,7 +316,7 @@ func ReleaseSession(ctx context.Context, statePath, session string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	envs, _ := s.ListEnvs()
 	for _, e := range envs {
 		if e.OwnerSession == session {
@@ -313,7 +327,8 @@ func ReleaseSession(ctx context.Context, statePath, session string) ([]string, e
 	return s.DeleteEnvsForSession(session)
 }
 
-func ReleaseWorktree(ctx context.Context, statePath, worktreeDir string) ([]string, error) {
+// ReleaseWorktree tears down all environments owned by the given worktree directory.
+func ReleaseWorktree(_ context.Context, statePath, worktreeDir string) ([]string, error) {
 	if worktreeDir == "" {
 		return nil, nil
 	}
@@ -321,7 +336,7 @@ func ReleaseWorktree(ctx context.Context, statePath, worktreeDir string) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	envs, err := s.ListEnvs()
 	if err != nil {
 		return nil, err
@@ -352,7 +367,7 @@ func ReleaseWorktreeTree(statePath, dir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	envs, err := s.ListEnvs()
 	if err != nil {
 		return nil, err
@@ -381,20 +396,23 @@ func worktreeContains(owner, dir string) bool {
 	return dir == owner || strings.HasPrefix(dir, owner+string(os.PathSeparator))
 }
 
-func Reap(ctx context.Context, statePath string) (ReapResult, error) {
+// Reap sweeps stale environments whose PIDs are no longer alive and returns their IDs.
+func Reap(_ context.Context, statePath string) (ReapResult, error) {
 	s, err := openStore(statePath)
 	if err != nil {
 		return ReapResult{}, err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ids := reapAndClean(s)
 	return ReapResult{Released: ids}, nil
 }
 
+// ValidateResult holds the outcome of a Validate call.
 type ValidateResult struct {
 	LocalOverride string // basename of local override file, empty if none
 }
 
+// Validate loads and validates the testenv config rooted at dir.
 func Validate(dir string) (ValidateResult, error) {
 	cfg, err := config.Load(dir)
 	if err != nil {
@@ -409,11 +427,13 @@ func Validate(dir string) (ValidateResult, error) {
 
 // --- doctor ---
 
+// DoctorFact is a single key/value diagnostic item returned by Doctor.
 type DoctorFact struct {
 	Key   string
 	Value string
 }
 
+// Doctor returns diagnostic facts about the current testenv installation and state.
 func Doctor(statePath, session string) []DoctorFact {
 	var facts []DoctorFact
 	add := func(k, v string) { facts = append(facts, DoctorFact{Key: k, Value: v}) }
@@ -486,7 +506,7 @@ func Doctor(statePath, session string) []DoctorFact {
 	if err == nil {
 		envs, _ := s.ListEnvs()
 		add("envs", fmt.Sprintf("%d", len(envs)))
-		s.Close()
+		_ = s.Close()
 	}
 
 	return facts
@@ -496,8 +516,8 @@ func Doctor(statePath, session string) []DoctorFact {
 // get the real project root where .mcp.json lives.
 func resolveProjectRoot(dir string) string {
 	const marker = "/.claude/worktrees/"
-	if i := strings.Index(dir, marker); i >= 0 {
-		return dir[:i]
+	if before, _, found := strings.Cut(dir, marker); found {
+		return before
 	}
 	return dir
 }
@@ -510,16 +530,13 @@ const ConfigFileName = config.FileName
 // For .claude/worktrees/<name> paths: "<name>/<project>".
 // For main checkouts: "<project>".
 func DisplayWorktree(absPath string) string {
-	marker := "/.claude/worktrees/"
-	i := strings.Index(absPath, marker)
-	if i < 0 {
+	const marker = "/.claude/worktrees/"
+	before, after, found := strings.Cut(absPath, marker)
+	if !found {
 		return filepath.Base(absPath)
 	}
-	project := filepath.Base(absPath[:i])
-	rest := absPath[i+len(marker):]
-	if j := strings.Index(rest, "/"); j >= 0 {
-		rest = rest[:j]
-	}
+	project := filepath.Base(before)
+	rest, _, _ := strings.Cut(after, "/")
 	return rest + "/" + project
 }
 
@@ -536,12 +553,14 @@ func resolveWorktree(statePath, session string) string {
 	return "."
 }
 
+// RestartParams holds the parameters for restarting an existing test environment.
 type RestartParams struct {
 	StatePath string
 	EnvID     string
 	Session   string
 }
 
+// RestartResult holds the result of a successful Restart call.
 type RestartResult struct {
 	EnvID   string
 	HTTPURL string
@@ -549,6 +568,7 @@ type RestartResult struct {
 	PID     int
 }
 
+// Restart rebuilds and relaunches the daemon for an existing test environment.
 func Restart(ctx context.Context, p RestartParams) (RestartResult, error) {
 	worktree := resolveWorktree(p.StatePath, p.Session)
 
@@ -561,8 +581,8 @@ func Restart(ctx context.Context, p RestartParams) (RestartResult, error) {
 	if err != nil {
 		return RestartResult{}, err
 	}
-	defer s.Close()
-	reaper.Reap(s)
+	defer func() { _ = s.Close() }()
+	_, _ = reaper.Reap(s)
 
 	envID := p.EnvID
 	if envID == "" {
@@ -603,7 +623,7 @@ func Restart(ctx context.Context, p RestartParams) (RestartResult, error) {
 	env := spawn.BuildEnv(cfg, vars)
 
 	// Park our own PID so the reaper won't delete the row while we rebuild.
-	s.UpdateEnvAfterRestart(envID, os.Getpid(), e.HealthURL, e.HealthAuth)
+	_ = s.UpdateEnvAfterRestart(envID, os.Getpid(), e.HealthURL, e.HealthAuth)
 
 	signalDaemon(e.OwnerPID)
 
@@ -617,7 +637,7 @@ func Restart(ctx context.Context, p RestartParams) (RestartResult, error) {
 	}
 
 	healthURL := config.ExpandVars(cfg.Spawn.HealthURL, vars)
-	s.UpdateEnvAfterRestart(envID, pid, healthURL, cfg.Spawn.HealthAuth)
+	_ = s.UpdateEnvAfterRestart(envID, pid, healthURL, cfg.Spawn.HealthAuth)
 
 	return RestartResult{
 		EnvID: envID, HTTPURL: e.HTTPURL, Auth: cfg.Spawn.HealthAuth, PID: pid,
@@ -645,7 +665,7 @@ func derivedSourceMode(locks []string) string {
 func formatLeaseConflict(s *store.Store, resID, holderEnvID string) error {
 	holder, err := s.GetEnv(holderEnvID)
 	if err != nil {
-		return fmt.Errorf("resource %s held by env %s (lookup failed: %v)", resID, holderEnvID, err)
+		return fmt.Errorf("resource %s held by env %s (lookup failed: %w)", resID, holderEnvID, err)
 	}
 	return fmt.Errorf("resource %s held by env %s (worktree=%s pid=%d since %s)",
 		resID, holder.ID, holder.OwnerWorktree, holder.OwnerPID, holder.CreatedAt.Format("15:04:05"))
@@ -683,7 +703,7 @@ func isInWorktree(path string) bool {
 
 func reapAndClean(s *store.Store) []string {
 	reaped, _ := reaper.Reap(s)
-	var ids []string
+	ids := make([]string, 0, len(reaped))
 	for _, r := range reaped {
 		removeDataDir(r.DataDir)
 		ids = append(ids, r.ID)

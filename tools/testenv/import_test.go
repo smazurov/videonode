@@ -14,11 +14,11 @@ import (
 // can silently disagree.
 func TestNoDirectInternalImports(t *testing.T) {
 	forbidden := map[string]bool{
-		"github.com/smazurov/videonode/tools/testenv/internal/store":   true,
-		"github.com/smazurov/videonode/tools/testenv/internal/slots":   true,
-		"github.com/smazurov/videonode/tools/testenv/internal/spawn":   true,
-		"github.com/smazurov/videonode/tools/testenv/internal/reaper":  true,
-		"github.com/smazurov/videonode/tools/testenv/internal/config":  true,
+		"github.com/smazurov/videonode/tools/testenv/internal/store":  true,
+		"github.com/smazurov/videonode/tools/testenv/internal/slots":  true,
+		"github.com/smazurov/videonode/tools/testenv/internal/spawn":  true,
+		"github.com/smazurov/videonode/tools/testenv/internal/reaper": true,
+		"github.com/smazurov/videonode/tools/testenv/internal/config": true,
 	}
 
 	// Packages that must NOT import the forbidden set directly.

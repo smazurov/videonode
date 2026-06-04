@@ -6,7 +6,7 @@ import (
 	"runtime/debug"
 )
 
-// Build-time variables set via -ldflags:
+// Version is the build-time version stamp set via -ldflags:
 //
 //	go install -ldflags "-X github.com/smazurov/videonode/tools/testenv/cmd.Version=$(git rev-parse --short HEAD)" .
 var Version string
@@ -14,6 +14,7 @@ var Version string
 // VersionCmd prints version + VCS info.
 type VersionCmd struct{}
 
+// Run prints the version and VCS build info to stdout.
 func (c *VersionCmd) Run(_ *Context) error {
 	v := Version
 	if v == "" {
@@ -22,7 +23,7 @@ func (c *VersionCmd) Run(_ *Context) error {
 	if v == "" {
 		v = "dev"
 	}
-	fmt.Fprintf(stdout(), "testenv %s (%s)\n", v, runtime.Version())
+	_, _ = fmt.Fprintf(stdout(), "testenv %s (%s)\n", v, runtime.Version())
 	return nil
 }
 

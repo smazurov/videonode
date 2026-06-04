@@ -16,6 +16,7 @@ type InitCmd struct {
 	Force bool   `help:"Overwrite existing .testenv.toml."`
 }
 
+// Run writes the .testenv.toml template into the target directory.
 func (c *InitCmd) Run(_ *Context) error {
 	dir, err := filepath.Abs(c.Dir)
 	if err != nil {
@@ -33,8 +34,8 @@ func (c *InitCmd) Run(_ *Context) error {
 	if err := os.WriteFile(path, []byte(configTemplate), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout(), "wrote %s\n", path)
-	fmt.Fprintln(stdout(), "edit the file to match your project, then run: testenv validate && testenv install")
+	_, _ = fmt.Fprintf(stdout(), "wrote %s\n", path)
+	_, _ = fmt.Fprintln(stdout(), "edit the file to match your project, then run: testenv validate && testenv install")
 	return nil
 }
 

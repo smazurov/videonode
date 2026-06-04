@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -50,7 +51,7 @@ func TestSlotUniqueness(t *testing.T) {
 	}
 	e.ID = "env-2"
 	e.OwnerSession = "s2"
-	if err := s.CreateEnv(e); err != ErrSlotTaken {
+	if err := s.CreateEnv(e); !errors.Is(err, ErrSlotTaken) {
 		t.Errorf("expected ErrSlotTaken, got %v", err)
 	}
 }
@@ -73,7 +74,7 @@ func TestDeleteCascadesLeases(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := s.LeaseHolder("device:/dev/video0")
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected ErrNoRows after cascade delete, got %v", err)
 	}
 }
@@ -99,7 +100,7 @@ func TestLeaseConflict(t *testing.T) {
 	if err := s.LeaseAcquire("device:/dev/video0", "env-1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.LeaseAcquire("device:/dev/video0", "env-2"); err != ErrLeaseHeld {
+	if err := s.LeaseAcquire("device:/dev/video0", "env-2"); !errors.Is(err, ErrLeaseHeld) {
 		t.Errorf("expected ErrLeaseHeld, got %v", err)
 	}
 }

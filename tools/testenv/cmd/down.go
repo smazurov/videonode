@@ -6,10 +6,12 @@ import (
 	"github.com/smazurov/videonode/tools/testenv/internal/envctl"
 )
 
+// DownCmd tears down a running test environment.
 type DownCmd struct {
 	EnvID string `arg:"" optional:"" help:"Env id to tear down. Defaults to the current session's env."`
 }
 
+// Run executes the down subcommand.
 func (c *DownCmd) Run(ctx *Context) error {
 	r, err := envctl.Down(ctx.Ctx, envctl.DownParams{
 		StatePath: ctx.StatePath,
@@ -19,6 +21,6 @@ func (c *DownCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout(), "env %s torn down (pid %d signaled)\n", r.EnvID, r.PID)
+	_, _ = fmt.Fprintf(stdout(), "env %s torn down (pid %d signaled)\n", r.EnvID, r.PID)
 	return nil
 }

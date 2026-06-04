@@ -16,7 +16,10 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// FileName is the primary project config file name searched when walking up.
 const FileName = ".testenv.toml"
+
+// LocalFileName is the optional local override config file name.
 const LocalFileName = ".testenv.local.toml"
 
 // MaxSupportedVersion is the highest config version this binary knows.
@@ -117,14 +120,14 @@ func find(dir string) (string, error) {
 
 // V1 is the version-1 config schema.
 type V1 struct {
-	Version  int               `toml:"version"`
-	MaxSlots int               `toml:"max_slots"`
-	DataDir  string            `toml:"data_dir"`
-	Ports    map[string]Port   `toml:"ports"`
-	Spawn    SpawnV1           `toml:"spawn"`
-	Hooks    HooksV1           `toml:"hooks"`
-	Path      string            `toml:"-"` // resolved file path
-	LocalPath string            `toml:"-"` // resolved local override path, empty if none
+	Version   int             `toml:"version"`
+	MaxSlots  int             `toml:"max_slots"`
+	DataDir   string          `toml:"data_dir"`
+	Ports     map[string]Port `toml:"ports"`
+	Spawn     SpawnV1         `toml:"spawn"`
+	Hooks     HooksV1         `toml:"hooks"`
+	Path      string          `toml:"-"` // resolved file path
+	LocalPath string          `toml:"-"` // resolved local override path, empty if none
 }
 
 // Port defines a named port family with slot-based allocation.
@@ -136,6 +139,7 @@ type Port struct {
 	Primary bool `toml:"primary"`
 }
 
+// SpawnV1 holds the process launch configuration for a version-1 config.
 type SpawnV1 struct {
 	Build         string            `toml:"build"`
 	Command       string            `toml:"command"`
@@ -148,6 +152,7 @@ type SpawnV1 struct {
 	Binaries      []SpawnBinary     `toml:"binaries"`
 }
 
+// LogsEnabled reports whether process stdout/stderr should be forwarded to the terminal.
 func (s *SpawnV1) LogsEnabled() bool {
 	if s.Logs == nil {
 		return true
@@ -155,6 +160,7 @@ func (s *SpawnV1) LogsEnabled() bool {
 	return *s.Logs
 }
 
+// SpawnFile is a file to write into the env data directory before spawning.
 type SpawnFile struct {
 	Path    string `toml:"path"`
 	Content string `toml:"content"`
@@ -171,11 +177,13 @@ type SpawnBinary struct {
 	Path string `toml:"path"`
 }
 
+// HooksV1 holds the block and warn hook patterns for a version-1 config.
 type HooksV1 struct {
 	Block []HookPattern `toml:"block"`
 	Warn  []HookPattern `toml:"warn"`
 }
 
+// HookPattern is a regex-based rule that matches commands by their text and working directory.
 type HookPattern struct {
 	Match    string `toml:"match"`
 	CwdMatch string `toml:"cwd_match"`
@@ -412,7 +420,7 @@ func (c *V1) BuildVars(slot int, envID, dataDir, worktree string, locks []string
 // --- helpers ---
 
 func collectTemplateStrings(c *V1) []string {
-	var out []string
+	out := make([]string, 0, 3+len(c.Spawn.Env)+2*len(c.Spawn.Files)+len(c.Spawn.Binaries))
 	out = append(out, c.Spawn.Build, c.Spawn.Command, c.Spawn.HealthURL)
 	for _, v := range c.Spawn.Env {
 		out = append(out, v)

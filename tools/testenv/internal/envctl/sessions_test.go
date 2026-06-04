@@ -48,8 +48,10 @@ func TestUnregisterSession(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.db")
 
-	RegisterSession(statePath, "sess-1", "/tmp/a")
-	UnregisterSession(statePath, "sess-1")
+	if err := RegisterSession(statePath, "sess-1", "/tmp/a"); err != nil {
+		t.Fatal(err)
+	}
+	_ = UnregisterSession(statePath, "sess-1")
 
 	cwd, _ := LookupSession(statePath, "sess-1")
 	if cwd != "" {
@@ -61,8 +63,8 @@ func TestRegisterOverwrites(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.db")
 
-	RegisterSession(statePath, "sess-1", "/tmp/old")
-	RegisterSession(statePath, "sess-1", "/tmp/new")
+	_ = RegisterSession(statePath, "sess-1", "/tmp/old")
+	_ = RegisterSession(statePath, "sess-1", "/tmp/new")
 
 	cwd, _ := LookupSession(statePath, "sess-1")
 	if cwd != "/tmp/new" {

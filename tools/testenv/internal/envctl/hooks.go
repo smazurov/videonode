@@ -143,7 +143,7 @@ func EvalPostToolUse(r io.Reader, statePath string) HookDecision {
 	if payload.SessionID == "" || payload.Cwd == "" {
 		return HookDecision{}
 	}
-	RegisterSession(statePath, payload.SessionID, payload.Cwd)
+	_ = RegisterSession(statePath, payload.SessionID, payload.Cwd)
 	return HookDecision{}
 }
 
@@ -163,7 +163,7 @@ func EvalSessionStart(r io.Reader, statePath string) {
 	if payload.SessionID == "" || payload.Cwd == "" {
 		return
 	}
-	RegisterSession(statePath, payload.SessionID, payload.Cwd)
+	_ = RegisterSession(statePath, payload.SessionID, payload.Cwd)
 }
 
 // SessionStartContext returns inventory text to inject into the
@@ -176,10 +176,10 @@ func SessionStartContext(ctx context.Context, statePath string) string {
 	var b strings.Builder
 	b.WriteString("Active testenv environments:\n")
 	for _, e := range envs {
-		fmt.Fprintf(&b, "  slot %d: %s (%s/%s) at %s [worktree=%s pid=%d]",
+		_, _ = fmt.Fprintf(&b, "  slot %d: %s (%s/%s) at %s [worktree=%s pid=%d]",
 			e.Slot, e.ID, e.Target, e.Source, e.HTTPURL, e.Worktree, e.PID)
 		if len(e.Leases) > 0 {
-			fmt.Fprintf(&b, " holds %s", strings.Join(e.Leases, ", "))
+			_, _ = fmt.Fprintf(&b, " holds %s", strings.Join(e.Leases, ", "))
 		}
 		b.WriteString("\n")
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/smazurov/videonode/tools/testenv/internal/envctl"
 )
 
+// HookCmd groups all Claude Code lifecycle hook subcommands.
 type HookCmd struct {
 	SessionStart   HookSessionStartCmd   `cmd:"session-start" help:"SessionStart hook: reap + inject inventory context."`
 	SessionEnd     HookSessionEndCmd     `cmd:"session-end" help:"SessionEnd hook: release session envs."`
@@ -19,8 +20,10 @@ type HookCmd struct {
 	WorktreeRemove HookWorktreeRemoveCmd `cmd:"worktree-remove" help:"WorktreeRemove hook: release envs from deleted worktree."`
 }
 
+// HookSessionStartCmd handles the SessionStart hook: reaps stale envs and injects inventory context.
 type HookSessionStartCmd struct{}
 
+// Run executes the SessionStart hook.
 func (c *HookSessionStartCmd) Run(ctx *Context) error {
 	raw, _ := io.ReadAll(os.Stdin)
 	envctl.EvalSessionStart(bytes.NewReader(raw), ctx.StatePath)
@@ -30,7 +33,7 @@ func (c *HookSessionStartCmd) Run(ctx *Context) error {
 		return err
 	}
 	if len(r.Released) > 0 {
-		fmt.Fprintf(os.Stderr, "testenv: reaped %d stale env(s)\n", len(r.Released))
+		_, _ = fmt.Fprintf(os.Stderr, "testenv: reaped %d stale env(s)\n", len(r.Released))
 	}
 	text := envctl.SessionStartContext(ctx.Ctx, ctx.StatePath)
 	if text != "" {
@@ -46,8 +49,10 @@ func (c *HookSessionStartCmd) Run(ctx *Context) error {
 	return nil
 }
 
+// HookSessionEndCmd handles the SessionEnd hook: releases all envs owned by the session.
 type HookSessionEndCmd struct{}
 
+// Run executes the SessionEnd hook.
 func (c *HookSessionEndCmd) Run(ctx *Context) error {
 	if ctx.SessionID == "" {
 		hookLog(ctx.StatePath, "session-end", "", "released", "0")
@@ -58,15 +63,17 @@ func (c *HookSessionEndCmd) Run(ctx *Context) error {
 		return err
 	}
 	if len(released) > 0 {
-		fmt.Fprintf(os.Stderr, "testenv: released %d env(s) for session %s\n", len(released), ctx.SessionID)
+		_, _ = fmt.Fprintf(os.Stderr, "testenv: released %d env(s) for session %s\n", len(released), ctx.SessionID)
 	}
 	hookLog(ctx.StatePath, "session-end", ctx.SessionID,
 		"released", strconv.Itoa(len(released)))
 	return nil
 }
 
+// HookPreToolUseCmd handles the PreToolUse hook: steers Claude toward testenv and releases envs before worktree removal.
 type HookPreToolUseCmd struct{}
 
+// Run executes the PreToolUse hook.
 func (c *HookPreToolUseCmd) Run(ctx *Context) error {
 	raw, _ := io.ReadAll(os.Stdin)
 
@@ -91,7 +98,7 @@ func (c *HookPreToolUseCmd) Run(ctx *Context) error {
 		if in.Action == "remove" && p.Cwd != "" {
 			released, _ = envctl.ReleaseWorktreeTree(ctx.StatePath, p.Cwd)
 			if len(released) > 0 {
-				fmt.Fprintf(os.Stderr, "testenv: released %d env(s) before worktree removal\n", len(released))
+				_, _ = fmt.Fprintf(os.Stderr, "testenv: released %d env(s) before worktree removal\n", len(released))
 			}
 		}
 		hookLog(ctx.StatePath, "pre-tool-use", ctx.SessionID,
@@ -107,7 +114,7 @@ func (c *HookPreToolUseCmd) Run(ctx *Context) error {
 	}
 	kv := []string{"tool", p.ToolName, "action", logAction}
 	if d.Message != "" {
-		fmt.Fprint(os.Stderr, d.Message)
+		_, _ = fmt.Fprint(os.Stderr, d.Message)
 		if d.Block {
 			kv = append(kv, "reason", d.Message)
 		}
@@ -120,8 +127,10 @@ func (c *HookPreToolUseCmd) Run(ctx *Context) error {
 	return nil
 }
 
+// HookPostToolUseCmd handles the PostToolUse hook: tracks worktree on EnterWorktree.
 type HookPostToolUseCmd struct{}
 
+// Run executes the PostToolUse hook.
 func (c *HookPostToolUseCmd) Run(ctx *Context) error {
 	raw, _ := io.ReadAll(os.Stdin)
 	envctl.EvalPostToolUse(bytes.NewReader(raw), ctx.StatePath)
@@ -138,13 +147,16 @@ func (c *HookPostToolUseCmd) Run(ctx *Context) error {
 	return nil
 }
 
+// HookWorktreeRemoveCmd handles the WorktreeRemove hook: releases envs from a deleted worktree.
 type HookWorktreeRemoveCmd struct{}
 
+// Run executes the WorktreeRemove hook.
 func (c *HookWorktreeRemoveCmd) Run(ctx *Context) error {
 	var payload struct {
 		WorktreePath string `json:"worktree_path"`
 	}
-	if err := readJSON(os.Stdin, &payload); err != nil || payload.WorktreePath == "" {
+	_ = readJSON(os.Stdin, &payload)
+	if payload.WorktreePath == "" {
 		hookLog(ctx.StatePath, "worktree-remove", ctx.SessionID, "err", "empty payload")
 		return nil
 	}
@@ -154,7 +166,7 @@ func (c *HookWorktreeRemoveCmd) Run(ctx *Context) error {
 		return err
 	}
 	if len(released) > 0 {
-		fmt.Fprintf(os.Stderr, "testenv: released %d env(s) from removed worktree %s\n",
+		_, _ = fmt.Fprintf(os.Stderr, "testenv: released %d env(s) from removed worktree %s\n",
 			len(released), payload.WorktreePath)
 	}
 	hookLog(ctx.StatePath, "worktree-remove", ctx.SessionID,

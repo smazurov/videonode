@@ -19,7 +19,8 @@ type InstallCmd struct {
 	DryRun     bool   `help:"Print what would change; don't write."`
 }
 
-func (c *InstallCmd) Run(ctx *Context) error {
+// Run executes the install command, writing skills, hooks, and .mcp.json into the project directory.
+func (c *InstallCmd) Run(_ *Context) error {
 	root, err := filepath.Abs(c.ProjectDir)
 	if err != nil {
 		return err
@@ -44,7 +45,7 @@ func (c *InstallCmd) Run(ctx *Context) error {
 		}
 		dst := filepath.Join(root, ".claude", "skills", path)
 		if c.DryRun {
-			fmt.Fprintf(stdout(), "would write %s\n", dst)
+			_, _ = fmt.Fprintf(stdout(), "would write %s\n", dst)
 			return nil
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -57,7 +58,7 @@ func (c *InstallCmd) Run(ctx *Context) error {
 		if err := os.WriteFile(dst, body, 0o644); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout(), "wrote %s\n", dst)
+		_, _ = fmt.Fprintf(stdout(), "wrote %s\n", dst)
 		return nil
 	})
 	if err != nil {
@@ -125,13 +126,13 @@ func mergeHooks(root string, dryRun bool) error {
 	}
 	out = append(out, '\n')
 	if dryRun {
-		fmt.Fprintf(stdout(), "would update %s\n", settingsPath)
+		_, _ = fmt.Fprintf(stdout(), "would update %s\n", settingsPath)
 		return nil
 	}
 	if err := os.WriteFile(settingsPath, out, 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout(), "updated %s (SessionStart/SessionEnd hooks merged)\n", settingsPath)
+	_, _ = fmt.Fprintf(stdout(), "updated %s (SessionStart/SessionEnd hooks merged)\n", settingsPath)
 	return nil
 }
 
@@ -169,12 +170,12 @@ func writeMCPJSON(root string, dryRun bool) error {
 	}
 	body = append(body, '\n')
 	if dryRun {
-		fmt.Fprintf(stdout(), "would write %s with command=%s\n", path, exe)
+		_, _ = fmt.Fprintf(stdout(), "would write %s with command=%s\n", path, exe)
 		return nil
 	}
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout(), "wrote %s (command=%s)\n", path, exe)
+	_, _ = fmt.Fprintf(stdout(), "wrote %s (command=%s)\n", path, exe)
 	return nil
 }

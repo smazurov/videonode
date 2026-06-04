@@ -87,8 +87,8 @@ func resolveProjectStatePath() string {
 
 func resolveProjectRoot(dir string) string {
 	const marker = "/.claude/worktrees/"
-	if i := strings.Index(dir, marker); i >= 0 {
-		return dir[:i]
+	if before, _, found := strings.Cut(dir, marker); found {
+		return before
 	}
 	return dir
 }

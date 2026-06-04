@@ -103,10 +103,10 @@ func TestMCPToolsMatchSkillReferences(t *testing.T) {
 		}
 	}
 	stdin.Close()
-	cmd.Wait()
+	_ = cmd.Wait()
 	var toolNames []string
 	for _, line := range lines {
-		for _, part := range strings.Split(line, `"name":"`) {
+		for part := range strings.SplitSeq(line, `"name":"`) {
 			if strings.HasPrefix(part, "testenv_") {
 				name := strings.SplitN(part, `"`, 2)[0]
 				toolNames = append(toolNames, name)
@@ -132,7 +132,6 @@ func TestMCPToolsMatchSkillReferences(t *testing.T) {
 	t.Logf("MCP tools: %v", toolNames)
 }
 
-
 // parseSubcommands extracts subcommand names from Kong --help output.
 // Kong format:
 //
@@ -147,7 +146,7 @@ func TestMCPToolsMatchSkillReferences(t *testing.T) {
 func parseSubcommands(help string) map[string]bool {
 	cmds := map[string]bool{}
 	inCommands := false
-	for _, line := range strings.Split(help, "\n") {
+	for line := range strings.SplitSeq(help, "\n") {
 		if strings.TrimSpace(line) == "Commands:" {
 			inCommands = true
 			continue
@@ -179,19 +178,19 @@ func parseSubcommands(help string) map[string]bool {
 // host" — only code-context invocations.
 func checkSkillReferences(t *testing.T, path, body string, validCmds map[string]bool, _ string) {
 	t.Helper()
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		// Dynamic injection: !`testenv subcmd ...`
 		// Inline code:       `testenv subcmd ...`
 		var cmd string
-		if strings.HasPrefix(trimmed, "!`testenv ") {
-			cmd = strings.TrimPrefix(trimmed, "!`testenv ")
-		} else if strings.HasPrefix(trimmed, "`testenv ") {
-			cmd = strings.TrimPrefix(trimmed, "`testenv ")
-		} else if strings.Contains(trimmed, "`testenv ") {
-			idx := strings.Index(trimmed, "`testenv ")
-			cmd = trimmed[idx+len("`testenv "):]
-		} else {
+		switch {
+		case strings.HasPrefix(trimmed, "!`testenv "):
+			_, cmd, _ = strings.Cut(trimmed, "!`testenv ")
+		case strings.HasPrefix(trimmed, "`testenv "):
+			_, cmd, _ = strings.Cut(trimmed, "`testenv ")
+		case strings.Contains(trimmed, "`testenv "):
+			_, cmd, _ = strings.Cut(trimmed, "`testenv ")
+		default:
 			continue
 		}
 		cmd = strings.Trim(cmd, "`")
@@ -231,23 +230,23 @@ func TestHookTemplateCommandsAreValid(t *testing.T) {
 	}
 
 	for event, groups := range hooks {
-		groupList, ok := groups.([]any)
-		if !ok {
+		groupList, ok2 := groups.([]any)
+		if !ok2 {
 			t.Errorf("event %s: expected array of hook groups", event)
 			continue
 		}
 		for _, g := range groupList {
-			gm, ok := g.(map[string]any)
-			if !ok {
+			gm, okGm := g.(map[string]any)
+			if !okGm {
 				continue
 			}
-			hooksList, ok := gm["hooks"].([]any)
-			if !ok {
+			hooksList, okList := gm["hooks"].([]any)
+			if !okList {
 				continue
 			}
 			for _, h := range hooksList {
-				hm, ok := h.(map[string]any)
-				if !ok {
+				hm, okHm := h.(map[string]any)
+				if !okHm {
 					continue
 				}
 				command, _ := hm["command"].(string)
@@ -263,7 +262,9 @@ func TestHookTemplateCommandsAreValid(t *testing.T) {
 				// Extract subcommand chain: "testenv hook pre-tool-use" → ["hook", "pre-tool-use"]
 				parts := strings.Fields(command)
 				// Run testenv <subcommands...> --help to verify it's valid.
-				args := append(parts[1:], "--help")
+				args := make([]string, len(parts)-1, len(parts))
+				copy(args, parts[1:])
+				args = append(args, "--help")
 				helpCmd := exec.Command(bin, args...)
 				out, err := helpCmd.CombinedOutput()
 				// Kong exits 0 on --help, or 1 with usage. Either is fine.
@@ -308,17 +309,17 @@ func TestSkillFlagsExistInCLI(t *testing.T) {
 // patterns and verifies each --flag appears in `testenv <subcmd> --help`.
 func checkSkillFlags(t *testing.T, path, body, bin string) {
 	t.Helper()
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		// Find testenv invocations in backtick context.
 		var cmdStr string
 		for _, prefix := range []string{"!`testenv ", "`testenv "} {
-			if strings.HasPrefix(trimmed, prefix) {
-				cmdStr = strings.TrimPrefix(trimmed, prefix)
+			if after, found := strings.CutPrefix(trimmed, prefix); found {
+				cmdStr = after
 				break
 			}
-			if idx := strings.Index(trimmed, prefix); idx >= 0 {
-				cmdStr = trimmed[idx+len(prefix):]
+			if _, after, found := strings.Cut(trimmed, prefix); found {
+				cmdStr = after
 				break
 			}
 		}
@@ -369,12 +370,4 @@ func checkSkillFlags(t *testing.T, path, body, bin string) {
 			}
 		}
 	}
-}
-
-func sortedKeys(m map[string]bool) []string {
-	var out []string
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }

@@ -229,7 +229,7 @@ func TestBuildVars(t *testing.T) {
 func TestExpandVars(t *testing.T) {
 	vars := map[string]string{
 		"TESTENV_PORT_HTTP": "8120",
-		"TESTENV_DIR":      "/tmp/data",
+		"TESTENV_DIR":       "/tmp/data",
 	}
 	got := ExpandVars("http://localhost:${TESTENV_PORT_HTTP}/health at ${TESTENV_DIR}", vars)
 	want := "http://localhost:8120/health at /tmp/data"

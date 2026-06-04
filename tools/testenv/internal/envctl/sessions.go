@@ -35,7 +35,7 @@ func RegisterSession(statePath, sessionID, cwd string) error {
 	if err := lk.Lock(); err != nil {
 		return err
 	}
-	defer lk.Unlock()
+	defer func() { _ = lk.Unlock() }()
 
 	reg := readRegistry(path)
 	reg.Sessions[sessionID] = cwd
@@ -58,7 +58,7 @@ func UnregisterSession(statePath, sessionID string) error {
 	if err := lk.Lock(); err != nil {
 		return err
 	}
-	defer lk.Unlock()
+	defer func() { _ = lk.Unlock() }()
 
 	reg := readRegistry(path)
 	delete(reg.Sessions, sessionID)
@@ -71,7 +71,7 @@ func readRegistry(path string) sessionRegistry {
 	if err != nil {
 		return reg
 	}
-	json.Unmarshal(data, &reg)
+	_ = json.Unmarshal(data, &reg)
 	if reg.Sessions == nil {
 		reg.Sessions = map[string]string{}
 	}
