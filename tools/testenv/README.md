@@ -76,6 +76,22 @@ Controls how the daemon is built and started.
 | `health_timeout`| string | no       | Duration string (e.g. `"30s"`). Default `"15s"`. |
 | `health_auth`   | string | no       | `user:password` for Basic Auth on the health check. |
 
+### `[[spawn.binaries]]`
+
+Point an environment variable at a worktree-built binary, **only if it
+exists**. Each entry has `env` (the variable name) and `path` (templated,
+typically with `${TESTENV_WORKTREE}`). When the resolved path exists it is
+exported and overrides any default set in `[spawn.env]`; when it is
+missing the variable is left unset so the daemon falls back to its own
+default. This is the generic mechanism — which binaries to override (and
+where they build) is a project concern that lives in `.testenv.toml`.
+
+```toml
+[[spawn.binaries]]
+env  = "MYAPP_HELPER_BIN"
+path = "${TESTENV_WORKTREE}/build/bin/myapp-helper"
+```
+
 ### `[spawn.env]`
 
 Key-value pairs added to the daemon's environment. Values support
@@ -117,7 +133,8 @@ execution; warn hooks print a warning.
 ### Template variables
 
 Available in `spawn.build`, `spawn.command`, `spawn.health_url`,
-`spawn.env` values, and `spawn.files` paths/content:
+`spawn.env` values, `spawn.files` paths/content, and `spawn.binaries`
+paths:
 
 | Variable | Description |
 |----------|-------------|

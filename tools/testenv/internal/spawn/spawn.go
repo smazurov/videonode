@@ -165,6 +165,13 @@ func buildEnv(cfg *config.V1, vars map[string]string) []string {
 	for k, v := range cfg.Spawn.Env {
 		env = append(env, k+"="+config.ExpandVars(v, vars))
 	}
+	// Worktree-built binaries override spawn.env defaults when present;
+	// missing ones are left unset so the daemon uses its own default.
+	present, missing := cfg.ResolveBinaries(vars)
+	env = append(env, present...)
+	for _, name := range missing {
+		fmt.Fprintf(os.Stderr, "testenv: %s binary not built in worktree — using daemon default\n", name)
+	}
 	return env
 }
 

@@ -353,6 +353,86 @@ content = "c"
 	}
 }
 
+func TestLoadV1_Binaries(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `
+version = 1
+[ports.http]
+base = 8090
+step = 10
+[spawn]
+command = "./daemon"
+[[spawn.binaries]]
+env = "NATIVE_COMPOSER"
+path = "${TESTENV_WORKTREE}/bin/composer"
+`)
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Spawn.Binaries) != 1 {
+		t.Fatalf("binaries=%d, want 1", len(c.Spawn.Binaries))
+	}
+	if c.Spawn.Binaries[0].Env != "NATIVE_COMPOSER" {
+		t.Errorf("env=%q", c.Spawn.Binaries[0].Env)
+	}
+}
+
+func TestValidate_BinaryMissingEnv(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `
+version = 1
+[ports.http]
+base = 8090
+step = 10
+[spawn]
+command = "./daemon"
+[[spawn.binaries]]
+path = "/bin/x"
+`)
+	_, err := Load(dir)
+	if err == nil || !strings.Contains(err.Error(), "binaries[0].env is required") {
+		t.Errorf("expected missing-env error, got %v", err)
+	}
+}
+
+func TestResolveBinaries_PresentAndMissing(t *testing.T) {
+	dir := t.TempDir()
+	present := filepath.Join(dir, "videonode-composer")
+	if err := os.WriteFile(present, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c := &V1{Spawn: SpawnV1{Binaries: []SpawnBinary{
+		{Env: "COMPOSER", Path: "${TESTENV_WORKTREE}/videonode-composer"},
+		{Env: "SOURCE", Path: "${TESTENV_WORKTREE}/videonode-source"},
+	}}}
+	vars := map[string]string{"TESTENV_WORKTREE": dir}
+	got, missing := c.ResolveBinaries(vars)
+	if len(got) != 1 || got[0] != "COMPOSER="+present {
+		t.Errorf("present=%v, want [COMPOSER=%s]", got, present)
+	}
+	if len(missing) != 1 || missing[0] != "SOURCE" {
+		t.Errorf("missing=%v, want [SOURCE]", missing)
+	}
+}
+
+func TestLoadV1_LocalOverrideBinariesReplace(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, baseConfig)
+	writeLocalConfig(t, dir, `
+[[spawn.binaries]]
+env = "X_BIN"
+path = "/tmp/x"
+`)
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Spawn.Binaries) != 1 || c.Spawn.Binaries[0].Env != "X_BIN" {
+		t.Errorf("binaries=%v", c.Spawn.Binaries)
+	}
+}
+
 func TestLoadV1_NoLocalFile(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, baseConfig)

@@ -4,7 +4,7 @@ This is a **standalone Go module** (own `go.mod`) nested inside the videonode re
 
 ## Why it exists
 
-Multiple parallel Claude Code sessions (worktrees under `.claude/worktrees/`) test videonode changes concurrently. Without coordination they trample each other: same TCP ports, same `/dev/video0`, same `~/.local/bin/videonode-*` install path, same SBC. testenv is the registry that hands out predictable port slots, manages device leases with attribution on conflict, auto-reaps dead-session leases via opportunistic PID-alive sweeps, and exposes one CLI + one stdio MCP server backed by the same SQLite store so any session can see what's running where.
+Multiple parallel Claude Code sessions (worktrees under `.claude/worktrees/`) test videonode changes concurrently. Without coordination they trample each other: same TCP ports, same `/dev/video0`, same per-user binary install path, same SBC. testenv is the registry that hands out predictable port slots, manages device leases with attribution on conflict, auto-reaps dead-session leases via opportunistic PID-alive sweeps, and exposes one CLI + one stdio MCP server backed by the same SQLite store so any session can see what's running where.
 
 Full design rationale in `/home/stepan/.claude/plans/lets-plan-this-cli-lazy-sutton.md`.
 
@@ -75,12 +75,12 @@ Slots `i ∈ 1..9` map to `http=8090+10i`, `rtsp=8554+10i`, `srt=6001+10i`. Slot
 
 ## Spawn flow (`testenv up`, host target)
 
-1. Verify the worktree's `composer/build/{relwithdebinfo,dev}/src/bin/` exists with fresh-enough mtimes (TODO: rebuild if stale). Never falls back to `~/.local/bin/` — the daemon spawned for the env always runs the worktree's freshly-built native binaries via `VIDEONODE_NATIVE_PIPELINE_{SOURCE,SINK,COMPOSER}` env vars.
+1. Resolve any `[[spawn.binaries]]` overrides declared in `.testenv.toml`. Each entry exports an env var pointing at a worktree-built binary, but only when the file exists; a missing one is left unset (with a loud stderr note) so the daemon falls back to its own default. The tool is binary-agnostic — which env vars and paths to override is entirely a `.testenv.toml` concern.
 2. Allocate a slot (bind-and-hold).
 3. Acquire any requested device lease, fast-fail with attribution on conflict.
-4. Synthesize a per-env `streams.toml` under `~/.local/state/testenv/envs/<env-id>/` with entity ids auto-prefixed by `env-<id>-` so source/composer/stream names don't collide across envs.
-5. Spawn videonode with `VIDEONODE_SERVER_PORT`, `STREAMING_RTSP_PORT`, `SRT_ADDR`, `STREAMS_CONFIG_FILE`, `RECORDING_DATA_DIR`, `NATIVE_PIPELINE_*` all set. cwd = the worktree.
-6. Health-poll `/api/health` until 200 (15s timeout). Return URL.
+4. Write the `[[spawn.files]]` declared in `.testenv.toml` (e.g. a per-env config), with `${TESTENV_*}` template vars expanded so ids/ports/paths don't collide across envs.
+5. Run the `spawn.build` step (if any), then start `spawn.command` with the resolved `[spawn.env]` and `[[spawn.binaries]]` env vars set. cwd = the worktree.
+6. Health-poll `spawn.health_url` until 200 (timeout from `spawn.health_timeout`). Return URL.
 
 ## Package layout
 
@@ -98,7 +98,7 @@ internal/assets/hooks/settings.json.tmpl
 
 ## Dependency contract
 
-**No imports from `github.com/smazurov/videonode/...` (the parent repo).** This module is portable to any project that wants the same coordination model — the videonode-specific bits live in env-var names and the streams.toml shape (both in `internal/spawn/`), not in compile-time imports.
+**No imports from `github.com/smazurov/videonode/...` (the parent repo).** This module is portable to any project that wants the same coordination model — all project-specific bits (binary paths, env-var names, config-file shapes, post-start commands) live in `.testenv.toml`, not in Go and not in compile-time imports.
 
 Direct deps (see `go.mod` for pins):
 
@@ -114,7 +114,7 @@ Planned deps (not yet wired):
 
 ## Don't
 
-- Don't fall back to `~/.local/bin/videonode-*` for env spawns. The whole point is to test the worktree's binaries, not whatever the last `cmake --install` left lying around.
+- Don't hardcode binary paths, env-var names, or config shapes in the tool. They are project concerns and belong in `.testenv.toml` (`[[spawn.binaries]]`, `[spawn.env]`, `[[spawn.files]]`), never in Go. The only rule the tool enforces for binary overrides is: export the override when the file exists, else leave it unset (loud) and let the daemon use its own default.
 - Don't add a long-running reaper daemon. Opportunistic reap (on every subcommand entry + SessionStart/SessionEnd hooks) is the contract.
 - Don't allocate ports randomly. The slot scheme is intentional — predictability + inventory readability matter more than "use any free port."
 - Don't queue on device-lease conflict. Fast-fail with attribution lets the caller decide whether to take over, wait, or pick a different device. Queueing complicates the mental model for no gain at our scale.

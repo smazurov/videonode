@@ -145,6 +145,7 @@ type SpawnV1 struct {
 	HealthAuth    string            `toml:"health_auth"`
 	Env           map[string]string `toml:"env"`
 	Files         []SpawnFile       `toml:"files"`
+	Binaries      []SpawnBinary     `toml:"binaries"`
 }
 
 func (s *SpawnV1) LogsEnabled() bool {
@@ -157,6 +158,17 @@ func (s *SpawnV1) LogsEnabled() bool {
 type SpawnFile struct {
 	Path    string `toml:"path"`
 	Content string `toml:"content"`
+}
+
+// SpawnBinary points an environment variable at a worktree-built binary.
+// Path is templated (typically with ${TESTENV_WORKTREE}) and exported as
+// Env only when the resolved file exists — when it doesn't, the variable
+// is left unset so the daemon falls back to its built-in default. This is
+// the generic mechanism; which binaries to override (and their paths)
+// lives in the project's .testenv.toml.
+type SpawnBinary struct {
+	Env  string `toml:"env"`
+	Path string `toml:"path"`
 }
 
 type HooksV1 struct {
@@ -223,6 +235,9 @@ func mergeV1(base, local *V1) {
 	if len(local.Spawn.Files) > 0 {
 		base.Spawn.Files = local.Spawn.Files
 	}
+	if len(local.Spawn.Binaries) > 0 {
+		base.Spawn.Binaries = local.Spawn.Binaries
+	}
 	if len(local.Hooks.Block) > 0 {
 		base.Hooks.Block = local.Hooks.Block
 	}
@@ -279,6 +294,15 @@ func (c *V1) Validate() error {
 
 	if c.Spawn.Command == "" {
 		errs = append(errs, "spawn.command is required")
+	}
+
+	for i, b := range c.Spawn.Binaries {
+		if b.Env == "" {
+			errs = append(errs, fmt.Sprintf("spawn.binaries[%d].env is required", i))
+		}
+		if b.Path == "" {
+			errs = append(errs, fmt.Sprintf("spawn.binaries[%d].path is required", i))
+		}
 	}
 
 	// Validate template vars reference defined port names.
@@ -343,6 +367,24 @@ func (c *V1) PortNames() []string {
 	return names
 }
 
+// ResolveBinaries expands each spawn.binaries path against vars and stats
+// it. Present binaries are returned as "ENV=path" entries to append to the
+// process environment; the env names of any whose resolved path is missing
+// are returned separately so the caller can surface the skip. Missing
+// binaries are intentionally not an error — the daemon falls back to its
+// own default.
+func (c *V1) ResolveBinaries(vars map[string]string) (present []string, missing []string) {
+	for _, b := range c.Spawn.Binaries {
+		path := ExpandVars(b.Path, vars)
+		if _, err := os.Stat(path); err == nil {
+			present = append(present, b.Env+"="+path)
+		} else {
+			missing = append(missing, b.Env)
+		}
+	}
+	return present, missing
+}
+
 // ExpandVars replaces ${TESTENV_*} references in s with values from vars.
 func ExpandVars(s string, vars map[string]string) string {
 	for k, v := range vars {
@@ -377,6 +419,9 @@ func collectTemplateStrings(c *V1) []string {
 	}
 	for _, f := range c.Spawn.Files {
 		out = append(out, f.Path, f.Content)
+	}
+	for _, b := range c.Spawn.Binaries {
+		out = append(out, b.Path)
 	}
 	return out
 }
