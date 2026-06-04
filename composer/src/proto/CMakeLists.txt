@@ -16,29 +16,35 @@ set(PROTO_OUT_DIR "${CMAKE_BINARY_DIR}/generated")
 set(PROTO_FILES
     control/common.proto
     control/source.proto
-    control/composer.proto)
+    control/composer.proto
+    control/sensor.proto)
 
 # Proto files that contain `service` blocks (gRPC stubs only for these).
 set(PROTO_SERVICE_FILES
     control/source.proto
-    control/composer.proto)
+    control/composer.proto
+    control/sensor.proto)
 
 # Expected outputs — listed explicitly so CMake regenerates when any
 # .proto changes and so the OBJECT library below picks up real paths.
 set(PROTO_GEN_SRCS
     ${PROTO_OUT_DIR}/control/common.pb.cc
     ${PROTO_OUT_DIR}/control/source.pb.cc
-    ${PROTO_OUT_DIR}/control/composer.pb.cc)
+    ${PROTO_OUT_DIR}/control/composer.pb.cc
+    ${PROTO_OUT_DIR}/control/sensor.pb.cc)
 set(PROTO_GEN_HDRS
     ${PROTO_OUT_DIR}/control/common.pb.h
     ${PROTO_OUT_DIR}/control/source.pb.h
-    ${PROTO_OUT_DIR}/control/composer.pb.h)
+    ${PROTO_OUT_DIR}/control/composer.pb.h
+    ${PROTO_OUT_DIR}/control/sensor.pb.h)
 set(GRPC_GEN_SRCS
     ${PROTO_OUT_DIR}/control/source.grpc.pb.cc
-    ${PROTO_OUT_DIR}/control/composer.grpc.pb.cc)
+    ${PROTO_OUT_DIR}/control/composer.grpc.pb.cc
+    ${PROTO_OUT_DIR}/control/sensor.grpc.pb.cc)
 set(GRPC_GEN_HDRS
     ${PROTO_OUT_DIR}/control/source.grpc.pb.h
-    ${PROTO_OUT_DIR}/control/composer.grpc.pb.h)
+    ${PROTO_OUT_DIR}/control/composer.grpc.pb.h
+    ${PROTO_OUT_DIR}/control/sensor.grpc.pb.h)
 
 # Resolve absolute paths for DEPENDS so the rebuild rule is correct.
 set(PROTO_ABS_FILES "")

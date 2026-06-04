@@ -1,0 +1,144 @@
+syntax = "proto3";
+
+package videonode.control;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+import "control/common.proto";
+
+option go_package = "github.com/smazurov/videonode/internal/streams/pipelinectl/pb;controlpb";
+
+// Sensor is the gRPC service exposed by every videonode-sensor binary
+// over its per-instance Unix-domain socket (path passed via --grpc-listen).
+// The daemon dials in, calls Describe() to record identity + capabilities,
+// Configure()s the detector, then subscribes to StreamFindings for the
+// continuous perception push (mirrors Source.StreamStatus).
+//
+// The contract is PERCEPTION-ONLY: it carries observations, never actions.
+// Mapping a Finding to a pipeline action (crop, perspective, framing) is the
+// daemon's job, keyed by where the operator attached the sensor. All
+// geometry is in NORMALIZED [0,1] coordinates so it is resolution- and
+// snapshot-independent. The Finding envelope is stable; new perception kinds
+// are added as `oneof payload` variants — an additive, backward-compatible
+// protobuf change (old clients ignore the unknown field number).
+service Sensor {
+  // Describe returns identity + capabilities. First call after dial.
+  rpc Describe(google.protobuf.Empty) returns (SensorInfo);
+
+  // Configure (re)points the detector: which upstream it observes, the
+  // propose/auto mode, and opaque detector params. Idempotent; may be
+  // called again to retune without a restart.
+  rpc Configure(ConfigureRequest) returns (google.protobuf.Empty);
+
+  // AnalyzeOnce runs the detector on the latest frame and returns a single
+  // Finding. For on-demand calibration / probes; the continuous push is
+  // StreamFindings below.
+  rpc AnalyzeOnce(AnalyzeRequest) returns (Finding);
+
+  // StreamFindings yields a Finding per detection at the sensor's
+  // (periodic) tick rate. The stream stays open for the process lifetime.
+  rpc StreamFindings(StreamFindingsRequest) returns (stream Finding);
+
+  // Shutdown asks the sensor to exit cleanly.
+  rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+// SensorInfo is the capability handshake. `native` reuses the common
+// identity (pid/version/kind="sensor"); the rest lets the daemon verify
+// the wire schema and know which payload kinds this sensor can emit.
+message SensorInfo {
+  NativeInfo native = 1;
+  // Bump when the Finding wire shape changes incompatibly.
+  uint32 schema_version = 2;
+  // Opaque id of the active detector + weights (e.g. "playfield-classical-v0",
+  // "playfield-rknn-v3"). Stamped onto every Finding for per-model eval.
+  string model_id = 3;
+  // Payload kinds this sensor emits: "bbox" | "quad" | "polygon" | ...
+  repeated string kinds = 4;
+}
+
+message ConfigureRequest {
+  // Upstream the sensor observes, e.g. "source:cam". Stamped onto Findings.
+  string target_ref = 1;
+  // "propose" (emit candidates for operator confirm) | "auto" (apply directly).
+  string mode = 2;
+  // Opaque detector params (boost amount, thresholds, margin, min/max area,
+  // tick interval). Struct so new knobs never need a proto bump.
+  google.protobuf.Struct params = 3;
+}
+
+message AnalyzeRequest {
+  // Reserved for one-shot controls (deadline, kind hint).
+}
+
+message StreamFindingsRequest {
+  // Reserved for stream controls (min interval, kinds filter).
+}
+
+// Finding is the unit of perception. The envelope (fields 1-7) is stable; the
+// payload oneof (16+) is the additive growth point; `extra` is an opaque
+// never-load-bearing side channel.
+message Finding {
+  string sensor_id = 1;
+  // Detector/weights that produced this (echoes SensorInfo.model_id).
+  string model_id = 2;
+  // Upstream this pertains to, e.g. "source:cam".
+  string target_ref = 3;
+  uint64 frame_idx = 4;
+  // CLOCK_MONOTONIC nanoseconds at capture.
+  int64 captured_at_ns = 5;
+  float confidence = 6;
+  uint32 schema_version = 7;
+
+  oneof payload {
+    BBox bbox = 16;
+    Quad quad = 17;
+    Polygon polygon = 18;
+    Mask mask = 19;
+    Keypoints keypoints = 20;
+    Label label = 21;
+  }
+
+  // Opaque hints (e.g. {"sample_hint": true} when the detector was unsure).
+  // The daemon may read it for policy; it is never required for correctness.
+  google.protobuf.Struct extra = 31;
+}
+
+// All geometry is normalized to [0,1] over the frame it was measured on.
+
+// BBox is an axis-aligned rectangle: top-left (x,y) + size (w,h).
+message BBox {
+  float x = 1;
+  float y = 2;
+  float w = 3;
+  float h = 4;
+}
+
+// Quad is exactly 8 floats: TL.x,TL.y,TR.x,TR.y,BR.x,BR.y,BL.x,BL.y.
+message Quad {
+  repeated float xy = 1;
+}
+
+// Polygon is an arbitrary closed ring of (x,y) pairs (even length).
+message Polygon {
+  repeated float xy = 1;
+}
+
+// Mask is a binary/region mask. `data` is row-major; interpretation
+// (raw bits vs RLE) is carried in Finding.extra until a kind needs more.
+message Mask {
+  uint32 width = 1;
+  uint32 height = 2;
+  bytes data = 3;
+}
+
+// Keypoints: parallel arrays of normalized (x,y) pairs and per-point score.
+message Keypoints {
+  repeated float xy = 1;
+  repeated float score = 2;
+}
+
+// Label is a classification result; geometry-free.
+message Label {
+  string text = 1;
+}
