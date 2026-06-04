@@ -355,9 +355,9 @@ function canvasTiles(b: Box) {
 .vn-svg {
   display: block;
   margin: 0 auto;
-  height: clamp(360px, 48vh, 520px);
-  width: auto;
+  width: 372px;
   max-width: 100%;
+  height: auto;
   aspect-ratio: 372 / 528;
   overflow: visible;
 }
