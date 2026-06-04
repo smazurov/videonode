@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: VideoNode
-  text: Hardware-accelerated video streaming for Linux
+  text: Hardware‑accelerated video streaming for Linux
   tagline: V4L2 capture, GPU composition, RTSP/SRT/WebRTC out. Driven by a single Go daemon.
   actions:
     - theme: brand

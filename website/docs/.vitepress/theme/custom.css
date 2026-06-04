@@ -12,3 +12,30 @@
   min-height: 280px;
   display: inline-block;
 }
+
+/*
+ * Home hero hierarchy.
+ * VitePress sizes the brand .name and the descriptive .text identically
+ * (32/48/56px across its 640px and 960px breakpoints), so they read as one
+ * run-on heading. Shrink the descriptor below the brand name to restore a
+ * name -> text -> tagline scale; the name keeps the default brand gradient.
+ */
+.VPHero .text {
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 600;
+}
+
+@media (min-width: 640px) {
+  .VPHero .text {
+    font-size: 28px;
+    line-height: 36px;
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHero .text {
+    font-size: 32px;
+    line-height: 40px;
+  }
+}
