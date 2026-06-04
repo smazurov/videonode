@@ -26,9 +26,9 @@ export function SensorFindingsFeed({ findings }: Readonly<SensorFindingsFeedProp
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-border">
+    <div className="max-h-80 overflow-y-auto rounded-md border border-border">
       <table className="w-full text-xs">
-        <thead className="bg-surface-muted text-fg-subtle">
+        <thead className="sticky top-0 z-10 bg-surface-muted text-fg-subtle">
           <tr>
             <th className="px-3 py-1.5 text-left font-medium">Frame</th>
             <th className="px-3 py-1.5 text-left font-medium">Kind</th>
