@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
 
@@ -144,6 +145,21 @@ func normalizeProcessID(id string) string {
 		return "source:" + rest
 	}
 	return id
+}
+
+// normalizeProcessesEvent rewrites each row of a ProcessesEvent from the
+// pipeline's internal pool vocabulary to the user-facing one — the same
+// "producer"→"source" edge translation applied to the REST /api/processes
+// rows — so the SSE push and the REST poll key on identical ids and kinds.
+func normalizeProcessesEvent(e events.ProcessesEvent) events.ProcessesEvent {
+	out := e
+	out.Processes = make([]events.ProcessInfo, len(e.Processes))
+	for i, p := range e.Processes {
+		p.ID = normalizeProcessID(p.ID)
+		p.Kind = normalizeKind(p.Kind)
+		out.Processes[i] = p
+	}
+	return out
 }
 
 // denormalizeProcessID is the inverse of normalizeProcessID: it maps an

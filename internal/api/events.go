@@ -24,7 +24,7 @@ func (s *Server) registerSSERoutes() {
 		Method:      http.MethodGet,
 		Path:        "/api/events",
 		Summary:     "Server-Sent Events Stream",
-		Description: "Real-time event stream for entity lifecycle/status/metrics/consumers, device changes, and pipeline state",
+		Description: "Real-time event stream for entity lifecycle/status/metrics/consumers, device changes, pipeline state, and supervised-process stats",
 		Tags:        []string{"events"},
 		Security:    withAuth(),
 		Errors:      []int{401},
@@ -32,6 +32,7 @@ func (s *Server) registerSSERoutes() {
 		"entity":                 events.EntityEvent{},
 		"device-discovery":       events.DeviceDiscoveryEvent{},
 		"pipeline-state-changed": events.PipelineStateChangedEvent{},
+		"processes":              events.ProcessesEvent{},
 		"heartbeat":              events.HeartbeatEvent{},
 	}, func(ctx context.Context, _ *sseInput, send sse.Sender) {
 		eventCh := make(chan any, 10)
@@ -40,6 +41,16 @@ func (s *Server) registerSSERoutes() {
 			events.SubscribeToChannel[events.EntityEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.DeviceDiscoveryEvent](s.eventBus, eventCh),
 			events.SubscribeToChannel[events.PipelineStateChangedEvent](s.eventBus, eventCh),
+			// The pipeline publishes ProcessesEvent with the internal pool
+			// vocabulary ("producer:" ids); normalize each row to the
+			// user-facing "source:" shape — the same edge translation the
+			// REST /api/processes handler does — before it hits the wire.
+			events.Subscribe(s.eventBus, func(e events.ProcessesEvent) {
+				select {
+				case eventCh <- normalizeProcessesEvent(e):
+				default:
+				}
+			}),
 		}
 		defer func() {
 			for _, unsub := range unsubscribers {

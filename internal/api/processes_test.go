@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2/humatest"
 
+	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
 
@@ -83,6 +84,38 @@ func TestProcessEntries_NormalizeProducerID(t *testing.T) {
 	got := toProcessEntries([]pipeline.ProcessView{{ID: "producer:hdmi0", Kind: "producer"}})
 	if len(got) != 1 || got[0].ID != "source:hdmi0" || got[0].Kind != "source" {
 		t.Fatalf("toProcessEntries normalize = %+v; want id=source:hdmi0 kind=source", got)
+	}
+}
+
+// The SSE process push must apply the same edge normalization as the REST
+// list so both key on identical ids/kinds.
+func TestNormalizeProcessesEvent(t *testing.T) {
+	in := events.ProcessesEvent{
+		Timestamp: "2025-01-27T10:30:00Z",
+		Processes: []events.ProcessInfo{
+			{ID: "producer:hdmi0", Kind: "producer", State: "running"},
+			{ID: "composer:main", Kind: "composer", State: "running"},
+			{ID: "encoder:stream-001", Kind: "encoder", State: "idle"},
+		},
+	}
+	got := normalizeProcessesEvent(in)
+	if got.Timestamp != in.Timestamp {
+		t.Errorf("timestamp = %q; want %q", got.Timestamp, in.Timestamp)
+	}
+	want := []struct{ id, kind string }{
+		{"source:hdmi0", "source"},
+		{"composer:main", "composer"},
+		{"encoder:stream-001", "encoder"},
+	}
+	for i, w := range want {
+		if got.Processes[i].ID != w.id || got.Processes[i].Kind != w.kind {
+			t.Errorf("row %d = (%q,%q); want (%q,%q)", i,
+				got.Processes[i].ID, got.Processes[i].Kind, w.id, w.kind)
+		}
+	}
+	// Source rows must not be mutated in place.
+	if in.Processes[0].ID != "producer:hdmi0" {
+		t.Errorf("input mutated: %q", in.Processes[0].ID)
 	}
 }
 
