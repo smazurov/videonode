@@ -251,7 +251,9 @@ func (p *pool) GetStatus(id string) *Info {
 	return info
 }
 
-const statsPollInterval = 2 * time.Second
+// statsPollInterval is how often the background poller samples CPU%/RSS for
+// every running process. A var (not const) so tests can shrink it.
+var statsPollInterval = 2 * time.Second
 
 func (p *pool) pollStats(ctx context.Context) {
 	ticker := time.NewTicker(statsPollInterval)
@@ -339,6 +341,8 @@ func (p *pool) refreshStats() {
 		mp.prevWall = r.wall
 	}
 	p.mu.Unlock()
+
+	p.notifyStatsChange()
 }
 
 // SetKind sets the free-form classifier surfaced via Info.Kind for a
@@ -408,5 +412,14 @@ func (p *pool) StopAll() {
 func (p *pool) notifyStateChange(id string, oldState, newState State, err error) {
 	if p.opts.OnStateChange != nil {
 		p.opts.OnStateChange(id, oldState, newState, err)
+	}
+}
+
+// notifyStatsChange invokes the OnStats callback if configured. Called from
+// refreshStats only when at least one running process was sampled, so the
+// callback never fires for an idle pool.
+func (p *pool) notifyStatsChange() {
+	if p.opts.OnStats != nil {
+		p.opts.OnStats()
 	}
 }

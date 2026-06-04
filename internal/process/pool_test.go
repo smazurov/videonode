@@ -191,6 +191,68 @@ func TestPoolStateChangeCallback(t *testing.T) {
 	}
 }
 
+func TestPoolOnStatsFires(t *testing.T) {
+	orig := statsPollInterval
+	statsPollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { statsPollInterval = orig })
+
+	var calls int
+	var mu sync.Mutex
+	pool := NewPool(&PoolOptions{
+		CommandProvider: func(id string) (string, error) {
+			return fmt.Sprintf(`sh -c "trap 'exit 0' INT TERM; echo %s; while :; do sleep 0.05; done"`, id), nil
+		},
+		OnStats: func() {
+			mu.Lock()
+			calls++
+			mu.Unlock()
+		},
+		Logger: poolTestLogger(),
+	})
+	defer pool.StopAll()
+
+	if err := pool.Start("test1"); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+	if got == 0 {
+		t.Fatal("expected OnStats to fire while a process was running")
+	}
+}
+
+func TestPoolOnStatsQuietWhenIdle(t *testing.T) {
+	orig := statsPollInterval
+	statsPollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { statsPollInterval = orig })
+
+	var calls int
+	var mu sync.Mutex
+	pool := NewPool(&PoolOptions{
+		CommandProvider: func(id string) (string, error) { return fmt.Sprintf("echo %s", id), nil },
+		OnStats: func() {
+			mu.Lock()
+			calls++
+			mu.Unlock()
+		},
+		Logger: poolTestLogger(),
+	})
+	defer pool.StopAll()
+
+	time.Sleep(150 * time.Millisecond)
+
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+	if got != 0 {
+		t.Fatalf("expected OnStats to stay quiet with no running process, fired %d times", got)
+	}
+}
+
 func TestPoolConfigureProcess(t *testing.T) {
 	configured := false
 	var configuredID string
