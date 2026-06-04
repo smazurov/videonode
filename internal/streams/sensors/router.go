@@ -256,7 +256,15 @@ func (r *Router) OnFinding(f Finding) {
 		emit(target{}, false, decision)
 	}
 
-	r.log.Info("sensor finding",
+	// Every frame still emits a FindingEvent on the SSE bus (above), so the
+	// sensor stays fully observable live. Only an actionable finding — a crop/
+	// widen decision or an applied crop — is worth an Info line; the steady-
+	// state per-frame "hold" goes to Debug so it doesn't flood the log.
+	logFinding := r.log.Debug
+	if changed || appliedAny {
+		logFinding = r.log.Info
+	}
+	logFinding("sensor finding",
 		logging.KeySensorID, f.SensorID, keyFrame, f.FrameIdx, keyKind, f.Kind,
 		keyConfidence, f.Confidence, keyBBox, bboxStr(bb), keyDecision, decision,
 		keyCrop, cropStr(crop), keyTargets, len(targets), keyApplied, appliedAny)
