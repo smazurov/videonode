@@ -14,6 +14,7 @@ const (
 	TypeHeartbeat
 	TypePipelineStateChanged
 	TypeEntity
+	TypeProcesses
 )
 
 // Event interface required by kelindar/event.
@@ -62,6 +63,37 @@ type StreamCrashedEvent struct {
 
 // Type returns the event type identifier for StreamCrashedEvent.
 func (e StreamCrashedEvent) Type() uint32 { return TypeStreamCrashed }
+
+// ProcessInfo is one supervised-process row pushed on the process event
+// stream. Its JSON mirrors the /api/processes ProcessEntry row (minus the
+// always-empty source-registry join fields) so the UI keeps poll and push
+// results in a single shape. Kind carries the user-facing entity name; the
+// API edge normalizes the pipeline's internal "producer" label to "source"
+// before this lands on the wire.
+type ProcessInfo struct {
+	ID           string  `json:"id" doc:"Pool key (e.g. 'source:hdmi0' / 'composer:cam-front')"`
+	Kind         string  `json:"kind" enum:"source,composer,encoder" doc:"Entity kind for this stage"`
+	StreamID     string  `json:"stream_id,omitempty" doc:"User-facing stream id (empty for shared sources)"`
+	State        string  `json:"state" doc:"Pool state: idle/starting/running/stopping/error"`
+	PID          int     `json:"pid,omitempty" doc:"OS pid when running; 0 otherwise"`
+	StartedAtUS  int64   `json:"started_at_us,omitempty" doc:"Unix microseconds at Start; 0 when never started"`
+	RestartCount int     `json:"restart_count,omitempty" doc:"Times the supervisor restarted this stage"`
+	LastError    string  `json:"last_error,omitempty" doc:"Most recent error from the supervisor"`
+	RSSBytes     int64   `json:"rss_bytes,omitempty" doc:"Resident set size in bytes"`
+	CPUPercent   float64 `json:"cpu_percent,omitempty" doc:"CPU usage as percentage (0-100 per core)"`
+}
+
+// ProcessesEvent carries the current set of supervised processes on the
+// dedicated process event stream. Published on every state transition
+// (immediately) and on each 2s stats sample while at least one process is
+// running, so an idle pipeline produces no traffic.
+type ProcessesEvent struct {
+	Processes []ProcessInfo `json:"processes" doc:"All supervised pipeline stages with current state + stats"`
+	Timestamp string        `json:"timestamp" doc:"Server time when the snapshot was taken"`
+}
+
+// Type returns the event type identifier for ProcessesEvent.
+func (e ProcessesEvent) Type() uint32 { return TypeProcesses }
 
 // PipelineStateChangedEvent fires when the daemon-wide pipeline master
 // switch is toggled. UI uses it to keep the start/stop button in sync.
