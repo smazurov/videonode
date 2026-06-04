@@ -1,0 +1,214 @@
+- semver: 4.0.0
+  date: 2026-06-03T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: b22080f
+      note: "new pipeline architecture: sources, composers, and streams are three independent top-level entities wired by explicit upstream refs, governed by a single pipeline master switch, with encoders that spawn lazily on the first reader and stop after the last"
+    - commit: 1a42a4d
+      note: "native RK3588 media pipeline: videonode-source/composer/sink processes move NV12 dma-bufs zero-copy over SCM_RIGHTS, with a libplacebo GPU compositor and an NV12-end-to-end path carrying colorimetry through to the encoder"
+    - commit: c1a4d04
+      note: "GPU composer with a live layout editor: multi-source compositing onto a canvas, a Region/Content model with per-slot rotation, crop, pan/zoom and fit, per-input perspective effects, configurable background, and edits that apply without restarting the pipeline — plus composer config TOML export/import"
+    - commit: f412934
+      note: "WebRTC playback via a WHEP egress endpoint with H265, fanning out alongside SRT and RTSP from the built-in local relay"
+    - commit: cea24f4
+      note: "RK3588 hardware acceleration end to end: hardware MJPEG decode through MPP, rkmpp encoders ingesting BGRA/RGB directly, and an S32_LE-capable audio capture path for the on-board ADC"
+    - commit: 22fbdd1
+      note: "rebuilt operational web UI on a single typed SSE entity stream: live pipeline/source/stream stats and sparklines, per-entity log panels, consumer counts and client IPs, process restart controls, an embedded WHEP player, and dead-rig detection"
+    - commit: 55a842b
+      note: "unified .deb packaging with a GitHub Pages APT repo, shadow-group-gated auth with postinst enrollment, and service auto-start on install — replacing goreleaser, the in-app self-update service, and install.sh"
+    - commit: cdd37c1
+      note: "VitePress documentation site with Mermaid diagrams, search, and versioned navigation"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc12
+  date: 2026-05-31T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 0df70cf
+      note: "MJPEG sources with 4:2:2/4:4:4 chroma (e.g. HDMI-USB capture dongles) no longer show a red color ghost — the source converts them to NV12 instead of mislabeling the decode"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc11
+  date: 2026-05-31T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 8ed71b8
+      note: "composer pipeline goes NV12 end-to-end: GPU NV12 canvas output, NV12 composer inputs, an NV12-only sink carrier, and snapshots that read the staged NV12 fds, with colorimetry/VUI tags carried through"
+    - commit: 7746e7b
+      note: "zero-copy canvas broadcast gated on per-consumer read completion, plus a GPU canvas clear and depth-4 ring, cutting per-frame CPU on the compositor"
+    - commit: 4057bcb
+      note: "UI surfaces the detected source colorimetry, and the stream audio config now lays out on a single line"
+    - commit: 9069dd2
+      note: "composer config exports to and imports from TOML — copy-paste in the browser or a .toml file, including overwriting an existing composer in place"
+    - commit: ba2024f
+      note: "pipeline start is best-effort so one failing stage no longer blocks the rest; the composer also clears a stuck snapshot request on RPC timeout"
+    - commit: 2403997
+      note: "journald logging de-noised: dedup is keyed on the full record rather than message text, and the packaged service no longer double-logs to the journal"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc10
+  date: 2026-05-31T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 7e869b2
+      note: "rkmpp encoders ingest BGRA/RGB32 directly, converting in hardware instead of via a CPU-heavy software nv12 filter"
+    - commit: 89b821e
+      note: "readers dialing a stream that isn't configured now get a clean 404 instead of a logged warning and a spawned encoder"
+    - commit: e533874
+      note: "the .deb ships the videonode asound.conf so the RK3588 audio capture config is present on install"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc9
+  date: 2026-05-31T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: f412934
+      note: "WHEP egress endpoint (POST/DELETE /whep/{stream}) for WebRTC playback, with working H265 and a fix for motion smearing"
+    - commit: cde5b5c
+      note: "WebRTC peers and SRT consumers now share a single hex client-ID scheme"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc8
+  date: 2026-05-30T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: de9c2d1
+      note: "RK3588 audio capture reworked: routed through an mmap plug->dsnoop PCM that converts the card-native format (the Hollyland Lyra is S32_LE-only) to whatever the encoder requests, with a larger dsnoop ring to kill xruns under the 1080p60 transcode load (opus output ~8kbps silence -> ~85kbps); the service unit gains the audio group and streams now honor per-stream audio config"
+    - commit: 661e15c
+      note: "native source/sink robustness: the source gates NV12 ring reuse on consumer read-completion (per-slot refcount + generation), fixing the venetian-blind tearing seen across snapshot, composer, and encoder output; vn-sink reconnects across a source/composer restart instead of feeding a dead RTSP relay; the composer fails fast on a GPU-less host"
+    - commit: 975e2d3
+      note: "hardware MJPEG decode adopts MPP's info-change handshake (two buffer groups, packet-owned input, one-shot SET_INFO_CHANGE_READY), fixing the per-frame jpegd reset that left Lyra MJPEG frames undecoded"
+    - commit: 56558e4
+      note: "SSE entity payload is typed end-to-end as a oneOf+discriminator keyed on a `type` tag, so the UI narrows on event.type with no casts; idle now publishes a full zeroed status, so partial payloads can no longer crash the source panel"
+    - commit: 02dcb7a
+      note: "connection robustness: the UI detects a dead rig in ~20s via an 8s request timeout and a 20s SSE heartbeat watchdog instead of waiting out the TCP timeout, the shared SSE connection persists across navigation, reconnect is health-gated, and offline stats blank to dimmed em-dashes instead of frozen fake-ticking values"
+    - commit: 3b5bfba
+      note: "unified POST /api/processes/{id}/restart for source/composer/encoder, with restart buttons on the detail pages"
+    - commit: c38e3bc
+      note: "the .deb no longer hard-depends on out-of-band board libraries (librga2, librockchip-mpp1) that come from a 3rd-party repo or a from-source build, fixing uninstallable 'apt install videonode' where no owning package exists"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc7
+  date: 2026-05-29T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: c1a4d04
+      note: "composer layout editor rebuilt on a Region/Content model: Region is the axis-aligned output rectangle, Content the rotatable source overlay (0/90/180/270, cover/fit/stretch, pan/zoom), fixing rotated-slot resize at the root; edits now persist while the pipeline is idle"
+    - commit: 8275702
+      note: "real-time updates collapse onto a single entity-envelope SSE stream, replacing the legacy per-event publishes; consumer-set changes fire a dedicated source.consumers event only on membership change"
+    - commit: 22fbdd1
+      note: "operational UI: infobar shows live pipeline uptime/CPU/mem via a new daemon resource endpoint, source list shows format/res/fps and live consumer count, and the header tints with no thrown errors when the backend connection drops"
+    - commit: cea24f4
+      note: "hardware MJPEG decode now works, driven through MPP's advanced 1-in-1-out path with input-buffer sync (the prior simple-API loop never produced a frame); adds an mpp-jpeg-probe diagnostic"
+    - commit: 4b21ceb
+      note: "source/capture robustness: reports no-signal when the device is absent, stops busy-spinning on capture-fd errors, stamps status with wall-clock time, and keeps the encoder idle until a reader connects (rebuilding it on a dimension change)"
+    - commit: 7720917
+      note: "release target moves to Debian 13 (trixie) so the composer libplacebo backend builds; .deb runtime deps are derived from the real binaries via dpkg-shlibdeps, and installs on bookworm now fail with a readable apt error"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc6
+  date: 2026-05-29T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 0e467ef
+      note: "arm64 .deb builds on Debian bookworm and declares its native runtime libraries (gRPC, protobuf, abseil, libplacebo, turbojpeg), fixing missing-shared-object and GLIBCXX-version failures on bookworm/Armbian SBCs"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc5
+  date: 2026-05-28T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 3ccdfaf
+      note: "streams drop configurable publish targets: encoders publish to the built-in local RTSP relay, SRT/WebRTC fan out from there (breaking)"
+    - commit: 1de2fe0
+      note: "remove the in-app self-update service; updates ship via the .deb / APT repo only (breaking)"
+    - commit: d5d9270
+      note: "sources expose a liveness signal distinct from status, surfaced with per-entity log panels over the shared SSE stream"
+    - commit: 4676230
+      note: "stream editing UI: partial-PATCH edits and auto-start preview that wakes an idle stream"
+    - commit: 47767b1
+      note: "pipeline fixes: compositor honors the NV12 UV-plane offset, source pins and reports the real capture rate via G_PARM"
+    - commit: 321b127
+      note: "packaging cleanup: drop the legacy install.sh and the network-online unit dependency"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc4
+  date: 2026-05-28T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 37f0656
+      note: "packaging: enroll SUDO_USER on upgrade, not just first install"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc3
+  date: 2026-05-27T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: cdd37c1
+      note: "VitePress docs site with Mermaid, search, versioned navbar"
+    - commit: feff078
+      note: "release pipeline rewrite: matrix build replaces goreleaser, chglog-driven .deb"
+    - commit: f62e5a3
+      note: "shadow-group-gated auth + postinst enrollment, service auto-start on install"
+    - commit: 74749ac
+      note: "composer UI: auto-slot on input add, canvas rotation moved to inspector"
+    - commit: 16f5389
+      note: "source reports placeholder dims while V4L2 inactive"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 4.0.0-rc1
+  date: 2026-05-27T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: c57d69e
+      note: "feat(packaging): unified .deb via nfpm + GitHub Pages APT repo"
+    - commit: 72c5d66
+      note: "refactor(packaging): replace CPack with nfpm"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
+- semver: 3.1.0
+  date: 2026-05-18T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 676bf30
+      note: "feat: v3.1.0 release"
+  deb:
+    urgency: low
+    distributions:
+      - stable

@@ -46,6 +46,20 @@
   --color-log-warn: #eab308;
   --color-log-info: #2563eb;
   --color-log-debug: #6b7280;
+  --color-status-warm-soft: #ffedd5;
+  --color-status-warm-soft-fg: #9a3412;
+  --color-status-cold-soft: #e5e7eb;
+  --color-status-cold-soft-fg: #374151;
+  --color-status-error-soft: #fef2f2;
+  --color-status-error-soft-fg: #b91c1c;
+  --color-status-encoding-soft: #dbeafe;
+  --color-status-encoding-soft-fg: #1e40af;
+  --color-status-idle-soft: #f3f4f6;
+  --color-status-idle-soft-fg: #4b5563;
+  --color-status-running-soft: rgb(34 197 94 / 0.15);
+  --color-status-running-soft-fg: #16a34a;
+  --color-status-stopped-soft: #e5e7eb;
+  --color-status-stopped-soft-fg: #374151;
 }
 
 :where(.dark, .dark *) {
@@ -91,4 +105,18 @@
   --color-log-warn: #facc15;
   --color-log-info: #60a5fa;
   --color-log-debug: #6b7280;
+  --color-status-warm-soft: #7c2d12;
+  --color-status-warm-soft-fg: #fdba74;
+  --color-status-cold-soft: #374151;
+  --color-status-cold-soft-fg: #d1d5db;
+  --color-status-error-soft: rgb(127 29 29 / 0.30);
+  --color-status-error-soft-fg: #f87171;
+  --color-status-encoding-soft: #1e3a8a;
+  --color-status-encoding-soft-fg: #bfdbfe;
+  --color-status-idle-soft: #1f2937;
+  --color-status-idle-soft-fg: #9ca3af;
+  --color-status-running-soft: rgb(34 197 94 / 0.25);
+  --color-status-running-soft-fg: #4ade80;
+  --color-status-stopped-soft: #1f2937;
+  --color-status-stopped-soft-fg: #9ca3af;
 }

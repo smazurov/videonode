@@ -1,11 +1,23 @@
 videonode
 .vscode/
-.claude/
+# .claude/ session + runtime state is ignored; skills/ is committed.
+# Listing children explicitly because git can't re-include a path once
+# its parent is ignored.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
 vendor/
 tmp/
 .env
 build/
+bin/
+!composer/src/bin/
 
 streams.toml
+.testenv.local.toml
 dist/
 data/
+composer/build/
+composer/compile_commands.json
+.claude/skills/playwright-cli/
+.playwright*/

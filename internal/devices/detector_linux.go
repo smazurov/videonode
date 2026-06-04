@@ -129,7 +129,7 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 	// Initialize with current devices
 	devices, err := d.FindDevices()
 	if err != nil {
-		d.logger.Warn("Failed to get initial device list", "error", err)
+		d.logger.Warn("Failed to get initial device list", logging.KeyError, err)
 	} else {
 		for _, device := range devices {
 			d.lastDevices[device.DeviceID] = device
@@ -140,26 +140,26 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 				status := v4l2.GetDVTimings(device.DevicePath)
 				if device.Ready {
 					d.logger.Info("HDMI device initialized with signal",
-						"device_id", device.DeviceID,
-						"path", device.DevicePath,
-						"resolution", fmt.Sprintf("%dx%d", status.Width, status.Height),
-						"fps", fmt.Sprintf("%.2f", status.FPS))
+						logging.KeyDeviceID, device.DeviceID,
+						logging.KeyPath, device.DevicePath,
+						logging.KeyResolution, fmt.Sprintf("%dx%d", status.Width, status.Height),
+						logging.KeyFPS, fmt.Sprintf("%.2f", status.FPS))
 				} else {
 					d.logger.Info("HDMI device initialized without signal",
-						"device_id", device.DeviceID,
-						"path", device.DevicePath,
-						"state", signalStateString(status.State))
+						logging.KeyDeviceID, device.DeviceID,
+						logging.KeyPath, device.DevicePath,
+						logging.KeyState, signalStateString(status.State))
 				}
 			case DeviceTypeWebcam:
 				d.logger.Debug("Webcam device initialized",
-					"device_id", device.DeviceID,
-					"path", device.DevicePath)
+					logging.KeyDeviceID, device.DeviceID,
+					logging.KeyPath, device.DevicePath)
 			}
 
 			// Broadcast initial device state to StreamService
 			d.broadcaster.BroadcastDeviceDiscovery("added", device, time.Now().Format(time.RFC3339))
 		}
-		d.logger.Info("Initialized with V4L2 devices", "count", len(devices))
+		d.logger.Info("Initialized with V4L2 devices", logging.KeyDeviceCount, len(devices))
 	}
 
 	// Start hotplug monitoring via netlink
@@ -175,7 +175,7 @@ func (d *linuxDetector) StartMonitoring(ctx context.Context, broadcaster EventBr
 func (d *linuxDetector) monitorHotplug() {
 	monitor, err := hotplug.NewMonitor()
 	if err != nil {
-		d.logger.Warn("Failed to create hotplug monitor, falling back to polling", "error", err)
+		d.logger.Warn("Failed to create hotplug monitor, falling back to polling", logging.KeyError, err)
 		d.pollDeviceChanges()
 		return
 	}
@@ -187,7 +187,7 @@ func (d *linuxDetector) monitorHotplug() {
 	events := make(chan hotplug.Event, 32)
 	go func() {
 		if err := monitor.Run(d.ctx, events); err != nil && !errors.Is(err, context.Canceled) {
-			d.logger.Error("Hotplug monitor error", "error", err)
+			d.logger.Error("Hotplug monitor error", logging.KeyError, err)
 		}
 	}()
 
@@ -211,9 +211,9 @@ func (d *linuxDetector) monitorHotplug() {
 
 			if event.Action == hotplug.ActionAdd || event.Action == hotplug.ActionRemove {
 				d.logger.Debug("USB hotplug event",
-					"action", event.Action,
-					"devpath", event.DevPath,
-					"devtype", event.DevType)
+					logging.KeyAction, event.Action,
+					logging.KeyDevPath, event.DevPath,
+					logging.KeyDevType, event.DevType)
 
 				// Give kernel time to enumerate V4L2 devices for add events
 				if event.Action == hotplug.ActionAdd {
@@ -259,7 +259,7 @@ func (d *linuxDetector) StopMonitoring() {
 func (d *linuxDetector) SetEventBus(bus *events.Bus) {
 	d.eventBus = bus
 	if bus != nil {
-		bus.Subscribe(d.handleStreamCrashed)
+		events.Subscribe(bus, d.handleStreamCrashed)
 	}
 }
 
@@ -273,7 +273,7 @@ func (d *linuxDetector) handleStreamCrashed(e events.StreamCrashedEvent) {
 		return
 	}
 
-	d.logger.Debug("Stream crash, checking HDMI signal", "device_id", e.DeviceID)
+	d.logger.Debug("Stream crash, checking HDMI signal", logging.KeyDeviceID, e.DeviceID)
 
 	status := v4l2.GetDVTimings(device.DevicePath)
 	newReady := (status.State == v4l2.SignalStateLocked)
@@ -288,9 +288,9 @@ func (d *linuxDetector) handleStreamCrashed(e events.StreamCrashedEvent) {
 	if device.Ready && !newReady {
 		reason := signalStateString(status.State)
 		d.logger.Warn("HDMI signal lost (detected via crash)",
-			"device_id", e.DeviceID,
-			"device_name", device.DeviceName,
-			"reason", reason)
+			logging.KeyDeviceID, e.DeviceID,
+			logging.KeyName, device.DeviceName,
+			logging.KeyReason, reason)
 		device.Ready = false
 		d.lastDevices[e.DeviceID] = device
 		d.broadcaster.BroadcastDeviceDiscovery("status_changed", device, time.Now().Format(time.RFC3339))
@@ -329,25 +329,25 @@ func (d *linuxDetector) startEventMonitors() {
 
 // monitorDeviceEvents waits for source change events on a specific device.
 func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
-	d.logger.Debug("Starting event monitor for HDMI device", "device_id", deviceID)
+	d.logger.Debug("Starting event monitor for HDMI device", logging.KeyDeviceID, deviceID)
 
 	for {
 		select {
 		case <-d.ctx.Done():
-			d.logger.Debug("Event monitor stopped", "device_id", deviceID)
+			d.logger.Debug("Event monitor stopped", logging.KeyDeviceID, deviceID)
 			return
 		default:
 			// Wait for source change event (blocking with 60 second timeout)
 			result, err := v4l2.WaitForSourceChange(devicePath, 60000)
 			if err != nil {
 				d.logger.Debug("Event monitoring not supported, falling back to polling only",
-					"device_id", deviceID,
-					"error", err)
+					logging.KeyDeviceID, deviceID,
+					logging.KeyError, err)
 				return
 			}
 
 			if result > 0 {
-				d.logger.Debug("Source change event received", "device_id", deviceID, "changes", result)
+				d.logger.Debug("Source change event received", logging.KeyDeviceID, deviceID, logging.KeyChanges, result)
 
 				// Query detected timings and verify signal lock
 				// Rockchip driver auto-configures timings, so we just need to verify lock
@@ -359,47 +359,47 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 
 				for attempt = 0; attempt < maxRetries; attempt++ {
 					d.logger.Debug("Attempting signal detection",
-						"device_id", deviceID,
-						"attempt", attempt+1,
-						"device_path", devicePath)
+						logging.KeyDeviceID, deviceID,
+						logging.KeyAttempt, attempt+1,
+						logging.KeyPath, devicePath)
 
 					// Query detected timings from hardware
 					_, err := v4l2.QueryDVTimings(devicePath)
 					if err != nil {
 						d.logger.Debug("QueryDVTimings failed",
-							"device_id", deviceID,
-							"attempt", attempt+1,
-							"error", err)
+							logging.KeyDeviceID, deviceID,
+							logging.KeyAttempt, attempt+1,
+							logging.KeyError, err)
 						time.Sleep(retryDelay)
 						continue
 					}
 					d.logger.Debug("QueryDVTimings succeeded",
-						"device_id", deviceID,
-						"attempt", attempt+1)
+						logging.KeyDeviceID, deviceID,
+						logging.KeyAttempt, attempt+1)
 
 					// Verify signal is locked
 					status = v4l2.GetDVTimings(devicePath)
 					d.logger.Debug("GetDVTimings result",
-						"device_id", deviceID,
-						"state", signalStateString(status.State),
-						"width", status.Width,
-						"height", status.Height,
-						"fps", fmt.Sprintf("%.2f", status.FPS))
+						logging.KeyDeviceID, deviceID,
+						logging.KeyState, signalStateString(status.State),
+						logging.KeyWidth, status.Width,
+						logging.KeyHeight, status.Height,
+						logging.KeyFPS, fmt.Sprintf("%.2f", status.FPS))
 
 					if status.State == v4l2.SignalStateLocked {
 						ready = true
 						d.logger.Info("Signal locked successfully",
-							"device_id", deviceID,
-							"resolution", fmt.Sprintf("%dx%d", status.Width, status.Height),
-							"fps", fmt.Sprintf("%.2f", status.FPS),
-							"attempts", attempt+1)
+							logging.KeyDeviceID, deviceID,
+							logging.KeyResolution, fmt.Sprintf("%dx%d", status.Width, status.Height),
+							logging.KeyFPS, fmt.Sprintf("%.2f", status.FPS),
+							logging.KeyAttempts, attempt+1)
 						break
 					}
 
 					d.logger.Debug("Signal not locked yet, retrying",
-						"device_id", deviceID,
-						"attempt", attempt+1,
-						"state", signalStateString(status.State))
+						logging.KeyDeviceID, deviceID,
+						logging.KeyAttempt, attempt+1,
+						logging.KeyState, signalStateString(status.State))
 					time.Sleep(retryDelay)
 				}
 
@@ -407,10 +407,10 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 				if device, exists := d.lastDevices[deviceID]; exists {
 					if ready && !device.Ready {
 						d.logger.Info("HDMI device signal acquired (via event)",
-							"device_id", deviceID,
-							"device_name", device.DeviceName,
-							"resolution", fmt.Sprintf("%dx%d", status.Width, status.Height),
-							"fps", fmt.Sprintf("%.2f", status.FPS))
+							logging.KeyDeviceID, deviceID,
+							logging.KeyName, device.DeviceName,
+							logging.KeyResolution, fmt.Sprintf("%dx%d", status.Width, status.Height),
+							logging.KeyFPS, fmt.Sprintf("%.2f", status.FPS))
 
 						device.Ready = ready
 						d.lastDevices[deviceID] = device
@@ -418,13 +418,13 @@ func (d *linuxDetector) monitorDeviceEvents(deviceID, devicePath string) {
 						d.mu.Unlock()
 
 						// Signal is now present, stop event monitoring
-						d.logger.Debug("Stopping event monitor, signal present", "device_id", deviceID)
+						d.logger.Debug("Stopping event monitor, signal present", logging.KeyDeviceID, deviceID)
 						return
 					} else if !ready {
 						d.logger.Error("Signal not locked after retries",
-							"device_id", deviceID,
-							"retries", attempt+1,
-							"state", signalStateString(status.State))
+							logging.KeyDeviceID, deviceID,
+							logging.KeyRetries, attempt+1,
+							logging.KeyState, signalStateString(status.State))
 					}
 				}
 				d.mu.Unlock()
@@ -457,7 +457,7 @@ func signalStateString(state v4l2.SignalState) string {
 func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 	devices, err := d.FindDevices()
 	if err != nil {
-		d.logger.Error("Error getting device data", "error", err)
+		d.logger.Error("Error getting device data", logging.KeyError, err)
 		return
 	}
 
@@ -474,7 +474,7 @@ func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 	for deviceID, oldDevice := range d.lastDevices {
 		if _, exists := currentDevices[deviceID]; !exists {
 			d.broadcaster.BroadcastDeviceDiscovery("removed", oldDevice, time.Now().Format(time.RFC3339))
-			d.logger.Info("Device removed", "device", oldDevice.DevicePath, "name", oldDevice.DeviceName, "id", deviceID)
+			d.logger.Info("Device removed", logging.KeyDevice, oldDevice.DevicePath, logging.KeyName, oldDevice.DeviceName, logging.KeyDeviceID, deviceID)
 			delete(d.lastDevices, deviceID)
 		}
 	}
@@ -486,7 +486,7 @@ func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 		if !exists {
 			// New device
 			d.broadcaster.BroadcastDeviceDiscovery("added", newDevice, time.Now().Format(time.RFC3339))
-			d.logger.Info("Device added", "device", newDevice.DevicePath, "name", newDevice.DeviceName, "id", deviceID)
+			d.logger.Info("Device added", logging.KeyDevice, newDevice.DevicePath, logging.KeyName, newDevice.DeviceName, logging.KeyDeviceID, deviceID)
 			d.lastDevices[deviceID] = newDevice
 
 			// If it's an HDMI device without signal, start event monitoring (use cached type)
@@ -496,7 +496,7 @@ func (d *linuxDetector) checkAndBroadcastDeviceChanges() {
 		} else if oldDevice != newDevice {
 			// Device changed (shouldn't happen often)
 			d.broadcaster.BroadcastDeviceDiscovery("changed", newDevice, time.Now().Format(time.RFC3339))
-			d.logger.Info("Device changed", "device", newDevice.DevicePath, "name", newDevice.DeviceName, "id", deviceID)
+			d.logger.Info("Device changed", logging.KeyDevice, newDevice.DevicePath, logging.KeyName, newDevice.DeviceName, logging.KeyDeviceID, deviceID)
 			d.lastDevices[deviceID] = newDevice
 		}
 	}

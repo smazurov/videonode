@@ -1,14 +1,13 @@
 package process
 
 import (
-	"io"
 	"log/slog"
 	"testing"
 	"time"
 )
 
 func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 // newTestManager creates a Manager with short timeouts for testing.

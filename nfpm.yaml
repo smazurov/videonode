@@ -1,0 +1,78 @@
+name: videonode
+arch: ${GOARCH}
+platform: linux
+version: ${VERSION}
+section: video
+priority: optional
+maintainer: Stepan Mazurov <smazurov@gmail.com>
+description: |
+  RK3588 video streaming server with native dma-buf pipeline.
+  Turns V4L2 capture devices into RTSP, WebRTC, and SRT streams
+  with GPU-accelerated compositing via EGL/GLES on Mali-G610.
+vendor: Stepan Mazurov
+homepage: https://github.com/smazurov/videonode
+license: AGPL-3.0-or-later
+
+# Runtime library deps are NOT maintained here. The release workflow's package
+# step overwrites `.depends` (via yq) with the output of scripts/gen-deb-depends.sh,
+# which runs dpkg-shlibdeps against the real arm64 binaries in the trixie build job.
+# That derives ABI-correct, version-floored deps (e.g. `libplacebo349 (>= 7.349.0)`)
+# from what the binaries actually link, so a missing/too-old lib (notably libplacebo)
+# is refused at `apt install` instead of crashing at runtime. librga / librockchip_mpp
+# are board-provided (install-rockchip-libs.sh / the image) and stay undeclared.
+#
+# The list below is only a minimal fallback for a manual `nfpm package` run without
+# that generated dist/depends.txt. base-files (>= 13~) gates the OS to trixie+ (~ lets
+# any trixie point release satisfy it) and turns a wrong-release install into a readable
+# message rather than a pile of uninstallable-soname errors.
+depends:
+  - base-files (>= 13~)
+  - libc6
+
+contents:
+  - src: ./dist/videonode
+    dst: /usr/bin/videonode
+    file_info:
+      mode: 0755
+
+  - src: ./dist/videonode-source
+    dst: /usr/bin/videonode-source
+    file_info:
+      mode: 0755
+
+  - src: ./dist/videonode-sink
+    dst: /usr/bin/videonode-sink
+    file_info:
+      mode: 0755
+
+  - src: ./dist/videonode-composer
+    dst: /usr/bin/videonode-composer
+    file_info:
+      mode: 0755
+
+  - src: ./packaging/videonode.service
+    dst: /usr/lib/systemd/system/videonode.service
+
+  - src: ./packaging/videonode.sysusers
+    dst: /usr/lib/sysusers.d/videonode.conf
+
+  - src: ./packaging/videonode.tmpfiles
+    dst: /usr/lib/tmpfiles.d/videonode.conf
+
+  - src: ./packaging/config.toml
+    dst: /etc/videonode/config.toml
+    type: config
+
+  - src: ./packaging/videonode.asound.conf
+    dst: /usr/share/videonode/videonode.asound.conf
+
+  - src: ./packaging/copyright
+    dst: /usr/share/doc/videonode/copyright
+
+changelog: ./changelog.yml
+
+scripts:
+  postinstall: ./packaging/postinst.sh
+  preremove: ./packaging/prerm.sh
+  postremove: ./packaging/postrm.sh
+

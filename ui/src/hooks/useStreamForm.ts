@@ -1,149 +1,177 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useStreamStore } from './useStreamStore';
-import { useDeviceInputForm, type UseDeviceInputFormResult } from './useDeviceInputForm';
 import type { components } from '../lib/api.generated';
-import { api, unwrap } from '../lib/api';
-import { parseResolution } from '../lib/resolution';
+import type {
+  AudioConfig,
+  EncoderConfig,
+  StreamFormValue,
+} from '../components/streams/types';
 
-type StreamData = components["schemas"]["StreamData"];
-type StreamRequestData = components["schemas"]["StreamRequestData"];
+type StreamData = components['schemas']['StreamData'];
+type StreamRequestData = components['schemas']['StreamRequestData'];
 
-interface ParsedStreamData {
-  streamId: string;
-  deviceId: string;
-  inputFormat: string;
-  width: number;
-  height: number;
-  framerate: number;
-  codec: string;
-  bitrate: number | undefined;
-  audioDevice: string;
-  options: string[];
-  rotation: number;
+const STREAM_ID_RE = /^[\da-z][\da-z-]*[\da-z]$|^[\da-z]$/i;
+const UPSTREAM_RE = /^(source|composer):[\da-z][\da-z-]*$/i;
+
+function defaultEncoder(): EncoderConfig {
+  return { codec: 'h264', bitrate: '2M' };
 }
 
-function parseStreamData(sd: StreamData): ParsedStreamData {
-  const { width, height } = parseResolution(sd.resolution);
+function defaultAudio(): AudioConfig {
+  return { codec: 'opus', devices: [] };
+}
+
+function emptyValue(): StreamFormValue {
   return {
-    streamId: sd.stream_id,
-    deviceId: sd.device_id,
-    inputFormat: sd.input_format || '',
-    width,
-    height,
-    framerate: sd.framerate ? parseInt(sd.framerate, 10) || 0 : 0,
-    codec: sd.codec,
-    bitrate: sd.bitrate ? parseFloat(sd.bitrate.replace(/[^\d.]/g, '')) : undefined,
-    audioDevice: sd.audio_device || '',
-    options: sd.options || [],
-    rotation: sd.rotation ?? 0,
+    stream_id: '',
+    upstream: '',
+    encoder: defaultEncoder(),
+    audio: defaultAudio(),
   };
 }
 
-export function useStreamForm(initialData?: StreamData) {
-  const mode = initialData ? ('edit' as const) : ('create' as const);
-  const initial = useMemo(() => (initialData ? parseStreamData(initialData) : null), [initialData]);
+function fromStreamData(s: StreamData | undefined): StreamFormValue {
+  if (!s) return emptyValue();
+  const rawEnc = { ...defaultEncoder(), ...(s.encoder as Partial<EncoderConfig>) };
+  const encoder: EncoderConfig = { ...rawEnc };
+  const rawAudio = { ...defaultAudio(), ...(s.audio as Partial<AudioConfig>) };
+  const audio: AudioConfig = { ...rawAudio, devices: rawAudio.devices ?? [] };
+  return {
+    stream_id: s.stream_id,
+    upstream: s.upstream ?? '',
+    encoder,
+    audio,
+    custom_encoder_args: s.custom_encoder_args ?? '',
+  };
+}
 
-  const [streamId, setStreamId] = useState(initial?.streamId ?? '');
-  const [deviceId, setDeviceId] = useState(initial?.deviceId ?? '');
-  const [codec, setCodec] = useState(initial?.codec ?? 'h264');
-  const [bitrate, setBitrate] = useState<number | undefined>(initial?.bitrate ?? 2);
-  const [audioDevice, setAudioDevice] = useState(initial?.audioDevice ?? '');
-  const [options, setOptions] = useState<string[]>(initial?.options ?? []);
-  const [rotation, setRotation] = useState<number>(initial?.rotation ?? 0);
+// diffStreamForm returns only the fields that changed between the loaded
+// stream and the edited value, shaped for the partial PATCH body. Each
+// field is compared structurally so reordering object keys doesn't count
+// as a change. custom_encoder_args is included even when cleared to ''
+// so the user can remove it.
+function diffStreamForm(
+  initial: StreamFormValue,
+  next: StreamFormValue,
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  const changed = (a: unknown, b: unknown) =>
+    JSON.stringify(a) !== JSON.stringify(b);
+
+  if (next.upstream !== initial.upstream) patch.upstream = next.upstream;
+  if (changed(next.encoder, initial.encoder)) patch.encoder = next.encoder;
+  if (changed(next.audio, initial.audio)) patch.audio = next.audio;
+  if ((next.custom_encoder_args ?? '') !== (initial.custom_encoder_args ?? '')) {
+    patch.custom_encoder_args = next.custom_encoder_args ?? '';
+  }
+
+  return patch;
+}
+
+interface ValidateOpts {
+  mode: 'create' | 'edit';
+  value: StreamFormValue;
+  existingIds: string[];
+}
+
+function validate({ mode, value, existingIds }: ValidateOpts): Record<string, string> {
+  const errors: Record<string, string> = {};
+
+  const id = value.stream_id.trim();
+  if (mode === 'create') {
+    if (!id) {
+      errors.stream_id = 'Stream ID is required';
+    } else if (!STREAM_ID_RE.test(id)) {
+      errors.stream_id = 'Stream ID must be alphanumeric with dashes';
+    } else if (existingIds.includes(id)) {
+      errors.stream_id = 'Stream ID already in use';
+    }
+  }
+
+  const up = value.upstream.trim();
+  if (!up) {
+    errors.upstream = 'Upstream is required';
+  } else if (!UPSTREAM_RE.test(up)) {
+    errors.upstream = 'Upstream must be "source:<id>" or "composer:<id>"';
+  }
+
+  if (!value.encoder.codec) {
+    errors['encoder.codec'] = 'Codec is required';
+  }
+  if (!value.encoder.bitrate.trim()) {
+    errors['encoder.bitrate'] = 'Bitrate is required';
+  }
+  if (value.encoder.gop !== undefined && value.encoder.gop < 0) {
+    errors['encoder.gop'] = 'GOP must be non-negative';
+  }
+
+  return errors;
+}
+
+export interface UseStreamFormResult {
+  mode: 'create' | 'edit';
+  value: StreamFormValue;
+  setStreamId: (next: string) => void;
+  setUpstream: (next: string) => void;
+  setEncoder: (next: EncoderConfig) => void;
+  setAudio: (next: AudioConfig) => void;
+  setCustomEncoderArgs: (next: string) => void;
+  errors: Record<string, string>;
+  isValid: boolean;
+  isDirty: boolean;
+  saving: boolean;
+  error: string | null;
+  submit: () => Promise<boolean>;
+}
+
+export function useStreamForm(initialData?: StreamData): UseStreamFormResult {
+  const mode: 'create' | 'edit' = initialData ? 'edit' : 'create';
+
+  const initialValue = useMemo(() => fromStreamData(initialData), [initialData]);
+  const [value, setValue] = useState<StreamFormValue>(initialValue);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const createStream = useStreamStore((s) => s.createStream);
   const updateStream = useStreamStore((s) => s.updateStream);
+  const streamIds = useStreamStore((s) => s.streamIds);
 
-  const inputForm: UseDeviceInputFormResult = useDeviceInputForm({
-    deviceId,
-    initial: initial
-      ? {
-          inputFormat: initial.inputFormat,
-          width: initial.width,
-          height: initial.height,
-          framerate: initial.framerate,
-        }
-      : undefined,
-    autoSelect: mode === 'create',
-  });
+  const existingIds = useMemo(() => {
+    if (mode === 'create') return streamIds;
+    return streamIds.filter((id) => id !== initialData?.stream_id);
+  }, [mode, streamIds, initialData?.stream_id]);
 
-  useEffect(() => {
-    if (mode === 'edit') return;
-    api.GET("/api/options")
-      .then((res) => {
-        const data = unwrap(res, 'Failed to load options');
-        setOptions((data.options ?? []).filter((o) => o.app_default).map((o) => o.key));
-      })
-      .catch(() => setOptions(['thread_queue_1024', 'copyts']));
-  }, [mode]);
+  const setStreamId = useCallback(
+    (next: string) => setValue((cur) => ({ ...cur, stream_id: next })),
+    [],
+  );
+  const setUpstream = useCallback(
+    (next: string) => setValue((cur) => ({ ...cur, upstream: next })),
+    [],
+  );
+  const setEncoder = useCallback(
+    (next: EncoderConfig) => setValue((cur) => ({ ...cur, encoder: next })),
+    [],
+  );
+  const setAudio = useCallback(
+    (next: AudioConfig) => setValue((cur) => ({ ...cur, audio: next })),
+    [],
+  );
+  const setCustomEncoderArgs = useCallback(
+    (next: string) => setValue((cur) => ({ ...cur, custom_encoder_args: next })),
+    [],
+  );
 
-  const selectDevice = useCallback((id: string) => {
-    setDeviceId(id);
-  }, []);
-
-  const errors = useMemo(() => {
-    const e: Record<string, string> = {};
-    if (!streamId.trim()) {
-      e.streamId = 'Stream ID is required';
-    } else if (!/^[\w-]+$/.test(streamId)) {
-      e.streamId = 'Stream ID can only contain letters, numbers, dashes, and underscores';
-    }
-    if (mode === 'create' && !deviceId) e.deviceId = 'Device selection is required';
-    if (mode === 'create' && !inputForm.inputFormat) e.input_format = 'Format selection is required';
-    if (!codec) e.codec = 'Codec selection is required';
-    if (bitrate !== undefined && (bitrate < 0.1 || bitrate > 50))
-      e.bitrate = 'Bitrate must be between 0.1 and 50 Mbps';
-    return e;
-  }, [streamId, deviceId, inputForm.inputFormat, codec, bitrate, mode]);
-
+  const errors = useMemo(
+    () => validate({ mode, value, existingIds }),
+    [mode, value, existingIds],
+  );
   const isValid = Object.keys(errors).length === 0;
 
   const isDirty = useMemo(() => {
     if (mode === 'create') return true;
-    if (!initial) return false;
-    return (
-      inputForm.isDirty ||
-      codec !== initial.codec ||
-      bitrate !== initial.bitrate ||
-      audioDevice !== initial.audioDevice ||
-      JSON.stringify(options) !== JSON.stringify(initial.options) ||
-      rotation !== initial.rotation
-    );
-  }, [mode, initial, inputForm.isDirty, codec, bitrate, audioDevice, options, rotation]);
-
-  const buildCreateRequest = useCallback((): StreamRequestData => {
-    const req: StreamRequestData = {
-      stream_id: streamId,
-      device_id: deviceId,
-      codec: codec as StreamRequestData["codec"],
-      input_format: inputForm.inputFormat,
-      ...(inputForm.width > 0 ? { width: inputForm.width } : {}),
-      ...(inputForm.height > 0 ? { height: inputForm.height } : {}),
-      ...(inputForm.framerate > 0 ? { framerate: inputForm.framerate } : {}),
-      ...(bitrate ? { bitrate } : {}),
-      ...(audioDevice ? { audio_device: audioDevice } : {}),
-      ...(options.length > 0 ? { options } : {}),
-    };
-    if (rotation === 90 || rotation === 180 || rotation === 270) {
-      req.rotation = rotation;
-    }
-    return req;
-  }, [streamId, deviceId, codec, inputForm.inputFormat, inputForm.width, inputForm.height, inputForm.framerate, bitrate, audioDevice, options, rotation]);
-
-  const buildEditDiff = useCallback((): Record<string, string | number | string[] | undefined> => {
-    if (!initial) return {};
-    const changes: Record<string, string | number | string[] | undefined> = {
-      ...inputForm.diff(),
-    };
-    if (codec !== initial.codec) changes.codec = codec;
-    if (bitrate !== initial.bitrate) changes.bitrate = bitrate;
-    if (audioDevice !== initial.audioDevice) changes.audio_device = audioDevice;
-    if (JSON.stringify(options) !== JSON.stringify(initial.options)) changes.options = options;
-    if (rotation !== initial.rotation) changes.rotation = rotation;
-    return changes;
-  }, [initial, inputForm, codec, bitrate, audioDevice, options, rotation]);
+    return JSON.stringify(value) !== JSON.stringify(initialValue);
+  }, [mode, value, initialValue]);
 
   const submit = useCallback(async () => {
     if (!isValid) return false;
@@ -151,11 +179,20 @@ export function useStreamForm(initialData?: StreamData) {
     setError(null);
     try {
       if (mode === 'create') {
-        await createStream(buildCreateRequest());
-      } else if (initial) {
-        const changes = buildEditDiff();
-        if (Object.keys(changes).length > 0) {
-          await updateStream(streamId, changes);
+        await createStream({
+          stream_id: value.stream_id,
+          upstream: value.upstream,
+          encoder: value.encoder,
+          audio: value.audio,
+          ...(value.custom_encoder_args ? { custom_encoder_args: value.custom_encoder_args } : {}),
+        } as unknown as StreamRequestData);
+      } else if (initialData) {
+        // PATCH is partial: only send fields the user actually changed.
+        // Omitted fields mean "leave alone"; sending the full value would
+        // clobber anything not surfaced in this form.
+        const patch = diffStreamForm(initialValue, value);
+        if (Object.keys(patch).length > 0) {
+          await updateStream(initialData.stream_id, patch as Partial<StreamRequestData>);
         }
       }
       return true;
@@ -165,25 +202,16 @@ export function useStreamForm(initialData?: StreamData) {
     } finally {
       setSaving(false);
     }
-  }, [isValid, mode, streamId, initial, buildCreateRequest, buildEditDiff, createStream, updateStream]);
+  }, [isValid, mode, value, initialValue, initialData, createStream, updateStream]);
 
   return {
     mode,
-    streamId,
+    value,
     setStreamId,
-    deviceId,
-    selectDevice,
-    inputForm,
-    codec,
-    setCodec,
-    bitrate,
-    setBitrate,
-    audioDevice,
-    setAudioDevice,
-    options,
-    setOptions,
-    rotation,
-    setRotation,
+    setUpstream,
+    setEncoder,
+    setAudio,
+    setCustomEncoderArgs,
     errors,
     isValid,
     isDirty,

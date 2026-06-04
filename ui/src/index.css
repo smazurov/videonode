@@ -59,6 +59,10 @@ html {
   @apply scroll-smooth;
 }
 
+.dark input[type="number"] {
+  color-scheme: dark;
+}
+
 html,
 body {
   height: 100%;

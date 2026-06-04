@@ -1,0 +1,55 @@
+name: composer-ci
+
+on:
+  push:
+    paths:
+      - 'composer/**'
+      - '.github/workflows/ci-composer.yml'
+  pull_request:
+    paths:
+      - 'composer/**'
+      - '.github/workflows/ci-composer.yml'
+
+concurrency:
+  group: composer-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Every job runs inside arm64v8/debian:trixie and invokes
+# composer/scripts/build-deb-arm64.sh — exactly the script the local
+# docker wrapper (build-deb-arm64-docker.sh) executes — so CI cannot
+# drift from what developers run on their workstations.
+jobs:
+  dev:
+    runs-on: ubuntu-24.04-arm
+    container: arm64v8/debian:trixie
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build + test (dev preset)
+        env:
+          MODE: dev
+        run: composer/scripts/build-deb-arm64.sh
+
+  dev-asan:
+    runs-on: ubuntu-24.04-arm
+    container: arm64v8/debian:trixie
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build + test (dev-asan preset)
+        env:
+          MODE: dev-asan
+        run: composer/scripts/build-deb-arm64.sh
+
+  lint:
+    runs-on: ubuntu-24.04-arm
+    container: arm64v8/debian:trixie
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: clang-format + clang-tidy-diff
+        env:
+          MODE: lint
+        run: composer/scripts/build-deb-arm64.sh

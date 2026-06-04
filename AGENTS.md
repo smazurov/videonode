@@ -12,17 +12,39 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Test with verbose**: `go test -v ./internal/ffmpeg`
 - **Lint**: `golangci-lint run ./...`
 - **Lint & fix**: `golangci-lint run --fix ./...`
-- **Clear lint cache**: `golangci-lint cache clean` (run if you see intermittent false positives - golangci-lint has cache bugs)
 - **Install deps**: `go mod tidy`
 - **Validate encoders**: `./videonode validate-encoders`
 
 ### Frontend (React/TypeScript)
 
 - **Install deps**: `cd ui && pnpm install`
-- **Dev server**: **!ASSUME ITS RUNNING!**
+- **Dev server**: **!ASSUME ITS RUNNING!** (unless you're in a worktree — worktrees don't share the host's dev server; run `pnpm dev` yourself if you need it)
 - **Build**: `cd ui && pnpm build`
 - **Lint & fix**: `cd ui && pnpm lint:fix`
 - **Type check**: `cd ui && pnpm typecheck`
+
+### Native binaries (C++, host)
+
+The Go daemon spawns `videonode-source`, `videonode-sink`, and
+`videonode-composer` from `~/.local/bin/` on the dev box, and `/usr/bin/` on
+the SBC/rig.
+`process-compose` / `air` won't see your C++ changes until you install
+them there. **Any time you build C++ in `composer/`, also install:**
+
+```bash
+# Daily install — RelWithDebInfo. Realistic CPU + readable stack traces.
+cmake --preset relwithdebinfo                            # if not configured
+cmake --build --preset relwithdebinfo
+cmake --install composer/build/relwithdebinfo            # writes to ~/.local/bin
+```
+
+Use the `dev` preset (Debug) only when you're actively stepping with
+lldb; running daemons against it has ~2× the per-frame CPU because
+libstdc++ bounds checks and `-O0` defeat inlining. Sanitizer presets
+(`dev-asan`, `dev-tsan`) build into separate dirs; install from those
+only when deliberately running the daemon against an instrumented
+binary. Verify with `ls -l ~/.local/bin/videonode-{source,sink,composer}`
+— mtimes should match the build.
 
 
 ## Code Style Guidelines
@@ -110,12 +132,28 @@ Available integration tests:
 
 ## Architecture
 
+### Pipeline model (post pipeline-rip)
+
+Sources, composers, and streams are three independent top-level entities. Each has its own identity, CRUD surface, and lifecycle policy. Streams reference upstream by explicit string ref (`source:<id>` or `composer:<id>`) — there is no monolithic `[[streams]]` table carrying inputs/layout/effects, and there is no implicit "canvas" entity.
+
+- **Source** (`videonode-source`, one per source-id) — captures V4L2 frames (or runs an RPC-driven test pattern when `test_mode = true`), broadcasts NV12 dma-bufs via SCM_RIGHTS to N consumers. **Lifecycle: pipeline-gated.** Sources run when the pipeline master switch is on and stop when it's off. While on, sources stay up until deleted; composers and streams attach/detach without restarting them. CRUD persists config regardless of switch state; on start, everything rehydrates.
+- **Composer** (`videonode-composer`, one per composer-id) — reads N source SCM sockets, GLES-composites onto a BGRA canvas, broadcasts the canvas dma-buf via SCM_RIGHTS. **Lifecycle: pipeline-gated.** Layout and per-input effects are live-editable via unary RPCs without restarting the process.
+- **Stream** (encoder = `vn-sink | ffmpeg`, one per stream-id) — vn-sink dials the upstream SCM (NV12 from a source or BGRA from a composer) and pipes to ffmpeg. Stream-id is encoder identity end-to-end (RTSP/SRT path, WebRTC peer key, metrics label). **Lifecycle: pipeline-gated, lazy-encoder-on-reader.** The stream's pipeline plan is resident, but the encoder process only spawns when the pipeline switch is on AND a reader (WebRTC/SRT/RTSP) connects, and stops after the last reader disconnects (debounced). The encoder publishes to the daemon's local RTSP relay (`rtsp://localhost:<rtsp_port>/<stream-id>`), hardcoded at the pipeline-build boundary (`buildEncoder` in `pipeline.go`); SRT and WebRTC fan out from there. There is no user-configurable publish list.
+
+User-facing config: three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with explicit `upstream = "source:<id>"` or `upstream = "composer:<id>"` references. Streams carry only encoder + audio config; the publish destination is the hardcoded local RTSP relay, not a config field.
+
 ### Application Structure
 - **CLI Framework**: Uses Huma v2 with humacli for command-line interface and API server
 - **API Server**: Huma v2 API with native Go 1.22+ routing, serves RESTful endpoints with OpenAPI documentation at `/docs`
 - **Video Capture**: FFmpeg integration for screenshot capture from V4L2 devices with configurable delay
 - **Device Detection**: Pure Go V4L2 device detection via `pkg/linuxav/v4l2`
-- **Stream Management**: go2rtc integration for RTSP/WebRTC streaming with TOML-based configuration
+- **Stream Management**: embedded gortsplib RTSP server with native pion/webrtc signaling, fed by per-stream `vn-sink | ffmpeg` pipelines
+- **Native Control Plane**: gRPC over per-instance Unix sockets to the C++ binaries
+  (`videonode-source`, `videonode-composer`). Daemon dials each spawned binary,
+  calls `Describe()`, then issues unary RPCs (SetFormat / SetCanvas / SetSource /
+  SetLayout / SetEffects / SetSourceState / Snapshot / Shutdown) and subscribes
+  to `Source.StreamStatus` for the status push. Schemas in `proto/control/*.proto`;
+  generated stubs in `internal/streams/pipelinectl/pb/`.
 - **Observability**: Built-in metrics collection with Prometheus export and SSE real-time updates
 
 ### Key Packages
@@ -124,22 +162,32 @@ Use `go doc` or the `mcp__godoc__get_doc` tool to read package documentation:
 
 ```bash
 # Internal packages
-go doc ./internal/api          # API server and endpoints
-go doc ./internal/streams      # Stream lifecycle management
-go doc ./internal/encoders     # Hardware encoder detection
-go doc ./internal/capture      # Screenshot capture
-go doc ./internal/config       # Configuration loading
-go doc ./internal/metrics      # Metrics collection
-go doc ./internal/ffmpeg       # FFmpeg command building
-go doc ./internal/logging      # Structured logging
-go doc ./pkg/linuxav/v4l2      # V4L2 device detection
-go doc ./pkg/linuxav/hotplug   # USB hotplug monitoring
+go doc ./internal/api                            # API server: streams.go + sources.go + composers.go handlers
+go doc ./internal/streams                        # SourceService / ComposerService / StreamService split
+go doc ./internal/streams/store                  # TOML persistence + v1→v2 auto-migration (migrate.go)
+go doc ./internal/streams/pipelinectl            # gRPC client manager for native binaries
+go doc ./internal/streams/pipelinectl/pb         # Generated control-plane proto stubs
+go doc ./internal/encoders                       # Hardware encoder detection
+go doc ./internal/capture                        # Screenshot capture
+go doc ./internal/config                         # Configuration loading
+go doc ./internal/metrics                        # Metrics collection
+go doc ./internal/ffmpeg                         # FFmpeg command building
+go doc ./internal/logging                        # Structured logging
+go doc ./pkg/linuxav/v4l2                        # V4L2 device detection
+go doc ./pkg/linuxav/hotplug                     # USB hotplug monitoring
 
 # External modules (use full import path)
 go doc github.com/danielgtaylor/huma/v2          # Huma API framework
 go doc github.com/danielgtaylor/huma/v2.Register # Specific symbol
 go doc github.com/pelletier/go-toml/v2           # TOML parsing
 ```
+
+Service-layer split (all live under `internal/streams`):
+- `SourceService` — CRUD + lifecycle for `videonode-source` instances (pipeline-gated).
+- `ComposerService` — CRUD + live layout/effect edits for `videonode-composer` instances (pipeline-gated).
+- `StreamService` — CRUD for encoder/audio config; owns the lazy-encoder-on-reader lifecycle and the pipeline master switch. The publish destination is the hardcoded local RTSP relay, set when the encoder stage is built.
+
+The HTTP surface is implemented in `internal/api/sources.go` and `internal/api/composers.go` (new alongside `streams.go`), with their request/response models in `internal/api/models/`. TOML persistence and the v1→v2 auto-migration live in `internal/streams/store` (see `migrate.go`).
 
 Use `go doc -all <path>` for complete documentation including unexported symbols.
 
@@ -150,26 +198,37 @@ Use `go doc -all <path>` for complete documentation including unexported symbols
 - **Error Handling**: Structured error responses with Huma v2 error format
 - **SSE Support**: Real-time updates via Server-Sent Events at `/api/events/*`
 
-### Configuration
-- **Main Config**: `config.toml` with sections for server, streams, obs, capture, auth, features, and logging
-- **Stream Definitions**: `streams.toml` for individual stream configurations
-- **Environment Variables**: All config values can be overridden via env vars (e.g., `VIDEONODE_SERVER_PORT`)
+#### Entity endpoints
 
-### go2rtc Integration
-- **Control API**: go2rtc provides a RESTful API on port 1984 for dynamic stream management
-- **API Documentation**: https://github.com/AlexxIT/go2rtc/wiki/REST-API
-- **Key Endpoints**:
-  - `/api/streams`: List and manage streams
-  - `/api/ws`: WebSocket for WebRTC signaling
-- **Stream Source Options**: `rtsp://`, `rtmp://`, `http://`, `ffmpeg:`, WebRTC, file playback
+Three parallel CRUD surfaces, one per top-level entity:
+
+- `/api/sources` — list + create
+  - `/api/sources/{source_id}` — get / patch / delete
+  - `/api/sources/{source_id}/snapshot.jpg` — latest cached JPEG snapshot from the producer
+  - `/api/sources/{source_id}/preview.mjpg` — live multipart MJPEG preview
+- `/api/composers` — list + create
+  - `/api/composers/{composer_id}` — get / patch / delete
+  - `/api/composers/{composer_id}/layout` — PATCH the layout (live edit, no restart)
+  - `/api/composers/{composer_id}/inputs/{ref}/effect` — PATCH per-input effect (e.g. perspective)
+  - `/api/composers/{composer_id}/snapshot.jpg` — latest cached JPEG snapshot of the canvas
+  - `/api/composers/{composer_id}/preview.mjpg` — live multipart MJPEG preview
+- `/api/streams` — list + create
+  - `/api/streams/{stream_id}` — get / patch / delete
+
+The legacy `/api/streams/canvas/layout` endpoint is gone; canvas layout has moved to `PATCH /api/composers/{composer_id}/layout`. Sources cannot be deleted while a composer or stream references them; composers cannot be deleted while a stream references them — the API returns a structured error listing the blockers.
+
+### Configuration
+- **Main Config**: `config.toml` with sections for server, obs, capture, auth, features, and logging
+- **Entity Definitions**: `streams.toml` carries the three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with `version = 2` at the top.
+- **Auto-migration**: v1-shape files (monolithic `[[streams]]` with inline `inputs`/`layout`/`effects`/`force_composer`/stream-level `test_mode`) are auto-migrated on load by `internal/streams/store/migrate.go` and rewritten in place. Legacy `publish` target entries (from v1 or older v2 files) are silently dropped on load — the publish destination is now hardcoded.
+- **Environment Variables**: All config values can be overridden via env vars (e.g., `VIDEONODE_SERVER_PORT`)
 
 ### Debugging & Logging
 
 #### systemd-run Logs
 - **Critical Finding**: `systemd-run --user` logs appear in the **system journal**, NOT the user journal
 - Even though the command runs in user systemd, stdout/stderr goes to system journal
-- Logs are tagged with parent process (e.g., `go2rtc[PID]`) when go2rtc captures FFmpeg output
-- **View logs**: `journalctl --since "1 hour ago" | grep -E "ffmpeg|go2rtc"`
+- **View logs**: `journalctl --since "1 hour ago" | grep ffmpeg`
 - **NOT**: `journalctl --user` (returns empty/minimal results)
 - The `--collect` flag removes the unit after completion, but **logs persist in journald**
 - Per systemd docs: "after unloading the unit it cannot be inspected using systemctl status, but its logs are still in journal"
@@ -203,12 +262,22 @@ The API includes endpoints for:
 
 ## Development Notes
 
-- **Server is always running via air** on port 8090 with Basic Auth credentials: `videonode:videonode`
+- **Server is always running via air** on port 8090 with Basic Auth credentials: `videonode:videonode` (unless you're in a worktree — air watches the host checkout, not the worktree; build and run the binary directly there)
 - **Health check**: `curl http://localhost:8090/api/health`
 - **When writing API models, make sure every field is in snake_case**
 - **Run all python commands through uv**
 - **Don't be helpful** - do exactly what's asked, nothing more
-- **After making changes**, always run all three checks:
-  1. `go build ./...`
-  2. `go test ./...`
-  3. `golangci-lint run ./...`
+- **No attribution in commits** - never add Co-Authored-By, Signed-off-by, or similar trailers
+- **After making changes**, always run the relevant quality checks:
+  - Go (any `.go` change):
+    1. `go build ./...`
+    2. `go test ./...`
+    3. `golangci-lint run ./...`
+  - TypeScript (any `ui/` change):
+    1. `cd ui && pnpm typecheck`
+    2. `cd ui && pnpm lint`
+  - C++ (any `composer/` change, from `composer/`):
+    1. `cmake --build --preset dev`
+    2. `ctest --preset dev --output-on-failure`
+    3. `cmake --build build/dev --target lint`       # clang-format dry-run
+    4. `cmake --build build/dev --target tidy-diff`  # clang-tidy on changed lines vs origin/main

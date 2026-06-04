@@ -1,0 +1,58 @@
+name: Docs
+
+on:
+  push:
+    branches: [main, native]
+    paths:
+      - 'website/**'
+      - 'README.md'
+      - 'changelog.yml'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+# DO NOT add force/force_orphan to JamesIves/peaceiris — both silently bypass
+# file-preservation and would nuke the apt repo deployed by .github/workflows/release.yml.
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: website/package.json
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install chglog
+        run: go install github.com/goreleaser/chglog/cmd/chglog@v0.7.4
+      - name: Install
+        working-directory: website
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        working-directory: website
+        run: pnpm build
+      - name: Deploy docs to gh-pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: website/docs/.vitepress/dist
+          clean: true
+          # Allowlist of apt-owned paths so they survive a docs deploy. The apt
+          # repo workflow (.github/workflows/release.yml publish-apt job) owns these.
+          clean-exclude: |
+            dists
+            pool
+            public.key
+            CNAME
+          force: false
+          attempt-limit: 3

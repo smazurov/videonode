@@ -99,7 +99,7 @@ func (w *Watcher[T]) Start() error {
 		return err
 	}
 
-	w.logger.Info("Config watcher started", "path", w.path, "debounce", w.debounce)
+	w.logger.Info("Config watcher started", logging.KeyPath, w.path, logging.KeyDebounce, w.debounce)
 	go w.watch()
 	return nil
 }
@@ -135,7 +135,7 @@ func (w *Watcher[T]) watch() {
 			// Handle write events (most common for config changes)
 			// Also handle create events (some editors replace the file)
 			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-				w.logger.Debug("Config file change detected", "op", event.Op.String())
+				w.logger.Debug("Config file change detected", logging.KeyOp, event.Op.String())
 
 				// Reset debounce timer
 				if timer != nil {
@@ -154,7 +154,7 @@ func (w *Watcher[T]) watch() {
 			if !ok {
 				return
 			}
-			w.logger.Warn("Config watcher error", "error", err)
+			w.logger.Warn("Config watcher error", logging.KeyError, err)
 		}
 	}
 }
@@ -164,7 +164,7 @@ func (w *Watcher[T]) loadAndNotify() {
 	// Load config FRESH - no caching
 	config, err := w.loader(w.path)
 	if err != nil {
-		w.logger.Warn("Failed to load config", "error", err)
+		w.logger.Warn("Failed to load config", logging.KeyError, err)
 		if w.onError != nil {
 			w.onError(err)
 		}

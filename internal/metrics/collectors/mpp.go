@@ -48,7 +48,7 @@ func (m *MPPCollector) Stop() error {
 }
 
 func (m *MPPCollector) run() {
-	m.logger.Info("Starting MPP metrics collection", "path", m.procPath, "interval", m.interval)
+	m.logger.Info("Starting MPP metrics collection", logging.KeyPath, m.procPath, logging.KeyInterval, m.interval)
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 
@@ -67,14 +67,14 @@ func (m *MPPCollector) run() {
 func (m *MPPCollector) collectMetrics() {
 	file, err := os.Open(m.procPath)
 	if err != nil {
-		m.logger.Warn("Failed to open MPP proc file", "error", err)
+		m.logger.Warn("Failed to open MPP proc file", logging.KeyError, err)
 		return
 	}
 	defer file.Close()
 
 	devices, err := m.parseContent(file)
 	if err != nil {
-		m.logger.Warn("Failed to parse MPP metrics", "error", err)
+		m.logger.Warn("Failed to parse MPP metrics", logging.KeyError, err)
 		return
 	}
 

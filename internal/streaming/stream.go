@@ -2,6 +2,7 @@ package streaming
 
 import (
 	"sync"
+	"time"
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
@@ -16,10 +17,14 @@ type StreamProvider interface {
 	HasStream(id string) bool
 	ListStreams() []string
 	GetStreamReaderCount(id string) int
+	// EnsureStreamReady returns an existing stream or kicks the lazy-start
+	// hook and waits up to timeout for OnAnnounce.
+	EnsureStreamReady(id string, timeout time.Duration) *Stream
 }
 
 // OnDataFunc is called when media data is received.
-// For video: pts/dts are in nanosecond units (90kHz clock), au contains NAL units.
+// For video: pts/dts are in the format's RTP clock-rate units (90kHz), as
+// returned by gortsplib's PacketPTS; au contains NAL units.
 // For audio: pts is the presentation timestamp, au contains audio samples.
 type OnDataFunc func(pts int64, dts int64, au [][]byte) error
 
@@ -66,7 +71,7 @@ func (s *Stream) AddReader(r *Reader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.readers[r] = struct{}{}
-	s.logger.Debug("Reader added to stream", "stream_id", s.id, "reader_count", len(s.readers))
+	s.logger.Debug("Reader added to stream", logging.KeyStreamID, s.id, logging.KeyReaderCount, len(s.readers))
 }
 
 // RemoveReader removes a reader.
@@ -78,7 +83,7 @@ func (s *Stream) RemoveReader(r *Reader) {
 	newCount := len(s.readers)
 	s.mu.Unlock()
 
-	s.logger.Debug("Reader removed from stream", "stream_id", s.id, "reader_count", newCount)
+	s.logger.Debug("Reader removed from stream", logging.KeyStreamID, s.id, logging.KeyReaderCount, newCount)
 
 	if count > 0 && newCount == 0 && cb != nil {
 		go cb(s.id)

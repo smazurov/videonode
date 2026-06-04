@@ -10,14 +10,8 @@ import (
 
 const defaultBufferSize = 1000
 
-// Logger is a duck-typed interface satisfied by *slog.Logger.
-// Use this interface instead of *slog.Logger to decouple from the concrete type.
-type Logger interface {
-	Debug(msg string, args ...any)
-	Info(msg string, args ...any)
-	Warn(msg string, args ...any)
-	Error(msg string, args ...any)
-}
+// Logger is *slog.Logger. Type alias so callers import logging, not slog.
+type Logger = *slog.Logger
 
 var (
 	moduleLoggers   = make(map[string]*slog.Logger)
@@ -69,7 +63,7 @@ func Initialize(config Config) {
 
 		// Recreate handler with full handler chain (including buffer)
 		handler := createHandler(config.Format, levelVar)
-		moduleLoggers[module] = slog.New(handler).With("module", module)
+		moduleLoggers[module] = slog.New(handler).With(KeyModule, module)
 	}
 
 	// Create base handler for default logger
@@ -144,7 +138,7 @@ func GetLogger(module string) *slog.Logger {
 		handler = createHandler("text", levelVar)
 	}
 
-	logger := slog.New(handler).With("module", module)
+	logger := slog.New(handler).With(KeyModule, module)
 	moduleLoggers[module] = logger
 	moduleLevelVars[module] = levelVar
 	return logger

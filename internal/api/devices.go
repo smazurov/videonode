@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/devices"
+	"github.com/smazurov/videonode/internal/logging"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
 )
 
 // DevicePathInput represents device path parameter input.
@@ -210,14 +213,14 @@ func GetDeviceCapabilities(devicePath string) (models.DeviceCapabilitiesData, er
 		_, formatErr := V4L2ToFFmpegFormat(format.PixelFormat)
 		if formatErr != nil {
 			// Skip unsupported formats instead of failing completely
-			logger := slog.With("component", "devices_api")
-			logger.Warn("Skipping unsupported format", "error", formatErr)
+			logger := slog.With(logging.KeyComponent, "devices_api")
+			logger.Warn("Skipping unsupported format", logging.KeyError, formatErr)
 			continue
 		}
 		videoFormat, ok := models.PixelFormatToVideoFormat(format.PixelFormat)
 		if !ok {
-			logger := slog.With("component", "devices_api")
-			logger.Warn("Unknown pixel format code", "pixel_format", format.PixelFormat)
+			logger := slog.With(logging.KeyComponent, "devices_api")
+			logger.Warn("Unknown pixel format code", logging.KeyPixelFmt, format.PixelFormat)
 			continue
 		}
 		formats = append(formats, models.FormatInfo{
@@ -367,6 +370,41 @@ func (s *Server) registerDeviceRoutes() {
 
 		return &models.DeviceFrameratesResponse{
 			Body: models.DeviceFrameratesData{Framerates: apiFramerates},
+		}, nil
+	})
+
+	// Set runtime capture format on a connected videonode-source sidecar.
+	// Requires the control plane to be enabled and the sidecar already
+	// connected (i.e., a stream using this device must be running).
+	huma.Register(s.api, huma.Operation{
+		OperationID: "device-set-format",
+		Method:      http.MethodPost,
+		Path:        "/api/devices/{device_id}/format",
+		Summary:     "Set Capture Format",
+		Description: "Issue a runtime set_format command to the videonode-source for this device. The source will re-open the V4L2 device with the new format/resolution/fps while keeping all connected consumers attached.",
+		Tags:        []string{"devices"},
+		Security:    withAuth(),
+		Errors:      []int{400, 401, 404, 500, 503},
+	}, func(ctx context.Context, input *models.DeviceSetFormatInput) (*models.DeviceSetFormatResponse, error) {
+		if s.controlServer == nil {
+			return nil, huma.Error503ServiceUnavailable(
+				"control plane disabled (set --native-* binaries to enable)")
+		}
+		params := pipelinectl.SetFormatParams{
+			FourCC: input.Body.FourCC,
+			W:      input.Body.Width,
+			H:      input.Body.Height,
+			FPS:    input.Body.FPS,
+		}
+		// Bound the upstream call so a wedged sidecar can't pin the request.
+		sendCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		result, err := s.controlServer.SendSetFormat(sendCtx, input.DeviceID, params)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("set_format failed", err)
+		}
+		return &models.DeviceSetFormatResponse{
+			Body: models.DeviceSetFormatData{Applied: result.Applied},
 		}, nil
 	})
 }

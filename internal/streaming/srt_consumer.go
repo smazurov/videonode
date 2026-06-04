@@ -9,6 +9,7 @@ import (
 	"time"
 
 	srt "github.com/datarhei/gosrt"
+	"github.com/smazurov/videonode/internal/logging"
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
@@ -33,6 +34,7 @@ type SRTConsumer struct {
 	srtConn    srt.Conn // Typed SRT connection for Stats()
 	streamID   string
 	consumerID string
+	clientIP   string
 	logger     *slog.Logger
 	writer     *mpegts.Writer
 	bw         *bufio.Writer
@@ -48,23 +50,28 @@ type SRTConsumer struct {
 	closed bool
 	mu     sync.Mutex
 
-	bytesSent int64
+	connectedAt time.Time
+	bytesSent   int64
+	lastRTTMs   float64
 
 	// Stats tracking for delta calculation
 	lastRetransmits uint64
 	lastDropped     uint64
 }
 
-// NewSRTConsumer creates a new SRT consumer for the given stream.
-func NewSRTConsumer(stream *Stream, consumerID string, srtConn srt.Conn, logger *slog.Logger) (*SRTConsumer, error) {
+// NewSRTConsumer creates a new SRT consumer for the given stream. The clientIP
+// argument is the consumer's socket host, recorded for the consumers UI.
+func NewSRTConsumer(stream *Stream, consumerID, clientIP string, srtConn srt.Conn, logger *slog.Logger) (*SRTConsumer, error) {
 	c := &SRTConsumer{
-		conn:       srtConn,
-		srtConn:    srtConn,
-		streamID:   stream.ID(),
-		consumerID: consumerID,
-		logger:     logger,
-		trackMap:   make(map[*description.Media]*mpegts.Track),
-		done:       make(chan struct{}),
+		conn:        srtConn,
+		srtConn:     srtConn,
+		streamID:    stream.ID(),
+		consumerID:  consumerID,
+		clientIP:    clientIP,
+		logger:      logger,
+		trackMap:    make(map[*description.Media]*mpegts.Track),
+		done:        make(chan struct{}),
+		connectedAt: time.Now(),
 	}
 
 	// Create MPEG-TS tracks for each media in the stream
@@ -81,9 +88,9 @@ func NewSRTConsumer(stream *Stream, consumerID string, srtConn srt.Conn, logger 
 					c.h264SPS = h264Forma.SPS
 					c.h264PPS = h264Forma.PPS
 					c.logger.Debug("SRT consumer got H264 params",
-						"stream_id", c.streamID,
-						"sps_len", len(c.h264SPS),
-						"pps_len", len(c.h264PPS))
+						logging.KeyStreamID, c.streamID,
+						logging.KeySPSLen, len(c.h264SPS),
+						logging.KeyPPSLen, len(c.h264PPS))
 				}
 			}
 		}
@@ -205,7 +212,7 @@ func (c *SRTConsumer) writeH264(track *mpegts.Track, pts, dts int64, au [][]byte
 			return nil // Skip P/B frames before first IDR
 		}
 		c.firstH264IDR = true
-		c.logger.Debug("SRT consumer received first IDR", "stream_id", c.streamID)
+		c.logger.Debug("SRT consumer received first IDR", logging.KeyStreamID, c.streamID)
 	}
 
 	// Prepend SPS/PPS before IDR frames
@@ -235,7 +242,7 @@ func (c *SRTConsumer) writeH264(track *mpegts.Track, pts, dts int64, au [][]byte
 			}
 			newAU = append(newAU, au...)
 			au = newAU
-			c.logger.Debug("SRT consumer prepended SPS/PPS", "stream_id", c.streamID)
+			c.logger.Debug("SRT consumer prepended SPS/PPS", logging.KeyStreamID, c.streamID)
 		}
 	}
 
@@ -324,11 +331,13 @@ func (c *SRTConsumer) writeOpus(track *mpegts.Track, pts int64, packets [][]byte
 }
 
 // recordMetrics records bytes sent and frames written for metrics.
+// All callers hold c.mu.
 func (c *SRTConsumer) recordMetrics(data [][]byte, codec string) {
 	var bytes int
 	for _, d := range data {
 		bytes += len(d)
 	}
+	c.bytesSent += int64(bytes)
 	IncrementSRTPacketsSent(c.streamID, bytes)
 	IncrementSRTFramesWritten(c.streamID, codec)
 }
@@ -349,7 +358,7 @@ func (c *SRTConsumer) Stop() error {
 
 	// Close the connection
 	if err := c.conn.Close(); err != nil {
-		c.logger.Debug("SRT conn close error", "stream_id", c.streamID, "error", err)
+		c.logger.Debug("SRT conn close error", logging.KeyStreamID, c.streamID, logging.KeyError, err)
 	}
 
 	return nil
@@ -381,6 +390,7 @@ func (c *SRTConsumer) startStatsCollection() {
 
 				// Update counters with deltas
 				c.mu.Lock()
+				c.lastRTTMs = stats.Instantaneous.MsRTT
 				retransDelta := stats.Accumulated.PktRetrans - c.lastRetransmits
 				droppedDelta := stats.Accumulated.PktSendDrop - c.lastDropped
 				c.lastRetransmits = stats.Accumulated.PktRetrans
@@ -398,4 +408,17 @@ func (c *SRTConsumer) startStatsCollection() {
 			}
 		}
 	}()
+}
+
+// Info returns a point-in-time view for the consumer SSE event.
+func (c *SRTConsumer) Info() SRTClientInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return SRTClientInfo{
+		ID:             c.consumerID,
+		ClientIP:       c.clientIP,
+		ConnectedSince: c.connectedAt.UTC().Format(time.RFC3339),
+		BytesSent:      c.bytesSent,
+		RTTMs:          c.lastRTTMs,
+	}
 }

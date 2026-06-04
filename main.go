@@ -3,27 +3,58 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2/humacli"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/smazurov/videonode/cmd"
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/auth"
 	"github.com/smazurov/videonode/internal/config"
+	"github.com/smazurov/videonode/internal/encoders"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/led"
 	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/metrics/collectors"
 	"github.com/smazurov/videonode/internal/metrics/exporters"
+	"github.com/smazurov/videonode/internal/snapshots"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams"
+	"github.com/smazurov/videonode/internal/streams/pipeline"
+	"github.com/smazurov/videonode/internal/streams/pipelinectl"
+	"github.com/smazurov/videonode/internal/streams/services"
 	"github.com/smazurov/videonode/internal/streams/store"
-	"github.com/smazurov/videonode/internal/updater"
 )
+
+// subcommandNames is the central registry of subcommand names. Add each
+// subcommand here when registering it below; the lightweight-boot check
+// uses this list to short-circuit the heavy server init.
+var subcommandNames = []string{
+	"composer",
+	"migrate-config",
+	"openapi",
+	"source",
+	"stream",
+	"validate-config",
+	"validate-encoders",
+	"version",
+}
+
+// isSubcommandInvocation reports whether os.Args names one of the registered
+// subcommands. The default (no-subcommand) invocation falls through to the
+// full server boot path.
+func isSubcommandInvocation(args []string) bool {
+	if len(args) < 2 {
+		return false
+	}
+	return slices.Contains(subcommandNames, args[1])
+}
 
 // Options for the CLI - flat structure with toml mapping.
 type Options struct {
@@ -54,30 +85,35 @@ type Options struct {
 	// Features settings
 	FeaturesLEDControl bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
 
-	// Recording settings
-	RecordingDataDir string `help:"Recording data directory" default:"data/recording" toml:"recording.data_dir" env:"RECORDING_DATA_DIR"`
+	// Snapshot preview settings
+	PreviewMaxFPS int `help:"Max fps for snapshot preview streams" default:"10" toml:"preview.max_fps" env:"PREVIEW_MAX_FPS"`
 
-	// Update settings
-	UpdateEnabled    bool `help:"Enable self-update functionality" default:"true" toml:"update.enabled" env:"UPDATE_ENABLED"`
-	UpdatePrerelease bool `help:"Include prereleases in updates" default:"false" toml:"update.prerelease" env:"UPDATE_PRERELEASE"`
-
-	// Vision settings
-	VisionDefaultFPS int `help:"Default FPS for vision raw-frame pipes" default:"10" toml:"vision.default_fps" env:"VISION_DEFAULT_FPS"`
+	// Native pipeline binaries. When present + executable, single V4L2
+	// streams and GPU canvases route through these instead of the legacy
+	// ffmpeg-direct path. Empty path == component unavailable; legacy
+	// pipeline kicks in. Defaults match the local-user CMake install
+	// (cmake --install --prefix $HOME/.local → ~/.local/bin/<name>).
+	NativeV4L2Source string `help:"Path to videonode-source binary"   default:"~/.local/bin/videonode-source"   toml:"native_pipeline.source"   env:"NATIVE_PIPELINE_SOURCE"`
+	NativeVNSink     string `help:"Path to videonode-sink binary"     default:"~/.local/bin/videonode-sink"     toml:"native_pipeline.sink"        env:"NATIVE_PIPELINE_SINK"`
+	NativeComposer   string `help:"Path to videonode-composer binary" default:"~/.local/bin/videonode-composer" toml:"native_pipeline.composer"    env:"NATIVE_PIPELINE_COMPOSER"`
 }
 
 func main() {
 	// Create Huma CLI
 	var cli humacli.CLI
 	cli = humacli.New(func(hooks humacli.Hooks, opts *Options) {
-		// Lightweight subcommands (openapi, validate-encoders) don't need the full
-		// server setup. Skip heavy initialization when running them.
-		if len(os.Args) > 1 && os.Args[1] == "openapi" {
+		// Heavy server init (logging, MPP collector, stream service load,
+		// updater, API wiring, SSE exporter) only runs for the default
+		// (no-subcommand) server invocation. Every subcommand is lightweight
+		// by default — they each do their own minimal setup and shouldn't
+		// pay for, or interfere with, the running production server's state.
+		if isSubcommandInvocation(os.Args) {
 			return
 		}
 
 		// Load configuration with proper precedence: CLI > env > config file
 		if err := config.LoadConfig(opts, cli.Root()); err != nil {
-			slog.Warn("Failed to load config", "error", err)
+			slog.Warn("Failed to load config", logging.KeyError, err)
 		}
 
 		// Initialize logging system from config file
@@ -91,7 +127,7 @@ func main() {
 		if _, statErr := os.Stat("/proc/mpp_service/load"); statErr == nil {
 			mppCollector = collectors.NewMPPCollector()
 			if err := mppCollector.Start(context.Background()); err != nil {
-				logger.Warn("Failed to start MPP collector", "error", err)
+				logger.Warn("Failed to start MPP collector", logging.KeyError, err)
 			}
 		}
 
@@ -101,9 +137,15 @@ func main() {
 		// Create event bus for in-process event handling
 		eventBus := events.New()
 
+		// Entity registry: drives the uniform SSE entity envelope and
+		// (Step 2) the auto-publish HTTP middleware. Constructed here
+		// because every service that registers an entity needs to dial
+		// into the same registry instance the API server reads from.
+		eventRegistry := events.NewRegistry(eventBus)
+
 		// Set up log callback to publish log entries to event bus for SSE streaming
 		logging.SetLogCallback(func(entry logging.LogEntry) {
-			eventBus.Publish(events.LogEntryEvent{
+			events.Publish(eventBus, events.LogEntryEvent{
 				Timestamp:  entry.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
 				Level:      entry.Level,
 				Module:     entry.Module,
@@ -112,15 +154,12 @@ func main() {
 			})
 		})
 
-		// Initialize LED control if enabled
-		var ledManager *led.Manager
+		// Initialize LED control if enabled. The LED is driven solely by the
+		// REST surface (POST /api/leds); it does not react to pipeline events.
 		var ledController led.Controller
 		if opts.FeaturesLEDControl {
 			logger.Info("LED control enabled, initializing")
 			ledController = led.New(logger)
-
-			// Create LED manager that subscribes to stream state changes
-			ledManager = led.NewManager(ledController, eventBus, logger)
 		}
 
 		// Initialize streaming server (RTSP + WebRTC + SRT)
@@ -141,57 +180,201 @@ func main() {
 
 		// Close WebRTC and SRT consumers when stream producer is replaced (enables client reconnection)
 		streamingServer.SetOnProducerReplaced(func(streamID string) {
-			streamingLogger.Info("Producer replaced, closing consumers", "stream_id", streamID)
+			streamingLogger.Info("Producer replaced, closing consumers", logging.KeyStreamID, streamID)
 			webrtcManager.CloseStreamConsumers(streamID)
 			if srtServer != nil {
 				srtServer.CloseStreamConsumers(streamID)
 			}
 		})
 
-		// Emit "running" event when a stream's RTSP producer connects
+		// Publish "running" status on the entity envelope when a stream's
+		// RTSP producer connects, so the UI's per-stream status pill flips
+		// without polling.
 		streamingServer.SetOnProducerConnected(func(streamID string) {
-			eventBus.Publish(events.StreamStateChangedEvent{
-				StreamID:  streamID,
-				Enabled:   true,
-				Action:    "running",
-				Timestamp: time.Now().Format(time.RFC3339),
-			})
+			if eventRegistry != nil {
+				eventRegistry.Publish("stream", events.ActionStatus, streamID, streaming.StreamStatusPayload{
+					State:     "running",
+					EncoderUp: true,
+				})
+			}
 		})
 
 		// Default command starts the server using existing API server
 		// Create stream store
 		streamStore := store.NewTOML(opts.StreamsConfigFile)
 
+		// Resolve native-pipeline binary availability once. CanvasReady /
+		// SingleStreamReady decide whether GPU canvas + V4L2 single streams
+		// take the dma-buf path or fall back to legacy ffmpeg-direct.
+		native := (&streams.NativePipelineConfig{
+			V4L2Source: opts.NativeV4L2Source,
+			VNSink:     opts.NativeVNSink,
+			Composer:   opts.NativeComposer,
+		}).Resolve(logger)
+
+		// Daemon-side control plane for native sidecars. Must bind
+		// BEFORE the stream service spawns any sidecars so they can
+		// dial in on startup. Only enable when the native pipeline is
+		// available — without a sidecar binary, no clients connect.
+		var ctlServer *pipelinectl.Manager
+		if native.V4L2Source != "" {
+			ctlServer = pipelinectl.New(nil)
+			if err := ctlServer.Start(context.Background()); err != nil {
+				logger.Warn("control plane disabled (start failed)",
+					logging.KeyError, err)
+				ctlServer = nil
+			}
+			// The StatusFeed pump goroutine is started AFTER
+			// nativePipeline is constructed below, so it can stamp
+			// StartedAtUs onto each status payload from the supervisor
+			// pool.
+		}
+
+		// Shared v2 entity store; the pipeline reads source/composer specs
+		// through it (single source of truth) and the ensure hook below
+		// rejects consumers for streams that aren't configured at all.
+		entityStore, _ := streamStore.(streams.EntityStore)
+
 		// Create stream service
-		serviceOpts := &streams.ServiceOptions{
-			Store:            streamStore,
-			EventBus:         eventBus,
-			VisionDefaultFPS: opts.VisionDefaultFPS,
-		}
-
-		streamService := streams.NewStreamService(serviceOpts)
-
-		// Load existing streams from TOML config into memory at startup
-		// This must happen after stream service is created so OBS callbacks are registered
-		// Runtime stream management should use CRUD APIs (not reload)
-		if err := streamService.LoadStreamsFromConfig(); err != nil {
-			logger.Warn("Failed to load existing streams from config", "error", err)
-		}
-
-		// Initialize update service if enabled
-		var updateService updater.Service
-		if opts.UpdateEnabled {
-			svc, err := updater.NewService(&updater.Options{
-				Repository: "smazurov/videonode",
-				Prerelease: opts.UpdatePrerelease,
-			})
-			if err != nil {
-				logger.Warn("Failed to initialize update service", "error", err)
-			} else {
-				updateService = svc
-				if !svc.IsEnabled() {
-					logger.Warn("Update service disabled", "reason", svc.DisabledReason())
+		// Construct pipeline.Pipeline as the canonical process supervisor.
+		// Replaces the legacy streamProcessManager + processor +
+		// canvasProcessor + producerManager stack with a unified
+		// Producer→Composer→Encoder model. The legacy stack is gone;
+		// existing /api/streams CRUD flows through Pipeline via
+		// pipelineProcessManager (the translation layer).
+		nativePipeline := pipeline.New(pipeline.Config{
+			VNSourceBin:    native.V4L2Source,
+			VNComposerBin:  native.Composer,
+			VNSinkBin:      native.VNSink,
+			DRMDevice:      "/dev/dri/renderD128",
+			RTSPPort:       opts.StreamingRTSPPort,
+			DeviceResolver: streams.MakeDeviceResolver(),
+			ControlServer:  ctlServer,
+			Registry:       eventRegistry,
+			EntityStore:    entityStore,
+			EncoderResolver: func(codec, inputPixFmt string) (pipeline.EncoderResolution, error) {
+				cfg, err := encoders.MapAPICodec(codec, inputPixFmt, streamStore)
+				if err != nil {
+					return pipeline.EncoderResolution{}, err
 				}
+				res := pipeline.EncoderResolution{EncoderName: cfg.EncoderName}
+				if cfg.Settings != nil {
+					res.GlobalArgs = cfg.Settings.GlobalArgs
+					res.VideoFilters = cfg.Settings.VideoFilters
+				}
+				return res, nil
+			},
+		}, logger)
+
+		// Pump status notifications into the event bus AND the uniform
+		// entity envelope so the UI's per-source status pill and
+		// consumer count react in real time. RunStatusFanout decouples
+		// the drain from the publish so a slow event subscriber can
+		// never block the StatusFeed channel.
+		if ctlServer != nil {
+			// Source consumers change far less often than the ~1 Hz status
+			// heartbeat, and the status payload already embeds the consumer
+			// set. Strip consumers from the status event and publish a
+			// dedicated consumers event only when the membership (count +
+			// live fds) changes — no double-send, no per-tick churn.
+			lastConsumerSig := make(map[string]string)
+			consumerSig := func(c pipelinectl.SourceConsumersInfo) string {
+				fds := make([]int, 0, len(c.Live))
+				for _, e := range c.Live {
+					fds = append(fds, e.FD)
+				}
+				slices.Sort(fds)
+				return fmt.Sprintf("%d:%v", c.Count, fds)
+			}
+			pipelinectl.RunStatusFanout(
+				ctlServer.StatusFeed(),
+				func(st pipelinectl.StatusParams) {
+					if eventRegistry == nil || st.DeviceID == "" {
+						return
+					}
+					statusOnly := st
+					statusOnly.Consumers = pipelinectl.SourceConsumersInfo{}
+					eventRegistry.Publish("source", events.ActionStatus, st.DeviceID, statusOnly)
+					if sig := consumerSig(st.Consumers); lastConsumerSig[st.DeviceID] != sig {
+						lastConsumerSig[st.DeviceID] = sig
+						eventRegistry.Publish("source", events.ActionConsumers, st.DeviceID, st.Consumers)
+					}
+				},
+				func(poolKey string) int64 {
+					info := nativePipeline.Pool().GetStatus(poolKey)
+					if !info.StartedAt.IsZero() {
+						return info.StartedAt.UnixMicro()
+					}
+					return 0
+				},
+			)
+		}
+
+		// Lazy encoder lifecycle: idle the encoder once the last consumer
+		// disconnects, restart it on the next consumer attach. Mirror
+		// encoder teardown on the entity envelope so the UI's per-stream
+		// status pill flips back to "idle" without polling.
+		streamingServer.SetOnLastReaderGone(func(streamID string) {
+			_ = nativePipeline.StopEncoder(streamID)
+			if eventRegistry != nil {
+				eventRegistry.Publish("stream", events.ActionStatus, streamID, streaming.StreamStatusPayload{
+					State:     "stopped",
+					EncoderUp: false,
+				})
+			}
+		})
+		streamingServer.SetOnEnsureStream(func(streamID string) error {
+			if entityStore != nil {
+				if _, ok := entityStore.GetPipelineStream(streamID); !ok {
+					return streaming.ErrStreamNotFound
+				}
+			}
+			if !streamStore.GetPipeline().Enabled {
+				return fmt.Errorf("pipeline is disabled")
+			}
+			return nativePipeline.EnsureEncoder(streamID)
+		})
+
+		// Load persisted entities + validation/pipeline-switch data once.
+		if err := streamStore.Load(); err != nil {
+			logger.Warn("Failed to load streams.toml", logging.KeyError, err)
+		}
+		var (
+			sourceSvc   api.SourceService
+			composerSvc api.ComposerService
+			streamSvc   api.StreamService
+		)
+		if entityStore != nil {
+			sourceOpts := services.SourceServiceOptions{
+				Store:          entityStore,
+				Pipeline:       nativePipeline,
+				PipelineSwitch: streamStore,
+			}
+			if ctlServer != nil {
+				sourceOpts.ColorMatrix = ctlServer
+			}
+			sourceSvc = services.NewSourceService(sourceOpts)
+			composerSvc = services.NewComposerService(services.ComposerServiceOptions{
+				Store:          entityStore,
+				Pipeline:       nativePipeline,
+				PipelineSwitch: streamStore,
+			})
+			streamSvc = services.NewStreamService(services.StreamServiceOptions{
+				Store:          entityStore,
+				Pipeline:       nativePipeline,
+				PipelineSwitch: streamStore,
+			})
+		}
+
+		validationProvider := streams.NewValidationService(streamStore)
+
+		// Replay v2 entities into the pipeline at startup. When the
+		// pipeline switch is on, all processes spawn. When off, entities
+		// are registered in the pipeline registry (for upstream-ref
+		// resolution) but no processes are spawned.
+		if entityStore != nil {
+			if err := streams.ReplayV2Entities(entityStore, nativePipeline, streamStore.GetPipeline().Enabled); err != nil {
+				logger.Warn("Failed to replay v2 entities", logging.KeyError, err)
 			}
 		}
 
@@ -202,16 +385,29 @@ func main() {
 			Password: opts.AuthPassword,
 		}, logger)
 
+		snapshotCache := snapshots.NewCache(
+			snapshots.Config{MaxFPS: opts.PreviewMaxFPS},
+			nativePipeline,
+			snapshots.FFmpegEncoder{},
+		)
+
 		apiOpts := &api.Options{
-			Authenticator:       authenticator,
-			StreamService:       streamService,
-			EventBus:            eventBus,
-			WebRTCManager:       webrtcManager,
-			StreamProvider:      streamingServer,
-			RawSnapshotProvider: streamService.GetProcessManager(),
-			RecordingDir:        opts.RecordingDataDir,
-			PrometheusHandler:   promhttp.Handler(), // Prometheus metrics via promauto
-			UpdateService:       updateService,
+			Authenticator:      authenticator,
+			StreamService:      streamSvc,
+			SourceService:      sourceSvc,
+			ComposerService:    composerSvc,
+			ValidationProvider: validationProvider,
+			EventBus:           eventBus,
+			EventRegistry:      eventRegistry,
+			WebRTCManager:      webrtcManager,
+			SRTServer:          srtServer,
+			StreamProvider:     streamingServer,
+			SnapshotCache:      snapshotCache,
+			PrometheusHandler:  promhttp.Handler(), // Prometheus metrics via promauto
+			ControlServer:      ctlServer,
+			ProcessesProvider:  nativePipeline,
+			StreamingRTSPPort:  opts.StreamingRTSPPort,
+			StreamingSRTPort:   opts.SRTAddr,
 		}
 
 		// Add LED controller if available
@@ -221,35 +417,33 @@ func main() {
 
 		server := api.NewServer(apiOpts)
 
+		// Self-check the entity registry against the actual Huma route
+		// table. Fails fast on common wiring mistakes: a registered
+		// entity with no CRUD routes (forgot RegisterEntityRoutes), or
+		// a CRUD route with no events.Register call (forgot to wire a
+		// new entity into the registry). The error message names the
+		// missing call so future contributors don't have to grep.
+		if err := eventRegistry.SelfCheck(context.Background(), server); err != nil {
+			logger.Error("entity registry self-check failed", logging.KeyError, err)
+			os.Exit(1)
+		}
+
 		// Create SSE exporter if enabled
 		if opts.SSEEnabled {
-			sseExporter = exporters.NewSSEExporter(eventBus)
+			sseExporter = exporters.NewSSEExporter(eventRegistry)
 		}
 
 		hooks.OnStart(func() {
-			// Validate recording directory is writable
-			if err := os.MkdirAll(opts.RecordingDataDir, 0o755); err != nil {
-				logger.Error("Failed to create recording directory", "path", opts.RecordingDataDir, "error", err)
-				os.Exit(1)
-			}
-			testFile := opts.RecordingDataDir + "/.write_test"
-			if err := os.WriteFile(testFile, []byte("ok"), 0o644); err != nil {
-				logger.Error("Recording directory is not writable", "path", opts.RecordingDataDir, "error", err)
-				os.Exit(1)
-			}
-			os.Remove(testFile)
-			logger.Info("Recording directory ready", "path", opts.RecordingDataDir)
-
 			// Start RTSP streaming server first (must be ready for FFmpeg)
 			if err := streamingServer.Start(opts.StreamingRTSPPort); err != nil {
-				logger.Error("Failed to start RTSP server", "error", err)
+				logger.Error("Failed to start RTSP server", logging.KeyError, err)
 				os.Exit(1)
 			}
 
 			// Start SRT server if enabled
 			if srtServer != nil {
 				if startErr := srtServer.Start(); startErr != nil {
-					logger.Error("Failed to start SRT server", "error", startErr)
+					logger.Error("Failed to start SRT server", logging.KeyError, startErr)
 					os.Exit(1)
 				}
 			}
@@ -259,14 +453,54 @@ func main() {
 				sseExporter.Start(context.Background())
 			}
 
-			// Start LED manager if enabled
-			if ledManager != nil {
-				ledManager.Start()
+			// Per-stream consumer-count broadcaster. Polls every second
+			// and emits an `entity.stream.consumers` envelope so the UI's
+			// per-stream reader-count column updates without piggybacking
+			// on encoder restarts.
+			if eventRegistry != nil && streamSvc != nil {
+				go func() {
+					ticker := time.NewTicker(1 * time.Second)
+					defer ticker.Stop()
+					for range ticker.C {
+						streamsCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+						list, err := streamSvc.List(streamsCtx)
+						cancel()
+						if err != nil {
+							continue
+						}
+						// Emit every tick (no de-dup) so fresh SSE
+						// subscribers see the current count within 1s of
+						// connect instead of waiting for the next
+						// connect/disconnect transition.
+						for _, st := range list {
+							sid := st.ID
+							rtsp := streamingServer.StreamRTSPCount(sid)
+							webrtcCount := webrtcManager.StreamPeerCount(sid)
+							srtCount := 0
+							if srtServer != nil {
+								srtCount = srtServer.StreamConsumerCount(sid)
+							}
+
+							payload := streaming.StreamConsumersPayload{
+								Total:         rtsp + webrtcCount + srtCount,
+								RTSP:          rtsp,
+								WebRTC:        webrtcCount,
+								SRT:           srtCount,
+								WebRTCClients: webrtcManager.StreamPeerInfo(sid),
+								RTSPClients:   streamingServer.StreamRTSPInfo(sid),
+							}
+							if srtServer != nil {
+								payload.SRTClients = srtServer.StreamConsumerInfo(sid)
+							}
+							eventRegistry.Publish("stream", events.ActionConsumers, sid, payload)
+						}
+					}
+				}()
 			}
 
-			logger.Info("Starting HTTP server", "port", opts.Port)
+			logger.Info("Starting HTTP server", logging.KeyPort, opts.Port)
 			if err := server.Start(opts.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				logger.Error("Failed to start HTTP server", "error", err)
+				logger.Error("Failed to start HTTP server", logging.KeyError, err)
 				os.Exit(1)
 			}
 		})
@@ -274,18 +508,28 @@ func main() {
 		hooks.OnStop(func() {
 			logger.Info("Shutting down server")
 			if err := server.Stop(); err != nil {
-				logger.Error("Error stopping HTTP server", "error", err)
+				logger.Error("Error stopping HTTP server", logging.KeyError, err)
 			}
 
-			// Stop all FFmpeg processes (after HTTP server stops accepting new requests)
-			if pm := streamService.GetProcessManager(); pm != nil {
-				logger.Info("Stopping all stream processes")
-				pm.StopAll()
+			// Tear down the native control plane FIRST: cancels in-flight
+			// StreamStatus goroutines and closes the StatusFeed channel
+			// that the fan-out goroutines drain. This must happen before
+			// Pool().StopAll() kills the source processes, otherwise the
+			// StreamStatus recv loop enters a retry loop against a dead
+			// socket until the 30s StaleStreamTimeout evicts it.
+			if ctlServer != nil {
+				if err := ctlServer.Stop(); err != nil {
+					logger.Error("Error stopping control manager", logging.KeyError, err)
+				}
 			}
+
+			// Stop all supervised stream/source/composer processes.
+			logger.Info("Stopping all stream processes")
+			nativePipeline.Pool().StopAll()
 
 			// Stop streaming server after FFmpeg processes
 			if err := streamingServer.Stop(); err != nil {
-				logger.Error("Error stopping RTSP server", "error", err)
+				logger.Error("Error stopping RTSP server", logging.KeyError, err)
 			}
 
 			// Stop WebRTC peers
@@ -296,34 +540,33 @@ func main() {
 				srtServer.Stop()
 			}
 
-			if ledManager != nil {
-				ledManager.Stop()
-			}
 			if sseExporter != nil {
 				sseExporter.Stop()
 			}
 			if mppCollector != nil {
 				_ = mppCollector.Stop()
 			}
-
-			// Exit with non-zero code if restart was requested (systemd will restart)
-			if updateService != nil && updateService.IsRestartPending() {
-				os.Exit(3)
-			}
 		})
 	})
 
-	// Add validate-encoders command
-	validateCmd := cmd.CreateValidateEncodersCmd()
-	cli.Root().AddCommand(validateCmd)
+	// Add validate-encoders command. The path resolver shares the same precedence
+	// the server uses (flag → env → default). We can't reuse opts.StreamsConfigFile
+	// here because the lightweight subcommand short-circuits the humacli init that
+	// populates it.
+	cli.Root().AddCommand(cmd.CreateValidateEncodersCmd(cmd.ResolveStreamsConfigPath))
+	cli.Root().AddCommand(cmd.CreateValidateConfigCmd(cmd.ResolveStreamsConfigPath))
+	cli.Root().AddCommand(cmd.CreateMigrateConfigCmd())
 
-	// Add stream command
-	streamCmd := cmd.CreateStreamCmd()
-	cli.Root().AddCommand(streamCmd)
+	// Add entity-CRUD subcommands. Each is a thin REST client; the daemon owns the schema.
+	cli.Root().AddCommand(cmd.CreateSourceCmd())
+	cli.Root().AddCommand(cmd.CreateComposerCmd())
+	cli.Root().AddCommand(cmd.CreateStreamCmd())
 
 	// Add openapi command
-	openapiCmd := cmd.CreateOpenAPICmd()
-	cli.Root().AddCommand(openapiCmd)
+	cli.Root().AddCommand(cmd.CreateOpenAPICmd())
+
+	// Add version command
+	cli.Root().AddCommand(cmd.CreateVersionCmd())
 
 	// Run the CLI
 	cli.Run()

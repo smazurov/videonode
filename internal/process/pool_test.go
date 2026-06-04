@@ -2,7 +2,6 @@ package process
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"sync"
 	"testing"
@@ -10,7 +9,7 @@ import (
 )
 
 func poolTestLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 func TestPoolStartStop(t *testing.T) {
@@ -300,4 +299,97 @@ func TestNewPoolPanicsWithoutCommandProvider(t *testing.T) {
 	}()
 
 	NewPool(nil)
+}
+
+func TestGetStatus_NoPIDRace(_ *testing.T) {
+	p := NewPool(&PoolOptions{
+		CommandProvider: func(_ string) (string, error) {
+			return `sh -c "trap 'exit 0' INT TERM; while :; do sleep 0.1; done"`, nil
+		},
+		Logger: poolTestLogger(),
+	})
+	defer p.StopAll()
+
+	for i := range 10 {
+		_ = p.Start(fmt.Sprintf("race-%d", i))
+		for range 50 {
+			p.GetStatus(fmt.Sprintf("race-%d", i))
+		}
+	}
+}
+
+func TestGetStatus_TakesNoWriteLock(t *testing.T) {
+	p := NewPool(&PoolOptions{
+		CommandProvider: func(_ string) (string, error) {
+			return `sh -c "trap 'exit 0' INT TERM; while :; do sleep 0.1; done"`, nil
+		},
+		Logger: poolTestLogger(),
+	})
+
+	if err := p.Start("test1"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.StopAll()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Hold a read lock from the outside. If GetStatus internally
+	// escalates to a write lock (p.mu.Lock), it will deadlock and
+	// the test times out.
+	pp := p.(*pool)
+	pp.mu.RLock()
+	defer pp.mu.RUnlock()
+
+	done := make(chan *Info, 1)
+	go func() { done <- p.GetStatus("test1") }()
+
+	select {
+	case info := <-done:
+		if info.State != StateRunning {
+			t.Errorf("want StateRunning, got %v", info.State)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("GetStatus deadlocked — takes a write lock while read lock is held")
+	}
+}
+
+func TestPoolStart_CallbackReadsStatus(t *testing.T) {
+	done := make(chan struct{})
+	p := NewPool(&PoolOptions{
+		CommandProvider: func(_ string) (string, error) {
+			return `sh -c "trap 'exit 0' INT TERM; while :; do sleep 0.1; done"`, nil
+		},
+		OnStateChange: func(_ string, _, _ State, _ error) {
+			// This is the deadlock scenario: the callback fires while
+			// pool.mu is held by Start(). GetStatus tries RLock on the
+			// same mutex → deadlock because RWMutex is not reentrant.
+		},
+		Logger: poolTestLogger(),
+	})
+	defer p.StopAll()
+
+	// Replace the callback after construction so we can reference `p`.
+	pp := p.(*pool)
+	pp.opts.OnStateChange = func(id string, _, newState State, _ error) {
+		// Read status from inside the callback — this is exactly what
+		// Pipeline.onStateChange does (via Registry.Touch → loader →
+		// enrichStatus → pool.GetStatus).
+		info := p.GetStatus(id)
+		if newState == StateStarting && info == nil {
+			t.Error("GetStatus returned nil during StateStarting callback")
+		}
+		if newState == StateRunning {
+			close(done)
+		}
+	}
+
+	if err := p.Start("deadlock-test"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("deadlock: OnStateChange callback that calls GetStatus blocked pool.Start")
+	}
 }

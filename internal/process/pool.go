@@ -27,6 +27,15 @@ type Pool interface {
 	// IsRunning checks if a process is currently running.
 	IsRunning(id string) bool
 
+	// SetKind tags a managed process with a free-form classifier
+	// (returned via Info.Kind). Used by the Pipeline to expose stage
+	// kind ("producer"/"composer"/"encoder") to operator UIs without
+	// id-string parsing. No-op for unknown ids.
+	SetKind(id, kind string)
+
+	// IDs returns a snapshot of currently-tracked process ids.
+	IDs() []string
+
 	// StopAll gracefully stops all running processes.
 	StopAll()
 }
@@ -35,12 +44,19 @@ type Pool interface {
 type managedProcess struct {
 	proc         *Process
 	id           string
+	kind         string
 	state        State
 	startedAt    time.Time
 	restartCount int
 	lastError    error
 	cancel       context.CancelFunc
 	done         chan struct{}
+
+	// Stats populated by the background poller — never written by GetStatus.
+	rssBytes  int64
+	cpuPct    float64
+	prevTicks int64
+	prevWall  time.Time
 }
 
 // pool implements the Pool interface.
@@ -67,36 +83,47 @@ func NewPool(opts *PoolOptions) Pool {
 		logger = slog.Default()
 	}
 
-	return &pool{
+	p := &pool{
 		opts:      *opts,
 		processes: make(map[string]*managedProcess),
 		logger:    logger,
 		ctx:       ctx,
 		cancel:    cancel,
 	}
+
+	p.wg.Go(func() { p.pollStats(ctx) })
+
+	return p
 }
 
 // Start starts a process by ID.
 func (p *pool) Start(id string) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	if proc, exists := p.processes[id]; exists {
 		if proc.state == StateRunning || proc.state == StateStarting {
+			p.mu.Unlock()
 			return fmt.Errorf("process %s already running", id)
 		}
 	}
 
 	command, err := p.opts.CommandProvider(id)
 	if err != nil {
+		p.mu.Unlock()
 		return fmt.Errorf("failed to generate command: %w", err)
 	}
 
-	return p.startProcess(id, command)
+	p.startProcess(id, command)
+	p.mu.Unlock()
+
+	p.notifyStateChange(id, StateIdle, StateStarting, nil)
+	return nil
 }
 
-// startProcess starts a process with the given command (must hold lock).
-func (p *pool) startProcess(id string, command string) error {
+// startProcess inserts a new managed process and spawns its run
+// goroutine. Caller must hold p.mu and must call notifyStateChange
+// after releasing the lock.
+func (p *pool) startProcess(id string, command string) {
 	ctx, cancel := context.WithCancel(p.ctx)
 
 	mp := &managedProcess{
@@ -115,14 +142,10 @@ func (p *pool) startProcess(id string, command string) error {
 
 	p.processes[id] = mp
 
-	p.notifyStateChange(id, StateIdle, StateStarting, nil)
-
 	p.wg.Go(func() {
 		defer close(mp.done)
 		p.runProcess(ctx, mp)
 	})
-
-	return nil
 }
 
 // runProcess runs the process and handles state transitions.
@@ -145,14 +168,14 @@ func (p *pool) runProcess(ctx context.Context, mp *managedProcess) {
 		// Process exited on its own - always unexpected
 		mp.state = StateError
 		mp.lastError = fmt.Errorf("process exited with code %d", exitCode)
-		p.logger.Error("Process exited unexpectedly", "id", mp.id, "exit_code", exitCode)
+		p.logger.Error("Process exited unexpectedly", logging.KeyPoolID, mp.id, logging.KeyExitCode, exitCode)
 	}
 	newState := mp.state
 	lastErr := mp.lastError
 	p.mu.Unlock()
 
 	p.notifyStateChange(mp.id, oldState, newState, lastErr)
-	p.logger.Info("Process stopped", "id", mp.id, "exit_code", exitCode)
+	p.logger.Info("Process stopped", logging.KeyPoolID, mp.id, logging.KeyExitCode, exitCode)
 }
 
 // Stop gracefully stops a process by ID.
@@ -174,7 +197,7 @@ func (p *pool) Stop(id string) error {
 	p.mu.Unlock()
 
 	p.notifyStateChange(id, oldState, StateStopping, nil)
-	p.logger.Info("Stopping process", "id", id)
+	p.logger.Info("Stopping process", logging.KeyPoolID, id)
 
 	mp.cancel()
 	mp.proc.Shutdown()
@@ -182,7 +205,7 @@ func (p *pool) Stop(id string) error {
 	select {
 	case <-mp.done:
 	case <-time.After(10 * time.Second):
-		p.logger.Warn("Timeout waiting for process to stop", "id", id)
+		p.logger.Warn("Timeout waiting for process to stop", logging.KeyPoolID, id)
 	}
 
 	p.mu.Lock()
@@ -194,30 +217,154 @@ func (p *pool) Stop(id string) error {
 
 // Restart stops and restarts a process.
 func (p *pool) Restart(id string) error {
-	p.logger.Info("Restarting process", "id", id)
+	p.logger.Info("Restarting process", logging.KeyPoolID, id)
 	if err := p.Stop(id); err != nil {
 		return fmt.Errorf("failed to stop process: %w", err)
 	}
 	return p.Start(id)
 }
 
-// GetStatus returns process info.
+// GetStatus returns process info. Pure cache read — never does I/O or
+// takes a write lock. RSS/CPU values are populated by the background
+// stats poller.
 func (p *pool) GetStatus(id string) *Info {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
-
 	mp, exists := p.processes[id]
 	if !exists {
+		p.mu.RUnlock()
 		return &Info{ID: id, State: StateIdle}
 	}
 
-	return &Info{
+	info := &Info{
 		ID:           id,
+		Kind:         mp.kind,
 		State:        mp.state,
+		PID:          mp.proc.PID(),
 		StartedAt:    mp.startedAt,
 		RestartCount: mp.restartCount,
 		LastError:    mp.lastError,
+		RSSBytes:     mp.rssBytes,
+		CPUPercent:   mp.cpuPct,
 	}
+	p.mu.RUnlock()
+
+	return info
+}
+
+const statsPollInterval = 2 * time.Second
+
+func (p *pool) pollStats(ctx context.Context) {
+	ticker := time.NewTicker(statsPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.refreshStats()
+		}
+	}
+}
+
+func (p *pool) refreshStats() {
+	type snap struct {
+		id        string
+		pid       int
+		prevTicks int64
+		prevWall  time.Time
+	}
+
+	p.mu.RLock()
+	snaps := make([]snap, 0, len(p.processes))
+	for _, mp := range p.processes {
+		if mp.state != StateRunning {
+			continue
+		}
+		pid := mp.proc.PID()
+		if pid <= 0 {
+			continue
+		}
+		snaps = append(snaps, snap{
+			id: mp.id, pid: pid,
+			prevTicks: mp.prevTicks, prevWall: mp.prevWall,
+		})
+	}
+	p.mu.RUnlock()
+
+	if len(snaps) == 0 {
+		return
+	}
+
+	type result struct {
+		id    string
+		rss   int64
+		cpu   float64
+		ticks int64
+		wall  time.Time
+	}
+	results := make([]result, 0, len(snaps))
+	now := time.Now()
+	for _, s := range snaps {
+		ps, err := readProcStat(s.pid)
+		if err != nil {
+			continue
+		}
+		ticks := ps.UtimeTicks + ps.StimeTicks
+		var cpuPct float64
+		if !s.prevWall.IsZero() {
+			dt := now.Sub(s.prevWall).Seconds()
+			if dt > 0 {
+				cpuPct = float64(ticks-s.prevTicks) / userHZ / dt * 100
+			}
+		}
+		results = append(results, result{
+			id: s.id, rss: ps.RSSBytes, cpu: cpuPct,
+			ticks: ticks, wall: now,
+		})
+	}
+
+	if len(results) == 0 {
+		return
+	}
+
+	p.mu.Lock()
+	for _, r := range results {
+		mp, ok := p.processes[r.id]
+		if !ok {
+			continue
+		}
+		mp.rssBytes = r.rss
+		mp.cpuPct = r.cpu
+		mp.prevTicks = r.ticks
+		mp.prevWall = r.wall
+	}
+	p.mu.Unlock()
+}
+
+// SetKind sets the free-form classifier surfaced via Info.Kind for a
+// given pool id. Used by Pipeline to tag each managed process with its
+// stage kind ("producer" / "composer" / "encoder") so /api/processes
+// can group rows without inspecting the id string. No-op for unknown
+// ids; safe to call before or after Start.
+func (p *pool) SetKind(id, kind string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if mp, ok := p.processes[id]; ok {
+		mp.kind = kind
+	}
+}
+
+// IDs returns a snapshot of currently-tracked process ids (regardless
+// of state). Used by Pipeline.Snapshot and the process-manager UI to
+// enumerate without holding the pool lock externally.
+func (p *pool) IDs() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make([]string, 0, len(p.processes))
+	for id := range p.processes {
+		out = append(out, id)
+	}
+	return out
 }
 
 // IsRunning checks if a process is currently running.

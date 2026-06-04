@@ -8,18 +8,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// WebRTCOfferInput is the request body for WebRTC signaling.
-type WebRTCOfferInput struct {
-	StreamID string `query:"stream" required:"true" doc:"Stream ID to connect to"`
-	RawBody  []byte `contentType:"application/sdp" doc:"SDP offer from browser"`
-}
-
-// WebRTCAnswerOutput is the response body for WebRTC signaling.
-type WebRTCAnswerOutput struct {
-	ContentType string `header:"Content-Type"`
-	Body        []byte
-}
-
 // StreamListOutput is the response for listing active streams.
 type StreamListOutput struct {
 	Body struct {
@@ -27,28 +15,10 @@ type StreamListOutput struct {
 	}
 }
 
-// RegisterWebRTCAPI registers WebRTC signaling endpoints with the Huma API.
-func RegisterWebRTCAPI(api huma.API, webrtcManager *WebRTCManager) {
-	// POST /api/webrtc?stream=<id> - WebRTC signaling
-	huma.Register(api, huma.Operation{
-		OperationID: "webrtc-offer",
-		Method:      http.MethodPost,
-		Path:        "/api/webrtc",
-		Summary:     "WebRTC signaling",
-		Description: "Exchange SDP offer/answer for WebRTC streaming",
-		Tags:        []string{"streaming"},
-	}, func(_ context.Context, input *WebRTCOfferInput) (*WebRTCAnswerOutput, error) {
-		answer, err := webrtcManager.CreateConsumer(input.StreamID, string(input.RawBody))
-		if err != nil {
-			return nil, huma.Error404NotFound("stream not found or connection failed", err)
-		}
-		return &WebRTCAnswerOutput{
-			ContentType: "application/sdp",
-			Body:        []byte(answer),
-		}, nil
-	})
+// RegisterStreamingAPI registers WebRTC signaling and consumer management endpoints.
+func RegisterStreamingAPI(api huma.API, webrtcManager *WebRTCManager, srtServer *SRTServer) {
+	registerWHEP(api, webrtcManager)
 
-	// GET /api/streams/live - List active streams
 	huma.Register(api, huma.Operation{
 		OperationID: "list-live-streams",
 		Method:      http.MethodGet,
@@ -65,5 +35,36 @@ func RegisterWebRTCAPI(api huma.API, webrtcManager *WebRTCManager) {
 				Streams: streams,
 			},
 		}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "disconnect-consumer",
+		Method:      http.MethodDelete,
+		Path:        "/api/streams/{stream_id}/{protocol}/consumers/{client_id}",
+		Summary:     "Disconnect consumer",
+		Description: "Disconnect a WebRTC peer or SRT consumer by protocol and client ID",
+		Tags:        []string{"streaming"},
+		Errors:      []int{400, 404},
+	}, func(_ context.Context, input *struct {
+		StreamID string `path:"stream_id" doc:"Stream identifier"`
+		Protocol string `path:"protocol" enum:"webrtc,srt" doc:"Consumer protocol"`
+		ClientID string `path:"client_id" doc:"Client identifier (peer name or consumer ID)"`
+	},
+	) (*struct{}, error) {
+		var found bool
+		switch input.Protocol {
+		case "webrtc":
+			found = webrtcManager.DisconnectPeer(input.ClientID)
+		case "srt":
+			if srtServer != nil {
+				found = srtServer.DisconnectConsumer(input.ClientID)
+			}
+		default:
+			return nil, huma.Error400BadRequest("unsupported protocol: " + input.Protocol)
+		}
+		if !found {
+			return nil, huma.Error404NotFound("consumer not found")
+		}
+		return &struct{}{}, nil
 	})
 }

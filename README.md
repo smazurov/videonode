@@ -6,11 +6,39 @@ VideoNode automatically detects connected capture devices, validates available h
 
 ## Installation
 
+### APT (Debian/Ubuntu arm64 — recommended for RK3588 SBCs)
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/smazurov/videonode/main/install.sh | bash
+# Add the repository
+curl -fsSL https://mazurov.dev/videonode/gpg.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/videonode.gpg
+echo "deb [arch=arm64 signed-by=/usr/share/keyrings/videonode.gpg] https://mazurov.dev/videonode stable main" \
+  | sudo tee /etc/apt/sources.list.d/videonode.list
+
+# Install
+sudo apt update
+sudo apt install videonode
 ```
 
-This downloads the latest release, installs to `~/.local/bin`, sets up config in `~/.config/videonode`, and configures a systemd user service.
+The `.deb` package includes the Go daemon, native C++ pipeline binaries
+(`videonode-source`, `videonode-sink`, `videonode-composer`), and a
+systemd service. It expects the Rockchip hardware stack (ffmpeg with
+rkmpp, librga, librockchip-mpp) to be installed separately via
+[videonode-sbc-config](https://github.com/smazurov/videonode-sbc-config) —
+the installer warns if these are missing.
+
+### Uninstall (legacy script install)
+
+If migrating from a script install to the `.deb` package, first remove the
+per-user installation:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/smazurov/videonode/main/uninstall.sh | bash
+```
+
+This stops the user service, removes binaries from `~/.local/bin`, and
+cleans up the systemd unit. Config files in `~/.config/videonode/` are
+preserved — migrate them to `/etc/videonode/` after installing the `.deb`.
 
 ## Quick Start (from source)
 
@@ -66,6 +94,57 @@ level = "info"
 format = "text"
 # Module-specific levels: streams, streaming, devices, encoders, capture, api, webrtc
 ```
+
+### Streams (v2 config shape)
+
+VideoNode v2 splits the config into three top-level entities. Each one
+is independent and references the others by id:
+
+- **`[[sources]]`** — a frame producer. Either a V4L2 device
+  (`device = "usb-1-2"`) or a device-less test pattern (`test_mode = true`).
+- **`[[composers]]`** — an optional GLES compositor that reads N sources
+  and writes a single BGRA canvas. Multiple streams can share one composer:
+  the GPU work runs once, each stream pays only its own encoder cost.
+- **`[[streams]]`** — an encoder + audio + publish targets. Each stream
+  points at a single `upstream`, either a source (`"source:<id>"`) or a
+  composer (`"composer:<id>"`).
+
+Pipeline shape per stream: `source -> [composer] -> encoder -> publish`.
+A composer is engaged only when explicitly defined; a stream that points
+directly at a source skips the GLES stage.
+
+Minimal example:
+
+```toml
+version = 2
+
+[[sources]]
+id = "cam-host"
+device = "usb-1-2"
+
+[[streams]]
+id = "host-solo"
+upstream = "source:cam-host"
+  [streams.host-solo.encoder]
+  codec = "h264"
+  bitrate = "4M"
+  [[streams.host-solo.publish]]
+  type = "rtsp"
+  url = "rtsp://localhost:8554/host-solo"
+```
+
+For a realistic multi-entity layout (4 sources, 2 composers, 4 streams
+including multi-encode of one shared scene), see
+[`examples/sources-composers-streams.toml`](examples/sources-composers-streams.toml).
+
+**Upgrading from v1?** v1 configs are migrated automatically on daemon
+load (or explicitly via `videonode migrate-config <path>`). See
+[`examples/MIGRATION.md`](examples/MIGRATION.md) for what gets converted
+and how to revert.
+
+One field-level note:
+
+- `custom_encoder_args` — when non-empty, replaces the daemon-generated encoder argv from `-c:v` onward. The daemon always prepends the input fragment (`vn-sink --socket X | ffmpeg -f yuv4mpegpipe -i pipe:0` for NV12, `-f rawvideo -pix_fmt bgra -s WxH -framerate N -i pipe:0` for BGRA composer output) so user-supplied args can't break the plumbing.
 
 ## Playback
 

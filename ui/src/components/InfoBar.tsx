@@ -4,9 +4,13 @@ import {
   ComputerDesktopIcon,
   VideoCameraIcon,
   ExclamationTriangleIcon,
-  ClockIcon
+  ClockIcon,
+  CpuChipIcon,
+  CircleStackIcon,
+  Square3Stack3DIcon
 } from "@heroicons/react/24/outline";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import { Link } from "react-router-dom";
 import type { components } from "../lib/api.generated";
 import { api } from "../lib/api";
 
@@ -15,7 +19,8 @@ type EncoderData = components["schemas"]["EncoderData"];
 import { useDeviceStore } from "../hooks/useDeviceStore";
 import { useStreamStore } from "../hooks/useStreamStore";
 import { useSSEManager } from "../hooks/useSSEManager";
-import { useVersion } from "../hooks/useVersion";
+import { useSystemStats } from "../hooks/useSystemStats";
+import { formatUptime } from "../lib/formatUptime";
 import { cn } from "../utils";
 
 interface InfoBarProps {
@@ -31,6 +36,13 @@ interface SystemInfo {
 }
 
 type StatusType = 'online' | 'offline' | 'warning' | 'reconnecting';
+
+const CONNECTION_STATUS_LABELS: Record<'online' | 'offline' | 'warning' | 'reconnecting', string> = {
+  online: "Connected",
+  offline: "Disconnected",
+  warning: "Warning",
+  reconnecting: "Reconnecting",
+};
 
 interface StatusIndicatorProps {
   status: StatusType;
@@ -65,10 +77,11 @@ interface InfoItemProps {
   value: string | number;
   status?: StatusType;
   subtitle?: string;
+  valueClassName?: string;
   onClick?: () => void;
 }
 
-function InfoItem({ icon: Icon, label, value, status, subtitle, onClick }: Readonly<InfoItemProps>) {
+function InfoItem({ icon: Icon, label, value, status, subtitle, valueClassName, onClick }: Readonly<InfoItemProps>) {
   return (
     <div
       className={cn(
@@ -84,13 +97,40 @@ function InfoItem({ icon: Icon, label, value, status, subtitle, onClick }: Reado
       <div className="flex flex-col">
         <div className="flex items-center space-x-1">
           <span className="text-xs text-fg-muted">{label}:</span>
-          <span className="text-xs font-medium text-fg">{value}</span>
+          <span className={cn("text-xs font-medium text-fg", valueClassName)}>{value}</span>
         </div>
         {subtitle && (
           <span className="text-xs text-fg-subtle">{subtitle}</span>
         )}
       </div>
     </div>
+  );
+}
+
+interface StatProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string | number;
+  valueWidth?: string;
+  iconClassName?: string;
+}
+
+// Compact single-line stat for the resource summary. Value is monospace
+// with a reserved min-width so a ticking uptime / changing CPU never
+// nudges its neighbours; slack trails the number, not the label.
+function Stat({ icon: Icon, label, value, valueWidth, iconClassName }: Readonly<StatProps>) {
+  return (
+    <span className="flex items-center gap-x-1 whitespace-nowrap">
+      <Icon className={cn("w-4 h-4 text-fg-subtle shrink-0", iconClassName)} />
+      {/* Label is sans, value is mono — align on the shared text baseline so
+          the monospace value doesn't sit lower than the label. */}
+      <span className="flex items-baseline gap-x-1">
+        <span className="text-fg-muted">{label}:</span>
+        <span className={cn("font-mono tabular-nums font-medium text-fg text-left inline-block", valueWidth)}>
+          {value}
+        </span>
+      </span>
+    </span>
   );
 }
 
@@ -104,30 +144,17 @@ function Separator({ className }: Readonly<SeparatorProps>) {
   );
 }
 
-function formatLastUpdated(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSeconds = Math.floor(diffMs / 1000);
-  
-  if (diffSeconds < 60) {
-    return `${diffSeconds}s ago`;
-  } else if (diffSeconds < 3600) {
-    return `${Math.floor(diffSeconds / 60)}m ago`;
-  } else {
-    return `${Math.floor(diffSeconds / 3600)}h ago`;
-  }
+function formatRSS(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
 }
 
 export function InfoBar({ className }: Readonly<InfoBarProps>) {
   const devices = useDeviceStore((state) => state.devices);
   const streamsById = useStreamStore((state) => state.streamsById);
   const streams = useMemo(() => Object.values(streamsById), [streamsById]);
-  const { version: versionInfo } = useVersion();
-  
-  // Debug: Log when devices change
-  useEffect(() => {
-    console.log('InfoBar: Devices updated, count:', devices.length);
-  }, [devices]);
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
     health: null,
@@ -138,6 +165,22 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
   });
 
   const [connectionStatus, setConnectionStatus] = useState<'online' | 'offline' | 'warning' | 'reconnecting'>('offline');
+
+  // Daemon-wide resource summary (uptime + combined CPU/memory of the
+  // whole pipeline, the daemon process included).
+  const { stats: systemStats } = useSystemStats();
+
+  // Only the 'online' status carries live stats; anything else means the
+  // numbers below would be stale, so they get blanked.
+  const live = connectionStatus === 'online';
+
+  // Local clock so the uptime label advances every second between the
+  // 2s stat polls.
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Fetch system information
   const fetchSystemInfo = async (showLoading = false) => {
@@ -153,9 +196,9 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
       const health = healthResult?.data ?? null;
       const encoders = encodersResult?.data ?? null;
 
-      // Also fetch devices and streams if this is the initial load
+      // The device list is seeded by the SSE manager on (re)connect; only the
+      // stream list needs an initial pull here.
       if (showLoading) {
-        useDeviceStore.getState().fetchDevices();
         useStreamStore.getState().fetchStreams();
       }
 
@@ -232,16 +275,61 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
 
       {/* Right section - User info and system details */}
       <div className="flex items-center space-x-2 md:space-x-4 flex-shrink-0 ml-4">
-        {/* Last updated */}
-        {systemInfo.lastUpdated && !systemInfo.loading && (
+        {/* Pipeline-wide resource summary: uptime + combined CPU/memory.
+            When the rig is offline systemStats is null (useSystemStats blanks
+            it) — render em-dash placeholders, dimmed, rather than a frozen
+            uptime that keeps ticking off a dead host. */}
+        {(systemStats || !live) && (
           <>
-            <div className="hidden xl:flex items-center space-x-1.5">
-              <ClockIcon className="w-4 h-4 text-fg-subtle" />
-              <span className="text-xs text-fg-subtle">
-                Updated {formatLastUpdated(systemInfo.lastUpdated)}
-              </span>
+            <div className={cn("flex items-center gap-x-3 text-xs", !live ? "opacity-50" : undefined)}>
+              <Stat icon={ClockIcon} label="Uptime" valueWidth="min-w-[2.75rem]"
+                value={systemStats ? (formatUptime(systemStats.started_at_us, now) ?? '—') : '—'} />
+              <Stat icon={CpuChipIcon} label="CPU" valueWidth="min-w-[2.5rem]"
+                value={systemStats ? `${systemStats.cpu_percent.toFixed(1)}%` : '—'} />
+              <Stat icon={CircleStackIcon} label="Mem" valueWidth="min-w-[3rem]"
+                value={systemStats ? formatRSS(systemStats.rss_bytes) : '—'} />
+              {systemStats && systemStats.error_count > 0 ? (
+                <Tooltip.Provider>
+                  <Tooltip.Root>
+                    <Tooltip.Trigger asChild>
+                      <Link
+                        to="/logs"
+                        aria-label={`${systemStats.error_count} pipeline error(s)`}
+                        className="inline-flex items-center hover:opacity-80"
+                      >
+                        <Stat
+                          icon={ExclamationTriangleIcon}
+                          iconClassName="text-danger animate-pulse"
+                          label="Procs"
+                          valueWidth="min-w-[1rem]"
+                          value={systemStats.process_count}
+                        />
+                      </Link>
+                    </Tooltip.Trigger>
+                    <Tooltip.Portal>
+                      <Tooltip.Content
+                        className="z-50 px-3 py-2 text-xs bg-surface-raised text-fg border border-border rounded-md shadow-lg max-w-md"
+                        sideOffset={5}
+                      >
+                        <div className="space-y-1 font-mono">
+                          {(systemStats.errors ?? []).map((e) => (
+                            <div key={e.id} className="break-all">
+                              <span className="text-danger">{e.id}</span>
+                              {e.message ? <span className="text-fg-muted">: {e.message}</span> : null}
+                            </div>
+                          ))}
+                        </div>
+                        <Tooltip.Arrow className="fill-surface-raised" />
+                      </Tooltip.Content>
+                    </Tooltip.Portal>
+                  </Tooltip.Root>
+                </Tooltip.Provider>
+              ) : (
+                <Stat icon={Square3Stack3DIcon} label="Procs" valueWidth="min-w-[1rem]"
+                  value={systemStats ? systemStats.process_count : '—'} />
+              )}
             </div>
-            
+
             <Separator className="hidden xl:block" />
           </>
         )}
@@ -254,40 +342,24 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
                 <InfoItem
                   icon={ComputerDesktopIcon}
                   label="System"
-                  value={(() => {
-                    switch (connectionStatus) {
-                      case 'online': return "Connected";
-                      case 'offline': return "Disconnected";
-                      case 'reconnecting': return "Reconnecting";
-                      default: return "Unknown";
-                    }
-                  })()}
+                  value={CONNECTION_STATUS_LABELS[connectionStatus] ?? "Unknown"}
                   status={connectionStatus}
-                  {...(versionInfo?.version && { subtitle: `v${versionInfo.version}` })}
                 />
               </div>
             </Tooltip.Trigger>
             <Tooltip.Portal>
               <Tooltip.Content
-                className="z-50 px-3 py-2 text-xs bg-fg text-fg-inverse rounded-md shadow-lg"
+                className="z-50 px-3 py-2 text-xs bg-surface-raised text-fg border border-border rounded-md shadow-lg"
                 sideOffset={5}
               >
-                {versionInfo && (
-                  <div className="space-y-1 font-mono">
-                    <div>
-                      <span className="text-fg-subtle">API:</span> {versionInfo.version} • {versionInfo.build_date}
-                    </div>
-                    <div>
-                      <span className="text-fg-subtle">UI:&nbsp;</span> {
-                        typeof __VIDEONODE_UI_VERSION__ !== 'undefined' ? __VIDEONODE_UI_VERSION__ : 'dev'
-                      }
-                    </div>
+                <div className="space-y-1 font-mono">
+                  <div>
+                    <span className="text-fg-subtle">UI:&nbsp;</span> {
+                      typeof __VIDEONODE_UI_VERSION__ !== 'undefined' ? __VIDEONODE_UI_VERSION__ : 'dev'
+                    }
                   </div>
-                )}
-                {!versionInfo && (
-                  <div className="text-fg-subtle">Loading version info...</div>
-                )}
-                <Tooltip.Arrow className="fill-fg" />
+                </div>
+                <Tooltip.Arrow className="fill-surface-raised" />
               </Tooltip.Content>
             </Tooltip.Portal>
           </Tooltip.Root>

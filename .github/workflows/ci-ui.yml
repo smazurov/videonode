@@ -2,7 +2,6 @@ name: CI - UI
 
 on:
   push:
-    branches: [main]
     paths:
       - 'ui/**'
       - '.github/workflows/ci-ui.yml'
@@ -16,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-ui-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ui:
     name: Lint, Typecheck
@@ -25,13 +28,13 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: ui/package.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: ui/package.json
           cache: pnpm
@@ -44,7 +47,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Restore ESLint cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ui/.eslintcache
           key: eslint-${{ runner.os }}-${{ hashFiles('ui/eslint.config.js', 'ui/pnpm-lock.yaml') }}

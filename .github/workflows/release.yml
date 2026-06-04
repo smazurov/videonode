@@ -1,0 +1,249 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 4.0.0-rc1). Omit the v prefix.'
+        required: true
+        type: string
+
+env:
+  VERSION: ${{ inputs.version || github.ref_name }}
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+# DO NOT add force/force_orphan to JamesIves/peaceiris — both silently bypass
+# file-preservation and would nuke the docs deployed by .github/workflows/docs.yml.
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    # Build on trixie to match the SBC runtime target (Armbian/Debian trixie).
+    # bookworm was tried first to dodge glibc/abseil soname drift, but its
+    # libplacebo 4.208 is far too old for the composer's csc_placebo backend
+    # (it uses pl_opengl_params.get_proc_addr / pl_voidfunc_t, added long after
+    # 4.208), so the SBCs are upgraded to trixie instead of pinning the build
+    # back. The nfpm `depends` sonames below track trixie accordingly.
+    container: arm64v8/debian:trixie
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - run: apt-get update -qq && apt-get install -y -qq git ca-certificates
+      - uses: actions/checkout@v6
+
+      # C++ first — build-deb-arm64.sh installs remaining deps
+      - name: Build native C++ binaries
+        run: composer/scripts/build-deb-arm64.sh
+        env:
+          MODE: release-nfpm
+      - name: Stage native binaries
+        run: |
+          mkdir -p dist
+          cp composer/build/deb-arm64/staging/bin/* dist/
+
+      # Go + UI (container now has ca-certificates + git from above)
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: ui/package.json
+      - name: Build UI
+        working-directory: ui
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: Build Go binary
+        run: |
+          VER="${VERSION#v}"
+          CGO_ENABLED=0 go build -tags ui_embed \
+            -ldflags "-s -w \
+              -X github.com/smazurov/videonode/internal/version.Version=${VER} \
+              -X github.com/smazurov/videonode/internal/version.GitCommit=$(git rev-parse --short HEAD) \
+              -X github.com/smazurov/videonode/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+              -X github.com/smazurov/videonode/internal/version.BuildID=${GITHUB_RUN_ID}" \
+            -o dist/videonode .
+
+      # Derive the .deb runtime Depends from the actual arm64 binaries via
+      # dpkg-shlibdeps (valid only here: arm64 ELF + trixie symbols files together).
+      # The cross x86_64 package job can't compute this, so it rides the artifact.
+      - name: Compute runtime deps (dpkg-shlibdeps)
+        run: |
+          scripts/gen-deb-depends.sh \
+            dist/videonode-source dist/videonode-sink dist/videonode-composer > dist/depends.txt
+          echo "Generated .deb depends:"; cat dist/depends.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: build-${{ matrix.arch }}
+          path: dist/
+
+  package:
+    needs: [build]
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            format: deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v8
+        with:
+          name: build-${{ matrix.arch }}
+          path: dist/
+      - name: Install nfpm + lintian + yq
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3
+          go install github.com/mikefarah/yq/v4@v4.44.3
+          sudo apt-get update -qq
+          sudo apt-get install -y lintian
+      - name: Package
+        run: |
+          chmod +x dist/videonode dist/videonode-source dist/videonode-sink dist/videonode-composer
+          # Overwrite the static fallback depends with the dpkg-shlibdeps list
+          # computed against the real binaries in the trixie build job.
+          yq -i '.depends = (load_str("dist/depends.txt") | split("\n") | map(select(. != "")))' nfpm.yaml
+          echo "nfpm depends:"; yq '.depends' nfpm.yaml
+          VER="${VERSION#v}"
+          GOARCH=${{ matrix.arch }} VERSION=$VER \
+            nfpm package --packager ${{ matrix.format }} --target dist/
+      - name: Lint
+        # latest-changelog-entry-without-new-date: we cut multiple releases per day.
+        run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary,latest-changelog-entry-without-new-date dist/*.${{ matrix.format }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pkg-${{ matrix.arch }}-${{ matrix.format }}
+          path: dist/*.${{ matrix.format }}
+
+  publish-release:
+    needs: [package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Render release notes
+        run: |
+          go install github.com/goreleaser/chglog/cmd/chglog@latest
+          go install github.com/mikefarah/yq/v4@v4.44.3
+          TAG="v${VERSION#v}"
+          VER="${VERSION#v}"
+          rm -f RELEASE_NOTES.md one.yml
+          # chglog format has no per-version filter, so slice the matching
+          # changelog.yml entry first, then render only that one with the
+          # GitHub-flavored release template (shared with the docs site).
+          yq "[.[] | select(.semver == \"$VER\")]" changelog.yml > one.yml
+          if [ "$(yq 'length' one.yml)" -gt 0 ]; then
+            chglog format --template-file website/scripts/release.tpl -i one.yml --output RELEASE_NOTES.md
+            # Footer: compare link to the previous release in changelog.yml.
+            mapfile -t VERS < <(yq -r '.[].semver' changelog.yml)
+            for i in "${!VERS[@]}"; do
+              if [ "${VERS[$i]}" = "$VER" ]; then PREV="${VERS[$((i+1))]:-}"; break; fi
+            done
+            if [ -n "${PREV:-}" ]; then
+              printf '\n**Full Changelog**: %s/%s/compare/v%s...%s\n' \
+                "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$PREV" "$TAG" >> RELEASE_NOTES.md
+            fi
+          fi
+          test -s RELEASE_NOTES.md || echo "Release ${TAG}" > RELEASE_NOTES.md
+          echo "----- rendered notes -----"; cat RELEASE_NOTES.md
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: pkg-*
+          merge-multiple: true
+          path: dist/
+      - name: Compute release vars
+        id: rel
+        run: |
+          TAG="v${VERSION#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          case "$VERSION" in *rc*) echo "prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "prerelease=false" >> "$GITHUB_OUTPUT";; esac
+      - name: Create GitHub Release
+        # Idempotent: a re-run updates the existing release (clobbers assets)
+        # instead of failing on "already exists".
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: ${{ steps.rel.outputs.tag }}
+          body_path: RELEASE_NOTES.md
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ steps.rel.outputs.prerelease }}
+          files: dist/*
+
+  publish-apt:
+    needs: [package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # morph027/apt-repo-action@v3 still pulls Node 20 JS actions (actions/cache,
+    # robinraju/release-downloader). Force them to Node 24 until the upstream
+    # action bumps them. See github.blog/changelog/2025-09-19-deprecation-of-node-20.
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: pkg-*-deb
+          merge-multiple: true
+          path: dist/
+      - uses: morph027/apt-repo-action@v3
+        id: apt-repo
+        with:
+          repo-name: videonode
+          signing-key: ${{ secrets.APT_SIGNING_KEY }}
+          codename: stable
+          architectures: arm64
+          import-from-repo-url: https://mazurov.dev/videonode
+      - name: Deploy apt repo to gh-pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: ${{ steps.apt-repo.outputs.dir }}
+          clean: true
+          # Allowlist of docs-owned paths so they survive an apt deploy. Keep in
+          # sync with the VitePress build output (website/docs/.vitepress/dist).
+          clean-exclude: |
+            index.html
+            404.html
+            changelog.html
+            hashmap.json
+            vp-icons.css
+            sitemap.xml
+            assets
+            getting-started
+            reference
+            operating
+            development
+            screenshots
+            CNAME
+          force: false
+          attempt-limit: 3

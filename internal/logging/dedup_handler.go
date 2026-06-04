@@ -2,19 +2,53 @@ package logging
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"maps"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
 
-// dedupEntry tracks suppression state for a repeated log message.
+// dedupEntry tracks suppression state for a repeated log record.
 type dedupEntry struct {
 	firstSeen  time.Time
 	suppressed int
 	lastEntry  LogEntry // most recent version for SSE updates
 }
 
-// DedupHandler wraps another slog.Handler and deduplicates repeated messages.
+// dedupKey builds the identity used to detect duplicates. A record is a
+// duplicate only when its level, module, message, and all attributes match —
+// not the message text alone, so lines that share a message but differ in
+// attributes are kept distinct. The dynamic "suppressed" attribute is excluded
+// so a buffer entry already carrying a count still matches its own key.
+func dedupKey(level, module, message string, attrs map[string]any) string {
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		if k == "suppressed" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var sb strings.Builder
+	sb.WriteString(level)
+	sb.WriteByte('\x1f')
+	sb.WriteString(module)
+	sb.WriteByte('\x1f')
+	sb.WriteString(message)
+	for _, k := range keys {
+		sb.WriteByte('\x1f')
+		sb.WriteString(k)
+		sb.WriteByte('=')
+		fmt.Fprintf(&sb, "%v", attrs[k])
+	}
+	return sb.String()
+}
+
+// DedupHandler wraps another slog.Handler and deduplicates repeated records.
 // The first occurrence is forwarded normally. Duplicates within the cooldown
 // window update the ring buffer entry in-place and push live SSE updates
 // without consuming additional ring buffer slots.
@@ -53,25 +87,14 @@ func (h *DedupHandler) Handle(ctx context.Context, r slog.Record) error {
 	}
 
 	// Clean up stale entries
-	for msg, entry := range h.seen {
+	for key, entry := range h.seen {
 		if now.Sub(entry.firstSeen) > 2*h.cooldown {
-			delete(h.seen, msg)
+			delete(h.seen, key)
 		}
 	}
 
-	entry, exists := h.seen[r.Message]
-	if !exists || now.Sub(entry.firstSeen) >= h.cooldown {
-		// First occurrence or cooldown expired — forward normally and reset tracking
-		h.seen[r.Message] = &dedupEntry{
-			firstSeen: now,
-		}
-		return h.inner.Handle(ctx, r)
-	}
-
-	// Duplicate within cooldown — update in-place
-	entry.suppressed++
-
-	// Build the updated LogEntry for ring buffer update and SSE callback
+	// Build attributes + module up front so the dedup key can fold in every key,
+	// not just the message text.
 	attrs := make(map[string]any)
 	module := "app"
 
@@ -90,11 +113,26 @@ func (h *DedupHandler) Handle(ctx context.Context, r slog.Record) error {
 		}
 		return true
 	})
+
+	level := levelToString(r.Level)
+	key := dedupKey(level, module, r.Message, attrs)
+
+	entry, exists := h.seen[key]
+	if !exists || now.Sub(entry.firstSeen) >= h.cooldown {
+		// First occurrence or cooldown expired — forward normally and reset tracking
+		h.seen[key] = &dedupEntry{
+			firstSeen: now,
+		}
+		return h.inner.Handle(ctx, r)
+	}
+
+	// Duplicate within cooldown — update in-place
+	entry.suppressed++
 	attrs["suppressed"] = entry.suppressed
 
 	updated := LogEntry{
 		Timestamp:  r.Time,
-		Level:      levelToString(r.Level),
+		Level:      level,
 		Module:     module,
 		Message:    r.Message,
 		Attributes: attrs,
@@ -108,14 +146,18 @@ func (h *DedupHandler) Handle(ctx context.Context, r slog.Record) error {
 	mutex.RUnlock()
 
 	if buf != nil {
-		msg := r.Message
 		buf.UpdateLatest(
-			func(e *LogEntry) bool { return e.Message == msg },
+			func(e *LogEntry) bool { return dedupKey(e.Level, e.Module, e.Message, e.Attributes) == key },
 			func(e *LogEntry) {
-				if e.Attributes == nil {
-					e.Attributes = make(map[string]any)
-				}
-				e.Attributes["suppressed"] = entry.suppressed
+				// Copy-on-write: a previously-published reference to this map
+				// (live SSE callback or a ReadAll snapshot) may be mid-marshal
+				// on another goroutine. Swap in a fresh map instead of mutating
+				// the shared one — a concurrent map write during json.Marshal
+				// panics in mapEncoder.
+				next := make(map[string]any, len(e.Attributes)+1)
+				maps.Copy(next, e.Attributes)
+				next["suppressed"] = entry.suppressed
+				e.Attributes = next
 				e.Timestamp = r.Time
 			},
 		)

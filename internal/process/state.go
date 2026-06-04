@@ -17,9 +17,12 @@ const (
 // Info contains information about a managed process.
 type Info struct {
 	ID           string
+	Kind         string // free-form classifier (e.g. "producer", "composer", "encoder")
 	State        State
 	PID          int
 	StartedAt    time.Time
 	RestartCount int
 	LastError    error
+	RSSBytes     int64
+	CPUPercent   float64
 }

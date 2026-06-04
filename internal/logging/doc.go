@@ -25,8 +25,8 @@
 //	logger := logging.GetLogger("mymodule")
 //	logger.Info("Starting up", "port", 8080)
 //	logger.Debug("Details", "config", cfg)
-//	logger.Warn("Something unusual", "error", err)
-//	logger.Error("Failed", "error", err)
+//	logger.Warn("Something unusual", logging.KeyError, err)
+//	logger.Error("Failed", logging.KeyError, err)
 //
 // Add contextual attributes:
 //

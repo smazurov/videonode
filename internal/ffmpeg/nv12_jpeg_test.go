@@ -19,7 +19,7 @@ func TestEncodeNV12ToJPEG_ProducesJPEGMarker(t *testing.T) {
 		frame[i] = 128
 	}
 
-	out, err := EncodeNV12ToJPEG(frame, w, h)
+	out, err := EncodeNV12ToJPEG(frame, w, h, "bt709")
 	if err != nil {
 		t.Fatalf("EncodeNV12ToJPEG returned error: %v", err)
 	}

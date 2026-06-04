@@ -2,18 +2,17 @@ import createClient, { type Middleware } from "openapi-fetch";
 import { toast } from 'react-hot-toast';
 import { clearAuthState } from '../hooks/useAuthStore';
 import { getAuthCredentials } from './auth';
+import {
+  API_BASE_URL,
+  SESSION_EXPIRED_MSG,
+  fetchWithTimeout,
+} from './api_fetch';
 import type { paths } from "./api.generated";
 
-export const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8090`;
-
-const SESSION_EXPIRED_MSG = 'Session expired. Please log in again.';
-
-export class ApiError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+// API_BASE_URL, ApiError and testAuth live in api_fetch.ts (the allowlisted raw
+// layer) and are re-exported here so existing importers keep pointing at
+// ../lib/api.
+export { API_BASE_URL, ApiError, testAuth } from './api_fetch';
 
 // unwrap throws if the openapi-fetch result has an error, otherwise returns
 // the data. Centralizes the if (error) throw idiom used at every call site.
@@ -44,8 +43,40 @@ const authMiddleware: Middleware = {
   },
 };
 
-export const api = createClient<paths>({ baseUrl: API_BASE_URL });
+export const api = createClient<paths>({ baseUrl: API_BASE_URL, fetch: fetchWithTimeout });
 api.use(authMiddleware);
+
+// Unauthenticated typed client for public endpoints (e.g. /api/health). It
+// deliberately skips authMiddleware so a liveness probe neither injects
+// credentials nor triggers the 401 → clear-auth + toast path.
+const apiPublic = createClient<paths>({ baseUrl: API_BASE_URL, fetch: fetchWithTimeout });
+
+// probeHealth pings /api/health with a short timeout. Returns true only on a
+// 2xx; any transport failure or timeout is false. The reconnect gate uses this
+// to avoid reopening an EventSource against a host that's still down.
+export async function probeHealth(timeoutMs = 5000): Promise<boolean> {
+  try {
+    const { response } = await apiPublic.GET('/api/health', {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Path-scoped typed clients. They share the underlying authenticated client
+// (same fetch + middleware) but constrain the path generic, so call sites for
+// a given entity only see the relevant routes in autocomplete.
+type Pick<P extends keyof paths> = { [K in P]: paths[K] };
+
+type SourcePath = Extract<keyof paths, `/api/sources${string}`>;
+type ComposerPath = Extract<keyof paths, `/api/composers${string}`>;
+type StreamPath = Extract<keyof paths, `/api/streams${string}` | `/api/v2/streams${string}`>;
+
+export const apiSources = api as unknown as ReturnType<typeof createClient<Pick<SourcePath>>>;
+export const apiComposers = api as unknown as ReturnType<typeof createClient<Pick<ComposerPath>>>;
+export const apiStreams = api as unknown as ReturnType<typeof createClient<Pick<StreamPath>>>;
 
 export function buildStreamURL(partialUrl: string | undefined, protocol: 'http' | 'rtsp' | 'srt' = 'http'): string | undefined {
   if (!partialUrl) return undefined;
@@ -59,52 +90,6 @@ export function buildStreamURL(partialUrl: string | undefined, protocol: 'http' 
   }
 
   return partialUrl;
-}
-
-export async function testAuth(username: string, password: string): Promise<boolean> {
-  const credentials = btoa(`${username}:${password}`);
-
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/streams`, {
-      headers: {
-        'Authorization': `Basic ${credentials}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    return response.ok;
-  } catch (error) {
-    console.error("Auth test failed:", error);
-    return false;
-  }
-}
-
-export async function webrtcSignaling(streamId: string, offer: string, signal?: AbortSignal): Promise<string> {
-  const credentials = getAuthCredentials();
-  const headers: HeadersInit = {
-    'Content-Type': 'application/sdp',
-  };
-
-  if (credentials) {
-    headers['Authorization'] = `Basic ${credentials}`;
-  }
-
-  const response = await fetch(`${API_BASE_URL}/api/webrtc?stream=${encodeURIComponent(streamId)}`, {
-    method: 'POST',
-    headers,
-    body: offer,
-    signal: signal ?? null,
-  });
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      toast.error(SESSION_EXPIRED_MSG);
-      clearAuthState();
-    }
-    throw new ApiError(response.status, `WebRTC signaling failed: ${response.statusText}`);
-  }
-
-  return response.text();
 }
 
 // SSE type helpers — extract event→data map from generated path types
@@ -139,11 +124,20 @@ export type SSEStatus =
 
 const INITIAL_RECONNECT_DELAY = 5000;
 const MAX_RECONNECT_DELAY = 60000;
+// Server heartbeats every 15s (internal/api/events.go). If 20s pass with no
+// event of any kind, one beat was genuinely missed (15s + grace for jitter):
+// treat the connection as dead now rather than waiting out the OS TCP timeout.
+const HEARTBEAT_TIMEOUT_MS = 20000;
 export interface SSEClientConfig<P extends SSEPath> {
   endpoint: P;
   onStatusChange?: (status: SSEStatus) => void;
   onConnect?: () => void;
   onError?: (willReconnect: boolean) => void;
+  // Opt-in liveness watchdog. Only /api/events emits the 15s heartbeat the
+  // watchdog expects; endpoints without one (e.g. /api/logs/stream) must leave
+  // this off or the watchdog fires every HEARTBEAT_TIMEOUT_MS and forces a
+  // needless reconnect — which replays the whole backfill.
+  heartbeatWatchdog?: boolean;
 }
 
 type MessageHandler = (event: MessageEvent) => void;
@@ -153,6 +147,12 @@ export class SSEClient<P extends SSEPath> {
   private eventSource: EventSource | null = null;
   private reconnectTimeout: number | null = null;
   private reconnectDelay = INITIAL_RECONNECT_DELAY;
+  private watchdogTimer: number | null = null;
+  // Bumped by disconnect(). The health-gated reconnect awaits between
+  // scheduling and reopening; capturing the generation lets an in-flight
+  // attempt bail if disconnect() ran during its await, preserving the original
+  // "disconnect cancels any pending reconnect" guarantee.
+  private generation = 0;
   private messageHandler: MessageHandler | null = null;
   private readonly typedHandlers: Map<string, TypedEventHandler<unknown>> =
     new Map();
@@ -177,6 +177,7 @@ export class SSEClient<P extends SSEPath> {
     this.eventSource.onopen = () => {
       this.reconnectDelay = INITIAL_RECONNECT_DELAY;
       this.setStatus("connected");
+      this.resetWatchdog();
       this.config.onConnect?.();
     };
 
@@ -188,23 +189,63 @@ export class SSEClient<P extends SSEPath> {
       this.attachTypedHandler(eventType, handler);
     }
 
-    this.eventSource.onerror = async () => {
-      this.setStatus('reconnecting');
-      this.eventSource?.close();
-      this.eventSource = null;
+    // Internal heartbeat listener: the server's 15s keep-alive isn't wired to
+    // any external handler, but it's still proof of life — let it pet the
+    // watchdog so an otherwise-idle (no entity events) connection stays up.
+    this.eventSource.addEventListener('heartbeat', () => this.resetWatchdog());
 
-      const authFailed = await this.verifyAuthOrRedirect();
-      if (authFailed) {
-        this.config.onError?.(false);
-        return;
-      }
-
-      this.config.onError?.(true);
-      this.scheduleReconnect();
+    this.eventSource.onerror = () => {
+      void this.handleDisconnect();
     };
   }
 
+  // handleDisconnect tears down the current EventSource and decides what next:
+  // a 401 stops retrying; anything else enters the health-gated reconnect
+  // loop. Shared by onerror and the heartbeat watchdog.
+  private async handleDisconnect(): Promise<void> {
+    this.clearWatchdog();
+    this.eventSource?.close();
+    this.eventSource = null;
+
+    const gen = this.generation;
+    const authFailed = await this.verifyAuthOrRedirect();
+    if (gen !== this.generation) return; // disconnect() ran during the await
+    if (authFailed) {
+      this.setStatus('disconnected');
+      this.config.onError?.(false);
+      return;
+    }
+
+    // Sitting in the backoff wait reads as 'disconnected'. The active
+    // EventSource attempt in connect() is the only thing that surfaces as
+    // 'connecting' — so "reconnecting" stays honest, shown only while a
+    // connection is genuinely being attempted, not during the idle wait.
+    this.setStatus('disconnected');
+    this.config.onError?.(true);
+    this.scheduleReconnect();
+  }
+
+  // resetWatchdog (re)arms the liveness timer on any server activity. If it
+  // fires, a heartbeat was missed: the socket is likely black-holed (no
+  // onerror yet), so force the disconnect path.
+  private resetWatchdog(): void {
+    if (!this.config.heartbeatWatchdog) return;
+    this.clearWatchdog();
+    this.watchdogTimer = window.setTimeout(() => {
+      void this.handleDisconnect();
+    }, HEARTBEAT_TIMEOUT_MS);
+  }
+
+  private clearWatchdog(): void {
+    if (this.watchdogTimer != null) {
+      window.clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+  }
+
   disconnect(): void {
+    this.generation++;
+    this.clearWatchdog();
     if (this.reconnectTimeout) {
       window.clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
@@ -256,6 +297,7 @@ export class SSEClient<P extends SSEPath> {
     handler: TypedEventHandler<unknown>,
   ): void {
     this.eventSource?.addEventListener(eventType, (event: MessageEvent) => {
+      this.resetWatchdog();
       try {
         const data: unknown = JSON.parse(String(event.data));
         handler(data);
@@ -278,25 +320,52 @@ export class SSEClient<P extends SSEPath> {
     }
     // authMiddleware.onResponse handles the 401 toast + clearAuthState; we
     // just need to know whether the call succeeded enough to continue
-    // reconnect attempts.
-    const { response, error } = await api.GET('/api/streams');
-    if (response?.status === 401) return true;
-    // Network errors leave error truthy but no 401 — keep reconnecting.
-    if (error) return false;
-    return false;
+    // reconnect attempts. openapi-fetch rejects (not returns) on a transport
+    // failure, so a downed backend throws here — swallow it and keep
+    // reconnecting rather than letting the rejection escape this async
+    // onerror handler as an unhandled promise rejection.
+    try {
+      const { response } = await api.GET('/api/streams');
+      return response?.status === 401;
+    } catch {
+      return false;
+    }
   }
 
+  // scheduleReconnect waits out the backoff, then probes /api/health before
+  // touching the EventSource. A dead host never gets a reconnect attempt — we
+  // re-probe on a growing backoff and stay 'disconnected' (→ offline) until
+  // health actually returns, then connect() opens the stream.
   private scheduleReconnect(): void {
     if (this.reconnectTimeout) {
       window.clearTimeout(this.reconnectTimeout);
     }
 
     const currentDelay = this.reconnectDelay;
+    const gen = this.generation;
     console.log(`SSE reconnecting in ${currentDelay / 1000} seconds...`);
 
     this.reconnectTimeout = window.setTimeout(() => {
-      this.connect();
-      this.reconnectDelay = Math.min(currentDelay * 2, MAX_RECONNECT_DELAY);
+      void this.attemptReconnect(currentDelay, gen);
     }, currentDelay);
+  }
+
+  private async attemptReconnect(currentDelay: number, gen: number): Promise<void> {
+    if (gen !== this.generation) return; // disconnected before this fired
+    // An attempt is genuinely in flight now — surface as 'connecting'
+    // (→ reconnecting) while the probe runs.
+    this.setStatus('connecting');
+    const healthy = await probeHealth();
+    if (gen !== this.generation) return; // disconnected during the probe
+    if (!healthy) {
+      // Still down: grow the backoff, drop back to the idle (offline) wait,
+      // and try again. Never open an EventSource against a dead host.
+      this.reconnectDelay = Math.min(currentDelay * 2, MAX_RECONNECT_DELAY);
+      this.setStatus('disconnected');
+      this.scheduleReconnect();
+      return;
+    }
+    this.reconnectDelay = Math.min(currentDelay * 2, MAX_RECONNECT_DELAY);
+    this.connect();
   }
 }

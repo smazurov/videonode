@@ -1,0 +1,53 @@
+#include "src/ipc/dma_heap.hpp"
+
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <span>
+
+int main(int argc, char** argv) {
+    const std::span<char*> args(argv, static_cast<size_t>(argc));
+    size_t size = (args.size() > 1) ? std::strtoull(args[1], nullptr, 0)
+                                    : (1920ULL * 1080ULL * 3ULL / 2ULL); // NV12 1080p
+    std::string heap = (args.size() > 2) ? args[2] : "system";
+
+    auto buf = dmaheap::alloc(heap, size);
+    if (!buf.valid()) {
+        fprintf(stderr, "FAIL alloc heap=%s size=%zu\n", heap.c_str(), size);
+        return 1;
+    }
+    printf("ok: alloc heap=%s size=%zu fd=%d\n", heap.c_str(), size, buf.fd.get());
+
+    void* mapped = dmaheap::mmap_rw(buf);
+    if (!mapped) {
+        fprintf(stderr, "FAIL mmap\n");
+        return 1;
+    }
+    printf("ok: mmap fd=%d size=%zu addr=%p\n", buf.fd.get(), buf.size, mapped);
+
+    dmaheap::sync_start(buf.fd.get(), dmaheap::SyncDir::Write);
+    const std::span<uint8_t> bytes(static_cast<uint8_t*>(mapped), buf.size);
+    for (size_t i = 0; i < buf.size; ++i)
+        bytes[i] = (i & 1) ? 0x55 : 0xAA;
+    dmaheap::sync_end(buf.fd.get(), dmaheap::SyncDir::Write);
+    printf("ok: wrote %zu bytes pattern\n", buf.size);
+
+    dmaheap::sync_start(buf.fd.get(), dmaheap::SyncDir::Read);
+    size_t mismatches = 0;
+    for (size_t i = 0; i < buf.size; ++i) {
+        uint8_t want = (i & 1) ? 0x55 : 0xAA;
+        if (bytes[i] != want)
+            ++mismatches;
+    }
+    dmaheap::sync_end(buf.fd.get(), dmaheap::SyncDir::Read);
+
+    dmaheap::munmap_rw(mapped, buf.size);
+
+    if (mismatches != 0) {
+        fprintf(stderr, "FAIL: %zu/%zu bytes mismatched after round-trip\n", mismatches, buf.size);
+        return 1;
+    }
+    printf("PASS: %zu bytes round-tripped via /dev/dma_heap/%s\n", buf.size, heap.c_str());
+    return 0;
+}

@@ -180,7 +180,7 @@ func FormatLogLine(entry LogEntry) string {
 			sb.WriteString(" ")
 			sb.WriteString(k)
 			sb.WriteString("=")
-			sb.WriteString(fmt.Sprint(entry.Attributes[k]))
+			fmt.Fprint(&sb, entry.Attributes[k])
 		}
 	}
 

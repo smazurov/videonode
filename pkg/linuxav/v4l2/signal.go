@@ -124,8 +124,8 @@ func QueryDVTimings(devicePath string) (*v4l2DVTimings, error) {
 	fd, err := syscall.Open(devicePath, syscall.O_RDWR|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		logger.Debug("QueryDVTimings: failed to open device",
-			"device", devicePath,
-			"error", err)
+			logging.KeyDevice, devicePath,
+			logging.KeyError, err)
 		return nil, err
 	}
 	defer syscall.Close(fd)
@@ -148,9 +148,9 @@ func QueryDVTimings(devicePath string) (*v4l2DVTimings, error) {
 			errName = err.Error()
 		}
 		logger.Debug("QueryDVTimings: ioctl failed",
-			"device", devicePath,
-			"error", errName,
-			"errno", err)
+			logging.KeyDevice, devicePath,
+			logging.KeyError, errName,
+			logging.KeyErrno, err)
 		return nil, err
 	}
 
@@ -158,12 +158,12 @@ func QueryDVTimings(devicePath string) (*v4l2DVTimings, error) {
 	bt := timings.bt()
 	fps := calculateFPS(bt)
 	logger.Debug("QueryDVTimings: detected signal",
-		"device", devicePath,
-		"width", bt.width,
-		"height", bt.height,
-		"pixelclock", bt.pixelclock,
-		"fps", fmt.Sprintf("%.2f", fps),
-		"interlaced", bt.interlaced != 0)
+		logging.KeyDevice, devicePath,
+		logging.KeyWidth, bt.width,
+		logging.KeyHeight, bt.height,
+		logging.KeyPixelclock, bt.pixelclock,
+		logging.KeyFPS, fmt.Sprintf("%.2f", fps),
+		logging.KeyInterlaced, bt.interlaced != 0)
 
 	return &timings, nil
 }

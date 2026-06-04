@@ -1,26 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSSE } from './useSSE';
 import type { LogEntry } from '../components/logs/LogRow';
 import type { SSEStatus } from '../lib/api';
-
-interface LogEventData {
-  timestamp: string;
-  level: string;
-  module: string;
-  message: string;
-  attributes?: Record<string, unknown>;
-}
-
-function isLogEventData(data: unknown): data is LogEventData {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    'timestamp' in data &&
-    'level' in data &&
-    'module' in data &&
-    'message' in data
-  );
-}
+import { subscribeLogStream, mergeLogBatch } from '../lib/logStream';
 
 function mapConnectionStatus(status: SSEStatus): 'connecting' | 'connected' | 'disconnected' {
   switch (status) {
@@ -30,9 +11,15 @@ function mapConnectionStatus(status: SSEStatus): 'connecting' | 'connected' | 'd
   }
 }
 
+export interface LogFilter {
+  key: 'source_id' | 'composer_id' | 'stream_id';
+  id: string;
+}
+
 interface UseLogStreamOptions {
   enabled?: boolean;
   maxLogs?: number;
+  filter?: LogFilter;
 }
 
 interface UseLogStreamResult {
@@ -41,100 +28,42 @@ interface UseLogStreamResult {
   clearLogs: () => void;
 }
 
-export function useLogStream({ enabled = true, maxLogs = 10_000 }: UseLogStreamOptions = {}): UseLogStreamResult {
+export function useLogStream({
+  enabled = true,
+  maxLogs = 10_000,
+  filter,
+}: UseLogStreamOptions = {}): UseLogStreamResult {
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [status, setStatus] = useState<SSEStatus>('disconnected');
 
-  const bufferRef = useRef<LogEntry[]>([]);
-  const flushTimeoutRef = useRef<number | null>(null);
-  const idCounterRef = useRef(0);
   const maxLogsRef = useRef(maxLogs);
-
+  const filterRef = useRef(filter);
   useEffect(() => {
     maxLogsRef.current = maxLogs;
-  }, [maxLogs]);
-
-  const flushBuffer = useCallback(() => {
-    const batch = bufferRef.current;
-    bufferRef.current = [];
-    flushTimeoutRef.current = null;
-
-    if (batch.length === 0) return;
-
-    setLogs(prev => {
-      let result = [...prev];
-
-      for (const entry of batch) {
-        const suppressed = entry.attributes['suppressed'];
-        if (typeof suppressed === 'number' && suppressed > 0) {
-          // Dedup update — find last entry with same message and update it
-          let found = false;
-          for (let i = result.length - 1; i >= 0; i--) {
-            const existing = result[i]!;
-            if (existing.message === entry.message) {
-              result[i] = { ...existing, attributes: { ...existing.attributes, suppressed } };
-              found = true;
-              break;
-            }
-          }
-          if (found) continue;
-        }
-        result.push(entry);
-      }
-
-      return result.slice(-maxLogsRef.current);
-    });
-  }, []);
-
-  const scheduleFlush = useCallback(() => {
-    if (!flushTimeoutRef.current) {
-      flushTimeoutRef.current = window.setTimeout(flushBuffer, 50);
-    }
-  }, [flushBuffer]);
-
-  const { status } = useSSE({
-    endpoint: '/api/logs/stream',
-    enabled,
-    onConnect: () => {
-      bufferRef.current.push({
-        id: String(++idCounterRef.current),
-        timestamp: new Date().toISOString(),
-        level: 'INFO',
-        module: 'system',
-        message: 'Log stream connected',
-        attributes: {},
-      });
-      scheduleFlush();
-    },
-    onMessage: (event) => {
-      try {
-        const data: unknown = JSON.parse(String(event.data));
-        if (!isLogEventData(data)) {
-          console.error('Invalid log data format:', event.data);
-          return;
-        }
-        bufferRef.current.push({
-          id: String(++idCounterRef.current),
-          timestamp: data.timestamp,
-          level: data.level,
-          module: data.module,
-          message: data.message,
-          attributes: data.attributes ?? {},
-        });
-        scheduleFlush();
-      } catch (error) {
-        console.error('Log parse error:', error, event.data);
-      }
-    },
+    filterRef.current = filter;
   });
 
-  // Clean up flush timeout on unmount
+  const filterKey = filter?.key;
+  const filterId = filter?.id;
+
   useEffect(() => {
-    return () => {
-      if (flushTimeoutRef.current) {
-        window.clearTimeout(flushTimeoutRef.current);
-      }
-    };
-  }, []);
+    if (!enabled) return;
+
+    return subscribeLogStream({
+      onBatch: (batch, isBackfill) => {
+        const f = filterRef.current;
+        const relevant = f ? batch.filter((e) => e.attributes[f.key] === f.id) : batch;
+        // Backfill replaces (resets on filter change); live batches append.
+        if (isBackfill) {
+          setLogs(mergeLogBatch([], relevant, maxLogsRef.current));
+          return;
+        }
+        if (relevant.length === 0) return;
+        setLogs((prev) => mergeLogBatch(prev, relevant, maxLogsRef.current));
+      },
+      onStatus: setStatus,
+    });
+  }, [enabled, filterKey, filterId]);
 
   const clearLogs = useCallback(() => setLogs([]), []);
 

@@ -6,7 +6,11 @@ type Params struct {
 	InputFormat string
 	Resolution  string
 	FPS         string
-	OverlayText string // non-empty forces lavfi testsrc2
+
+	// InputPipe, when non-nil, replaces the `-f v4l2 -i <DevicePath>`
+	// block with a stdin pipe input. Used by the native pipeline path
+	// where vn-sink or videonode-composer pipes frames into ffmpeg.
+	InputPipe *PipeInput
 
 	Encoder string
 
@@ -24,35 +28,101 @@ type Params struct {
 
 	GlobalArgs   []string
 	VideoFilters string
-	HWBackend    string // "rkmpp", "vaapi", "sw", or ""
 
-	AudioDevice  string
+	AudioDevice string
+
+	// AudioCodec is the logical output codec ("opus", "aac"); empty defaults
+	// to opus. AudioBitrate is the output audio bitrate (e.g. "128k"); empty
+	// defaults to 128k.
+	AudioCodec   string
+	AudioBitrate string
+
+	// AudioFilters, for multi-input audio, is a mix filtergraph (e.g.
+	// "amix=inputs=2:duration=shortest") applied after per-input aresample to
+	// produce a single mixed output track; for single-input audio it is an
+	// -af chain. Empty keeps the default one-track-per-input behavior.
 	AudioFilters string
+
+	// AudioInputs, when non-empty, supersedes AudioDevice and declares
+	// one ALSA input per entry. With no AudioFilters the builder emits an
+	// aresample-per-input filter_complex with one output track per input;
+	// with AudioFilters set it mixes them into a single track.
+	AudioInputs []string
 
 	ProgressSocket string
 	OutputURL      string
 
+	// Outputs, when non-empty, supersedes OutputURL and emits one
+	// `-f <muxer> <url>` per entry. Muxer is selected from the type
+	// string ("rtsp", "srt", "hls"); unknown types pass through verbatim.
+	Outputs []OutputTarget
+
 	Options []OptionType
-
-	VisionEnabled bool
-	VisionWidth   int // default 640
-	VisionHeight  int // default 480
-	VisionFPS     int // 0 = no throttle
-
-	Perspective *PerspectiveConfig
-
-	Rotation int // 0, 90, 180, 270
 }
 
-// PerspectiveConfig stores 4 source corner points clockwise [TL, TR, BR, BL] in input pixels.
-type PerspectiveConfig struct {
-	Corners [4][2]int `toml:"corners" json:"corners"`
+// PipeInput describes a stdin frame stream piped into ffmpeg from an
+// upstream process (vn-sink, videonode-composer). Format selects the
+// ffmpeg `-f` muxer; rawvideo also needs PixelFormat + dims + framerate
+// at the input stage (it is not self-describing).
+type PipeInput struct {
+	Format      string // "yuv4mpegpipe" or "rawvideo"
+	PixelFormat string // e.g. "bgra"; only used for rawvideo
+	Width       int    // only used for rawvideo
+	Height      int    // only used for rawvideo
+	FPS         int    // only used for rawvideo
+	// Color tags the colorimetry of the raw frames. Raw pipe input carries
+	// no embedded metadata, so these are emitted on both the input (so
+	// ffmpeg interprets correctly) and the encoder output (the stream VUI).
+	Color ColorTags
 }
 
-// VisionConfig enables raw frame output for the AI vision sidecar.
-type VisionConfig struct {
-	Enabled bool `toml:"enabled" json:"enabled"`
-	Width   int  `toml:"width,omitempty" json:"width,omitempty"`
-	Height  int  `toml:"height,omitempty" json:"height,omitempty"`
-	FPS     int  `toml:"fps,omitempty" json:"fps,omitempty"`
+// ColorTags are the ffmpeg colorimetry flags. Empty fields are omitted.
+type ColorTags struct {
+	Space     string // -colorspace (e.g. "bt709", "smpte170m")
+	Primaries string // -color_primaries
+	TRC       string // -color_trc
+	Range     string // -color_range ("tv" = limited, "pc" = full)
+}
+
+// IsZero reports whether no color tag is set.
+func (c ColorTags) IsZero() bool {
+	return c.Space == "" && c.Primaries == "" && c.TRC == "" && c.Range == ""
+}
+
+// ColorTagsForMatrix maps a detected YCbCr matrix ("bt601"/"bt709") to ffmpeg
+// VUI flags. Unknown ("") yields no tags. Range is always limited (tv).
+func ColorTagsForMatrix(matrix string) ColorTags {
+	switch matrix {
+	case "bt709":
+		return ColorTags{Space: "bt709", Primaries: "bt709", TRC: "bt709", Range: "tv"}
+	case "bt601":
+		return ColorTags{Space: "smpte170m", Primaries: "smpte170m", TRC: "smpte170m", Range: "tv"}
+	default:
+		return ColorTags{}
+	}
+}
+
+// FFArgs renders the non-empty tags as ordered ffmpeg flag pairs.
+func (c ColorTags) FFArgs() []string {
+	var a []string
+	if c.Space != "" {
+		a = append(a, "-colorspace", c.Space)
+	}
+	if c.Primaries != "" {
+		a = append(a, "-color_primaries", c.Primaries)
+	}
+	if c.TRC != "" {
+		a = append(a, "-color_trc", c.TRC)
+	}
+	if c.Range != "" {
+		a = append(a, "-color_range", c.Range)
+	}
+	return a
+}
+
+// OutputTarget is one publish destination. Type names a transport
+// ("rtsp", "srt", "hls"); URL is the full ffmpeg output URL.
+type OutputTarget struct {
+	Type string
+	URL  string
 }

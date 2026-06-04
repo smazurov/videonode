@@ -9,18 +9,18 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/encoders"
-	"github.com/smazurov/videonode/internal/streams"
-	"github.com/smazurov/videonode/internal/streams/store"
 )
 
-// getValidatedEncoders returns only encoders that passed validation and are saved in streams.toml.
+// getValidatedEncoders returns only encoders that passed validation, sourced from the shared
+// validation provider (backed by the same TOML store the server loaded at boot).
 func (s *Server) getValidatedEncoders() (*encoders.EncoderList, error) {
-	// Create validation service to load validation results
-	streamStore := store.NewTOML("streams.toml")
-	validationService := streams.NewValidationService(streamStore)
+	provider := s.validationProvider
+	if provider == nil {
+		return nil, fmt.Errorf("validation data not found - run encoder validation first")
+	}
 
-	// Load validation results from storage
-	validator := encoders.NewValidator(validationService)
+	// Load validation results from the shared provider
+	validator := encoders.NewValidator(provider)
 	results, err := validator.LoadValidationResults()
 	if err != nil {
 		// If no validation data exists, return error - system needs to be validated first

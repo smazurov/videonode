@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { PlayIcon } from '@heroicons/react/24/outline';
-import { webrtcSignaling } from '../../lib/api';
+import { ArrowPathIcon, PlayIcon, SignalSlashIcon } from '@heroicons/react/24/outline';
+import { whepConnect, whepTeardown } from '../../lib/whep';
 import { StatsOverlay } from './StatsOverlay';
+import { cn } from '../../utils';
 
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 30_000;
@@ -15,11 +16,6 @@ interface Props {
 }
 
 type ConnectionState = 'connecting' | 'connected' | 'offline';
-
-function extractPeerId(sdp: string): string | null {
-  const result = /a=ice-ufrag:(\S+)/.exec(sdp);
-  return result?.[1] ?? null;
-}
 
 function waitForIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<void> {
   return new Promise((resolve) => {
@@ -83,7 +79,8 @@ function attachPeerHandlers(
 async function performSignaling(
   pc: RTCPeerConnection,
   streamId: string,
-  cancelledRef: React.RefObject<boolean>
+  cancelledRef: React.RefObject<boolean>,
+  sessionIdRef: React.RefObject<string | null>
 ): Promise<string | null> {
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -91,16 +88,20 @@ async function performSignaling(
 
   if (cancelledRef.current) return null;
 
-  const answer = await webrtcSignaling(streamId, pc.localDescription!.sdp);
+  const { answer, sessionId } = await whepConnect(streamId, pc.localDescription!.sdp);
+  // Record the session immediately so cleanup can DELETE it even if we bail
+  // before applying the answer below.
+  sessionIdRef.current = sessionId;
   if (cancelledRef.current) return null;
 
   await pc.setRemoteDescription({ type: 'answer', sdp: answer });
-  return extractPeerId(answer);
+  return sessionId;
 }
 
 export function WebRTCPlayer({ streamId, className = '', muted = true, showStats = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const cancelledRef = useRef(false);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -120,6 +121,22 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
 
     cancelledRef.current = false;
 
+    // Blank the <video> so the last decoded frame doesn't linger under the
+    // offline/connecting overlays. Called on every transition into a no-video
+    // state; ontrack repopulates srcObject on the next successful connect.
+    const clearFrame = () => {
+      if (videoRef.current) videoRef.current.srcObject = null;
+    };
+
+    // Best-effort DELETE of the current WHEP session, then forget it.
+    const teardownSession = () => {
+      const sessionId = sessionIdRef.current;
+      if (sessionId) {
+        sessionIdRef.current = null;
+        void whepTeardown(streamId, sessionId);
+      }
+    };
+
     const scheduleReconnect = () => {
       if (reconnectTimerRef.current) return;
       const attempt = reconnectAttemptsRef.current;
@@ -136,7 +153,10 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         reconnectAttemptsRef.current = 0;
         setConnectionState('connected');
       },
-      onOffline: () => setConnectionState('offline'),
+      onOffline: () => {
+        clearFrame();
+        setConnectionState('offline');
+      },
       onStream: (stream) => {
         const video = videoRef.current;
         if (!video) return;
@@ -150,11 +170,13 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
 
     const connect = async () => {
       setConnectionState('connecting');
+      clearFrame();
 
       if (pcRef.current) {
         pcRef.current.close();
         pcRef.current = null;
       }
+      teardownSession();
 
       const peerConnection = new RTCPeerConnection({ iceServers: [] });
       pcRef.current = peerConnection;
@@ -166,8 +188,8 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
       peerConnection.addTransceiver('audio', { direction: 'recvonly' });
 
       try {
-        const extractedPeerId = await performSignaling(peerConnection, streamId, cancelledRef);
-        setPeerId(extractedPeerId);
+        const sessionId = await performSignaling(peerConnection, streamId, cancelledRef, sessionIdRef);
+        setPeerId(sessionId);
       } catch (error_) {
         // Loud first attempt, quiet retries: avoids spamming during transient 404s.
         const log = reconnectAttemptsRef.current === 0 ? console.error : console.debug;
@@ -192,6 +214,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         pcRef.current = null;
         setPC(null);
       }
+      teardownSession();
       if (videoElement) {
         videoElement.srcObject = null;
       }
@@ -207,7 +230,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
 
   if (error) {
     return (
-      <div className={`relative flex items-center justify-center ${className}`} style={{ background: '#000' }}>
+      <div className={cn('relative flex items-center justify-center bg-black', className)}>
         <span className="text-danger text-sm">{error}</span>
       </div>
     );
@@ -217,7 +240,7 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
   const isConnecting = connectionState === 'connecting';
 
   return (
-    <div className={`relative ${className}`} style={{ background: '#000' }}>
+    <div className={cn('relative bg-black', className)}>
       <video
         ref={videoRef}
         autoPlay
@@ -226,13 +249,15 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
         className="w-full h-full object-contain"
       />
       {isOffline && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-fg-subtle text-sm">Stream offline</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black text-fg-inverse">
+          <SignalSlashIcon className="w-14 h-14 text-danger" />
+          <span className="text-lg font-semibold uppercase tracking-wider">Stream offline</span>
         </div>
       )}
       {isConnecting && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-fg-subtle text-sm">Connecting...</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black text-fg-inverse">
+          <ArrowPathIcon className="w-12 h-12 animate-spin text-fg-subtle" />
+          <span className="text-sm font-medium uppercase tracking-wider text-fg-subtle">Connecting…</span>
         </div>
       )}
       {showStats && connectionState === 'connected' && (

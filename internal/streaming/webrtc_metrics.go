@@ -1,9 +1,13 @@
 package streaming
 
 import (
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+var peerJitterCache sync.Map // peerID -> float64 (milliseconds)
 
 var (
 	// Per-stream egress counters (from producer to all consumers).
@@ -90,6 +94,15 @@ func IncrementFIRs(streamID, peerID string) {
 // RecordJitter records interarrival jitter from RTCP Receiver Reports.
 func RecordJitter(streamID, peerID string, jitter uint32) {
 	webrtcPeerJitter.WithLabelValues(streamID, peerID).Set(float64(jitter))
+	peerJitterCache.Store(peerID, float64(jitter)/90.0)
+}
+
+// PeerJitterMs returns the last recorded jitter for a peer in milliseconds.
+func PeerJitterMs(peerID string) float64 {
+	if v, ok := peerJitterCache.Load(peerID); ok {
+		return v.(float64)
+	}
+	return 0
 }
 
 // DeletePeerMetrics removes all metrics for a peer when disconnected.
@@ -99,6 +112,7 @@ func DeletePeerMetrics(streamID, peerID string) {
 	webrtcPeerPLIs.DeleteLabelValues(streamID, peerID)
 	webrtcPeerFIRs.DeleteLabelValues(streamID, peerID)
 	webrtcPeerJitter.DeleteLabelValues(streamID, peerID)
+	peerJitterCache.Delete(peerID)
 }
 
 // IncrementPacketsSent records packets and bytes sent for a stream.

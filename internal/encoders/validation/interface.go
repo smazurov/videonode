@@ -8,10 +8,44 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/types"
 )
+
+var (
+	compiledEncodersOnce sync.Once
+	compiledEncoders     []string
+)
+
+// compiledEncoderList returns the names of encoders compiled into the
+// host's ffmpeg. Runs `ffmpeg -encoders` exactly once per process; the
+// list doesn't change at runtime.
+func compiledEncoderList() []string {
+	compiledEncodersOnce.Do(func() {
+		cmd := exec.Command("ffmpeg", "-hide_banner", "-nostats", "-encoders")
+		out, err := cmd.Output()
+		if err != nil {
+			return
+		}
+		// `ffmpeg -encoders` prints "V..... h264_rkmpp Rockchip H.264 encoder ..."
+		// per line after a banner. Extract the second column.
+		for line := range strings.SplitSeq(string(out), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			// Only lines whose first field looks like the V/A/S flag block
+			// (six chars of letters or dots) are encoder rows.
+			if len(fields[0]) != 6 {
+				continue
+			}
+			compiledEncoders = append(compiledEncoders, fields[1])
+		}
+	})
+	return compiledEncoders
+}
 
 // EncoderParams is a map of encoder-specific parameters.
 type EncoderParams map[string]string
@@ -103,13 +137,49 @@ func (r *ValidatorRegistry) GetCompiledEncoders(validator EncoderValidator) []st
 
 // isEncoderCompiled checks if an encoder is compiled into ffmpeg.
 func isEncoderCompiled(encoderName string) bool {
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-nostats", "-encoders")
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
+	return IsEncoderCompiled(encoderName)
+}
 
-	return strings.Contains(string(output), encoderName)
+// IsEncoderCompiled reports whether `encoderName` appears in
+// `ffmpeg -encoders`. Result is cached process-wide (first call runs
+// ffmpeg; subsequent calls hit the cache) since the answer is fixed for
+// the lifetime of the daemon.
+func IsEncoderCompiled(encoderName string) bool {
+	return slices.Contains(compiledEncoderList(), encoderName)
+}
+
+// AutodetectEncoder picks the best ffmpeg encoder for a logical codec
+// ("h264"/"h265") by inspecting `ffmpeg -encoders`. Use this when no
+// preloaded validation data is available — the result reflects only
+// what's compiled in, not whether the encoder actually accepts a given
+// input format.
+//
+// Order:
+//  1. rkmpp — Rockchip ffmpeg builds typically exclude libx264, so on
+//     an rkmpp box this is the only thing that works.
+//  2. libx264/libx265 — safe everywhere it's compiled; no device
+//     prerequisites.
+//  3. vaapi — last resort. Requires `-vaapi_device` setup the daemon
+//     doesn't emit today; only useful when the user explicitly wires
+//     it. Better than nothing on a rkmpp-stripped host that also lacks
+//     libx264.
+func AutodetectEncoder(codec string) string {
+	switch codec {
+	case "h265", "hevc":
+		for _, c := range []string{"hevc_rkmpp", "libx265", "hevc_vaapi"} {
+			if IsEncoderCompiled(c) {
+				return c
+			}
+		}
+		return "libx265"
+	default:
+		for _, c := range []string{"h264_rkmpp", "libx264", "h264_vaapi"} {
+			if IsEncoderCompiled(c) {
+				return c
+			}
+		}
+		return "libx264"
+	}
 }
 
 // createTempDir creates a temporary directory for validation tests.

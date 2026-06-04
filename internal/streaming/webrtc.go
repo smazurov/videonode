@@ -1,15 +1,15 @@
 package streaming
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
 	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph264"
-	petname "github.com/dustinkirkland/golang-petname"
+	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph265"
 	"github.com/pion/rtp"
 	pion "github.com/pion/webrtc/v4"
 	"github.com/smazurov/videonode/internal/logging"
@@ -36,8 +36,13 @@ type webrtcPeer struct {
 	reader       *Reader
 	streamID     string
 	peerID       string
+	clientIP     string
 	tracks       map[*description.Media]*pion.TrackLocalStaticRTP
 	h264Encoders map[*description.Media]*rtph264.Encoder
+	h265Encoders map[*description.Media]*rtph265.Encoder
+	h265Params   map[*description.Media][][]byte
+	connectedAt  time.Time
+	bytesSent    atomic.Int64
 }
 
 // NewWebRTCManager creates a new WebRTC manager.
@@ -51,45 +56,43 @@ func NewWebRTCManager(streams StreamProvider, config WebRTCConfig, logger loggin
 	}
 }
 
-// generatePeerID generates a unique memorable peer ID.
+// generatePeerID returns a unique peer ID, retrying on the rare hex collision.
 func (m *WebRTCManager) generatePeerID() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for range 100 {
-		name := petname.Generate(2, "-")
-		if _, exists := m.peers[name]; !exists {
-			return name
+		id := generateClientID()
+		if _, exists := m.peers[id]; !exists {
+			return id
 		}
 	}
-	// Fallback
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		m.logger.Error("Failed to generate random bytes for peer ID", "error", err)
-	}
-	return petname.Generate(2, "-") + "-" + hex.EncodeToString(b)
+	return generateClientID()
 }
 
-// CreateConsumer creates a WebRTC consumer for a stream.
-func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
-	stream := m.streams.GetStream(streamID)
+// CreateConsumer creates a WebRTC consumer for a stream. It returns the
+// generated peer ID (used as the WHEP session ID) and the SDP answer. The
+// clientIP argument is the consumer's socket host, recorded for logging and the
+// consumers UI.
+func (m *WebRTCManager) CreateConsumer(streamID, offer, clientIP string) (peerID, sdp string, err error) {
+	stream := m.streams.EnsureStreamReady(streamID, 3*time.Second)
 	if stream == nil {
-		return "", ErrStreamNotFound
+		return "", "", ErrStreamNotFound
 	}
 
-	peerID := m.generatePeerID()
+	peerID = m.generatePeerID()
 
 	// Create WebRTC API with optimized settings
 	api, err := NewWebRTCAPI(streamID, peerID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	pc, err := api.NewPeerConnection(pion.Configuration{
 		ICEServers: m.config.ICEServers,
 	})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Set up peer state
@@ -97,8 +100,12 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 		pc:           pc,
 		streamID:     streamID,
 		peerID:       peerID,
+		clientIP:     clientIP,
 		tracks:       make(map[*description.Media]*pion.TrackLocalStaticRTP),
 		h264Encoders: make(map[*description.Media]*rtph264.Encoder),
+		h265Encoders: make(map[*description.Media]*rtph265.Encoder),
+		h265Params:   make(map[*description.Media][][]byte),
+		connectedAt:  time.Now(),
 	}
 
 	// Add tracks for each media in the stream
@@ -108,7 +115,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 		for _, forma := range medi.Formats {
 			track, trackErr := m.createTrack(forma, audioIdx)
 			if trackErr != nil {
-				m.logger.Warn("Failed to create track", "stream_id", streamID, "error", trackErr)
+				m.logger.Warn("Failed to create track", logging.KeyStreamID, streamID, logging.KeyError, trackErr)
 				continue
 			}
 			if track == nil {
@@ -120,7 +127,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 
 			sender, addErr := pc.AddTrack(track)
 			if addErr != nil {
-				m.logger.Warn("Failed to add track", "stream_id", streamID, "error", addErr)
+				m.logger.Warn("Failed to add track", logging.KeyStreamID, streamID, logging.KeyError, addErr)
 				continue
 			}
 
@@ -133,10 +140,27 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 					PayloadMaxSize: 1188, // 1200 - 12 (RTP header)
 				}
 				if err := encoder.Init(); err != nil {
-					m.logger.Warn("Failed to init H264 encoder", "stream_id", streamID, "error", err)
+					m.logger.Warn("Failed to init H264 encoder", logging.KeyStreamID, streamID, logging.KeyError, err)
 					continue
 				}
 				peer.h264Encoders[medi] = encoder
+			}
+
+			// Create H265 encoder for re-packetizing access units for WebRTC.
+			// Raw RTP passthrough produced oversized packets (loss) and never
+			// carried in-band VPS/SPS/PPS, so subscribers joining mid-stream
+			// could not decode; re-packetizing fixes both.
+			if h265, ok := forma.(*format.H265); ok {
+				encoder := &rtph265.Encoder{
+					PayloadType:    96,
+					PayloadMaxSize: 1188,
+				}
+				if err := encoder.Init(); err != nil {
+					m.logger.Warn("Failed to init H265 encoder", logging.KeyStreamID, streamID, logging.KeyError, err)
+					continue
+				}
+				peer.h265Encoders[medi] = encoder
+				peer.h265Params[medi] = h265ParamSets(h265)
 			}
 
 			// Start RTCP reader goroutine
@@ -157,14 +181,14 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 		SDP:  offer,
 	}); err != nil {
 		_ = pc.Close()
-		return "", err
+		return "", "", err
 	}
 
 	// Create answer
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
 		_ = pc.Close()
-		return "", err
+		return "", "", err
 	}
 
 	// Create channel to wait for ICE gathering
@@ -179,7 +203,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 	// Set local description
 	if err := pc.SetLocalDescription(answer); err != nil {
 		_ = pc.Close()
-		return "", err
+		return "", "", err
 	}
 
 	// Check if gathering already complete (race condition)
@@ -210,13 +234,40 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 					return err
 				}
 
-				// Convert PTS from nanoseconds to 90kHz clock
-				rtpTimestamp := uint32(pts * 90000 / 1e9)
+				// pts is already in the 90kHz RTP clock (PacketPTS returns
+				// clock-rate units, not nanoseconds).
+				rtpTimestamp := uint32(pts)
 
 				for _, pkt := range packets {
 					pkt.Timestamp = rtpTimestamp
 					size := pkt.MarshalSize()
 					IncrementPacketsSent(streamID, size)
+					peer.bytesSent.Add(int64(size))
+					_ = currentTrack.WriteRTP(pkt)
+				}
+				return nil
+			})
+		} else if encoder, has := peer.h265Encoders[currentMedia]; has {
+			params := peer.h265Params[currentMedia]
+			// Re-encode H265 access units to WebRTC RTP, prepending parameter
+			// sets to keyframes so mid-stream subscribers can decode.
+			peer.reader.OnUnit(currentMedia, func(pts, _ int64, au [][]byte) error {
+				if len(au) == 0 {
+					return nil
+				}
+
+				packets, err := encoder.Encode(prependH265ParamSets(au, params))
+				if err != nil {
+					return err
+				}
+
+				rtpTimestamp := uint32(pts)
+
+				for _, pkt := range packets {
+					pkt.Timestamp = rtpTimestamp
+					size := pkt.MarshalSize()
+					IncrementPacketsSent(streamID, size)
+					peer.bytesSent.Add(int64(size))
 					_ = currentTrack.WriteRTP(pkt)
 				}
 				return nil
@@ -226,6 +277,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 			peer.reader.OnRTP(currentMedia, func(pkt *rtp.Packet) {
 				size := pkt.MarshalSize()
 				IncrementPacketsSent(streamID, size)
+				peer.bytesSent.Add(int64(size))
 				_ = currentTrack.WriteRTP(pkt)
 			})
 		}
@@ -242,7 +294,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 	m.mu.Unlock()
 
 	SetActivePeers(streamID, streamPeerCount)
-	m.logger.Info("WebRTC client connected", "stream_id", streamID, "peer_id", peerID, "stream_peers", streamPeerCount)
+	m.logger.Info("WebRTC client connected", logging.KeyStreamID, streamID, logging.KeyPeerID, peerID, logging.KeyClientIP, clientIP, logging.KeyStreamPeers, streamPeerCount)
 
 	// Handle connection state changes
 	pc.OnConnectionStateChange(func(state pion.PeerConnectionState) {
@@ -255,7 +307,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer string) (string, error) {
 	})
 
 	// Return the local description with all ICE candidates
-	return pc.LocalDescription().SDP, nil
+	return peerID, pc.LocalDescription().SDP, nil
 }
 
 // createTrack creates a WebRTC track for the given format; audioIdx becomes
@@ -276,7 +328,7 @@ func (m *WebRTCManager) createTrack(forma format.Format, audioIdx int) (*pion.Tr
 			// Strip constraint flags (byte 2) to match browser capabilities
 			profileLevelID := fmt.Sprintf("%02x00%02x", profileIdc, levelIdc)
 			fmtp += ";profile-level-id=" + profileLevelID
-			m.logger.Info("H264 track created", "profile_idc", profileIdc, "level_idc", levelIdc, "fmtp", fmtp)
+			m.logger.Info("H264 track created", logging.KeyProfileIDC, profileIdc, logging.KeyLevelIDC, levelIdc, logging.KeyFMTP, fmtp)
 		} else {
 			// Fallback to baseline profile
 			fmtp += ";profile-level-id=42001f"
@@ -318,6 +370,45 @@ func (m *WebRTCManager) createTrack(forma format.Format, audioIdx int) (*pion.Tr
 	}
 }
 
+// h265ParamSets returns the VPS/SPS/PPS NAL units carried out-of-band in the
+// stream's SDP, in decode order, skipping any that are absent.
+func h265ParamSets(f *format.H265) [][]byte {
+	var params [][]byte
+	for _, p := range [][]byte{f.VPS, f.SPS, f.PPS} {
+		if len(p) > 0 {
+			params = append(params, p)
+		}
+	}
+	return params
+}
+
+// prependH265ParamSets prepends VPS/SPS/PPS to an access unit that contains an
+// IRAP (keyframe) slice but lacks in-band parameter sets, so a subscriber that
+// joins mid-stream can configure its decoder. Non-keyframe AUs pass through.
+func prependH265ParamSets(au, params [][]byte) [][]byte {
+	if len(params) == 0 {
+		return au
+	}
+
+	var hasIRAP, hasParams bool
+	for _, nalu := range au {
+		if len(nalu) == 0 {
+			continue
+		}
+		switch naluType := (nalu[0] >> 1) & 0x3f; {
+		case naluType >= 16 && naluType <= 23:
+			hasIRAP = true
+		case naluType >= 32 && naluType <= 34:
+			hasParams = true
+		}
+	}
+	if !hasIRAP || hasParams {
+		return au
+	}
+
+	return append(append(make([][]byte, 0, len(params)+len(au)), params...), au...)
+}
+
 // closePeer cleans up a peer connection.
 func (m *WebRTCManager) closePeer(peerID, streamID, reason string) {
 	m.mu.Lock()
@@ -348,7 +439,7 @@ func (m *WebRTCManager) closePeer(peerID, streamID, reason string) {
 
 	SetActivePeers(streamID, remainingPeers)
 	DeletePeerMetrics(streamID, peerID)
-	m.logger.Info("WebRTC client disconnected", "stream_id", streamID, "peer_id", peerID, "reason", reason, "stream_peers", remainingPeers)
+	m.logger.Info("WebRTC client disconnected", logging.KeyStreamID, streamID, logging.KeyPeerID, peerID, logging.KeyReason, reason, logging.KeyStreamPeers, remainingPeers)
 }
 
 // Stop closes all peer connections.
@@ -378,13 +469,63 @@ func (m *WebRTCManager) PeerCount() int {
 	return len(m.peers)
 }
 
+// StreamPeerCount returns the number of WebRTC peers attached to a
+// specific stream. Used by the per-stream consumer-count emitter so
+// the UI can show RTSP + WebRTC + SRT reader totals.
+func (m *WebRTCManager) StreamPeerCount(streamID string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.streamPeers[streamID])
+}
+
+// StreamPeerInfo returns per-peer details for a stream's WebRTC consumers.
+func (m *WebRTCManager) StreamPeerInfo(streamID string) []WebRTCClientInfo {
+	m.mu.RLock()
+	peerIDs := m.streamPeers[streamID]
+	if len(peerIDs) == 0 {
+		m.mu.RUnlock()
+		return nil
+	}
+	peers := make([]*webrtcPeer, 0, len(peerIDs))
+	for pid := range peerIDs {
+		if p, ok := m.peers[pid]; ok {
+			peers = append(peers, p)
+		}
+	}
+	m.mu.RUnlock()
+
+	out := make([]WebRTCClientInfo, len(peers))
+	for i, p := range peers {
+		out[i] = WebRTCClientInfo{
+			ID:             p.peerID,
+			ClientIP:       p.clientIP,
+			ConnectedSince: p.connectedAt.UTC().Format(time.RFC3339),
+			BytesSent:      p.bytesSent.Load(),
+			JitterMs:       PeerJitterMs(p.peerID),
+		}
+	}
+	return out
+}
+
+// DisconnectPeer disconnects a single WebRTC peer by ID. Returns false if not found.
+func (m *WebRTCManager) DisconnectPeer(peerID string) bool {
+	m.mu.RLock()
+	peer, ok := m.peers[peerID]
+	m.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	m.closePeer(peerID, peer.streamID, "api_disconnect")
+	return true
+}
+
 // CloseStreamConsumers closes all WebRTC peers for a given stream.
 func (m *WebRTCManager) CloseStreamConsumers(streamID string) {
 	m.mu.Lock()
 	peerIDs, exists := m.streamPeers[streamID]
 	if !exists || len(peerIDs) == 0 {
 		m.mu.Unlock()
-		m.logger.Debug("No WebRTC consumers to close", "stream_id", streamID)
+		m.logger.Debug("No WebRTC consumers to close", logging.KeyStreamID, streamID)
 		return
 	}
 
@@ -394,7 +535,7 @@ func (m *WebRTCManager) CloseStreamConsumers(streamID string) {
 	}
 	m.mu.Unlock()
 
-	m.logger.Info("Closing WebRTC consumers for stream restart", "stream_id", streamID, "peer_count", len(toClose))
+	m.logger.Info("Closing WebRTC consumers for stream restart", logging.KeyStreamID, streamID, logging.KeyStreamPeers, len(toClose))
 
 	for _, peerID := range toClose {
 		m.closePeer(peerID, streamID, "stream_restart")

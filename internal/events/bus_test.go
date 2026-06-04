@@ -5,51 +5,37 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/smazurov/videonode/internal/api/models"
 )
 
 func TestBus_PublishSubscribe(t *testing.T) {
 	bus := New()
 	received := make(chan DeviceDiscoveryEvent, 1)
 
-	unsub := bus.Subscribe(func(e DeviceDiscoveryEvent) {
+	unsub := Subscribe(bus, func(e DeviceDiscoveryEvent) {
 		received <- e
 	})
 	defer unsub()
 
-	event := DeviceDiscoveryEvent{
-		Action:    "added",
-		Timestamp: "2025-01-27T10:30:00Z",
-	}
-	bus.Publish(event)
+	ev := DeviceDiscoveryEvent{Action: "added", Timestamp: "2025-01-27T10:30:00Z"}
+	Publish(bus, ev)
 
 	got := <-received
-	if got.Action != event.Action {
-		t.Errorf("Expected action %s, got %s", event.Action, got.Action)
+	if got.Action != ev.Action {
+		t.Errorf("Expected action %s, got %s", ev.Action, got.Action)
 	}
 }
 
 func TestBus_MultipleSubscribers(_ *testing.T) {
 	bus := New()
-	received1 := make(chan StreamCreatedEvent, 1)
-	received2 := make(chan StreamCreatedEvent, 1)
+	received1 := make(chan DeviceDiscoveryEvent, 1)
+	received2 := make(chan DeviceDiscoveryEvent, 1)
 
-	unsub1 := bus.Subscribe(func(e StreamCreatedEvent) {
-		received1 <- e
-	})
+	unsub1 := Subscribe(bus, func(e DeviceDiscoveryEvent) { received1 <- e })
 	defer unsub1()
-
-	unsub2 := bus.Subscribe(func(e StreamCreatedEvent) {
-		received2 <- e
-	})
+	unsub2 := Subscribe(bus, func(e DeviceDiscoveryEvent) { received2 <- e })
 	defer unsub2()
 
-	event := StreamCreatedEvent{
-		Stream: models.StreamData{StreamID: "test"},
-		Action: "created",
-	}
-	bus.Publish(event)
+	Publish(bus, DeviceDiscoveryEvent{Action: "added"})
 
 	<-received1
 	<-received2
@@ -57,18 +43,16 @@ func TestBus_MultipleSubscribers(_ *testing.T) {
 
 func TestBus_Unsubscribe(t *testing.T) {
 	bus := New()
-	received := make(chan StreamDeletedEvent, 1)
+	received := make(chan PipelineStateChangedEvent, 1)
 
-	unsub := bus.Subscribe(func(e StreamDeletedEvent) {
-		received <- e
-	})
+	unsub := Subscribe(bus, func(e PipelineStateChangedEvent) { received <- e })
 
-	bus.Publish(StreamDeletedEvent{StreamID: "test-1"})
+	Publish(bus, PipelineStateChangedEvent{Enabled: true})
 	<-received
 
 	unsub()
 
-	bus.Publish(StreamDeletedEvent{StreamID: "test-2"})
+	Publish(bus, PipelineStateChangedEvent{Enabled: false})
 	select {
 	case <-received:
 		t.Fatal("Should not have received event after unsubscribe")
@@ -81,38 +65,29 @@ func TestBus_TypeSafety(t *testing.T) {
 	bus := New()
 
 	discoveryReceived := make(chan bool, 1)
-	streamReceived := make(chan bool, 1)
+	pipelineReceived := make(chan bool, 1)
 
-	unsub1 := bus.Subscribe(func(_ DeviceDiscoveryEvent) {
-		discoveryReceived <- true
-	})
+	unsub1 := Subscribe(bus, func(_ DeviceDiscoveryEvent) { discoveryReceived <- true })
 	defer unsub1()
-
-	unsub2 := bus.Subscribe(func(_ StreamCreatedEvent) {
-		streamReceived <- true
-	})
+	unsub2 := Subscribe(bus, func(_ PipelineStateChangedEvent) { pipelineReceived <- true })
 	defer unsub2()
 
-	// Publish DeviceDiscoveryEvent
-	bus.Publish(DeviceDiscoveryEvent{Action: "added"})
+	// Publish DeviceDiscoveryEvent — only the discovery subscriber fires.
+	Publish(bus, DeviceDiscoveryEvent{Action: "added"})
 	<-discoveryReceived
-
 	select {
-	case <-streamReceived:
-		t.Fatal("Stream subscriber should NOT have received DeviceDiscoveryEvent")
+	case <-pipelineReceived:
+		t.Fatal("Pipeline subscriber should NOT have received DeviceDiscoveryEvent")
 	case <-time.After(10 * time.Millisecond):
-		// Expected
 	}
 
-	// Publish StreamCreatedEvent
-	bus.Publish(StreamCreatedEvent{Action: "created"})
-	<-streamReceived
-
+	// Publish PipelineStateChangedEvent — only the pipeline subscriber fires.
+	Publish(bus, PipelineStateChangedEvent{Enabled: true})
+	<-pipelineReceived
 	select {
 	case <-discoveryReceived:
-		t.Fatal("Discovery subscriber should NOT have received StreamCreatedEvent")
+		t.Fatal("Discovery subscriber should NOT have received PipelineStateChangedEvent")
 	case <-time.After(10 * time.Millisecond):
-		// Expected
 	}
 }
 
@@ -125,7 +100,7 @@ func TestBus_ThreadSafety(_ *testing.T) {
 
 	receivedCh := make(chan bool, expected)
 
-	unsub := bus.Subscribe(func(_ DeviceDiscoveryEvent) {
+	unsub := Subscribe(bus, func(_ DeviceDiscoveryEvent) {
 		receivedCh <- true
 	})
 	defer unsub()
@@ -133,7 +108,7 @@ func TestBus_ThreadSafety(_ *testing.T) {
 	for range numGoroutines {
 		wg.Go(func() {
 			for range eventsPerGoroutine {
-				bus.Publish(DeviceDiscoveryEvent{
+				Publish(bus, DeviceDiscoveryEvent{
 					Action:    "added",
 					Timestamp: time.Now().Format(time.RFC3339),
 				})
@@ -143,52 +118,58 @@ func TestBus_ThreadSafety(_ *testing.T) {
 
 	wg.Wait()
 
-	// Read all expected events
 	for range expected {
 		<-receivedCh
 	}
 }
 
-func TestBus_AllEventTypes(t *testing.T) {
+// TestBus_RoundTripSurvivingTypes exercises Publish/Subscribe for each event
+// type that still flows on the bus after the SSE clean sweep.
+func TestBus_RoundTripSurvivingTypes(t *testing.T) {
 	bus := New()
 
-	tests := []struct {
-		name  string
-		event Event
-	}{
-		{"DeviceDiscovery", DeviceDiscoveryEvent{Action: "added"}},
-		{"StreamCreated", StreamCreatedEvent{Action: "created"}},
-		{"StreamUpdated", StreamUpdatedEvent{Action: "updated"}},
-		{"StreamDeleted", StreamDeletedEvent{StreamID: "test"}},
-		{"StreamStateChanged", StreamStateChangedEvent{StreamID: "test", Enabled: true}},
-		{"StreamMetrics", StreamMetricsEvent{EventType: "stream_metrics"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(_ *testing.T) {
-			received := make(chan Event, 1)
-
-			var unsub func()
-			switch tt.event.(type) {
-			case DeviceDiscoveryEvent:
-				unsub = bus.Subscribe(func(e DeviceDiscoveryEvent) { received <- e })
-			case StreamCreatedEvent:
-				unsub = bus.Subscribe(func(e StreamCreatedEvent) { received <- e })
-			case StreamUpdatedEvent:
-				unsub = bus.Subscribe(func(e StreamUpdatedEvent) { received <- e })
-			case StreamDeletedEvent:
-				unsub = bus.Subscribe(func(e StreamDeletedEvent) { received <- e })
-			case StreamStateChangedEvent:
-				unsub = bus.Subscribe(func(e StreamStateChangedEvent) { received <- e })
-			case StreamMetricsEvent:
-				unsub = bus.Subscribe(func(e StreamMetricsEvent) { received <- e })
-			}
-			defer unsub()
-
-			bus.Publish(tt.event)
-			<-received
-		})
-	}
+	t.Run("DeviceDiscovery", func(_ *testing.T) {
+		ch := make(chan DeviceDiscoveryEvent, 1)
+		unsub := Subscribe(bus, func(e DeviceDiscoveryEvent) { ch <- e })
+		defer unsub()
+		Publish(bus, DeviceDiscoveryEvent{Action: "added"})
+		<-ch
+	})
+	t.Run("PipelineStateChanged", func(_ *testing.T) {
+		ch := make(chan PipelineStateChangedEvent, 1)
+		unsub := Subscribe(bus, func(e PipelineStateChangedEvent) { ch <- e })
+		defer unsub()
+		Publish(bus, PipelineStateChangedEvent{Enabled: true})
+		<-ch
+	})
+	t.Run("Entity", func(_ *testing.T) {
+		ch := make(chan EntityEvent, 1)
+		unsub := Subscribe(bus, func(e EntityEvent) { ch <- e })
+		defer unsub()
+		Publish(bus, EntityEvent{Kind: "source." + ActionCreated, ID: "hdmi0"})
+		<-ch
+	})
+	t.Run("StreamCrashed", func(_ *testing.T) {
+		ch := make(chan StreamCrashedEvent, 1)
+		unsub := Subscribe(bus, func(e StreamCrashedEvent) { ch <- e })
+		defer unsub()
+		Publish(bus, StreamCrashedEvent{StreamID: "s1", DeviceID: "hdmi0"})
+		<-ch
+	})
+	t.Run("LogEntry", func(_ *testing.T) {
+		ch := make(chan LogEntryEvent, 1)
+		unsub := Subscribe(bus, func(e LogEntryEvent) { ch <- e })
+		defer unsub()
+		Publish(bus, LogEntryEvent{Level: "info", Message: "hi"})
+		<-ch
+	})
+	t.Run("Heartbeat", func(_ *testing.T) {
+		ch := make(chan HeartbeatEvent, 1)
+		unsub := Subscribe(bus, func(e HeartbeatEvent) { ch <- e })
+		defer unsub()
+		Publish(bus, HeartbeatEvent{Timestamp: "2025-01-27T10:30:00Z"})
+		<-ch
+	})
 }
 
 func TestEventJSONSerialization(t *testing.T) {
@@ -196,29 +177,9 @@ func TestEventJSONSerialization(t *testing.T) {
 		name  string
 		event any
 	}{
-		{
-			"DeviceDiscoveryEvent",
-			DeviceDiscoveryEvent{
-				Action:    "added",
-				Timestamp: "2025-01-27T10:30:00Z",
-			},
-		},
-		{
-			"StreamCreatedEvent",
-			StreamCreatedEvent{
-				Stream:    models.StreamData{StreamID: "test-stream"},
-				Action:    "created",
-				Timestamp: "2025-01-27T10:30:00Z",
-			},
-		},
-		{
-			"StreamStateChangedEvent",
-			StreamStateChangedEvent{
-				StreamID:  "test-stream",
-				Enabled:   true,
-				Timestamp: "2025-01-27T10:30:00Z",
-			},
-		},
+		{"DeviceDiscoveryEvent", DeviceDiscoveryEvent{Action: "added", Timestamp: "2025-01-27T10:30:00Z"}},
+		{"PipelineStateChangedEvent", PipelineStateChangedEvent{Enabled: true, Timestamp: "2025-01-27T10:30:00Z"}},
+		{"EntityEvent", EntityEvent{Kind: "source." + ActionUpdated, ID: "hdmi0", Timestamp: "2025-01-27T10:30:00Z"}},
 	}
 
 	for _, tt := range tests {
@@ -240,22 +201,6 @@ func TestEventJSONSerialization(t *testing.T) {
 	}
 }
 
-func TestStreamStateChangedEvent_Interface(t *testing.T) {
-	event := StreamStateChangedEvent{
-		StreamID:  "test-123",
-		Enabled:   true,
-		Timestamp: "2025-01-27T10:30:00Z",
-	}
-
-	if event.GetStreamID() != "test-123" {
-		t.Errorf("Expected stream_id test-123, got %s", event.GetStreamID())
-	}
-
-	if !event.IsEnabled() {
-		t.Error("Expected enabled to be true")
-	}
-}
-
 func TestSubscribeToChannel(t *testing.T) {
 	bus := New()
 	ch := make(chan any, 10)
@@ -263,18 +208,16 @@ func TestSubscribeToChannel(t *testing.T) {
 	unsub := SubscribeToChannel[DeviceDiscoveryEvent](bus, ch)
 	defer unsub()
 
-	event := DeviceDiscoveryEvent{
-		Action: "added",
-	}
-	bus.Publish(event)
+	ev := DeviceDiscoveryEvent{Action: "added"}
+	Publish(bus, ev)
 
 	received := <-ch
 	discoveryEvent, ok := received.(DeviceDiscoveryEvent)
 	if !ok {
 		t.Fatalf("Expected DeviceDiscoveryEvent, got %T", received)
 	}
-	if discoveryEvent.Action != event.Action {
-		t.Errorf("Expected action %s, got %s", event.Action, discoveryEvent.Action)
+	if discoveryEvent.Action != ev.Action {
+		t.Errorf("Expected action %s, got %s", ev.Action, discoveryEvent.Action)
 	}
 }
 
@@ -282,12 +225,12 @@ func TestSubscribeToChannel_NonBlocking(_ *testing.T) {
 	bus := New()
 	ch := make(chan any) // No buffer
 
-	unsub := SubscribeToChannel[StreamCreatedEvent](bus, ch)
+	unsub := SubscribeToChannel[PipelineStateChangedEvent](bus, ch)
 	defer unsub()
 
 	done := make(chan bool, 1)
 	go func() {
-		bus.Publish(StreamCreatedEvent{Action: "created"})
+		Publish(bus, PipelineStateChangedEvent{Enabled: true})
 		done <- true
 	}()
 

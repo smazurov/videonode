@@ -1,14 +1,13 @@
 package streaming
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"log/slog"
 	"sync"
 	"time"
 
 	srt "github.com/datarhei/gosrt"
+	"github.com/smazurov/videonode/internal/logging"
 )
 
 // ErrNoSupportedCodecs is returned when no supported codecs are found in the stream.
@@ -56,11 +55,11 @@ func (s *SRTServer) Start() error {
 		HandleSubscribe: s.handleSubscribe,
 	}
 
-	s.logger.Info("Starting SRT server", "addr", s.config.Addr, "latency_ms", s.config.Latency)
+	s.logger.Info("Starting SRT server", logging.KeyAddr, s.config.Addr, logging.KeyLatencyMS, s.config.Latency)
 
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, srt.ErrServerClosed) {
-			s.logger.Error("SRT server error", "error", err)
+			s.logger.Error("SRT server error", logging.KeyError, err)
 		}
 	}()
 
@@ -72,15 +71,15 @@ func (s *SRTServer) handleConnect(req srt.ConnRequest) srt.ConnType {
 	streamID := req.StreamId()
 
 	s.logger.Debug("SRT connection request",
-		"stream_id", streamID,
-		"remote", req.RemoteAddr(),
-		"version", req.Version())
+		logging.KeyStreamID, streamID,
+		logging.KeyRemote, req.RemoteAddr(),
+		logging.KeyVersion, req.Version())
 
-	// Check if the stream exists
-	if !s.streams.HasStream(streamID) {
+	// Ensure the stream exists, or kick the lazy-start hook and wait.
+	if s.streams.EnsureStreamReady(streamID, 3*time.Second) == nil {
 		s.logger.Warn("SRT connection rejected: stream not found",
-			"stream_id", streamID,
-			"remote", req.RemoteAddr())
+			logging.KeyStreamID, streamID,
+			logging.KeyRemote, req.RemoteAddr())
 		req.Reject(srt.REJ_PEER)
 		return srt.REJECT
 	}
@@ -91,30 +90,32 @@ func (s *SRTServer) handleConnect(req srt.ConnRequest) srt.ConnType {
 // handleSubscribe is called when a subscriber connection is accepted.
 func (s *SRTServer) handleSubscribe(conn srt.Conn) {
 	streamID := conn.StreamId()
-	consumerID := generateConsumerID()
+	consumerID := generateClientID()
+	clientIP := hostOnly(conn.RemoteAddr().String())
 
 	s.logger.Info("SRT subscriber connected",
-		"stream_id", streamID,
-		"consumer_id", consumerID,
-		"remote", conn.RemoteAddr())
+		logging.KeyStreamID, streamID,
+		logging.KeyConsumerID, consumerID,
+		logging.KeyClientIP, clientIP,
+		logging.KeyRemote, conn.RemoteAddr())
 
-	// Get the stream
-	stream := s.streams.GetStream(streamID)
+	// Get the stream (already started by handleConnect's EnsureStreamReady).
+	stream := s.streams.EnsureStreamReady(streamID, 3*time.Second)
 	if stream == nil {
 		s.logger.Warn("SRT subscriber rejected: stream disappeared",
-			"stream_id", streamID,
-			"consumer_id", consumerID)
+			logging.KeyStreamID, streamID,
+			logging.KeyConsumerID, consumerID)
 		_ = conn.Close()
 		return
 	}
 
 	// Create consumer
-	consumer, err := NewSRTConsumer(stream, consumerID, conn, s.logger)
+	consumer, err := NewSRTConsumer(stream, consumerID, clientIP, conn, s.logger)
 	if err != nil {
 		s.logger.Error("Failed to create SRT consumer",
-			"stream_id", streamID,
-			"consumer_id", consumerID,
-			"error", err)
+			logging.KeyStreamID, streamID,
+			logging.KeyConsumerID, consumerID,
+			logging.KeyError, err)
 		_ = conn.Close()
 		return
 	}
@@ -132,9 +133,9 @@ func (s *SRTServer) handleSubscribe(conn srt.Conn) {
 	SetSRTActiveConsumers(streamID, consumerCount)
 
 	s.logger.Debug("SRT consumer registered",
-		"stream_id", streamID,
-		"consumer_id", consumerID,
-		"total_consumers", consumerCount)
+		logging.KeyStreamID, streamID,
+		logging.KeyConsumerID, consumerID,
+		logging.KeyTotalConsumers, consumerCount)
 
 	// Block until connection closes
 	// The SRT connection will be read from to detect close
@@ -151,9 +152,9 @@ func (s *SRTServer) handleSubscribe(conn srt.Conn) {
 	s.removeConsumer(streamID, consumerID)
 
 	s.logger.Info("SRT subscriber disconnected",
-		"stream_id", streamID,
-		"consumer_id", consumerID,
-		"bytes_sent", consumer.BytesSent())
+		logging.KeyStreamID, streamID,
+		logging.KeyConsumerID, consumerID,
+		logging.KeyBytesSent, consumer.BytesSent())
 }
 
 // removeConsumer removes a consumer from the tracking map.
@@ -186,7 +187,7 @@ func (s *SRTServer) CloseStreamConsumers(streamID string) {
 
 	for _, consumer := range toClose {
 		s.logger.Debug("Closing SRT consumer due to producer replacement",
-			"stream_id", streamID)
+			logging.KeyStreamID, streamID)
 		_ = consumer.Stop()
 	}
 }
@@ -234,11 +235,41 @@ func (s *SRTServer) StreamConsumerCount(streamID string) int {
 	return 0
 }
 
-// generateConsumerID creates a unique consumer ID.
-func generateConsumerID() string {
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		slog.Error("Failed to generate random bytes for consumer ID", "error", err)
+// StreamConsumerInfo returns per-consumer details for a stream's SRT consumers.
+func (s *SRTServer) StreamConsumerInfo(streamID string) []SRTClientInfo {
+	s.mu.RLock()
+	consumers := s.consumers[streamID]
+	if len(consumers) == 0 {
+		s.mu.RUnlock()
+		return nil
 	}
-	return hex.EncodeToString(b)
+	refs := make([]*SRTConsumer, 0, len(consumers))
+	for _, c := range consumers {
+		refs = append(refs, c)
+	}
+	s.mu.RUnlock()
+
+	out := make([]SRTClientInfo, len(refs))
+	for i, c := range refs {
+		out[i] = c.Info()
+	}
+	return out
+}
+
+// DisconnectConsumer disconnects a single SRT consumer by ID. Returns false if not found.
+func (s *SRTServer) DisconnectConsumer(consumerID string) bool {
+	s.mu.RLock()
+	var found *SRTConsumer
+	for _, consumers := range s.consumers {
+		if c, ok := consumers[consumerID]; ok {
+			found = c
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if found == nil {
+		return false
+	}
+	_ = found.Stop()
+	return true
 }

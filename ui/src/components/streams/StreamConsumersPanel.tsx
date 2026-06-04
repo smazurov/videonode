@@ -1,0 +1,281 @@
+import { useCallback, useMemo, useState } from 'react';
+import { useProcesses } from '../../hooks/useProcesses';
+import { useStreamStore } from '../../hooks/useStreamStore';
+import { SectionHeader } from '../primitives/SectionHeader';
+import { Badge } from '../Badge';
+import { cn } from '../../utils';
+import { apiStreams } from '../../lib/api';
+import { formatUptime } from '../../lib/formatUptime';
+import type { components } from '../../lib/api.generated';
+
+interface StreamConsumersPanelProps {
+  readonly streamId: string;
+  readonly className?: string;
+}
+
+type Protocol = 'webrtc' | 'srt' | 'rtsp';
+
+const PROTO_LABEL: Record<Protocol, string> = {
+  webrtc: 'WebRTC peers',
+  srt: 'SRT clients',
+  rtsp: 'RTSP readers',
+};
+
+const PROTO_BADGE: Record<Protocol, 'webrtc' | 'srt' | 'rtsp'> = {
+  webrtc: 'webrtc',
+  srt: 'srt',
+  rtsp: 'rtsp',
+};
+
+interface ConsumerRow {
+  readonly id: string;
+  readonly clientIp?: string | undefined;
+  readonly connectedSince?: string | undefined;
+  readonly bytesSent?: number | undefined;
+  readonly bitrate?: string | undefined;
+  readonly qualityLabel?: string | undefined;
+}
+
+type ConsumerCounts = components['schemas']['StreamConsumersPayload'];
+
+function uptimeFrom(startMicros: number | undefined): string {
+  return formatUptime(startMicros) ?? '—';
+}
+
+function uptimeFromRFC3339(rfc3339: string): string {
+  const startMs = new Date(rfc3339).getTime();
+  if (isNaN(startMs)) return '—';
+  return formatUptime(startMs * 1000) ?? '—';
+}
+
+function formatRate(bytesPerSec: number): string {
+  const bps = bytesPerSec * 8;
+  if (bps < 1000) return `${Math.round(bps)} bps`;
+  if (bps < 1_000_000) return `${(bps / 1000).toFixed(0)} Kbps`;
+  return `${(bps / 1_000_000).toFixed(1)} Mbps`;
+}
+
+function deriveConsumers(processes: ReturnType<typeof useProcesses>['processes'], streamId: string): {
+  readonly running: boolean;
+  readonly connectedSince?: string;
+} {
+  const encoder = processes.find((p) => p.kind === 'encoder' && p.stream_id === streamId);
+  if (!encoder) return { running: false };
+  if (encoder.state !== 'running') return { running: false };
+  return { running: true, connectedSince: uptimeFrom(encoder.started_at_us) };
+}
+
+type BytesSnapshot = Record<string, number>;
+
+const bitrateCache = new Map<string, { prevBytes: BytesSnapshot; rates: Record<string, number> }>();
+
+function computeBitrates(key: string, consumers: ConsumerCounts | undefined): Record<string, number> {
+  let entry = bitrateCache.get(key);
+  if (!entry) {
+    entry = { prevBytes: {}, rates: {} };
+    bitrateCache.set(key, entry);
+  }
+
+  const current: BytesSnapshot = {};
+  for (const c of consumers?.webrtc_clients ?? []) current[c.id] = c.bytes_sent;
+  for (const c of consumers?.srt_clients ?? []) current[c.id] = c.bytes_sent;
+
+  const next: Record<string, number> = {};
+  for (const [id, bytes] of Object.entries(current)) {
+    const prev = entry.prevBytes[id];
+    if (prev != null && bytes >= prev) {
+      next[id] = bytes - prev;
+    } else if (entry.rates[id] != null) {
+      next[id] = entry.rates[id];
+    }
+  }
+
+  entry.prevBytes = current;
+  entry.rates = next;
+  return next;
+}
+
+export function StreamConsumersPanel({ streamId, className }: StreamConsumersPanelProps) {
+  const [activeTab, setActiveTab] = useState<Protocol>('webrtc');
+  const { processes } = useProcesses({ enabled: true });
+  const stream = useStreamStore((state) => state.streamsById[streamId]);
+  const consumers = useStreamStore((state) => state.consumersById[streamId]);
+
+  const encoderState = useMemo(() => deriveConsumers(processes, streamId), [processes, streamId]);
+  const bitrates = useMemo(() => computeBitrates(streamId, consumers), [streamId, consumers]);
+
+  const rowsByProto: Record<Protocol, ConsumerRow[]> = useMemo(() => {
+    const result: Record<Protocol, ConsumerRow[]> = { webrtc: [], srt: [], rtsp: [] };
+    if (!stream?.enabled || !encoderState.running) return result;
+    if (!consumers) return result;
+
+    const since = encoderState.connectedSince ?? '—';
+
+    if (consumers.webrtc_clients?.length) {
+      result.webrtc = consumers.webrtc_clients.map((c) => ({
+        id: c.id,
+        clientIp: c.client_ip,
+        connectedSince: c.connected_since,
+        bitrate: c.id in bitrates ? formatRate(bitrates[c.id] ?? 0) : undefined,
+        qualityLabel: c.jitter_ms > 0 ? `${c.jitter_ms.toFixed(1)} ms` : undefined,
+      }));
+    } else {
+      for (let i = 0; i < (consumers.webrtc ?? 0); i++) {
+        result.webrtc.push({ id: `${streamId}-webrtc-${i}`, connectedSince: since });
+      }
+    }
+
+    if (consumers.srt_clients?.length) {
+      result.srt = consumers.srt_clients.map((c) => ({
+        id: c.id,
+        clientIp: c.client_ip,
+        connectedSince: c.connected_since,
+        bitrate: c.id in bitrates ? formatRate(bitrates[c.id] ?? 0) : undefined,
+        qualityLabel: c.rtt_ms > 0 ? `${c.rtt_ms.toFixed(1)} ms` : undefined,
+      }));
+    } else {
+      for (let i = 0; i < (consumers.srt ?? 0); i++) {
+        result.srt.push({ id: `${streamId}-srt-${i}`, connectedSince: since });
+      }
+    }
+
+    if (consumers.rtsp_clients?.length) {
+      result.rtsp = consumers.rtsp_clients.map((c) => ({
+        id: c.id,
+        clientIp: c.client_ip,
+        connectedSince: c.connected_since,
+      }));
+    } else {
+      for (let i = 0; i < (consumers.rtsp ?? 0); i++) {
+        result.rtsp.push({ id: `${streamId}-rtsp-${i}`, connectedSince: since });
+      }
+    }
+
+    return result;
+  }, [stream, encoderState, streamId, consumers, bitrates]);
+
+  const tabs: Protocol[] = ['webrtc', 'srt', 'rtsp'];
+  const qualityHeaders: Partial<Record<Protocol, string>> = { webrtc: 'Jitter', srt: 'RTT' };
+  const qualityHeader = qualityHeaders[activeTab];
+
+  return (
+    <section className={cn('rounded-lg border border-border bg-surface-raised p-4', className)}>
+      <SectionHeader
+        title="Consumers"
+        description="Currently attached playback clients, grouped by protocol"
+      />
+
+      <div className="mt-3 flex gap-1 border-b border-border">
+        {tabs.map((proto) => {
+          const count = rowsByProto[proto].length;
+          const active = activeTab === proto;
+          return (
+            <button
+              key={proto}
+              type="button"
+              onClick={() => setActiveTab(proto)}
+              className={cn(
+                'inline-flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors',
+                active
+                  ? 'border-accent text-fg'
+                  : 'border-transparent text-fg-muted hover:text-fg',
+              )}
+            >
+              <Badge tone={PROTO_BADGE[proto]} size="xs">{proto.toUpperCase()}</Badge>
+              <span>{PROTO_LABEL[proto]}</span>
+              <span className="font-mono text-fg-muted">({count})</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-3">
+        <ConsumersTable
+          rows={rowsByProto[activeTab]}
+          qualityHeader={qualityHeader}
+          streamId={streamId}
+          protocol={activeTab}
+        />
+      </div>
+    </section>
+  );
+}
+
+function disconnectConsumer(streamId: string, protocol: 'webrtc' | 'srt', clientId: string) {
+  apiStreams
+    .DELETE('/api/streams/{stream_id}/{protocol}/consumers/{client_id}', {
+      params: { path: { stream_id: streamId, protocol, client_id: clientId } },
+    })
+    .catch((error: unknown) => {
+      console.error(`Failed to disconnect ${protocol} consumer ${clientId}:`, error);
+    });
+}
+
+function ConsumersTable({ rows, qualityHeader, streamId, protocol }: {
+  readonly rows: ReadonlyArray<ConsumerRow>;
+  readonly qualityHeader?: string | undefined;
+  readonly streamId: string;
+  readonly protocol: Protocol;
+}) {
+  const canDisconnect = protocol === 'webrtc' || protocol === 'srt';
+
+  const onDisconnect = useCallback((clientId: string) => {
+    if (protocol === 'rtsp') return;
+    disconnectConsumer(streamId, protocol, clientId);
+  }, [streamId, protocol]);
+
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-xs text-fg-muted">
+        No active clients on this protocol.
+      </div>
+    );
+  }
+
+  return (
+    <table className="w-full table-fixed text-sm">
+      <thead className="text-left text-xs uppercase tracking-wide text-fg-muted">
+        <tr>
+          <th scope="col" className="w-[24%] px-2 py-1.5 font-medium">Client</th>
+          <th scope="col" className="w-[22%] px-2 py-1.5 font-medium">Client IP</th>
+          <th scope="col" className="w-[13%] px-2 py-1.5 font-medium">Connected</th>
+          <th scope="col" className="w-[13%] px-2 py-1.5 font-medium">Rate</th>
+          {qualityHeader && <th scope="col" className="w-[12%] px-2 py-1.5 font-medium">{qualityHeader}</th>}
+          {canDisconnect && <th scope="col" className="w-[16%] px-2 py-1.5 font-medium" />}
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+        {rows.map((row) => (
+          <tr key={row.id}>
+            <td className="w-[24%] truncate px-2 py-1.5 font-mono text-xs text-fg">{row.id}</td>
+            <td className="w-[22%] truncate px-2 py-1.5 font-mono text-xs text-fg-muted">
+              {row.clientIp ?? '—'}
+            </td>
+            <td className="w-[13%] px-2 py-1.5 font-mono text-xs text-fg-muted">
+              {row.connectedSince ? uptimeFromRFC3339(row.connectedSince) : '—'}
+            </td>
+            <td className="w-[13%] px-2 py-1.5 font-mono text-xs text-fg-muted">
+              {row.bitrate ?? '—'}
+            </td>
+            {qualityHeader && (
+              <td className="w-[12%] px-2 py-1.5 font-mono text-xs text-fg-muted">
+                {row.qualityLabel ?? '—'}
+              </td>
+            )}
+            {canDisconnect && (
+              <td className="w-[16%] px-2 py-1.5 text-right">
+                <button
+                  type="button"
+                  className="text-xs text-fg-muted hover:text-danger transition-colors"
+                  onClick={() => onDisconnect(row.id)}
+                >
+                  Disconnect
+                </button>
+              </td>
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}

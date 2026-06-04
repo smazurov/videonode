@@ -2,32 +2,35 @@ package exporters
 
 import (
 	"context"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/metrics"
+	"github.com/smazurov/videonode/internal/streaming"
 )
 
-// EventPublisher interface for publishing events.
-type EventPublisher interface {
-	Publish(ev events.Event)
+// EntityPublisher emits a per-entity event envelope. Backed by
+// *events.Registry so the SSE exporter publishes per-stream metrics on the
+// uniform entity envelope the UI stores consume (action=metrics).
+type EntityPublisher interface {
+	Publish(entityType, action, id string, payload any)
 }
 
-// SSEExporter exports FFmpeg stream metrics via Server-Sent Events.
+// SSEExporter publishes per-stream FFmpeg metrics on the entity envelope.
 type SSEExporter struct {
-	eventBus EventPublisher
+	registry EntityPublisher
 	interval time.Duration
 	ctx      context.Context
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 }
 
-// NewSSEExporter creates a new SSE exporter.
-func NewSSEExporter(eventBus EventPublisher) *SSEExporter {
+// NewSSEExporter creates a new SSE metrics exporter bound to the entity
+// registry it publishes through.
+func NewSSEExporter(registry EntityPublisher) *SSEExporter {
 	return &SSEExporter{
-		eventBus: eventBus,
+		registry: registry,
 		interval: 1 * time.Second,
 	}
 }
@@ -67,37 +70,40 @@ func (s *SSEExporter) publishMetrics() {
 	if err != nil {
 		return
 	}
-	for streamID, m := range allMetrics {
-		s.eventBus.Publish(events.StreamMetricsEvent{
-			EventType:       "stream_metrics",
-			StreamID:        streamID,
-			FPS:             strconv.FormatFloat(m.FPS, 'f', 2, 64),
-			DroppedFrames:   strconv.FormatFloat(m.DroppedFrames, 'f', 0, 64),
-			DuplicateFrames: strconv.FormatFloat(m.DuplicateFrames, 'f', 0, 64),
-		})
-	}
-}
 
-// GetEventTypes returns event types for SSE endpoint registration.
-func GetEventTypes() map[string]any {
-	return map[string]any{
-		"stream-metrics": events.StreamMetricsEvent{},
-	}
-}
+	egress, _ := metrics.GetStreamEgressMetrics()
 
-// GetEventTypesForEndpoint returns event types for a specific SSE endpoint.
-func GetEventTypesForEndpoint(endpoint string) map[string]any {
-	if endpoint == "events" {
-		return map[string]any{
-			"stream-metrics": events.StreamMetricsEvent{},
+	// Collect all stream IDs from both sources.
+	streamIDs := make(map[string]struct{})
+	for id := range allMetrics {
+		streamIDs[id] = struct{}{}
+	}
+	for id := range egress {
+		streamIDs[id] = struct{}{}
+	}
+
+	for streamID := range streamIDs {
+		ffm := allMetrics[streamID]
+		var fps, dropped, dup float64
+		if ffm != nil {
+			fps = ffm.FPS
+			dropped = ffm.DroppedFrames
+			dup = ffm.DuplicateFrames
 		}
-	}
-	return map[string]any{}
-}
 
-// GetEventRoutes returns the routing configuration for events.
-func GetEventRoutes() map[string]string {
-	return map[string]string{
-		"stream-metrics": "events",
+		eg := egress[streamID]
+		var bytesOut, packetsOut float64
+		if eg != nil {
+			bytesOut = eg.BytesOut
+			packetsOut = eg.PacketsOut
+		}
+
+		s.registry.Publish("stream", events.ActionMetrics, streamID, streaming.StreamMetricsPayload{
+			FPS:             fps,
+			DroppedFrames:   dropped,
+			DuplicateFrames: dup,
+			BytesOut:        bytesOut,
+			PacketsOut:      packetsOut,
+		})
 	}
 }

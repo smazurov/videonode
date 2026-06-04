@@ -1,2 +1,2 @@
-// Package led provides SBC LED control through sysfs with event-driven state management.
+// Package led provides SBC LED control through sysfs, driven by the REST API.
 package led

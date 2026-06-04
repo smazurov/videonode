@@ -2,7 +2,6 @@ name: CI - Go
 
 on:
   push:
-    branches: [main]
     paths:
       - '**.go'
       - 'go.mod'
@@ -22,15 +21,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-go-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go:
     name: Lint, Test, Build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -42,7 +45,7 @@ jobs:
           args: --timeout=5m
 
       - name: Test
-        uses: robherley/go-test-action@v0
+        uses: robherley/go-test-action@v1
         with:
           testArguments: -race -cover ./...
 

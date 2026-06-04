@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "testenv": {
+      "args": [
+        "mcp"
+      ],
+      "command": "/home/stepan/go/bin/testenv",
+      "env": {
+        "TESTENV_STATE": "/home/stepan/.local/state/testenv/videonode/state.db"
+      }
+    }
+  }
+}

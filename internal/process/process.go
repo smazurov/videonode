@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -22,8 +24,8 @@ type OutputHandler interface {
 	HandleLine(source, line string)
 }
 
-// LogParser extracts (level, msg) from a process output line.
-type LogParser func(line string) (level, msg string)
+// LogParser extracts (level, msg, attrs) from a process output line.
+type LogParser func(line string) (level, msg string, attrs []slog.Attr)
 
 type exitReason int
 
@@ -35,21 +37,20 @@ const (
 
 // Process manages the lifecycle of a subprocess.
 type Process struct {
-	id               string
-	command          string
-	commandMu        sync.RWMutex
-	cmd              *exec.Cmd
-	logger           logging.Logger
-	processLogger    logging.Logger
-	logParser        LogParser
-	ctx              context.Context
-	cancel           context.CancelFunc
-	restartChan      chan string
-	outputHandler    OutputHandler
-	gracefulTimeout  time.Duration
-	killTimeout      time.Duration
-	visionPipeReads  []*os.File
-	visionPipeWrites []*os.File // write ends passed to child as fd 3, 4, 5, ...
+	id              string
+	command         string
+	commandMu       sync.RWMutex
+	cmd             *exec.Cmd
+	logger          logging.Logger
+	processLogger   logging.Logger
+	logParser       LogParser
+	ctx             context.Context
+	cancel          context.CancelFunc
+	restartChan     chan string
+	outputHandler   OutputHandler
+	gracefulTimeout time.Duration
+	killTimeout     time.Duration
+	pid             atomic.Int32
 }
 
 // NewProcess creates a new process.
@@ -73,22 +74,15 @@ func NewProcessWithOutput(id, command string, logger logging.Logger, handler Out
 	}
 }
 
+// PID returns the OS process ID, or 0 if the process hasn't started.
+// Safe to call concurrently — uses an atomic.
+func (p *Process) PID() int { return int(p.pid.Load()) }
+
 // GetCommand returns the current command string.
 func (p *Process) GetCommand() string {
 	p.commandMu.RLock()
 	defer p.commandMu.RUnlock()
 	return p.command
-}
-
-// SetupVisionPipe creates a vision frame pipe; the nth call maps to fd (3+n-1). Call before Start.
-func (p *Process) SetupVisionPipe() (*os.File, error) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		return nil, fmt.Errorf("create vision pipe: %w", err)
-	}
-	p.visionPipeReads = append(p.visionPipeReads, r)
-	p.visionPipeWrites = append(p.visionPipeWrites, w)
-	return r, nil
 }
 
 // SetLogParser sets the logger and parser used for child process output.
@@ -121,7 +115,7 @@ type runningProcess struct {
 func (p *Process) startProcess(command string) (*runningProcess, error) {
 	args, err := parseCommand(command)
 	if err != nil {
-		p.logger.Error("Failed to parse command", "error", err)
+		p.logger.Error("Failed to parse command", logging.KeyError, err)
 		return nil, err
 	}
 
@@ -137,34 +131,26 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 		Pdeathsig: syscall.SIGKILL,
 	}
 
-	if len(p.visionPipeWrites) > 0 {
-		p.cmd.ExtraFiles = append([]*os.File{}, p.visionPipeWrites...)
-	}
-
 	stdout, err := p.cmd.StdoutPipe()
 	if err != nil {
-		p.logger.Error("Failed to create stdout pipe", "error", err)
+		p.logger.Error("Failed to create stdout pipe", logging.KeyError, err)
 		return nil, err
 	}
 
 	stderr, err := p.cmd.StderrPipe()
 	if err != nil {
-		p.logger.Error("Failed to create stderr pipe", "error", err)
+		p.logger.Error("Failed to create stderr pipe", logging.KeyError, err)
 		return nil, err
 	}
 
 	if err := p.cmd.Start(); err != nil {
-		p.logger.Error("Failed to start process", "error", err, "command", command)
+		p.logger.Error("Failed to start process", logging.KeyError, err, logging.KeyCommand, command)
 		return nil, err
 	}
 
-	// Close parent's copy of write ends; child inherited them.
-	for _, w := range p.visionPipeWrites {
-		_ = w.Close()
-	}
-	p.visionPipeWrites = nil
+	p.pid.Store(int32(p.cmd.Process.Pid))
 
-	p.logger.Info("Process started", "id", p.id, "pid", p.cmd.Process.Pid, "command", command)
+	p.logger.Info("Process started", logging.KeyPoolID, p.id, logging.KeyPID, p.cmd.Process.Pid, logging.KeyCommand, command)
 
 	outputDone := make(chan struct{}, 2)
 	go func() {
@@ -206,7 +192,7 @@ func exitCodeFromError(err error) int {
 func (p *Process) handleProcessExit(processErr error) int {
 	exitCode := exitCodeFromError(processErr)
 	if processErr != nil && exitCode == 1 {
-		p.logger.Error("Process exited with error", "error", processErr)
+		p.logger.Error("Process exited with error", logging.KeyError, processErr)
 	}
 	return exitCode
 }
@@ -229,12 +215,12 @@ func (p *Process) Run() int {
 		p.sendStopSignal()
 		return p.waitForExit(rp.processDone, p.gracefulTimeout)
 	case sig := <-sigChan:
-		p.logger.Info("Received shutdown signal", "signal", sig.String())
+		p.logger.Info("Received shutdown signal", logging.KeySignal, sig.String())
 		p.sendStopSignal()
 		return p.waitForExit(rp.processDone, p.gracefulTimeout)
 	case processErr := <-rp.processDone:
 		exitCode := p.handleProcessExit(processErr)
-		p.logger.Info("Process exited", "exit_code", exitCode)
+		p.logger.Info("Process exited", logging.KeyExitCode, exitCode)
 		return exitCode
 	}
 }
@@ -250,14 +236,14 @@ func (p *Process) RunWithRestart() int {
 
 		switch reason {
 		case exitReasonShutdown:
-			p.logger.Info("Shutdown complete", "exit_code", exitCode)
+			p.logger.Info("Shutdown complete", logging.KeyExitCode, exitCode)
 			return exitCode
 		case exitReasonRestart:
 			p.logger.Info("Restarting process")
 			continue
 		case exitReasonProcessExit:
 			// Don't restart unexpected exits; let the parent decide.
-			p.logger.Info("Process exited unexpectedly", "exit_code", exitCode)
+			p.logger.Info("Process exited unexpectedly", logging.KeyExitCode, exitCode)
 			return exitCode
 		}
 	}
@@ -282,7 +268,7 @@ func (p *Process) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 		return p.waitForExit(rp.processDone, p.gracefulTimeout), exitReasonShutdown
 
 	case sig := <-sigChan:
-		p.logger.Info("Received shutdown signal", "signal", sig.String())
+		p.logger.Info("Received shutdown signal", logging.KeySignal, sig.String())
 		p.sendStopSignal()
 		return p.waitForExit(rp.processDone, p.gracefulTimeout), exitReasonShutdown
 
@@ -296,19 +282,25 @@ func (p *Process) runOnce(sigChan <-chan os.Signal) (int, exitReason) {
 
 	case processErr := <-rp.processDone:
 		exitCode := p.handleProcessExit(processErr)
-		p.logger.Info("Process exited", "exit_code", exitCode)
+		p.logger.Info("Process exited", logging.KeyExitCode, exitCode)
 		return exitCode, exitReasonProcessExit
 	}
 }
 
-// sendStopSignal sends SIGINT to the subprocess without waiting.
+// sendStopSignal sends SIGINT to the subprocess's process group without
+// waiting. Targeting the group (negative pid) is required for `sh -c "A | B"`
+// encoder pipelines so the piped children die with the shell — otherwise
+// they reparent to init and keep holding the gRPC socket / RTSP producer
+// slot, producing the black-canvas symptom on restart. The cmd has
+// Setpgid:true, so pid == pgid.
 func (p *Process) sendStopSignal() {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return
 	}
-	p.logger.Info("Sending SIGINT to process", "pid", p.cmd.Process.Pid)
-	if err := p.cmd.Process.Signal(syscall.SIGINT); err != nil {
-		p.logger.Warn("Failed to send SIGINT", "error", err)
+	pid := p.cmd.Process.Pid
+	p.logger.Info("Sending SIGINT to process group", logging.KeyPID, pid)
+	if err := syscall.Kill(-pid, syscall.SIGINT); err != nil {
+		p.logger.Warn("Failed to send SIGINT to group", logging.KeyError, err)
 	}
 }
 
@@ -318,11 +310,12 @@ func (p *Process) waitForExit(processDone <-chan error, timeout time.Duration) i
 	case err := <-processDone:
 		return exitCodeFromError(err)
 	case <-time.After(timeout):
-		p.logger.Warn("Graceful shutdown timeout, forcing kill", "timeout", timeout)
+		p.logger.Warn("Graceful shutdown timeout, forcing kill", logging.KeyTimeout, timeout)
 		if p.cmd.Process != nil {
-			if err := p.cmd.Process.Kill(); err != nil {
-				if !errors.Is(err, os.ErrProcessDone) {
-					p.logger.Error("Failed to kill process", "error", err)
+			// Kill the whole process group; see sendStopSignal for why.
+			if err := syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL); err != nil {
+				if !errors.Is(err, syscall.ESRCH) {
+					p.logger.Error("Failed to kill process group", logging.KeyError, err)
 				}
 			}
 		}
@@ -352,24 +345,30 @@ func (p *Process) streamOutput(reader io.Reader, source string) {
 		}
 
 		level, msg := "info", line
+		var attrs []slog.Attr
 		if p.logParser != nil {
-			level, msg = p.logParser(line)
+			level, msg, attrs = p.logParser(line)
+		}
+
+		args := make([]any, len(attrs))
+		for i, a := range attrs {
+			args[i] = a
 		}
 
 		switch level {
 		case "fatal", "error":
-			logger.Error(msg)
+			logger.Error(msg, args...)
 		case "warning":
-			logger.Warn(msg)
+			logger.Warn(msg, args...)
 		case "debug", "trace":
-			logger.Debug(msg)
+			logger.Debug(msg, args...)
 		default:
-			logger.Info(msg)
+			logger.Info(msg, args...)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		p.logger.Warn("Error reading output", "source", source, "error", err)
+		p.logger.Warn("Error reading output", logging.KeyPipe, source, logging.KeyError, err)
 	}
 }
 

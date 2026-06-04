@@ -50,6 +50,93 @@ func GetFFmpegMetricsFromRegistry() (map[string]*FFmpegStreamMetrics, error) {
 	return result, nil
 }
 
+// StreamEgressMetrics holds aggregated egress byte/packet counters
+// across all protocols (WebRTC + SRT) for a single stream.
+type StreamEgressMetrics struct {
+	BytesOut   float64
+	PacketsOut float64
+}
+
+// GetStreamEgressMetrics aggregates WebRTC and SRT egress counters
+// from the Prometheus registry, keyed by stream_id.
+func GetStreamEgressMetrics() (map[string]*StreamEgressMetrics, error) {
+	families, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]*StreamEgressMetrics)
+
+	for _, mf := range families {
+		name := mf.GetName()
+		switch name {
+		case "videonode_webrtc_stream_bytes_total",
+			"videonode_srt_stream_bytes_total",
+			"videonode_webrtc_stream_packets_total",
+			"videonode_srt_stream_packets_total":
+		default:
+			continue
+		}
+
+		for _, m := range mf.GetMetric() {
+			streamID := getLabelValue(m.GetLabel(), "stream_id")
+			if streamID == "" {
+				continue
+			}
+			if result[streamID] == nil {
+				result[streamID] = &StreamEgressMetrics{}
+			}
+			value := m.GetCounter().GetValue()
+			switch name {
+			case "videonode_webrtc_stream_bytes_total",
+				"videonode_srt_stream_bytes_total":
+				result[streamID].BytesOut += value
+			case "videonode_webrtc_stream_packets_total",
+				"videonode_srt_stream_packets_total":
+				result[streamID].PacketsOut += value
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// GetProducerMetricsFromRegistry extracts per-source producer-process metrics
+// (RSS / CPU) from Prometheus registry keyed by source_id.
+func GetProducerMetricsFromRegistry() (map[string]*ProducerProcessMetrics, error) {
+	families, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]*ProducerProcessMetrics)
+
+	for _, mf := range families {
+		name := mf.GetName()
+		if !strings.HasPrefix(name, "videonode_producer_") {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			sourceID := getLabelValue(m.GetLabel(), "source_id")
+			if sourceID == "" {
+				continue
+			}
+			if result[sourceID] == nil {
+				result[sourceID] = &ProducerProcessMetrics{}
+			}
+			value := m.GetGauge().GetValue()
+			switch name {
+			case "videonode_producer_rss_bytes":
+				result[sourceID].RSSBytes = value
+			case "videonode_producer_cpu_percent":
+				result[sourceID].CPUPercent = value
+			}
+		}
+	}
+
+	return result, nil
+}
+
 func getLabelValue(labels []*dto.LabelPair, name string) string {
 	for _, lp := range labels {
 		if lp.GetName() == name {

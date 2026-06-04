@@ -147,7 +147,22 @@
       "log-error": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.red.600}",    "dark": "{primitive.color.red.400}" } } },
       "log-warn":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.yellow.500}", "dark": "{primitive.color.yellow.400}" } } },
       "log-info":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.600}",   "dark": "{primitive.color.blue.400}" } } },
-      "log-debug": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.500}",   "dark": "{primitive.color.gray.500}" } } }
+      "log-debug": { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.500}",   "dark": "{primitive.color.gray.500}" } } },
+
+      "status-warm-soft":      { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.orange.100}", "dark": "{primitive.color.orange.900}" } } },
+      "status-warm-soft-fg":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.orange.800}", "dark": "{primitive.color.orange.300}" } } },
+      "status-cold-soft":      { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.200}",   "dark": "{primitive.color.gray.700}" } } },
+      "status-cold-soft-fg":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.700}",   "dark": "{primitive.color.gray.300}" } } },
+      "status-error-soft":     { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.red.50}",     "dark": "rgb(127 29 29 / 0.30)" } } },
+      "status-error-soft-fg":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.red.700}",    "dark": "{primitive.color.red.400}" } } },
+      "status-encoding-soft":  { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.100}",   "dark": "{primitive.color.blue.900}" } } },
+      "status-encoding-soft-fg":{ "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.blue.800}",  "dark": "{primitive.color.blue.200}" } } },
+      "status-idle-soft":      { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.100}",   "dark": "{primitive.color.gray.800}" } } },
+      "status-idle-soft-fg":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.600}",   "dark": "{primitive.color.gray.400}" } } },
+      "status-running-soft":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "rgb(34 197 94 / 0.15)", "dark": "rgb(34 197 94 / 0.25)" } } },
+      "status-running-soft-fg":{ "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.green.600}",  "dark": "{primitive.color.green.400}" } } },
+      "status-stopped-soft":   { "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.200}",   "dark": "{primitive.color.gray.800}" } } },
+      "status-stopped-soft-fg":{ "$type": "color", "$extensions": { "videonode.mode": { "light": "{primitive.color.gray.700}",   "dark": "{primitive.color.gray.400}" } } }
     }
   }
 }

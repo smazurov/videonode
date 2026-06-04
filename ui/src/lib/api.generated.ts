@@ -4,6 +4,158 @@
  */
 
 export interface paths {
+    "/api/composers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Composers
+         * @description List all configured composers.
+         */
+        get: operations["list-composers"];
+        put?: never;
+        /**
+         * Create Composer
+         * @description Create a new composer with inputs and optional layout.
+         */
+        post: operations["create-composer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/composers/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Composer from TOML
+         * @description Create or overwrite a composer from a TOML document. Upserts by the id in the document.
+         */
+        post: operations["import-composer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/composers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Composer
+         * @description Fetch a composer by id.
+         */
+        get: operations["get-composer"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Composer
+         * @description Delete a composer. Refuses with 409 if any stream still references it.
+         */
+        delete: operations["delete-composer"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Composer
+         * @description Patch composer fields. Omitted fields are left untouched.
+         */
+        patch: operations["update-composer"];
+        trace?: never;
+    };
+    "/api/composers/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Composer as TOML
+         * @description Download a composer's full configuration as a standalone TOML document.
+         */
+        get: operations["export-composer"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/composers/{id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import TOML into an existing Composer
+         * @description Overwrite an existing composer from a TOML document. The document's id is ignored — the config is applied to the composer named in the path.
+         */
+        post: operations["import-composer-into"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/composers/{id}/inputs/{ref}/effect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set Composer Input Effect
+         * @description Set or clear the effect on a specific composer input (matched by ref).
+         */
+        patch: operations["set-composer-input-effect"];
+        trace?: never;
+    };
+    "/api/composers/{id}/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Replace Composer Layout
+         * @description Replace the composer's full layout array. Validated against inputs[].
+         */
+        patch: operations["replace-composer-layout"];
+        trace?: never;
+    };
     "/api/devices": {
         parameters: {
             query?: never;
@@ -38,6 +190,26 @@ export interface paths {
         get: operations["list-audio-devices"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{device_id}/format": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Capture Format
+         * @description Issue a runtime set_format command to the videonode-source for this device. The source will re-open the V4L2 device with the new format/resolution/fps while keeping all connected consumers attached.
+         */
+        post: operations["device-set-format"];
         delete?: never;
         options?: never;
         head?: never;
@@ -133,7 +305,7 @@ export interface paths {
         };
         /**
          * Server-Sent Events Stream
-         * @description Real-time event stream for capture results, device changes, and system status
+         * @description Real-time event stream for entity lifecycle/status/metrics/consumers, device changes, and pipeline state
          */
         get: operations["events-stream"];
         put?: never;
@@ -224,7 +396,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/streams": {
+    "/api/pipeline": {
         parameters: {
             query?: never;
             header?: never;
@@ -232,23 +404,19 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Active Streams
-         * @description Get a list of all currently active video streams
+         * Get Pipeline State
+         * @description Return the daemon-wide pipeline master switch state. When false, no pipeline processes are running.
          */
-        get: operations["list-streams"];
+        get: operations["get-pipeline-state"];
         put?: never;
-        /**
-         * Create Stream
-         * @description Create a new video stream from a device using stable device ID
-         */
-        post: operations["create-stream"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/streams/canvas/layout": {
+    "/api/pipeline/start": {
         parameters: {
             query?: never;
             header?: never;
@@ -258,10 +426,146 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Preview Canvas Layout
-         * @description Compute the resolved slot + content geometry for a canvas configuration without creating it. The returned layout is the single source of truth for both the ffmpeg composite pipeline and the UI preview.
+         * Start Pipeline
+         * @description Flip the daemon-wide pipeline master switch on and start every configured source, composer, and stream.
          */
-        post: operations["canvas-layout-preview"];
+        post: operations["start-pipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pipeline/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Pipeline
+         * @description Flip the daemon-wide pipeline master switch off and stop every supervised process.
+         */
+        post: operations["stop-pipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List supervised pipeline processes
+         * @description Returns one row per supervised stage (Source / Composer / Encoder), including pool state, OS pid, restart count, source refcount, and (for sources) the set of streams currently holding each device. Sorted by stage id.
+         */
+        get: operations["list-processes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/processes/{id}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart a supervised pipeline process
+         * @description Bounce one supervised stage (source / composer / encoder) through the process pool. The id is the pool key as returned by GET /api/processes ('source:<id>' / 'composer:<id>' / 'encoder:<stream-id>'). Sources and composers are re-applied (the gRPC control plane is re-established); a running encoder is bounced while an idle one (no reader attached) is left down.
+         */
+        post: operations["restart-process"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sources
+         * @description List all configured sources (V4L2 producers and test-pattern producers).
+         */
+        get: operations["list-sources"];
+        put?: never;
+        /**
+         * Create Source
+         * @description Register a new source. Provide either device for a V4L2 producer or test_mode=true for the test-pattern producer (mutually exclusive).
+         */
+        post: operations["create-source"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Source
+         * @description Fetch a single source by ID.
+         */
+        get: operations["get-source"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Source
+         * @description Delete a source. Refused with 409 if any composer or stream still references it.
+         */
+        delete: operations["delete-source"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Source
+         * @description Patch a source. Only the supplied fields are modified.
+         */
+        patch: operations["update-source"];
+        trace?: never;
+    };
+    "/api/streams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Streams
+         * @description List all configured video streams in slim shape
+         */
+        get: operations["list-streams"];
+        put?: never;
+        /**
+         * Create Stream
+         * @description Create a new stream referencing a source or composer upstream
+         */
+        post: operations["create-stream"];
         delete?: never;
         options?: never;
         head?: never;
@@ -297,26 +601,46 @@ export interface paths {
         };
         /**
          * Get Stream
-         * @description Get details of a specific stream
+         * @description Get one stream's slim configuration
          */
         get: operations["get-stream"];
         put?: never;
         post?: never;
         /**
          * Delete Stream
-         * @description Delete an active video stream
+         * @description Delete a stream
          */
         delete: operations["delete-stream"];
         options?: never;
         head?: never;
         /**
          * Update Stream
-         * @description Partially update an existing video stream with new parameters
+         * @description Partially update a stream's slim configuration
          */
         patch: operations["update-stream"];
         trace?: never;
     };
-    "/api/streams/{stream_id}/ffmpeg": {
+    "/api/streams/{stream_id}/{protocol}/consumers/{client_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect consumer
+         * @description Disconnect a WebRTC peer or SRT consumer by protocol and client ID
+         */
+        delete: operations["disconnect-consumer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system": {
         parameters: {
             query?: never;
             header?: never;
@@ -324,10 +648,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get FFmpeg Command
-         * @description Get the FFmpeg command for a specific stream (either auto-generated or custom)
+         * Daemon-wide resource summary
+         * @description Returns the daemon uptime and the combined CPU/memory footprint of the daemon plus every running supervised stage (sources, composers, encoders). The per-stage breakdown is available at /api/processes.
          */
-        get: operations["get-stream-ffmpeg"];
+        get: operations["system-stats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -336,7 +660,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/streams/{stream_id}/restart": {
+    "/whep/{stream}": {
         parameters: {
             query?: never;
             header?: never;
@@ -346,17 +670,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restart Stream
-         * @description Restart a stream process. Stops and restarts the FFmpeg process with current configuration.
+         * WHEP egress
+         * @description WebRTC-HTTP Egress Protocol: POST an SDP offer, receive an SDP answer with a resource Location.
          */
-        post: operations["restart-stream"];
+        post: operations["whep-offer"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/streams/{stream_id}/snapshot": {
+    "/whep/{stream}/{session}": {
         parameters: {
             query?: never;
             header?: never;
@@ -364,53 +688,13 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
-        /**
-         * Capture stream snapshot
-         * @description Captures a JPEG snapshot from a running video stream and returns the URL
-         */
-        post: operations["capture-snapshot"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/update/version": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Version
-         * @description Get application version information
-         */
-        get: operations["get-version"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/webrtc": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
         /**
-         * WebRTC signaling
-         * @description Exchange SDP offer/answer for WebRTC streaming
+         * WHEP teardown
+         * @description Tear down a WHEP session created via POST /whep/{stream}.
          */
-        post: operations["webrtc-offer"];
-        delete?: never;
+        delete: operations["whep-delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -420,6 +704,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AudioConfigData: {
+            /**
+             * @description Audio bitrate
+             * @example 128k
+             */
+            bitrate?: string;
+            /**
+             * @description Audio codec (opus, aac, ...)
+             * @example opus
+             */
+            codec?: string;
+            /** @description ALSA device names; one output audio track per entry */
+            devices?: string[] | null;
+            /** @description Optional shared filter chain */
+            filters?: string;
+        };
         AudioDevice: {
             /**
              * @description ALSA device string for FFmpeg
@@ -528,141 +828,168 @@ export interface components {
             /** @description List of available audio devices */
             devices: components["schemas"]["AudioDevice"][] | null;
         };
-        CanvasData: {
+        CanvasDimsData: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CanvasData.json
+             * @description Canvas background color sources composite on top of, as #RRGGBB or #RRGGBBAA hex (empty = opaque black)
+             * @example #1a1a2e
              */
-            readonly $schema?: string;
-            /** @description Standalone ALSA audio devices (v1: max 1) */
-            audio_devices?: string[] | null;
-            /**
-             * @description Canvas output framerate
-             * @example 30
-             */
-            fps: string;
+            background?: string;
             /**
              * Format: int64
-             * @description Canvas height — 1080 (1080p) or 2160 (4k)
+             * @description Canvas frame rate (0 = daemon default)
+             * @example 60
+             */
+            fps?: number;
+            /**
+             * Format: int64
+             * @description Canvas height in pixels
              * @example 1080
-             * @enum {integer}
              */
-            height: 1080 | 2160;
-            /**
-             * @description Background color for dead space
-             * @example 0x000000
-             */
-            key_color?: string;
-            /** @description Pinned layout candidate name (e.g. "side-by-side", "2x2"). Empty = auto-pick. */
-            layout_name?: string;
-            /** @description Per-source-stream overrides. When set, length must equal source_streams. Each entry's nil fields inherit from the source stream. */
-            source_overrides?: components["schemas"]["CanvasSourceOverrideData"][] | null;
-            /** @description Ordered list of source stream IDs (1–4) */
-            source_streams: string[] | null;
+            h: number;
             /**
              * Format: int64
-             * @description Canvas width — 1920 (1080p) or 3840 (4k)
+             * @description Canvas width in pixels
              * @example 1920
-             * @enum {integer}
              */
-            width: 1920 | 3840;
+            w: number;
         };
-        CanvasLayoutData: {
+        ComposerCreateRequestData: {
             /**
              * Format: uri
              * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CanvasLayoutData.json
+             * @example https://example.com/schemas/ComposerCreateRequestData.json
              */
             readonly $schema?: string;
-            /** @description All candidate layout names available for the current source count, in default-first order */
-            available_layouts: string[] | null;
-            /** @description Name of the layout candidate actually used */
-            chosen_layout: string;
-            /** @description One entry per source stream, in the same order as canvas.source_streams */
-            slots: components["schemas"]["CanvasLayoutSlotData"][] | null;
+            /** @description Output canvas dimensions */
+            canvas: components["schemas"]["CanvasDimsData"];
+            /**
+             * @description Composer identifier
+             * @example main-scene
+             */
+            id: string;
+            /** @description Composer inputs */
+            inputs: components["schemas"]["ComposerInputData"][] | null;
+            /** @description Initial layout slots (optional; defaults to empty) */
+            layout?: components["schemas"]["LayoutSlotData"][] | null;
         };
-        CanvasLayoutSlotData: {
+        ComposerData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerData.json
+             */
+            readonly $schema?: string;
+            /** @description Output canvas dimensions */
+            canvas: components["schemas"]["CanvasDimsData"];
+            /**
+             * Format: date-time
+             * @description Creation timestamp
+             */
+            created_at?: string;
+            /**
+             * @description Server-denormalized list of stream IDs whose upstream is composer:<this>. Auto-republished via dependency graph when streams change.
+             * @example [
+             *       "main-720p",
+             *       "main-1080p"
+             *     ]
+             */
+            downstream_stream_ids?: string[] | null;
+            /**
+             * @description Composer identifier
+             * @example main-scene
+             */
+            id: string;
+            /** @description Composer inputs (refs + optional effects) */
+            inputs: components["schemas"]["ComposerInputData"][] | null;
+            /** @description Layout slots placing each input on the canvas */
+            layout: components["schemas"]["LayoutSlotData"][] | null;
+            /**
+             * @description Process pool state
+             * @example running
+             * @enum {string}
+             */
+            status?: "idle" | "starting" | "running" | "stopping" | "error";
+            /**
+             * Format: date-time
+             * @description Last update timestamp
+             */
+            updated_at?: string;
+        };
+        ComposerEffectRequestData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerEffectRequestData.json
+             */
+            readonly $schema?: string;
+            /** @description New effect; null clears the existing effect */
+            effect: components["schemas"]["EffectData"] | null;
+        };
+        ComposerInputData: {
+            /** @description Optional per-input effect */
+            effect?: components["schemas"]["EffectData"];
+            /**
+             * @description Upstream ref — source:<id>
+             * @example source:hdmi-slides
+             */
+            ref: string;
+        };
+        ComposerLayoutRequestData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerLayoutRequestData.json
+             */
+            readonly $schema?: string;
+            /** @description Full replacement layout array */
+            layout: components["schemas"]["LayoutSlotData"][] | null;
+        };
+        ComposerListData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerListData.json
+             */
+            readonly $schema?: string;
+            /** @description Configured composers */
+            composers: components["schemas"]["ComposerData"][] | null;
             /**
              * Format: int64
-             * @description Content rectangle height
+             * @description Total composer count
+             * @example 1
              */
-            content_h: number;
+            count: number;
+        };
+        ComposerUpdateRequestData: {
             /**
-             * Format: int64
-             * @description Content rectangle width
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ComposerUpdateRequestData.json
              */
-            content_w: number;
-            /**
-             * Format: int64
-             * @description Content rectangle X — where the letterboxed input pixels actually land
-             */
-            content_x: number;
-            /**
-             * Format: int64
-             * @description Content rectangle Y
-             */
-            content_y: number;
+            readonly $schema?: string;
+            /** @description New canvas dimensions */
+            canvas?: components["schemas"]["CanvasDimsData"];
+            /** @description Replacement inputs list */
+            inputs?: components["schemas"]["ComposerInputData"][] | null;
+            /** @description Replacement layout (also validated against inputs) */
+            layout?: components["schemas"]["LayoutSlotData"][] | null;
+        };
+        CropConfigData: {
             /**
              * Format: double
-             * @description Input aspect ratio after perspective + rotation + crop; 0 when unknown
+             * @description Source overfill factor (>= 1.0, 1.0 = minimum fill)
              */
-            effective_aspect_ratio: number;
+            scale: number;
             /**
-             * Format: int64
-             * @description Rotation the pipeline applies to this source (after override)
-             * @enum {integer}
+             * Format: double
+             * @description Normalized horizontal crop offset (0-1, 0.5 = centered)
              */
-            rotation_applied: 0 | 90 | 180 | 270;
+            x: number;
             /**
-             * Format: int64
-             * @description Slot rectangle height
+             * Format: double
+             * @description Normalized vertical crop offset (0-1, 0.5 = centered)
              */
-            slot_h: number;
-            /**
-             * Format: int64
-             * @description Slot rectangle width
-             */
-            slot_w: number;
-            /**
-             * Format: int64
-             * @description Slot rectangle X — region allotted by the layout solver
-             */
-            slot_x: number;
-            /**
-             * Format: int64
-             * @description Slot rectangle Y
-             */
-            slot_y: number;
-            /** @description Source stream ID for this slot */
-            source_stream_id: string;
-        };
-        CanvasRestartedEvent: {
-            /** @description Full canvas stream data after restart */
-            canvas: components["schemas"]["StreamData"];
-            /**
-             * @description Canvas stream identifier that was restarted
-             * @example mycanvas
-             */
-            canvas_id: string;
-            /**
-             * @description Event timestamp
-             * @example 2025-01-27T10:30:00Z
-             */
-            timestamp: string;
-            /**
-             * @description Source stream whose update triggered the restart
-             * @example cam1
-             */
-            trigger_id: string;
-        };
-        CanvasSourceOverrideData: {
-            /**
-             * Format: int64
-             * @description Rotation override in degrees; null to inherit from source stream
-             * @enum {integer}
-             */
-            rotation?: 0 | 90 | 180 | 270;
+            y: number;
         };
         DeviceCapabilitiesData: {
             /**
@@ -809,6 +1136,102 @@ export interface components {
             /** @description Supported resolutions for the format */
             resolutions: components["schemas"]["Resolution"][] | null;
         };
+        DeviceSetFormatBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/DeviceSetFormatBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description 4-character V4L2 pixel format code
+             * @example YUYV
+             */
+            fourcc: string;
+            /**
+             * Format: int32
+             * @description Capture framerate; 0 = driver default
+             * @example 30
+             */
+            fps?: number;
+            /**
+             * Format: int32
+             * @description Capture height in pixels
+             * @example 1080
+             */
+            height: number;
+            /**
+             * Format: int32
+             * @description Capture width in pixels
+             * @example 1920
+             */
+            width: number;
+        };
+        DeviceSetFormatData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/DeviceSetFormatData.json
+             */
+            readonly $schema?: string;
+            /** @description True if the source accepted and applied the new format */
+            applied: boolean;
+        };
+        EffectData: {
+            /** @description Corner coordinates [tl, tr, br, bl] in source pixel space */
+            corners?: (number[] | null)[] | null;
+            /**
+             * Format: int64
+             * @description Source pixel height the corners are expressed in
+             * @example 1080
+             */
+            snapshot_h?: number;
+            /**
+             * Format: int64
+             * @description Source pixel width the corners are expressed in
+             * @example 1920
+             */
+            snapshot_w?: number;
+            /**
+             * @description Effect type identifier
+             * @example perspective
+             */
+            type: string;
+        };
+        EncoderConfigData: {
+            /**
+             * Format: int64
+             * @description Number of B-frames
+             * @example 0
+             */
+            b_frames?: number;
+            /**
+             * @description Video bitrate
+             * @example 4M
+             */
+            bitrate?: string;
+            /**
+             * @description Logical codec (h264, h265, av1)
+             * @example h264
+             */
+            codec?: string;
+            /**
+             * Format: int64
+             * @description Keyframe interval
+             * @example 120
+             */
+            gop?: number;
+            /**
+             * @description Encoder preset
+             * @example fast
+             */
+            preset?: string;
+            /**
+             * @description Rate control mode
+             * @example cbr
+             */
+            rate_control?: string;
+        };
         EncoderData: {
             /**
              * Format: uri
@@ -848,6 +1271,143 @@ export interface components {
              * @example video
              */
             type: string;
+        };
+        EntityComposerCreated: {
+            id: string;
+            payload: components["schemas"]["ComposerData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "composer.created";
+        };
+        EntityComposerDeleted: {
+            id: string;
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "composer.deleted";
+        };
+        EntityComposerUpdated: {
+            id: string;
+            payload: components["schemas"]["ComposerData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "composer.updated";
+        };
+        EntitySourceConsumers: {
+            id: string;
+            payload: components["schemas"]["SourceConsumersInfo"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.consumers";
+        };
+        EntitySourceCreated: {
+            id: string;
+            payload: components["schemas"]["SourceData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.created";
+        };
+        EntitySourceDeleted: {
+            id: string;
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.deleted";
+        };
+        EntitySourceStatus: {
+            id: string;
+            payload: components["schemas"]["StatusParams"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.status";
+        };
+        EntitySourceUpdated: {
+            id: string;
+            payload: components["schemas"]["SourceData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "source.updated";
+        };
+        EntityStreamConsumers: {
+            id: string;
+            payload: components["schemas"]["StreamConsumersPayload"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.consumers";
+        };
+        EntityStreamCreated: {
+            id: string;
+            payload: components["schemas"]["StreamData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.created";
+        };
+        EntityStreamDeleted: {
+            id: string;
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.deleted";
+        };
+        EntityStreamMetrics: {
+            id: string;
+            payload: components["schemas"]["StreamMetricsPayload"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.metrics";
+        };
+        EntityStreamStatus: {
+            id: string;
+            payload: components["schemas"]["StreamStatusPayload"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.status";
+        };
+        EntityStreamUpdated: {
+            id: string;
+            payload: components["schemas"]["StreamData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stream.updated";
         };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -896,29 +1456,6 @@ export interface components {
              */
             type: string;
         };
-        FFmpegCommandData: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FFmpegCommandData.json
-             */
-            readonly $schema?: string;
-            /**
-             * @description Complete FFmpeg command
-             * @example ffmpeg -f v4l2 -i /dev/video0 ...
-             */
-            command: string;
-            /**
-             * @description Whether this is a custom command or auto-generated
-             * @example false
-             */
-            is_custom: boolean;
-            /**
-             * @description Stream identifier
-             * @example stream-001
-             */
-            stream_id: string;
-        };
         FormatInfo: {
             /**
              * @description Whether format is emulated
@@ -930,7 +1467,7 @@ export interface components {
              * @example yuyv422
              * @enum {string}
              */
-            format_name: "yv12" | "nv24" | "nv16" | "nv12" | "bgr24" | "rgb24" | "yuyv422" | "h264" | "mjpeg" | "yu12";
+            format_name: "bgr24" | "h264" | "mjpeg" | "nv12" | "nv16" | "nv24" | "rgb24" | "yu12" | "yuyv422" | "yv12";
             /**
              * @description Original V4L2 format name
              * @example YUYV 4:2:2
@@ -974,6 +1511,60 @@ export interface components {
              * @example ok
              */
             status: string;
+            /**
+             * @description Build version (git describe)
+             * @example v4.0.0-rc10
+             */
+            version: string;
+        };
+        HeartbeatEvent: {
+            /** @description Server time at heartbeat */
+            timestamp: string;
+        };
+        LayoutSlotData: {
+            /**
+             * @description How to scale source into slot (stretch, fit, crop)
+             * @example stretch
+             * @enum {string}
+             */
+            aspect_ratio_mode?: "stretch" | "fit" | "crop";
+            /** @description Crop positioning (only meaningful when aspect_ratio_mode=crop) */
+            crop?: components["schemas"]["CropConfigData"];
+            /**
+             * Format: int64
+             * @description Slot height in canvas pixels
+             * @example 1080
+             */
+            h: number;
+            /**
+             * @description Input ref this slot draws (matches inputs[].ref)
+             * @example source:hdmi-slides
+             */
+            input: string;
+            /**
+             * Format: int64
+             * @description Clockwise rotation in degrees (0, 90, 180, 270)
+             * @example 0
+             */
+            rotation?: number;
+            /**
+             * Format: int64
+             * @description Slot width in canvas pixels
+             * @example 1920
+             */
+            w: number;
+            /**
+             * Format: int64
+             * @description Slot top-left X in canvas pixels
+             * @example 0
+             */
+            x: number;
+            /**
+             * Format: int64
+             * @description Slot top-left Y in canvas pixels
+             * @example 0
+             */
+            y: number;
         };
         LogEntryEvent: {
             /** @description Structured log attributes */
@@ -1030,9 +1621,94 @@ export interface components {
             /** @description All available FFmpeg options with metadata */
             options: components["schemas"]["Option"][] | null;
         };
-        PerspectiveData: {
-            /** @description Four corner points [[x,y],...] clockwise: top-left, top-right, bottom-right, bottom-left */
-            corners: (number[] | null)[] | null;
+        PipelineStateBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/PipelineStateBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Whether the pipeline master switch is on
+             * @example true
+             */
+            enabled: boolean;
+        };
+        PipelineStateChangedEvent: {
+            /**
+             * @description Whether the pipeline master switch is on
+             * @example true
+             */
+            enabled: boolean;
+            /**
+             * @description Event timestamp
+             * @example 2025-01-27T10:30:00Z
+             */
+            timestamp: string;
+        };
+        ProcessEntry: {
+            /** @description Stream ids holding this source (sources only; sorted) */
+            consumers?: string[] | null;
+            /**
+             * Format: double
+             * @description CPU usage as percentage (0-100 per core)
+             */
+            cpu_percent?: number;
+            /** @description Device id (sources only) */
+            device?: string;
+            /** @description Pool key (e.g. 'source:hdmi0' / 'composer:cam-front') */
+            id: string;
+            /**
+             * @description Entity kind for this stage
+             * @enum {string}
+             */
+            kind: "source" | "composer" | "encoder";
+            /** @description Most recent error from the supervisor */
+            last_error?: string;
+            /**
+             * Format: int64
+             * @description OS pid when running; 0 otherwise
+             */
+            pid?: number;
+            /**
+             * Format: int64
+             * @description Number of streams holding this source (sources only)
+             */
+            refcount?: number;
+            /**
+             * Format: int64
+             * @description Times the supervisor restarted this stage
+             */
+            restart_count?: number;
+            /**
+             * Format: int64
+             * @description Resident set size in bytes
+             */
+            rss_bytes?: number;
+            /**
+             * Format: int64
+             * @description Unix microseconds at Start; 0 when never started
+             */
+            started_at_us?: number;
+            /** @description Pool state: idle/starting/running/stopping/error */
+            state: string;
+            /** @description User-facing stream id (empty for shared sources) */
+            stream_id?: string;
+        };
+        ProcessesListResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ProcessesListResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description All supervised pipeline stages */
+            processes: components["schemas"]["ProcessEntry"][] | null;
+        };
+        RTSPClientInfo: {
+            client_ip: string;
+            connected_since: string;
+            id: string;
         };
         Resolution: {
             /**
@@ -1048,32 +1724,249 @@ export interface components {
              */
             width: number;
         };
-        SnapshotOutputBody: {
+        SRTClientInfo: {
+            /** Format: int64 */
+            bytes_sent: number;
+            client_ip: string;
+            connected_since: string;
+            id: string;
+            /** Format: double */
+            rtt_ms: number;
+        };
+        SourceBroadcastInfo: {
+            /** Format: int32 */
+            last_seq: number;
+            /** Format: int64 */
+            placeholder_frames: number;
+            /** Format: int64 */
+            real_frames: number;
+            /** Format: int32 */
+            target_fps: number;
+        };
+        SourceConsumerEntry: {
+            /** Format: int64 */
+            evicted_at_frame?: number;
+            /** Format: int64 */
+            fd: number;
+            /** Format: int64 */
+            frames_dropped: number;
+            /** Format: int64 */
+            frames_sent: number;
+        };
+        SourceConsumersInfo: {
+            /** Format: int64 */
+            count: number;
+            evicted: components["schemas"]["SourceConsumerEntry"][] | null;
+            live: components["schemas"]["SourceConsumerEntry"][] | null;
+        };
+        SourceCreateBody: {
             /**
              * Format: uri
              * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SnapshotOutputBody.json
+             * @example https://example.com/schemas/SourceCreateBody.json
              */
             readonly $schema?: string;
             /**
-             * @description URL path to the snapshot image
-             * @example /api/snapshots/test.jpg
+             * @description Stable device identifier. Omit when test_mode is true.
+             * @example rk3588-hdmi-rx
              */
-            url: string;
+            device?: string;
+            /** @description Initial V4L2 capture format. Omit to let the source auto-negotiate. */
+            format?: components["schemas"]["SourceFormatBody"];
+            /**
+             * @description Stable source identifier (kebab-case)
+             * @example hdmi-slides
+             */
+            id: string;
+            /**
+             * @description When true, use the test-pattern producer instead of a V4L2 device.
+             * @example false
+             */
+            test_mode?: boolean;
         };
-        StreamCreatedEvent: {
+        SourceData: {
             /**
-             * @description Action type
-             * @example created
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SourceData.json
              */
-            action: string;
-            /** @description Created stream data */
-            stream: components["schemas"]["StreamData"];
+            readonly $schema?: string;
             /**
-             * @description Event timestamp
-             * @example 2025-01-27T10:30:00Z
+             * Format: int64
+             * @description Live SCM_RIGHTS consumer count (processes attached to this source's dma-buf socket). Seeded on GET; updated live via the source.consumers SSE event.
+             * @example 2
              */
-            timestamp: string;
+            consumer_count?: number;
+            /** @description Composers and streams currently referencing this source. Server-denormalized; auto-republished when references change. */
+            consumers?: components["schemas"]["SourceReference"][] | null;
+            /**
+             * Format: date-time
+             * @description When the source record was created
+             */
+            created_at?: string;
+            /**
+             * @description Stable device identifier. Empty when test_mode is true.
+             * @example rk3588-hdmi-rx
+             */
+            device?: string;
+            /** @description Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate. */
+            format?: components["schemas"]["SourceFormatBody"];
+            /**
+             * @description Stable source identifier (kebab-case)
+             * @example hdmi-slides
+             */
+            id: string;
+            /**
+             * @description Source-reported health, independent of the process pool state. offline when the process isn't running.
+             * @example live
+             * @enum {string}
+             */
+            liveness?: "live" | "transitioning" | "no_cable" | "no_signal" | "initializing" | "offline" | "unknown";
+            /**
+             * @description Process pool state
+             * @example running
+             * @enum {string}
+             */
+            status?: "idle" | "starting" | "running" | "stopping" | "error";
+            /**
+             * @description When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device.
+             * @example false
+             */
+            test_mode?: boolean;
+            /**
+             * Format: date-time
+             * @description When the source record was last updated
+             */
+            updated_at?: string;
+        };
+        SourceDeviceInfo: {
+            multiplanar: boolean;
+            path: string;
+        };
+        SourceFormatBody: {
+            /**
+             * @description Detected YCbCr matrix (bt601/bt709); read-only, empty until the first status frame
+             * @example bt709
+             */
+            color_matrix?: string;
+            /**
+             * @description Lowercase video format name (matches /api/devices/{id}/formats)
+             * @example yuyv422
+             * @enum {string}
+             */
+            format_name: "bgr24" | "h264" | "mjpeg" | "nv12" | "nv16" | "nv24" | "rgb24" | "yu12" | "yuyv422" | "yv12";
+            /**
+             * Format: int32
+             * @description Capture framerate; 0 = driver default
+             * @example 30
+             */
+            fps?: number;
+            /**
+             * Format: int32
+             * @description Capture height in pixels
+             * @example 1080
+             */
+            height: number;
+            /**
+             * Format: int32
+             * @description Capture width in pixels
+             * @example 1920
+             */
+            width: number;
+        };
+        SourceFormatInfo: {
+            /** Format: int32 */
+            buffers: number;
+            color_matrix: string;
+            fourcc: string;
+            /** Format: int32 */
+            fps: number;
+            /** Format: int32 */
+            h: number;
+            mode: string;
+            /** Format: int32 */
+            w: number;
+        };
+        SourceListData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SourceListData.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Number of sources returned
+             * @example 3
+             */
+            count: number;
+            /** @description List of configured sources */
+            sources: components["schemas"]["SourceData"][] | null;
+        };
+        SourceReference: {
+            /**
+             * @description Referencing entity identifier
+             * @example main-scene
+             */
+            id: string;
+            /**
+             * @description composer | stream
+             * @example composer
+             * @enum {string}
+             */
+            kind: "composer" | "stream";
+        };
+        SourceSignalInfo: {
+            cable_present: boolean;
+            dv_timings: string;
+            has_dv_timings: boolean;
+            signal_locked: boolean;
+        };
+        SourceUpdateBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SourceUpdateBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description New device identifier; clears when sent as empty string while test_mode is true
+             * @example rk3588-hdmi-rx
+             */
+            device?: string;
+            /** @description Replace the V4L2 capture format. Send null in a future revision to clear; today omitting leaves the prior format untouched. */
+            format?: components["schemas"]["SourceFormatBody"];
+            /**
+             * @description Toggle test-pattern mode
+             * @example true
+             */
+            test_mode?: boolean;
+        };
+        StatusParams: {
+            broadcast: components["schemas"]["SourceBroadcastInfo"];
+            consumers: components["schemas"]["SourceConsumersInfo"];
+            device: components["schemas"]["SourceDeviceInfo"];
+            device_id: string;
+            format: components["schemas"]["SourceFormatInfo"];
+            health: string;
+            signal: components["schemas"]["SourceSignalInfo"];
+            /** Format: int64 */
+            started_at_us?: number;
+            /** Format: int64 */
+            ts_ms: number;
+        };
+        StreamConsumersPayload: {
+            /** Format: int64 */
+            rtsp: number;
+            rtsp_clients?: components["schemas"]["RTSPClientInfo"][] | null;
+            /** Format: int64 */
+            srt: number;
+            srt_clients?: components["schemas"]["SRTClientInfo"][] | null;
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            webrtc: number;
+            webrtc_clients?: components["schemas"]["WebRTCClientInfo"][] | null;
         };
         StreamData: {
             /**
@@ -1082,116 +1975,58 @@ export interface components {
              * @example https://example.com/schemas/StreamData.json
              */
             readonly $schema?: string;
+            /** @description Audio routing */
+            audio?: components["schemas"]["AudioConfigData"];
             /**
-             * @description ALSA audio device
-             * @example hw:4,0
+             * Format: date-time
+             * @description When the stream spec was created
              */
-            audio_device?: string;
+            created_at?: string;
+            /** @description User-supplied ffmpeg encoder args (replaces daemon-generated argv from -c:v onward) */
+            custom_encoder_args?: string;
             /**
-             * @description Video bitrate
-             * @example 2M
-             */
-            bitrate?: string;
-            /** @description Canvas configuration for composite streams */
-            canvas?: components["schemas"]["CanvasData"];
-            /**
-             * @description Video codec being used
-             * @example h264
-             */
-            codec: string;
-            /**
-             * @description Custom FFmpeg command override
-             * @example ffmpeg -f v4l2...
-             */
-            custom_ffmpeg_command?: string;
-            /**
-             * @description Stable device identifier
-             * @example usb-0000:00:14.0-1
-             */
-            device_id: string;
-            /**
-             * @description Runtime state - device ready and stream active
+             * @description Runtime state — true when the encoder process is intended to run
              * @example true
              */
             enabled: boolean;
+            /** @description Encoder configuration */
+            encoder?: components["schemas"]["EncoderConfigData"];
             /**
-             * @description Video framerate
-             * @example 30
+             * @description Human-readable stream name
+             * @example Main Archive
              */
-            framerate?: string;
+            name?: string;
             /**
-             * @description V4L2 input format
-             * @example yuyv422
-             */
-            input_format?: string;
-            /** @description Per-source-stream-ID enabled state (canvas streams only) */
-            inputs_enabled?: {
-                [key: string]: boolean;
-            };
-            /** @description Resolved canvas layout (slot + content rects). Populated for canvas streams. */
-            layout?: components["schemas"]["CanvasLayoutData"];
-            /** @description FFmpeg option keys (e.g., vsync_passthrough, low_latency) */
-            options?: string[] | null;
-            /** @description Canvas ID currently owning this stream (individual streams only) */
-            owned_by?: string;
-            /** @description Perspective correction corners */
-            perspective?: components["schemas"]["PerspectiveData"];
-            /**
-             * @description Video resolution
-             * @example 1920x1080
-             */
-            resolution?: string;
-            /**
-             * Format: int64
-             * @description Output rotation in degrees (individual streams only)
-             * @example 0
-             * @enum {integer}
-             */
-            rotation?: 0 | 90 | 180 | 270;
-            /**
-             * @description RTSP streaming URL
+             * @description RTSP playback URL
              * @example rtsp://localhost:8554/stream-001
              */
             rtsp_url?: string;
             /**
-             * @description SRT streaming URL
+             * @description SRT playback URL
              * @example srt://localhost:6001?streamid=stream-001
              */
             srt_url?: string;
             /**
-             * Format: date-time
-             * @description When the stream was loaded into memory
+             * @description Encoder process pool state
+             * @example running
+             * @enum {string}
              */
-            start_time?: string;
+            status?: "idle" | "starting" | "running" | "stopping" | "error";
             /**
              * @description Unique stream identifier
              * @example stream-001
              */
             stream_id: string;
             /**
-             * @description Test pattern mode enabled
-             * @example false
+             * Format: date-time
+             * @description When the stream spec was last updated
              */
-            test_mode: boolean;
-            /** @description Vision pipeline config */
-            vision?: components["schemas"]["VisionData"];
-        };
-        StreamDeletedEvent: {
+            updated_at?: string;
             /**
-             * @description Action type
-             * @example deleted
+             * @description Upstream reference: "source:<id>" or "composer:<id>"
+             * @example source:hdmi0
              */
-            action: string;
-            /**
-             * @description Deleted stream identifier
-             * @example stream-001
-             */
-            stream_id: string;
-            /**
-             * @description Event timestamp
-             * @example 2025-01-27T10:30:00Z
-             */
-            timestamp: string;
+            upstream: string;
         };
         StreamListData: {
             /**
@@ -1202,11 +2037,11 @@ export interface components {
             readonly $schema?: string;
             /**
              * Format: int64
-             * @description Number of active streams
+             * @description Number of streams
              * @example 2
              */
             count: number;
-            /** @description List of active streams */
+            /** @description List of configured streams */
             streams: components["schemas"]["StreamData"][] | null;
         };
         StreamListOutputBody: {
@@ -1219,12 +2054,17 @@ export interface components {
             /** @description List of active stream IDs */
             streams: string[] | null;
         };
-        StreamMetricsEvent: {
-            dropped_frames: string;
-            duplicate_frames: string;
-            fps: string;
-            stream_id: string;
-            type: string;
+        StreamMetricsPayload: {
+            /** Format: double */
+            bytes_out: number;
+            /** Format: double */
+            dropped_frames: number;
+            /** Format: double */
+            duplicate_frames: number;
+            /** Format: double */
+            fps: number;
+            /** Format: double */
+            packets_out: number;
         };
         StreamRequestData: {
             /**
@@ -1233,89 +2073,33 @@ export interface components {
              * @example https://example.com/schemas/StreamRequestData.json
              */
             readonly $schema?: string;
+            /** @description Audio routing */
+            audio?: components["schemas"]["AudioConfigData"];
+            /** @description User-supplied ffmpeg encoder args */
+            custom_encoder_args?: string;
+            /** @description Initial enabled state (default true) */
+            enabled?: boolean;
+            /** @description Encoder configuration */
+            encoder?: components["schemas"]["EncoderConfigData"];
             /**
-             * @description ALSA device for audio
-             * @example hw:4,0
+             * @description Human-readable stream name
+             * @example Main Archive
              */
-            audio_device?: string;
-            /**
-             * Format: double
-             * @description Bitrate in Mbps
-             * @example 2
-             */
-            bitrate?: number;
-            /** @description Canvas configuration for composite streams referencing 1–4 individual streams */
-            canvas?: components["schemas"]["CanvasData"];
-            /**
-             * @description Video codec standard
-             * @example h264
-             * @enum {string}
-             */
-            codec: "h264" | "h265";
-            /**
-             * @description Stable USB device identifier (required for single-camera streams)
-             * @example usb-0000:00:14.0-1
-             */
-            device_id?: string;
-            /**
-             * Format: int64
-             * @description Video framerate
-             * @example 30
-             */
-            framerate?: number;
-            /**
-             * Format: int64
-             * @description Video height
-             * @example 1080
-             */
-            height?: number;
-            /**
-             * @description V4L2 input format (required for single-camera streams)
-             * @example yuyv422
-             */
-            input_format?: string;
-            /** @description FFmpeg option keys (e.g., vsync_passthrough, low_latency) */
-            options?: string[] | null;
-            /**
-             * Format: int64
-             * @description Output rotation in degrees
-             * @example 0
-             * @enum {integer}
-             */
-            rotation?: 0 | 90 | 180 | 270;
+            name?: string;
             /**
              * @description Stream identifier
              * @example my-stream-001
              */
             stream_id: string;
             /**
-             * Format: int64
-             * @description Video width
-             * @example 1920
+             * @description Upstream reference
+             * @example source:hdmi0
              */
-            width?: number;
+            upstream: string;
         };
-        StreamStateChangedEvent: {
-            /**
-             * @description Action: enabled, disabled, running
-             * @example running
-             */
-            action?: string;
-            /**
-             * @description Whether stream is enabled
-             * @example true
-             */
-            enabled: boolean;
-            /**
-             * @description Stream identifier
-             * @example stream-001
-             */
-            stream_id: string;
-            /**
-             * @description Event timestamp
-             * @example 2025-01-27T10:30:00Z
-             */
-            timestamp: string;
+        StreamStatusPayload: {
+            encoder_up: boolean;
+            state: string;
         };
         StreamUpdateRequestData: {
             /**
@@ -1324,152 +2108,68 @@ export interface components {
              * @example https://example.com/schemas/StreamUpdateRequestData.json
              */
             readonly $schema?: string;
-            /**
-             * @description ALSA device for audio
-             * @example hw:4,0
-             */
-            audio_device?: string;
-            /**
-             * Format: double
-             * @description Bitrate in Mbps
-             * @example 2
-             */
-            bitrate?: number;
-            /** @description Canvas configuration for composite streams (replaces entire canvas) */
-            canvas?: components["schemas"]["CanvasData"];
-            /**
-             * @description Video codec standard
-             * @example h264
-             * @enum {string}
-             */
-            codec?: "h264" | "h265";
-            /**
-             * @description Custom FFmpeg command override
-             * @example ffmpeg -f v4l2...
-             */
-            custom_ffmpeg_command?: string;
-            /**
-             * @description Manual override of runtime enabled state
-             * @example true
-             */
+            /** @description Audio routing (null to clear) */
+            audio?: components["schemas"]["AudioConfigData"] | null;
+            /** @description User-supplied ffmpeg encoder args */
+            custom_encoder_args?: string;
+            /** @description Runtime enabled state */
             enabled?: boolean;
-            /**
-             * Format: int64
-             * @description Video framerate
-             * @example 30
-             */
-            framerate?: number;
-            /**
-             * Format: int64
-             * @description Video height
-             * @example 1080
-             */
-            height?: number;
-            /**
-             * @description V4L2 input format
-             * @example yuyv422
-             */
-            input_format?: string;
-            /** @description FFmpeg option keys (e.g., vsync_passthrough, low_latency) */
-            options?: string[] | null;
-            /** @description Perspective corners (null to clear) */
-            perspective?: components["schemas"]["PerspectiveData"] | null;
-            /**
-             * Format: int64
-             * @description Output rotation in degrees
-             * @example 0
-             * @enum {integer}
-             */
-            rotation?: 0 | 90 | 180 | 270;
-            /**
-             * @description Enable test pattern mode instead of device capture
-             * @example false
-             */
-            test_mode?: boolean;
-            /** @description Vision config (null to clear) */
-            vision?: components["schemas"]["VisionData"] | null;
-            /**
-             * Format: int64
-             * @description Video width
-             * @example 1920
-             */
-            width?: number;
+            /** @description Encoder configuration (null to clear) */
+            encoder?: components["schemas"]["EncoderConfigData"] | null;
+            /** @description Human-readable name */
+            name?: string;
+            /** @description Upstream reference */
+            upstream?: string;
         };
-        StreamUpdatedEvent: {
-            /**
-             * @description Action type
-             * @example updated
-             */
-            action: string;
-            /** @description Updated stream data */
-            stream: components["schemas"]["StreamData"];
-            /**
-             * @description Event timestamp
-             * @example 2025-01-27T10:30:00Z
-             */
-            timestamp: string;
+        SystemStatsError: {
+            /** @description Pool key of the erroring stage */
+            id: string;
+            /** @description Most recent error from the supervisor */
+            message?: string;
         };
-        VersionData: {
+        SystemStatsResponseBody: {
             /**
              * Format: uri
              * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VersionData.json
+             * @example https://example.com/schemas/SystemStatsResponseBody.json
              */
             readonly $schema?: string;
             /**
-             * @description Build timestamp
-             * @example 2024-12-15 14:30
+             * Format: double
+             * @description Combined CPU usage (0-100 per core) of the daemon and all supervised stages
              */
-            build_date: string;
+            cpu_percent: number;
             /**
-             * @description Unique build identifier
-             * @example a1b2c3d4
+             * Format: int64
+             * @description Number of supervised stages currently in the error state
              */
-            build_id: string;
+            error_count: number;
+            /** @description Supervised stages currently in the error state (sorted by id) */
+            errors?: components["schemas"]["SystemStatsError"][] | null;
             /**
-             * @description Compiler used
-             * @example gc
+             * Format: int64
+             * @description Number of processes counted (the daemon plus running supervised stages)
              */
-            compiler: string;
+            process_count: number;
             /**
-             * @description Git commit SHA
-             * @example abc1234
+             * Format: int64
+             * @description Combined resident set size in bytes of the daemon and all supervised stages
              */
-            git_commit: string;
+            rss_bytes: number;
             /**
-             * @description Go compiler version
-             * @example go1.21.0
+             * Format: int64
+             * @description Daemon start time in Unix microseconds; render as uptime
              */
-            go_version: string;
-            /**
-             * @description Platform
-             * @example linux/amd64
-             */
-            platform: string;
-            /**
-             * @description Application version
-             * @example dev
-             */
-            version: string;
+            started_at_us: number;
         };
-        VisionData: {
-            /** @description Enable raw frame output for AI pipeline */
-            enabled: boolean;
-            /**
-             * Format: int64
-             * @description Vision pipe frame rate (1-60). 0 = use server default.
-             */
-            fps?: number;
-            /**
-             * Format: int64
-             * @description Raw frame height (default 480)
-             */
-            height?: number;
-            /**
-             * Format: int64
-             * @description Raw frame width (default 640)
-             */
-            width?: number;
+        WebRTCClientInfo: {
+            /** Format: int64 */
+            bytes_sent: number;
+            client_ip: string;
+            connected_since: string;
+            id: string;
+            /** Format: double */
+            jitter_ms: number;
         };
     };
     responses: never;
@@ -1480,6 +2180,640 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "list-composers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerListData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposerCreateRequestData"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "import-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/toml": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposerUpdateRequestData"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "export-composer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "import-composer-into": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/toml": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "set-composer-input-effect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+                /** @description Input ref (matches inputs[].ref) */
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposerEffectRequestData"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "replace-composer-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Composer identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposerLayoutRequestData"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-devices": {
         parameters: {
             query?: never;
@@ -1547,6 +2881,87 @@ export interface operations {
             };
         };
     };
+    "device-set-format": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stable device identifier */
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceSetFormatBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceSetFormatData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "device-formats": {
         parameters: {
             query?: never;
@@ -1601,7 +3016,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "nv12" | "bgr24" | "rgb24" | "yuyv422" | "h264" | "mjpeg" | "yu12" | "yv12" | "nv24" | "nv16";
+                format_name?: "bgr24" | "h264" | "mjpeg" | "nv12" | "nv16" | "nv24" | "rgb24" | "yu12" | "yuyv422" | "yv12";
                 /** @description Video width in pixels */
                 width?: number;
                 /** @description Video height in pixels */
@@ -1667,7 +3082,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Human-readable format name */
-                format_name?: "yv12" | "nv24" | "nv16" | "nv12" | "bgr24" | "rgb24" | "yuyv422" | "h264" | "mjpeg" | "yu12";
+                format_name?: "bgr24" | "h264" | "mjpeg" | "nv12" | "nv16" | "nv24" | "rgb24" | "yu12" | "yuyv422" | "yv12";
             };
             header?: never;
             path: {
@@ -1788,17 +3203,6 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": ({
-                        data: components["schemas"]["CanvasRestartedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "canvas-restarted";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
                         data: components["schemas"]["DeviceDiscoveryEvent"];
                         /**
                          * @description The event name.
@@ -1810,56 +3214,34 @@ export interface operations {
                         /** @description The retry time in milliseconds. */
                         retry?: number;
                     } | {
-                        data: components["schemas"]["StreamCreatedEvent"];
+                        data: components["schemas"]["EntitySourceCreated"] | components["schemas"]["EntitySourceUpdated"] | components["schemas"]["EntitySourceDeleted"] | components["schemas"]["EntitySourceStatus"] | components["schemas"]["EntitySourceConsumers"] | components["schemas"]["EntityComposerCreated"] | components["schemas"]["EntityComposerUpdated"] | components["schemas"]["EntityComposerDeleted"] | components["schemas"]["EntityStreamCreated"] | components["schemas"]["EntityStreamUpdated"] | components["schemas"]["EntityStreamDeleted"] | components["schemas"]["EntityStreamStatus"] | components["schemas"]["EntityStreamMetrics"] | components["schemas"]["EntityStreamConsumers"];
                         /**
                          * @description The event name.
                          * @constant
                          */
-                        event: "stream-created";
+                        event: "entity";
                         /** @description The event ID. */
                         id?: number;
                         /** @description The retry time in milliseconds. */
                         retry?: number;
                     } | {
-                        data: components["schemas"]["StreamDeletedEvent"];
+                        data: components["schemas"]["HeartbeatEvent"];
                         /**
                          * @description The event name.
                          * @constant
                          */
-                        event: "stream-deleted";
+                        event: "heartbeat";
                         /** @description The event ID. */
                         id?: number;
                         /** @description The retry time in milliseconds. */
                         retry?: number;
                     } | {
-                        data: components["schemas"]["StreamMetricsEvent"];
+                        data: components["schemas"]["PipelineStateChangedEvent"];
                         /**
                          * @description The event name.
                          * @constant
                          */
-                        event: "stream-metrics";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["StreamStateChangedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "stream-state-changed";
-                        /** @description The event ID. */
-                        id?: number;
-                        /** @description The retry time in milliseconds. */
-                        retry?: number;
-                    } | {
-                        data: components["schemas"]["StreamUpdatedEvent"];
-                        /**
-                         * @description The event name.
-                         * @constant
-                         */
-                        event: "stream-updated";
+                        event: "pipeline-state-changed";
                         /** @description The event ID. */
                         id?: number;
                         /** @description The retry time in milliseconds. */
@@ -1899,6 +3281,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -2041,6 +3424,519 @@ export interface operations {
             };
         };
     };
+    "get-pipeline-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineStateBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "start-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineStateBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "stop-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineStateBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessesListResponseBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "restart-process": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Process pool id (kind:entity-id) as returned by GET /api/processes */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceListData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceCreateBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Source identifier */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Source identifier */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Source identifier */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceUpdateBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-streams": {
         parameters: {
             query?: never;
@@ -2130,75 +4026,6 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "canvas-layout-preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CanvasData"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CanvasLayoutData"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Not Found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2443,75 +4270,17 @@ export interface operations {
             };
         };
     };
-    "get-stream-ffmpeg": {
-        parameters: {
-            query?: {
-                /** @description Override the auto-selected encoder */
-                override?: string;
-            };
-            header?: never;
-            path: {
-                /** @description Stream identifier */
-                stream_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FFmpegCommandData"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "restart-stream": {
+    "disconnect-consumer": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description Stream identifier */
                 stream_id: string;
+                /** @description Consumer protocol */
+                protocol: "webrtc" | "srt";
+                /** @description Client identifier (peer name or consumer ID) */
+                client_id: string;
             };
             cookie?: never;
         };
@@ -2523,74 +4292,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "capture-snapshot": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Stream ID to capture snapshot from */
-                stream_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SnapshotOutputBody"];
-                };
             };
             /** @description Bad Request */
             400: {
@@ -2628,18 +4329,9 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ErrorModel"];
                 };
             };
-            /** @description Gateway Timeout */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
         };
     };
-    "get-version": {
+    "system-stats": {
         parameters: {
             query?: never;
             header?: never;
@@ -2654,11 +4346,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["VersionData"];
+                    "application/json": components["schemas"]["SystemStatsResponseBody"];
                 };
             };
-            /** @description Error */
-            default: {
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2668,14 +4369,14 @@ export interface operations {
             };
         };
     };
-    "webrtc-offer": {
+    "whep-offer": {
         parameters: {
-            query: {
+            query?: never;
+            header?: never;
+            path: {
                 /** @description Stream ID to connect to */
                 stream: string;
             };
-            header?: never;
-            path?: never;
             cookie?: never;
         };
         requestBody: {
@@ -2684,18 +4385,87 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
-            200: {
+            /** @description Created */
+            201: {
                 headers: {
                     "Content-Type"?: string;
+                    Location?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": string;
                 };
             };
-            /** @description Error */
-            default: {
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "whep-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stream ID */
+                stream: string;
+                /** @description Session ID returned in the Location header */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

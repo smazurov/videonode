@@ -3,6 +3,7 @@ package models
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -40,10 +41,17 @@ var videoFormatToPixelFormat = map[VideoFormat]uint32{
 
 // Schema implements SchemaProvider for dynamic enum validation.
 func (VideoFormat) Schema(_ huma.Registry) *huma.Schema {
-	// Generate enum values dynamically from our map
-	enumValues := make([]any, 0, len(videoFormatToPixelFormat))
+	// Sort so the generated OpenAPI enum order is stable across runs
+	// (Go map iteration is randomized, which churns api.generated.ts).
+	names := make([]string, 0, len(videoFormatToPixelFormat))
 	for format := range videoFormatToPixelFormat {
-		enumValues = append(enumValues, string(format))
+		names = append(names, string(format))
+	}
+	sort.Strings(names)
+
+	enumValues := make([]any, len(names))
+	for i, n := range names {
+		enumValues[i] = n
 	}
 
 	return &huma.Schema{
@@ -67,6 +75,29 @@ func (vf VideoFormat) IsValid() bool {
 	return exists
 }
 
+// ToFourCC returns the 4-char V4L2 fourcc string (e.g. "YUYV", "MJPG")
+// that the source binary's SetFormat RPC expects. Derived from the same
+// pixel-format code IsValid / ToPixelFormat use, so there's exactly one
+// source of truth.
+func (vf VideoFormat) ToFourCC() (string, error) {
+	pf, err := vf.ToPixelFormat()
+	if err != nil {
+		return "", err
+	}
+	bytes := []byte{
+		byte(pf & 0xFF),
+		byte((pf >> 8) & 0xFF),
+		byte((pf >> 16) & 0xFF),
+		byte((pf >> 24) & 0xFF),
+	}
+	for i, b := range bytes {
+		if b < 32 || b > 126 {
+			bytes[i] = '?'
+		}
+	}
+	return string(bytes), nil
+}
+
 // PixelFormatToVideoFormat converts V4L2 pixel format codes to VideoFormat.
 func PixelFormatToVideoFormat(pixelFormat uint32) (VideoFormat, bool) {
 	for format, code := range videoFormatToPixelFormat {
@@ -75,6 +106,17 @@ func PixelFormatToVideoFormat(pixelFormat uint32) (VideoFormat, bool) {
 		}
 	}
 	return "", false
+}
+
+// PixelFormatToVideoFormatByFourCC maps a 4-char V4L2 fourcc string
+// back to the lowercase VideoFormat the API returns to clients
+// (e.g. "YUYV" -> "yuyv422"). Inverse of VideoFormat.ToFourCC.
+func PixelFormatToVideoFormatByFourCC(fourcc string) (VideoFormat, bool) {
+	if len(fourcc) != 4 {
+		return "", false
+	}
+	code := uint32(fourcc[0]) | uint32(fourcc[1])<<8 | uint32(fourcc[2])<<16 | uint32(fourcc[3])<<24
+	return PixelFormatToVideoFormat(code)
 }
 
 // DeviceType represents the type of V4L2 device.
@@ -169,6 +211,30 @@ type DeviceFrameratesData struct {
 // DeviceFrameratesResponse is the HTTP response wrapper for DeviceFrameratesData.
 type DeviceFrameratesResponse struct {
 	Body DeviceFrameratesData
+}
+
+// DeviceSetFormatBody is the JSON body of a POST /api/devices/{id}/format request.
+type DeviceSetFormatBody struct {
+	FourCC string `json:"fourcc" example:"YUYV" doc:"4-character V4L2 pixel format code"`
+	Width  uint32 `json:"width" example:"1920" doc:"Capture width in pixels"`
+	Height uint32 `json:"height" example:"1080" doc:"Capture height in pixels"`
+	FPS    uint32 `json:"fps,omitempty" example:"30" doc:"Capture framerate; 0 = driver default"`
+}
+
+// DeviceSetFormatInput is the HTTP request input for set_format.
+type DeviceSetFormatInput struct {
+	DeviceID string              `path:"device_id" doc:"Stable device identifier"`
+	Body     DeviceSetFormatBody `body:"body"`
+}
+
+// DeviceSetFormatData is the success payload of set_format.
+type DeviceSetFormatData struct {
+	Applied bool `json:"applied" doc:"True if the source accepted and applied the new format"`
+}
+
+// DeviceSetFormatResponse is the HTTP response wrapper for DeviceSetFormatData.
+type DeviceSetFormatResponse struct {
+	Body DeviceSetFormatData
 }
 
 // Note: V4L2 conversion functions were removed - conversion now happens in devices package

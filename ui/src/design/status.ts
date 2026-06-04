@@ -31,9 +31,29 @@ export function connectionStatusClasses(state: string): string {
   }
 }
 
-export type Protocol = "webrtc" | "rtsp" | "srt" | "rtmp" | "canvas";
+export type Protocol = "webrtc" | "rtsp" | "srt" | "rtmp" | "composer";
 
 // Protocol/feature badge: returns the tone name consumed by Badge's `tone` prop.
-export function protocolTone(protocol: Protocol): "webrtc" | "rtsp" | "srt" | "rtmp" | "canvas" {
+export function protocolTone(protocol: Protocol): "webrtc" | "rtsp" | "srt" | "rtmp" | "composer" {
   return protocol;
+}
+
+// Composer/encoder lifecycle pill. Mirrors the warm/cold/encoding/idle states
+// the daemon reports for the producer→composer→encoder chain.
+export type StageLifecycle = "warm" | "cold" | "encoding" | "idle" | "error";
+
+export function stageLifecycleClasses(state: StageLifecycle): string {
+  switch (state) {
+    case "warm":
+      return "bg-success";
+    case "encoding":
+      return "bg-accent animate-pulse";
+    case "cold":
+      return "bg-surface-muted text-fg-muted";
+    case "error":
+      return "bg-danger";
+    case "idle":
+    default:
+      return "bg-warning";
+  }
 }
