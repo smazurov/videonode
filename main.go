@@ -251,6 +251,7 @@ func main() {
 			DeviceResolver: streams.MakeDeviceResolver(),
 			ControlServer:  ctlServer,
 			Registry:       eventRegistry,
+			EventBus:       eventBus,
 			EntityStore:    entityStore,
 			EncoderResolver: func(codec, inputPixFmt string) (pipeline.EncoderResolution, error) {
 				cfg, err := encoders.MapAPICodec(codec, inputPixFmt, streamStore)

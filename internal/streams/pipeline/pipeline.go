@@ -48,6 +48,12 @@ type Config struct {
 	// transitions so their SSE snapshot refreshes with the new status.
 	Registry *events.Registry
 
+	// EventBus, when non-nil, receives the dedicated ProcessesEvent stream:
+	// the current set of supervised processes is published on every pool
+	// state transition and on each 2s stats sample while anything is
+	// running. Separate from the per-entity Registry path above.
+	EventBus *events.Bus
+
 	// EncoderResolver maps a logical codec ("h264", "h265") and the
 	// upstream pixel format ("nv12", "bgra", "") to the best validated
 	// ffmpeg encoder + its HW-specific plumbing. Called by buildEncoder
@@ -126,6 +132,7 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 		CommandProvider:  p.commandFor,
 		ConfigureProcess: p.configureProcess,
 		OnStateChange:    p.onStateChange,
+		OnStats:          p.publishProcesses,
 	})
 	return p
 }
@@ -1205,6 +1212,43 @@ func (p *Pipeline) onStateChange(id string, _, newState process.State, _ error) 
 			p.cfg.Registry.Touch(context.Background(), "stream", strings.TrimPrefix(id, "encoder:"))
 		}
 	}
+	// Push the whole supervised set on the dedicated process stream so the
+	// transition reaches the operator UI immediately, independent of the
+	// per-entity Touch above.
+	p.publishProcesses()
+}
+
+// publishProcesses broadcasts the current supervised-process set on the
+// dedicated ProcessesEvent stream. Wired as the pool's OnStats callback
+// (fires per 2s stats sample while anything runs) and called from
+// onStateChange (fires immediately on every transition). The payload is the
+// same Snapshot() rows that back GET /api/processes — a cheap pool+stage
+// join, not an entity recompute — so an idle pipeline stays silent because
+// neither trigger fires when nothing is running. No-op when EventBus is nil.
+func (p *Pipeline) publishProcesses() {
+	if p.cfg.EventBus == nil {
+		return
+	}
+	views := p.Snapshot()
+	infos := make([]events.ProcessInfo, len(views))
+	for i, v := range views {
+		infos[i] = events.ProcessInfo{
+			ID:           v.ID,
+			Kind:         v.Kind,
+			StreamID:     v.StreamID,
+			State:        v.State,
+			PID:          v.PID,
+			StartedAtUS:  v.StartedAtUS,
+			RestartCount: v.RestartCount,
+			LastError:    v.LastError,
+			RSSBytes:     v.RSSBytes,
+			CPUPercent:   v.CPUPercent,
+		}
+	}
+	events.Publish(p.cfg.EventBus, events.ProcessesEvent{
+		Processes: infos,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
 }
 
 // commandFor is the pool's CommandProvider callback.
