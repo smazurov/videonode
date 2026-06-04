@@ -19,6 +19,7 @@ const (
 	KindProducer      // videonode-source — per unique device, refcounted
 	KindComposer      // videonode-composer — per stream when N>1 or effects
 	KindEncoder       // vn-sink | ffmpeg — per stream, always
+	KindSensor        // videonode-sensor — AI perception sidecar
 )
 
 // String returns the lowercased name used as the journald MODULE
@@ -31,6 +32,8 @@ func (k Kind) String() string {
 		return "composer"
 	case KindEncoder:
 		return "encoder"
+	case KindSensor:
+		return "sensor"
 	default:
 		return "unknown"
 	}

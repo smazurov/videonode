@@ -12,6 +12,7 @@ const (
 	KeyEntityID   = "entity_id"
 	KeyPoolID     = "pool_id"
 	KeyPeerID     = "peer_id"
+	KeySensorID   = "sensor_id"
 )
 
 // Process / pipeline.
@@ -147,7 +148,7 @@ const (
 // log lines may use. The Go parser warns on unknown keys at runtime.
 var AllowedKeys = map[string]struct{}{
 	KeySourceID: {}, KeyComposerID: {}, KeyStreamID: {},
-	KeyDeviceID: {}, KeyEntityID: {}, KeyPoolID: {}, KeyPeerID: {},
+	KeyDeviceID: {}, KeyEntityID: {}, KeyPoolID: {}, KeyPeerID: {}, KeySensorID: {},
 	KeyModule: {}, KeyStageInstance: {}, KeyPID: {}, KeyExitCode: {},
 	KeyCommand: {}, KeyPipe: {}, KeyPipelineEnabled: {},
 	KeySourceBin: {}, KeySinkBin: {}, KeyComposerBin: {},

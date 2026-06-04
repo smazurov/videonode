@@ -31,6 +31,7 @@ type Server struct {
 	streamService      StreamService
 	sourceService      SourceService
 	composerService    ComposerService
+	sensorService      SensorService
 	validationProvider types.ValidationProvider
 	options            *Options
 	deviceDetector     devices.DeviceDetector
@@ -39,6 +40,7 @@ type Server struct {
 	sourceEntity       *events.Entity[models.SourceData]
 	composerEntity     *events.Entity[models.ComposerData]
 	streamEntity       *events.Entity[models.StreamData]
+	sensorEntity       *events.Entity[models.SensorData]
 	controlServer      *pipelinectl.Manager
 	logger             logging.Logger
 	startedAtUS        int64
@@ -162,6 +164,7 @@ type Options struct {
 	StreamService      StreamService            // v2 stream service backed by EntityStore + Pipeline
 	SourceService      SourceService            // Optional: enables /api/sources CRUD when set
 	ComposerService    ComposerService          // Optional: enables /api/composers when set
+	SensorService      SensorService            // Optional: enables /api/sensors CRUD when set
 	ValidationProvider types.ValidationProvider // Encoder-validation data accessor (backed by the streams store)
 	EventBus           *events.Bus              // Event bus for in-process events
 	EventRegistry      *events.Registry         // Entity registry; constructed in main.go alongside EventBus
@@ -219,6 +222,7 @@ func NewServer(opts *Options) *Server {
 		streamService:      opts.StreamService,
 		sourceService:      opts.SourceService,
 		composerService:    opts.ComposerService,
+		sensorService:      opts.SensorService,
 		validationProvider: opts.ValidationProvider,
 		options:            opts,
 		eventBus:           opts.EventBus,
@@ -272,6 +276,20 @@ func NewServer(opts *Options) *Server {
 						return models.StreamData{}, err
 					}
 					return server.streamToAPI(*st), nil
+				},
+			})
+		}
+		if opts.SensorService != nil {
+			server.sensorEntity = events.Register(opts.EventRegistry, events.Registration[models.SensorData]{
+				Type:        "sensor",
+				RoutePrefix: "/api/sensors",
+				IDOf:        func(s models.SensorData) string { return s.SensorID },
+				Loader: func(ctx context.Context, id string) (models.SensorData, error) {
+					sn, err := server.sensorService.Get(ctx, id)
+					if err != nil {
+						return models.SensorData{}, err
+					}
+					return sensorToAPI(*sn), nil
 				},
 			})
 		}
@@ -553,6 +571,9 @@ func (s *Server) registerRoutes() {
 
 	// Source endpoints (no-op when SourceService is nil)
 	s.registerSourceRoutes()
+
+	// Sensor endpoints (no-op when SensorService is nil)
+	s.registerSensorRoutes()
 
 	// Stream endpoints
 	s.registerStreamRoutes()

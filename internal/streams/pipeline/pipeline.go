@@ -23,6 +23,7 @@ type Config struct {
 	VNSourceBin   string
 	VNComposerBin string
 	VNSinkBin     string
+	VNSensorBin   string
 	DRMDevice     string
 
 	// RTSPPort is the daemon's RTSP listen spec (e.g. ":8554" or
@@ -61,6 +62,11 @@ type Config struct {
 	// that could drift from what was persisted. Required in production;
 	// tests inject a fake.
 	EntityStore EntityStore
+
+	// SensorReconciler, when non-nil, reconciles auto_crop sensor wiring
+	// on input-effect changes. Without it, auto_crop effects persist but
+	// nothing is spawned (e.g. tests, pipeline-off).
+	SensorReconciler SensorReconciler
 }
 
 // EntityStore is the read surface the pipeline needs over persisted
@@ -647,6 +653,15 @@ func (p *Pipeline) UpdateComposerEffect(id, inputRef string, effect *Effect) err
 	if id == "" {
 		return errors.New("pipeline: composer.ID is required")
 	}
+	// auto_crop is a daemon-level effect: never forwarded to the composer.
+	// The reconciler provisions/tears down the sensor wiring from the
+	// composer's current inputs, so a clear (effect==nil) is handled there too.
+	if effect.IsAutoCrop() {
+		if p.cfg.SensorReconciler != nil {
+			p.cfg.SensorReconciler.ReconcileComposer(id)
+		}
+		return nil
+	}
 	if p.cfg.ControlServer == nil {
 		return errors.New("pipeline: ControlServer is nil; cannot hot-apply effect")
 	}
@@ -665,7 +680,13 @@ func (p *Pipeline) UpdateComposerEffect(id, inputRef string, effect *Effect) err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return p.cfg.ControlServer.SendSetEffects(ctx, id, params)
+	err := p.cfg.ControlServer.SendSetEffects(ctx, id, params)
+	// A perspective/clear change may have replaced a prior auto_crop on this
+	// input; reconcile so any now-orphaned sensor wiring is torn down.
+	if p.cfg.SensorReconciler != nil {
+		p.cfg.SensorReconciler.ReconcileComposer(id)
+	}
+	return err
 }
 
 // StopComposer stops the composer's process and tears down its gRPC

@@ -13,6 +13,11 @@ type Source = pipeline.Source
 // Composer re-exports the canonical composer descriptor.
 type Composer = pipeline.Composer
 
+// Sensor re-exports the canonical sensor descriptor. Sensors are
+// first-class perception entities; this alias lets api/service consumers
+// use one set of types.
+type Sensor = pipeline.Sensor
+
 // ComposerInput re-exports the canonical composer input descriptor.
 type ComposerInput = pipeline.ComposerInput
 
@@ -69,6 +74,12 @@ type EntityStore interface {
 	AddComposerEntity(c Composer) error
 	UpdateComposerEntity(id string, c Composer) error
 	RemoveComposerEntity(id string) error
+
+	ListSensorEntities() []Sensor
+	GetSensorEntity(id string) (Sensor, bool)
+	AddSensorEntity(s Sensor) error
+	UpdateSensorEntity(id string, s Sensor) error
+	RemoveSensorEntity(id string) error
 
 	ListPipelineStreams() []PipelineStream
 	GetPipelineStream(id string) (PipelineStream, bool)

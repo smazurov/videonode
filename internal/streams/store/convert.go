@@ -30,6 +30,38 @@ func sourceFromV2(v V2Source) streams.Source {
 	return out
 }
 
+// sensorFromV2 converts a persisted V2Sensor to its canonical shape.
+func sensorFromV2(v V2Sensor) streams.Sensor {
+	return streams.Sensor{
+		ID:            v.ID,
+		Source:        v.Source,
+		Detector:      v.Detector,
+		ModelID:       v.ModelID,
+		Mode:          v.Mode,
+		Margin:        v.Margin,
+		MinConfidence: v.MinConfidence,
+		TickMs:        v.TickMs,
+		CreatedAt:     v.CreatedAt,
+		UpdatedAt:     v.UpdatedAt,
+	}
+}
+
+// sensorToV2 converts a canonical pipeline.Sensor to its persisted form.
+func sensorToV2(s streams.Sensor) V2Sensor {
+	return V2Sensor{
+		ID:            s.ID,
+		Source:        s.Source,
+		Detector:      s.Detector,
+		ModelID:       s.ModelID,
+		Mode:          s.Mode,
+		Margin:        s.Margin,
+		MinConfidence: s.MinConfidence,
+		TickMs:        s.TickMs,
+		CreatedAt:     s.CreatedAt,
+		UpdatedAt:     s.UpdatedAt,
+	}
+}
+
 // sourceToV2 converts a canonical pipeline.Source to its persisted form.
 func sourceToV2(s streams.Source) V2Source {
 	out := V2Source{
@@ -68,6 +100,11 @@ func composerFromV2(v V2Composer) streams.Composer {
 					SnapshotW: in.Effect.SnapshotW,
 					SnapshotH: in.Effect.SnapshotH,
 				}
+				if in.Effect.AutoCrop != nil {
+					e.AutoCrop = &pipeline.AutoCropEffect{
+						Sensor: in.Effect.AutoCrop.Sensor,
+					}
+				}
 				c.Inputs[i].Effect = &e
 			}
 		}
@@ -102,6 +139,11 @@ func composerToV2(c streams.Composer) V2Composer {
 					Corners:   in.Effect.Corners,
 					SnapshotW: in.Effect.SnapshotW,
 					SnapshotH: in.Effect.SnapshotH,
+				}
+				if in.Effect.AutoCrop != nil {
+					e.AutoCrop = &V2AutoCropEffect{
+						Sensor: in.Effect.AutoCrop.Sensor,
+					}
 				}
 				v.Inputs[i].Effect = &e
 			}

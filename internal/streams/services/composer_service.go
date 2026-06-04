@@ -383,6 +383,11 @@ func (s *composerService) SetInputEffect(_ context.Context, id, ref string, effe
 					SnapshotW: effect.SnapshotW,
 					SnapshotH: effect.SnapshotH,
 				}
+				if effect.AutoCrop != nil {
+					c.Inputs[i].Effect.AutoCrop = &pipeline.AutoCropEffect{
+						Sensor: effect.AutoCrop.Sensor,
+					}
+				}
 			} else {
 				c.Inputs[i].Effect = nil
 			}
@@ -550,6 +555,11 @@ func composerToAPI(c pipeline.Composer) models.ComposerData {
 				Corners:   in.Effect.Corners,
 				SnapshotW: in.Effect.SnapshotW,
 				SnapshotH: in.Effect.SnapshotH,
+			}
+			if in.Effect.AutoCrop != nil {
+				e.AutoCrop = &models.AutoCropData{
+					Sensor: in.Effect.AutoCrop.Sensor,
+				}
 			}
 			out.Inputs[i].Effect = &e
 		}

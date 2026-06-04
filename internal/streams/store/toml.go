@@ -29,6 +29,7 @@ type config struct {
 	Sources   []V2Source   `toml:"sources,omitempty" json:"sources,omitempty"`
 	Composers []V2Composer `toml:"composers,omitempty" json:"composers,omitempty"`
 	Streams   []V2Stream   `toml:"streams,omitempty" json:"streams,omitempty"`
+	Sensors   []V2Sensor   `toml:"sensors,omitempty" json:"sensors,omitempty"`
 }
 
 // streamsRawV1Entry is just enough of the legacy StreamSpec to seed a
@@ -405,6 +406,66 @@ func (s *tomlStore) RemoveSource(id string) error {
 	return fmt.Errorf("source %q not found", id)
 }
 
+// GetAllSensors returns all v2 sensors.
+func (s *tomlStore) GetAllSensors() []V2Sensor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]V2Sensor, len(s.config.Sensors))
+	copy(out, s.config.Sensors)
+	return out
+}
+
+// GetSensor returns one v2 sensor by id.
+func (s *tomlStore) GetSensor(id string) (V2Sensor, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sn := range s.config.Sensors {
+		if sn.ID == id {
+			return sn, true
+		}
+	}
+	return V2Sensor{}, false
+}
+
+// AddSensor appends a new v2 sensor and persists.
+func (s *tomlStore) AddSensor(sn V2Sensor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.config.Sensors {
+		if existing.ID == sn.ID {
+			return fmt.Errorf("sensor %q already exists", sn.ID)
+		}
+	}
+	s.config.Sensors = append(s.config.Sensors, sn)
+	return s.save()
+}
+
+// UpdateSensor replaces an existing sensor in-place and persists.
+func (s *tomlStore) UpdateSensor(id string, sn V2Sensor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.config.Sensors {
+		if existing.ID == id {
+			s.config.Sensors[i] = sn
+			return s.save()
+		}
+	}
+	return fmt.Errorf("sensor %q not found", id)
+}
+
+// RemoveSensor deletes a sensor by id and persists.
+func (s *tomlStore) RemoveSensor(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.config.Sensors {
+		if existing.ID == id {
+			s.config.Sensors = append(s.config.Sensors[:i], s.config.Sensors[i+1:]...)
+			return s.save()
+		}
+	}
+	return fmt.Errorf("sensor %q not found", id)
+}
+
 // GetAllComposers returns all v2 composers.
 func (s *tomlStore) GetAllComposers() []V2Composer {
 	s.mu.RLock()
@@ -598,6 +659,41 @@ func (s *tomlStore) UpdateComposerEntity(id string, c streams.Composer) error {
 // RemoveComposerEntity deletes a composer by id.
 func (s *tomlStore) RemoveComposerEntity(id string) error {
 	return s.RemoveComposer(id)
+}
+
+// ListSensorEntities returns all sensors as pipeline.Sensor values.
+func (s *tomlStore) ListSensorEntities() []streams.Sensor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]streams.Sensor, len(s.config.Sensors))
+	for i, v := range s.config.Sensors {
+		out[i] = sensorFromV2(v)
+	}
+	return out
+}
+
+// GetSensorEntity returns a single sensor by id.
+func (s *tomlStore) GetSensorEntity(id string) (streams.Sensor, bool) {
+	v, ok := s.GetSensor(id)
+	if !ok {
+		return streams.Sensor{}, false
+	}
+	return sensorFromV2(v), true
+}
+
+// AddSensorEntity persists a new sensor from its canonical shape.
+func (s *tomlStore) AddSensorEntity(sn streams.Sensor) error {
+	return s.AddSensor(sensorToV2(sn))
+}
+
+// UpdateSensorEntity replaces an existing sensor in-place by id.
+func (s *tomlStore) UpdateSensorEntity(id string, sn streams.Sensor) error {
+	return s.UpdateSensor(id, sensorToV2(sn))
+}
+
+// RemoveSensorEntity deletes a sensor by id.
+func (s *tomlStore) RemoveSensorEntity(id string) error {
+	return s.RemoveSensor(id)
 }
 
 // ListPipelineStreams returns all v2 streams as pipeline.Stream values.

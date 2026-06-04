@@ -77,14 +77,37 @@ type V2LayoutSlot struct {
 	Crop            *V2CropConfig `toml:"crop,omitempty" json:"crop,omitempty"`
 }
 
-// V2Effect is a tagged-union per-input transformation. Today only
-// "perspective" is implemented; Corners is its payload along with the
-// SnapshotW/SnapshotH dims that define the coord space Corners live in.
+// V2Effect is a tagged-union per-input transformation. "perspective" carries
+// Corners + SnapshotW/H; "auto_crop" is a daemon-level effect carrying AutoCrop
+// policy (the geometry is computed live by the sensor, not persisted).
 type V2Effect struct {
-	Type      string    `toml:"type" json:"type"`
-	Corners   [4][2]int `toml:"corners,omitzero" json:"corners,omitempty"`
-	SnapshotW int       `toml:"snapshot_w,omitempty" json:"snapshot_w,omitempty"`
-	SnapshotH int       `toml:"snapshot_h,omitempty" json:"snapshot_h,omitempty"`
+	Type      string            `toml:"type" json:"type"`
+	Corners   [4][2]int         `toml:"corners,omitzero" json:"corners,omitempty"`
+	SnapshotW int               `toml:"snapshot_w,omitempty" json:"snapshot_w,omitempty"`
+	SnapshotH int               `toml:"snapshot_h,omitempty" json:"snapshot_h,omitempty"`
+	AutoCrop  *V2AutoCropEffect `toml:"auto_crop,omitempty" json:"auto_crop,omitempty"`
+}
+
+// V2AutoCropEffect persists the auto_crop binding on a composer input: the
+// ref (`sensor:<id>`) of the first-class sensor whose findings drive this
+// input's crop. Detection + commit policy lives on the sensor, not here.
+type V2AutoCropEffect struct {
+	Sensor string `toml:"sensor" json:"sensor"`
+}
+
+// V2Sensor is a first-class perception entity persisted in [[sensors]]. It
+// observes one upstream ref and carries its detector + commit policy.
+type V2Sensor struct {
+	ID            string    `toml:"id" json:"id"`
+	Source        string    `toml:"source" json:"source"`
+	Detector      string    `toml:"detector,omitempty" json:"detector,omitempty"`
+	ModelID       string    `toml:"model_id,omitempty" json:"model_id,omitempty"`
+	Mode          string    `toml:"mode,omitempty" json:"mode,omitempty"`
+	Margin        float64   `toml:"margin,omitempty" json:"margin,omitempty"`
+	MinConfidence float64   `toml:"min_confidence,omitempty" json:"min_confidence,omitempty"`
+	TickMs        int       `toml:"tick_ms,omitempty" json:"tick_ms,omitempty"`
+	CreatedAt     time.Time `toml:"created_at" json:"created_at"`
+	UpdatedAt     time.Time `toml:"updated_at" json:"updated_at"`
 }
 
 // V2Stream is an encoder + audio config pointing at one upstream (source

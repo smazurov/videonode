@@ -18,6 +18,7 @@ type stubEntityStore struct {
 	sources   map[string]pipeline.Source
 	composers map[string]pipeline.Composer
 	streams   map[string]pipeline.Stream
+	sensors   map[string]pipeline.Sensor
 }
 
 func newStubStore() *stubEntityStore {
@@ -25,7 +26,36 @@ func newStubStore() *stubEntityStore {
 		sources:   map[string]pipeline.Source{},
 		composers: map[string]pipeline.Composer{},
 		streams:   map[string]pipeline.Stream{},
+		sensors:   map[string]pipeline.Sensor{},
 	}
+}
+
+func (s *stubEntityStore) ListSensorEntities() []pipeline.Sensor {
+	out := make([]pipeline.Sensor, 0, len(s.sensors))
+	for _, v := range s.sensors {
+		out = append(out, v)
+	}
+	return out
+}
+
+func (s *stubEntityStore) GetSensorEntity(id string) (pipeline.Sensor, bool) {
+	v, ok := s.sensors[id]
+	return v, ok
+}
+
+func (s *stubEntityStore) AddSensorEntity(sn pipeline.Sensor) error {
+	s.sensors[sn.ID] = sn
+	return nil
+}
+
+func (s *stubEntityStore) UpdateSensorEntity(id string, sn pipeline.Sensor) error {
+	s.sensors[id] = sn
+	return nil
+}
+
+func (s *stubEntityStore) RemoveSensorEntity(id string) error {
+	delete(s.sensors, id)
+	return nil
 }
 
 func (s *stubEntityStore) ListSourceEntities() []pipeline.Source {
