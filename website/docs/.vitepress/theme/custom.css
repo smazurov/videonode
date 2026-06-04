@@ -39,3 +39,79 @@
     line-height: 40px;
   }
 }
+
+/*
+ * Pipeline diagram lives in the home-hero-image slot (side-by-side). The
+ * default theme caps that slot at a 320-392px square for a logo; our portrait
+ * diagram sizes itself, so let the container grow and drop the centring shift.
+ */
+.VPHero.has-image .image-container {
+  width: 100%;
+  height: auto;
+  max-width: 420px;
+  margin: 0 auto;
+  transform: none;
+}
+.VPHero.has-image .image {
+  margin: 0 auto;
+}
+
+/*
+ * The diagram only makes sense side-by-side (>=960px). Below that the default
+ * theme would stack it on top and centre the hero text; instead drop it and
+ * restore the plain left-aligned hero, as if no hero image were set.
+ */
+@media (max-width: 959px) {
+  .VPHero .image {
+    display: none;
+  }
+  .VPHero.has-image .container {
+    text-align: left;
+  }
+  .VPHero.has-image .name,
+  .VPHero.has-image .text,
+  .VPHero.has-image .tagline {
+    margin: 0;
+  }
+  .VPHero.has-image .actions {
+    justify-content: flex-start;
+  }
+}
+
+/*
+ * One continuous dot-grid sheet behind the whole hero (text and diagram
+ * alike), echoing the diagram's nodes. Full-bleed across the hero band, masked
+ * to fade at top and bottom. Decorative: stays visible without motion for
+ * reduced-motion users; only the fade-in is gated behind motion preference.
+ */
+.VPHero {
+  position: relative;
+}
+.VPHero::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background-image: radial-gradient(var(--vp-c-border) 1.1px, transparent 1.3px);
+  background-size: 22px 22px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 84%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 84%, transparent);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.VPHero .container {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .VPHero::before {
+    opacity: 0;
+    animation: vn-hero-dots 1.1s ease 0.2s forwards;
+  }
+}
+@keyframes vn-hero-dots {
+  to {
+    opacity: 0.5;
+  }
+}
