@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { components } from '../lib/api.generated';
 import { api, unwrap } from '../lib/api';
-import { subscribeConnectionStatus, getGlobalConnectionStatus } from './useSSEManager';
+import {
+  subscribeConnectionStatus,
+  getGlobalConnectionStatus,
+  subscribeProcesses,
+} from './useSSEManager';
 
 export type ProcessEntry = components['schemas']['ProcessEntry'];
+type ProcessesEvent = components['schemas']['ProcessesEvent'];
 
 interface ProcessesState {
   processes: ProcessEntry[];
@@ -11,12 +16,16 @@ interface ProcessesState {
   error: string | null;
 }
 
-const POLL_INTERVAL_MS = 2000;
+// Process stats/state changes arrive over the dedicated SSE stream (immediate
+// on transitions, every 2s while anything runs). The poll is now only a
+// low-rate reconciliation backstop: it seeds the initial paint and drops rows
+// for processes that were deleted (a removed process emits no further events).
+const POLL_INTERVAL_MS = 30_000;
 
-// Shared, refcounted poller: every component that calls useProcesses reads
-// the same `/api/processes` poll instead of starting its own timer. A
+// Shared, refcounted store: every component that calls useProcesses reads the
+// same SSE-fed state instead of starting its own timer/subscription. A
 // stream-detail page mounts several panels that each need process state; one
-// timer fans out to all of them.
+// stream fans out to all of them.
 let shared: ProcessesState = { processes: [], loading: false, error: null };
 const subscribers = new Set<(s: ProcessesState) => void>();
 let timer: number | null = null;
@@ -24,10 +33,19 @@ let timer: number | null = null;
 // slow/dead backend (the global fetch timeout caps each at ~8s regardless).
 let inFlight: AbortController | null = null;
 let connUnsub: (() => void) | null = null;
+let processesUnsub: (() => void) | null = null;
 let online = true;
 
 function emit() {
   for (const fn of subscribers) fn(shared);
+}
+
+// SSE push is the steady-state source of truth: each event carries the full
+// supervised set, so replace wholesale. ProcessInfo is a structural subset of
+// ProcessEntry (no source-registry join fields), so the rows drop straight in.
+function handleProcessesEvent(event: ProcessesEvent): void {
+  shared = { processes: event.processes ?? [], loading: false, error: null };
+  emit();
 }
 
 async function fetchOnce() {
@@ -80,12 +98,15 @@ function handleConnectionStatus(status: ReturnType<typeof getGlobalConnectionSta
 
 function startSharedPolling() {
   if (connUnsub) return;
+  processesUnsub = subscribeProcesses(handleProcessesEvent);
   online = getGlobalConnectionStatus() === 'online';
   connUnsub = subscribeConnectionStatus(handleConnectionStatus);
   if (online) ensurePolling();
 }
 
 function stopSharedPolling() {
+  processesUnsub?.();
+  processesUnsub = null;
   connUnsub?.();
   connUnsub = null;
   stopPolling();

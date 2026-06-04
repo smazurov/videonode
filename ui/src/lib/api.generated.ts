@@ -305,7 +305,7 @@ export interface paths {
         };
         /**
          * Server-Sent Events Stream
-         * @description Real-time event stream for entity lifecycle/status/metrics/consumers, device changes, and pipeline state
+         * @description Real-time event stream for entity lifecycle/status/metrics/consumers, device changes, pipeline state, and supervised-process stats
          */
         get: operations["events-stream"];
         put?: never;
@@ -1694,6 +1694,52 @@ export interface components {
             state: string;
             /** @description User-facing stream id (empty for shared sources) */
             stream_id?: string;
+        };
+        ProcessInfo: {
+            /**
+             * Format: double
+             * @description CPU usage as percentage (0-100 per core)
+             */
+            cpu_percent?: number;
+            /** @description Pool key (e.g. 'source:hdmi0' / 'composer:cam-front') */
+            id: string;
+            /**
+             * @description Entity kind for this stage
+             * @enum {string}
+             */
+            kind: "source" | "composer" | "encoder";
+            /** @description Most recent error from the supervisor */
+            last_error?: string;
+            /**
+             * Format: int64
+             * @description OS pid when running; 0 otherwise
+             */
+            pid?: number;
+            /**
+             * Format: int64
+             * @description Times the supervisor restarted this stage
+             */
+            restart_count?: number;
+            /**
+             * Format: int64
+             * @description Resident set size in bytes
+             */
+            rss_bytes?: number;
+            /**
+             * Format: int64
+             * @description Unix microseconds at Start; 0 when never started
+             */
+            started_at_us?: number;
+            /** @description Pool state: idle/starting/running/stopping/error */
+            state: string;
+            /** @description User-facing stream id (empty for shared sources) */
+            stream_id?: string;
+        };
+        ProcessesEvent: {
+            /** @description All supervised pipeline stages with current state + stats */
+            processes: components["schemas"]["ProcessInfo"][] | null;
+            /** @description Server time when the snapshot was taken */
+            timestamp: string;
         };
         ProcessesListResponseBody: {
             /**
@@ -3242,6 +3288,17 @@ export interface operations {
                          * @constant
                          */
                         event: "pipeline-state-changed";
+                        /** @description The event ID. */
+                        id?: number;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["ProcessesEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "processes";
                         /** @description The event ID. */
                         id?: number;
                         /** @description The retry time in milliseconds. */

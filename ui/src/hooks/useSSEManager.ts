@@ -7,6 +7,7 @@ import type { EntityEvent } from './entityTypes';
 import { checkServerVersion } from '../lib/versionWatch';
 
 type PipelineStateChangedEvent = components["schemas"]["PipelineStateChangedEvent"];
+type ProcessesEvent = components["schemas"]["ProcessesEvent"];
 
 export type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
 
@@ -30,18 +31,34 @@ function onVisibilityCheck(): void {
 // longer tears down and reconnects the stream.
 let appConnectionPins = 0;
 
-// Global handlers for the two non-entity event streams.
+// Global handlers for the non-entity event streams.
 const globalConnectionHandlers = new Set<(status: ConnectionStatus) => void>();
 const globalPipelineStateHandlers = new Set<(event: PipelineStateChangedEvent) => void>();
+const globalProcessesHandlers = new Set<(event: ProcessesEvent) => void>();
 
 function teardownIfIdle(): void {
   if (
     appConnectionPins === 0 &&
     globalConnectionHandlers.size === 0 &&
-    globalPipelineStateHandlers.size === 0
+    globalPipelineStateHandlers.size === 0 &&
+    globalProcessesHandlers.size === 0
   ) {
     disconnectGlobalSSE();
   }
+}
+
+// subscribeProcesses attaches a handler for the dedicated process event
+// stream (per-process state transitions + 2s stats samples) and ensures the
+// shared SSE client is alive. Returns an unsubscribe. The steady-state source
+// of truth for the Processes panel; useProcesses keeps only a low-rate
+// reconciliation poll behind it.
+export function subscribeProcesses(fn: (event: ProcessesEvent) => void): () => void {
+  globalProcessesHandlers.add(fn);
+  setupGlobalSSE();
+  return () => {
+    globalProcessesHandlers.delete(fn);
+    teardownIfIdle();
+  };
 }
 
 function mapStatus(status: SSEStatus): ConnectionStatus {
@@ -114,6 +131,12 @@ function setupGlobalSSE(): void {
 
   globalClient.on('pipeline-state-changed', (data) => {
     for (const handler of globalPipelineStateHandlers) {
+      handler(data);
+    }
+  });
+
+  globalClient.on('processes', (data) => {
+    for (const handler of globalProcessesHandlers) {
       handler(data);
     }
   });
