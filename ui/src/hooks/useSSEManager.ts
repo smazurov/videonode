@@ -8,6 +8,7 @@ import { checkServerVersion } from '../lib/versionWatch';
 
 type PipelineStateChangedEvent = components["schemas"]["PipelineStateChangedEvent"];
 type ProcessesEvent = components["schemas"]["ProcessesEvent"];
+type ProcessRemovedEvent = components["schemas"]["ProcessRemovedEvent"];
 
 export type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
 
@@ -35,13 +36,15 @@ let appConnectionPins = 0;
 const globalConnectionHandlers = new Set<(status: ConnectionStatus) => void>();
 const globalPipelineStateHandlers = new Set<(event: PipelineStateChangedEvent) => void>();
 const globalProcessesHandlers = new Set<(event: ProcessesEvent) => void>();
+const globalProcessRemovedHandlers = new Set<(event: ProcessRemovedEvent) => void>();
 
 function teardownIfIdle(): void {
   if (
     appConnectionPins === 0 &&
     globalConnectionHandlers.size === 0 &&
     globalPipelineStateHandlers.size === 0 &&
-    globalProcessesHandlers.size === 0
+    globalProcessesHandlers.size === 0 &&
+    globalProcessRemovedHandlers.size === 0
   ) {
     disconnectGlobalSSE();
   }
@@ -50,13 +53,25 @@ function teardownIfIdle(): void {
 // subscribeProcesses attaches a handler for the dedicated process event
 // stream (per-process state transitions + 2s stats samples) and ensures the
 // shared SSE client is alive. Returns an unsubscribe. The steady-state source
-// of truth for the Processes panel; useProcesses keeps only a low-rate
-// reconciliation poll behind it.
+// of truth for the Processes panel; useProcesses keeps only an initial/
+// reconnect fetch behind it.
 export function subscribeProcesses(fn: (event: ProcessesEvent) => void): () => void {
   globalProcessesHandlers.add(fn);
   setupGlobalSSE();
   return () => {
     globalProcessesHandlers.delete(fn);
+    teardownIfIdle();
+  };
+}
+
+// subscribeProcessRemoved attaches a handler for the process-removed signal,
+// fired when a supervised process leaves the pool (it emits no further state
+// or stats events). Returns an unsubscribe.
+export function subscribeProcessRemoved(fn: (event: ProcessRemovedEvent) => void): () => void {
+  globalProcessRemovedHandlers.add(fn);
+  setupGlobalSSE();
+  return () => {
+    globalProcessRemovedHandlers.delete(fn);
     teardownIfIdle();
   };
 }
@@ -137,6 +152,12 @@ function setupGlobalSSE(): void {
 
   globalClient.on('processes', (data) => {
     for (const handler of globalProcessesHandlers) {
+      handler(data);
+    }
+  });
+
+  globalClient.on('process-removed', (data) => {
+    for (const handler of globalProcessRemovedHandlers) {
       handler(data);
     }
   });

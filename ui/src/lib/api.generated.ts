@@ -1735,6 +1735,12 @@ export interface components {
             /** @description User-facing stream id (empty for shared sources) */
             stream_id?: string;
         };
+        ProcessRemovedEvent: {
+            /** @description Pool key of the removed process (e.g. 'source:hdmi0') */
+            id: string;
+            /** @description Server time when the process was removed */
+            timestamp: string;
+        };
         ProcessesEvent: {
             /** @description All supervised pipeline stages with current state + stats */
             processes: components["schemas"]["ProcessInfo"][] | null;
@@ -3288,6 +3294,17 @@ export interface operations {
                          * @constant
                          */
                         event: "pipeline-state-changed";
+                        /** @description The event ID. */
+                        id?: number;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["ProcessRemovedEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "process-removed";
                         /** @description The event ID. */
                         id?: number;
                         /** @description The retry time in milliseconds. */
