@@ -1,18 +1,18 @@
 Package: videonode
-Version: 4.0.0~rc12
+Version: 4.0.0
 Architecture: arm64
 Maintainer: Stepan Mazurov <smazurov@gmail.com>
-Installed-Size: 25173
+Installed-Size: 25365
 Depends: base-files (>= 13~), libabsl20240722 (>= 20240722.0-1), libc6 (>= 2.38), libegl1, libgbm1 (>= 17.1.0~rc2), libgcc-s1 (>= 3.0), libgrpc++1.51t64 (>= 1.51.1), libgrpc29t64 (>= 1.51.1), libplacebo349 (>= 7.349.0), libprotobuf32t64 (>= 3.21.12), libstdc++6 (>= 13.1), libturbojpeg0 (>= 1:2.0.2)
 Homepage: https://github.com/smazurov/videonode
 Priority: optional
 Section: video
-Filename: pool/main/v/videonode/videonode_4.0.0~rc12_arm64.deb
-Size: 9959952
-SHA512: fef1a7207d542250019dc14d79899e1a0ad15ce6bee36e084c3ea4d64cab075c0e153e3d761747373a13006e129f21c7c2263bab74f40841323341e32279dcb2
-SHA256: 2c55a9c3e4f0650d0140f61eb891178a94c2da9c64ba52ded02c4ad9074c54b8
-SHA1: b0ba7a2723189fe88601c9e8c0b96fb1f2bbc9ea
-MD5sum: 134e37c294f6411195e6ef3b3a9e7199
+Filename: pool/main/v/videonode/videonode_4.0.0_arm64.deb
+Size: 10048212
+SHA512: 73d1324c51b717eda29ed0909e261b78b816ac4c9e38986b4cdb2b2dcf62d82ac91de403880cbfd439f48b5294571c445230bd851ea9e7e635396d512dfe8d84
+SHA256: bf370d732f56309f66079d1b13c9ec09cbc8f8696b1ff8828acef8e06408fb22
+SHA1: b6b9e74890863eeb5b23961e1445dc9ad1ce7caa
+MD5sum: 4427ed9ddc5114f7c5e2133059628b8d
 Description: RK3588 video streaming server with native dma-buf pipeline.
  Turns V4L2 capture devices into RTSP, WebRTC, and SRT streams
  with GPU-accelerated compositing via EGL/GLES on Mali-G610.
@@ -27,9 +27,9 @@ Priority: optional
 Section: 
 Filename: pool/main/v/videonode-keyring/videonode-keyring_1779921143_all.deb
 Size: 986
-SHA512: 6af12a8f1974698f7c99a0f08d070c80aea55781497751de0d878a05d5a16a0bb6f43aee110cabb786e0dcc3a9e81f0ca45cf8bf7485aa06df0181ed7934ad8c
-SHA256: 1374630ab10141cd723f027f352d0347198b1ce2e17489f37558a7dab10c26d0
-SHA1: ddd032d014f3cd67c4f3b817eddc6f1a49b17ab0
-MD5sum: 338e714008f0f6358fca64cab3e43664
+SHA512: 5bcbff705bd456ff32cba928b3ac7f1a5d9caef9c661873d0d8177727bd4af7b042458e42a9c2f29896f643e7df61946e5e539f264645185a580d3af8b4a626a
+SHA256: 2bf220cc0afc29912567643b67928415b5a4d9c110fea41682509839e92f7eeb
+SHA1: fe9f180813a0b32bdc63ec61e30fd1661b053d59
+MD5sum: 9d7d0e0914a8e1015d210aae6b40cc4c
 Description: videonode keyring
 
