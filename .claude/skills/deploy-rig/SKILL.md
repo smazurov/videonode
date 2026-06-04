@@ -22,7 +22,7 @@ do **not** hand-type the equivalent ssh/scp/sudo sequences inline.
 
 **Maintenance contract — before driving a deploy, open the script you are about
 to run and confirm its embedded rig contract still matches reality.** These
-scripts hard-code the current truth (system unit, `/usr/bin`, `sudo -S`, the
+scripts hard-code the current truth (system unit, `/usr/bin`, passwordless `sudo`, the
 `/home/orangepi/composer/build/src/bin` and `/tmp/...staging` paths, the module
 path in the ldflags). When the rig drifts — the unit goes back to `--user`,
 binaries move, auth changes, the staging path changes — **edit the script, then
@@ -102,7 +102,7 @@ pick the flags by hand — `decision` already tells you which component is stale
 - **Version ldflags are mandatory.** A bare `go build` leaves `videonode version` as `dev (unknown)`, which blinds the preflight. `build-go-arm64.sh` injects `-X '…/internal/version.Version=$(git describe --tags --always --dirty)'`; never bypass it.
 - **`/tmp/smoke-vn/` is a stale smoke artifact.** If a supervisor is running from `/tmp/smoke-vn/videonode`, `pkill -TERM -f /tmp/smoke-vn/videonode`, wait, `rm -rf /tmp/smoke-vn`. Never relaunch from there.
 - **HDMI source needs signal lock.** `verify-from-dev.sh` against an HDMI stream FAILs on no signal — a source issue, not a deploy issue. The composer canvas stream (placeholder-renders when sources are absent) is the reliable verification target.
-- **Auth backend drift.** The canonical service uses `[auth] username/password` from `/etc/videonode/config.toml` only when `[auth] type = "basic"` is set. With it unset it falls back to `linux`/PAM, which checks the system login (`REDACTED-CREDS`), not the documented `REDACTED-CREDS`. A wrong-cred `curl` returns a generic 401 with no hint which backend rejected.
+- **Auth backend drift.** The canonical service uses `[auth] username/password` from `/etc/videonode/config.toml` only when `[auth] type = "basic"` is set. With it unset it falls back to `linux`/PAM, which checks the rig's system login rather than the configured basic creds. A wrong-cred `curl` returns a generic 401 with no hint which backend rejected.
 - **Don't cross-build arm64 in local Docker via qemu** — `arm64v8/debian` + qemu-user-static on x86_64 is 10–30× slower; a full build is 30+ min. Build on the rig (CI's native arm64 runner is the only fast container path, not usable interactively).
 
 ## IPC-only check (faster, no canonical-service touch)

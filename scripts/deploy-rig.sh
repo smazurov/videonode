@@ -5,7 +5,7 @@
 # It encodes the CURRENT rig contract. If any of this drifts, fix it HERE
 # (the skill points the agent at this file to inspect + amend before running):
 #   - videonode.service is a systemd *system* unit (NOT `--user`)
-#   - binaries live in /usr/bin (root-owned -> sudo -S, password piped)
+#   - binaries live in /usr/bin (root-owned -> sudo; orangepi has passwordless sudo)
 #   - native helpers come from <rig>:${RIG_BIN_DIR} (built by build-on-rig.sh)
 #   - the go supervisor is staged to <rig>:${STAGE_PATH} by build-go-arm64.sh
 #   - config is /etc/videonode/{config.toml,streams.toml}
@@ -18,7 +18,6 @@
 #
 # Env:
 #   RIG=user@host        ssh target            (default: orangepi)
-#   SUDO_PASS=...        piped to `sudo -S`    (default: orangepi)
 #   JOBS=N               rig build parallelism (default: 8)
 #   SKIP_HOST_BUILD=1    skip the host sanitizer sanity build
 #   SKIP_COMPOSER=1      skip composer sync + rig build + native-helper install
@@ -28,7 +27,6 @@
 set -euo pipefail
 
 RIG="${RIG:-orangepi}"
-SUDO_PASS="${SUDO_PASS:-REDACTED}"
 RIG_BIN_DIR="${RIG_BIN_DIR:-/home/orangepi/composer/build/src/bin}"
 STAGE_PATH="${STAGE_PATH:-/tmp/videonode-arm64.staging}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
