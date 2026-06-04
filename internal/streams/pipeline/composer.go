@@ -85,7 +85,22 @@ type Effect struct {
 	Corners   [4][2]int `toml:"corners,omitempty" json:"corners,omitempty"`
 	SnapshotW int       `toml:"snapshot_w,omitempty" json:"snapshot_w,omitempty"`
 	SnapshotH int       `toml:"snapshot_h,omitempty" json:"snapshot_h,omitempty"`
+	// AutoCrop is set when Type=="auto_crop". Unlike perspective, this effect
+	// is interpreted by the daemon (sensor reconciler), not forwarded to the
+	// composer's SetEffects — the composer only knows "perspective".
+	AutoCrop *AutoCropEffect `toml:"auto_crop,omitempty" json:"auto_crop,omitempty"`
 }
+
+// AutoCropEffect binds a composer input to a first-class sensor: Sensor is
+// the selected sensor's ref (`sensor:<id>`) whose findings drive this input's
+// crop. Detection + commit policy lives on the sensor entity, not here — the
+// input just picks which sensor, the way a stream picks its upstream.
+type AutoCropEffect struct {
+	Sensor string `toml:"sensor" json:"sensor"`
+}
+
+// IsAutoCrop reports whether this effect is the daemon-level auto_crop effect.
+func (e *Effect) IsAutoCrop() bool { return e != nil && e.Type == "auto_crop" }
 
 // ComposerStage is the per-Composer supervised `videonode-composer`
 // process. Reads N source SCM sockets, GLES-composites onto a BGRA

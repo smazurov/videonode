@@ -7,6 +7,7 @@ import (
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
+	"github.com/smazurov/videonode/internal/streams/sensors"
 )
 
 var registerEntityVariantsOnce sync.Once
@@ -35,5 +36,10 @@ func registerEntityVariants() {
 		events.RegisterVariant[streaming.StreamStatusPayload]("stream", "status")
 		events.RegisterVariant[streaming.StreamMetricsPayload]("stream", "metrics")
 		events.RegisterVariant[streaming.StreamConsumersPayload]("stream", "consumers")
+
+		events.RegisterVariant[models.SensorData]("sensor", "created")
+		events.RegisterVariant[models.SensorData]("sensor", "updated")
+		events.RegisterDeleteVariant("sensor")
+		events.RegisterVariant[sensors.FindingEvent]("sensor", "status")
 	})
 }

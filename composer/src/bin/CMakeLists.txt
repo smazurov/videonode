@@ -22,6 +22,13 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     target_compile_options(videonode-sink PRIVATE -msse4.1)
 endif()
 
+# videonode-sensor — AI perception sidecar. Dials an analysis composer's
+# NV12 canvas SCM bus, runs an out-of-process detector child, and streams
+# normalized Findings to the daemon over the Sensor gRPC service.
+vn_add_executable(videonode-sensor
+    SOURCES videonode_sensor_main.cpp
+    DEPS    sensor_runtime)
+
 # videonode-composer — Mali-GPU canvas compositor. Reads NV12 dma-bufs
 # from N videonode-source sockets, composes BGRA via EGL/GLES, writes the
 # canvas frames to stdout. Needs libgbm.

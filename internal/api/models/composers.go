@@ -18,10 +18,21 @@ type CanvasDimsData struct {
 // (typically the source's native resolution as seen by the snapshot
 // UI) so the composer can normalize corners to UV.
 type EffectData struct {
-	Type      string    `json:"type" example:"perspective" doc:"Effect type identifier"`
-	Corners   [4][2]int `json:"corners,omitempty" doc:"Corner coordinates [tl, tr, br, bl] in source pixel space"`
-	SnapshotW int       `json:"snapshot_w,omitempty" example:"1920" doc:"Source pixel width the corners are expressed in"`
-	SnapshotH int       `json:"snapshot_h,omitempty" example:"1080" doc:"Source pixel height the corners are expressed in"`
+	Type      string    `json:"type" example:"perspective" doc:"Effect type identifier (perspective | auto_crop)"`
+	Corners   [4][2]int `json:"corners,omitempty" doc:"Corner coordinates [tl, tr, br, bl] in source pixel space (perspective)"`
+	SnapshotW int       `json:"snapshot_w,omitempty" example:"1920" doc:"Source pixel width the corners are expressed in (perspective)"`
+	SnapshotH int       `json:"snapshot_h,omitempty" example:"1080" doc:"Source pixel height the corners are expressed in (perspective)"`
+	// AutoCrop is set when Type=="auto_crop". It is a daemon-level binding: the
+	// input selects a first-class sensor by ref and the daemon drives this
+	// input's crop from that sensor's findings; it is never sent to composer
+	// SetEffects.
+	AutoCrop *AutoCropData `json:"auto_crop,omitempty" doc:"Auto-crop binding (Type==auto_crop)"`
+}
+
+// AutoCropData binds the auto_crop effect to a sensor. Detection + commit
+// policy lives on the sensor entity; this just selects which sensor.
+type AutoCropData struct {
+	Sensor string `json:"sensor" example:"sensor:playfield" doc:"Ref of the sensor (sensor:<id>) whose findings drive this input's crop"`
 }
 
 // ComposerInputData is one composer input entry, referencing an upstream

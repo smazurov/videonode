@@ -22,6 +22,10 @@ const routes = {
   StreamDetail: lazy(() => import("./routes/stream-detail")),
   EditStream: lazy(() => import("./routes/edit-stream")),
 
+  Sensors: lazy(() => import("./routes/sensors")),
+  CreateSensor: lazy(() => import("./routes/create-sensor")),
+  SensorDetail: lazy(() => import("./routes/sensor-detail")),
+
   Logs: lazy(() => import("./routes/logs")),
 };
 
@@ -136,6 +140,32 @@ export const router = createBrowserRouter([
         element: (
           <Guarded>
             <routes.EditStream />
+          </Guarded>
+        ),
+      },
+
+      // Sensors
+      {
+        path: "sensors",
+        element: (
+          <Guarded>
+            <routes.Sensors />
+          </Guarded>
+        ),
+      },
+      {
+        path: "sensors/new",
+        element: (
+          <Guarded>
+            <routes.CreateSensor />
+          </Guarded>
+        ),
+      },
+      {
+        path: "sensors/:sensorId",
+        element: (
+          <Guarded>
+            <routes.SensorDetail />
           </Guarded>
         ),
       },

@@ -1,18 +1,20 @@
 import { useMemo, useState } from 'react';
 import { Select } from '../Select';
+import { AutoCropEditor } from './AutoCropEditor';
 import { PerspectiveEditor } from './PerspectiveEditor';
 import type { ComposerEffect } from '../../hooks/useComposerStore';
 import type { Corner } from './PerspectiveCanvas';
 
-// Effect kinds the editor knows about. v1 supports perspective only; future
-// types appear in the dropdown disabled so the schema-extension story is
-// visible in the UI without dragging in unfinished plumbing.
-type EffectType = 'perspective' | 'color' | 'crop';
+// Effect kinds the editor knows about. Perspective is a composer-native GPU
+// effect; auto_crop is a daemon-level effect (AI tap drives the input's crop).
+// Future types appear disabled so the schema-extension story is visible in the
+// UI without dragging in unfinished plumbing.
+type EffectType = 'perspective' | 'auto_crop' | 'color';
 
 const EFFECT_OPTIONS: ReadonlyArray<{ value: EffectType; label: string; enabled: boolean }> = [
   { value: 'perspective', label: 'Perspective', enabled: true },
+  { value: 'auto_crop', label: 'Auto-crop (AI)', enabled: true },
   { value: 'color', label: 'Color (coming soon)', enabled: false },
-  { value: 'crop', label: 'Crop (coming soon)', enabled: false },
 ];
 
 interface EffectEditorProps {
@@ -78,9 +80,20 @@ export function EffectEditor({
         />
       )}
 
-      {type !== 'perspective' && (
+      {type === 'auto_crop' && (
+        <AutoCropEditor
+          inputRef={inputRef}
+          effect={effect}
+          saving={saving}
+          onSave={onSave}
+          onCancel={onCancel}
+        />
+      )}
+
+      {type !== 'perspective' && type !== 'auto_crop' && (
         <p className="text-sm text-fg-subtle">
-          This effect type is not implemented yet. Pick <strong>Perspective</strong> to edit.
+          This effect type is not implemented yet. Pick <strong>Perspective</strong> or{' '}
+          <strong>Auto-crop</strong> to edit.
         </p>
       )}
     </div>

@@ -496,6 +496,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sensors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sensors
+         * @description List all configured perception sensors.
+         */
+        get: operations["list-sensors"];
+        put?: never;
+        /**
+         * Create Sensor
+         * @description Register a new perception sensor observing a source or composer ref.
+         */
+        post: operations["create-sensor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sensors/{sensor_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sensor
+         * @description Fetch a single sensor by ID.
+         */
+        get: operations["get-sensor"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Sensor
+         * @description Delete a sensor. Refused with 409 if any composer input still selects it.
+         */
+        delete: operations["delete-sensor"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Sensor
+         * @description Patch a sensor. Only the supplied fields are modified.
+         */
+        patch: operations["update-sensor"];
+        trace?: never;
+    };
     "/api/sources": {
         parameters: {
             query?: never;
@@ -828,6 +880,23 @@ export interface components {
             /** @description List of available audio devices */
             devices: components["schemas"]["AudioDevice"][] | null;
         };
+        AutoCropData: {
+            /**
+             * @description Ref of the sensor (sensor:<id>) whose findings drive this input's crop
+             * @example sensor:playfield
+             */
+            sensor: string;
+        };
+        BBox: {
+            /** Format: double */
+            H: number;
+            /** Format: double */
+            W: number;
+            /** Format: double */
+            X: number;
+            /** Format: double */
+            Y: number;
+        };
         CanvasDimsData: {
             /**
              * @description Canvas background color sources composite on top of, as #RRGGBB or #RRGGBBAA hex (empty = opaque black)
@@ -973,6 +1042,14 @@ export interface components {
             inputs?: components["schemas"]["ComposerInputData"][] | null;
             /** @description Replacement layout (also validated against inputs) */
             layout?: components["schemas"]["LayoutSlotData"][] | null;
+        };
+        Crop: {
+            /** Format: double */
+            Scale: number;
+            /** Format: double */
+            X: number;
+            /** Format: double */
+            Y: number;
         };
         CropConfigData: {
             /**
@@ -1178,22 +1255,24 @@ export interface components {
             applied: boolean;
         };
         EffectData: {
-            /** @description Corner coordinates [tl, tr, br, bl] in source pixel space */
+            /** @description Auto-crop binding (Type==auto_crop) */
+            auto_crop?: components["schemas"]["AutoCropData"];
+            /** @description Corner coordinates [tl, tr, br, bl] in source pixel space (perspective) */
             corners?: (number[] | null)[] | null;
             /**
              * Format: int64
-             * @description Source pixel height the corners are expressed in
+             * @description Source pixel height the corners are expressed in (perspective)
              * @example 1080
              */
             snapshot_h?: number;
             /**
              * Format: int64
-             * @description Source pixel width the corners are expressed in
+             * @description Source pixel width the corners are expressed in (perspective)
              * @example 1920
              */
             snapshot_w?: number;
             /**
-             * @description Effect type identifier
+             * @description Effect type identifier (perspective | auto_crop)
              * @example perspective
              */
             type: string;
@@ -1300,6 +1379,45 @@ export interface components {
              * @enum {string}
              */
             type: "composer.updated";
+        };
+        EntitySensorCreated: {
+            id: string;
+            payload: components["schemas"]["SensorData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sensor.created";
+        };
+        EntitySensorDeleted: {
+            id: string;
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sensor.deleted";
+        };
+        EntitySensorStatus: {
+            id: string;
+            payload: components["schemas"]["FindingEvent"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sensor.status";
+        };
+        EntitySensorUpdated: {
+            id: string;
+            payload: components["schemas"]["SensorData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sensor.updated";
         };
         EntitySourceConsumers: {
             id: string;
@@ -1455,6 +1573,23 @@ export interface components {
              * @example https://example.com/errors/example
              */
             type: string;
+        };
+        FindingEvent: {
+            applied: boolean;
+            bbox?: components["schemas"]["BBox"];
+            composer_id?: string;
+            /** Format: double */
+            confidence: number;
+            crop: components["schemas"]["Crop"];
+            decision: string;
+            /** Format: int64 */
+            frame_idx: number;
+            input_ref?: string;
+            kind: string;
+            mode: string;
+            model_id: string;
+            sensor_id: string;
+            target_ref: string;
         };
         FormatInfo: {
             /**
@@ -1732,6 +1867,196 @@ export interface components {
             id: string;
             /** Format: double */
             rtt_ms: number;
+        };
+        SensorCreateBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SensorCreateBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Detector child command; empty = daemon default
+             * @example uv run sensors/playfield/detect.py
+             */
+            detector?: string;
+            /**
+             * @description Stable sensor identifier (kebab-case)
+             * @example playfield
+             */
+            id: string;
+            /**
+             * Format: double
+             * @description Fractional bleed around the detected region
+             * @example 0.1
+             */
+            margin?: number;
+            /**
+             * Format: double
+             * @description Detection confidence floor
+             * @example 0.8
+             */
+            min_confidence?: number;
+            /**
+             * @description propose or auto
+             * @example auto
+             * @enum {string}
+             */
+            mode?: "propose" | "auto";
+            /** @description Model id that tags emitted findings; empty = daemon default */
+            model_id?: string;
+            /**
+             * @description Observed upstream ref (source:<id> or composer:<id>)
+             * @example source:overhead-cam
+             */
+            source: string;
+            /**
+             * Format: int64
+             * @description Periodic re-detect cadence in ms; 0 = binary default
+             * @example 200
+             */
+            tick_ms?: number;
+        };
+        SensorData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SensorData.json
+             */
+            readonly $schema?: string;
+            /** @description Composer inputs whose auto_crop effect selects this sensor. Server-denormalized. */
+            bindings?: components["schemas"]["SensorReference"][] | null;
+            /**
+             * Format: date-time
+             * @description When the sensor record was created
+             */
+            created_at?: string;
+            /**
+             * @description Detector child command (the swappable Python/native runtime; empty = daemon default)
+             * @example uv run sensors/playfield/detect.py
+             */
+            detector?: string;
+            /**
+             * @description Stable sensor identifier (kebab-case)
+             * @example playfield
+             */
+            id: string;
+            /**
+             * Format: double
+             * @description Fractional bleed kept around the detected region (0.1 = 10%)
+             * @example 0.1
+             */
+            margin?: number;
+            /**
+             * Format: double
+             * @description Detection confidence floor below which the crop holds / widens
+             * @example 0.8
+             */
+            min_confidence?: number;
+            /**
+             * @description propose (emit candidates for confirm) or auto (apply crop directly)
+             * @example auto
+             * @enum {string}
+             */
+            mode?: "propose" | "auto";
+            /**
+             * @description Model id that tags emitted findings; empty = daemon default
+             * @example playfield-classical-v0
+             */
+            model_id?: string;
+            /**
+             * @description Observed upstream ref (source:<id> or composer:<id>)
+             * @example source:overhead-cam
+             */
+            source: string;
+            /**
+             * @description Process pool state
+             * @example running
+             * @enum {string}
+             */
+            status?: "idle" | "starting" | "running" | "stopping" | "error";
+            /**
+             * Format: int64
+             * @description Periodic re-detect cadence in ms; 0 = binary default
+             * @example 200
+             */
+            tick_ms?: number;
+            /**
+             * Format: date-time
+             * @description When the sensor record was last updated
+             */
+            updated_at?: string;
+        };
+        SensorListData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SensorListData.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Number of sensors returned
+             * @example 2
+             */
+            count: number;
+            /** @description List of configured sensors */
+            sensors: components["schemas"]["SensorData"][] | null;
+        };
+        SensorReference: {
+            /**
+             * @description Referencing composer identifier
+             * @example main-scene
+             */
+            id: string;
+            /**
+             * @description The composer input whose auto_crop effect selects this sensor
+             * @example source:overhead-cam
+             */
+            input?: string;
+            /**
+             * @description Always composer (the only thing that binds a sensor)
+             * @example composer
+             * @enum {string}
+             */
+            kind: "composer";
+        };
+        SensorUpdateBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SensorUpdateBody.json
+             */
+            readonly $schema?: string;
+            /** @description New detector child command; empty string resets to daemon default */
+            detector?: string;
+            /**
+             * Format: double
+             * @description New margin
+             */
+            margin?: number;
+            /**
+             * Format: double
+             * @description New confidence floor
+             */
+            min_confidence?: number;
+            /**
+             * @description New commit mode
+             * @enum {string}
+             */
+            mode?: "propose" | "auto";
+            /** @description New model id */
+            model_id?: string;
+            /**
+             * @description New observed upstream ref
+             * @example source:overhead-cam
+             */
+            source?: string;
+            /**
+             * Format: int64
+             * @description New re-detect cadence in ms
+             */
+            tick_ms?: number;
         };
         SourceBroadcastInfo: {
             /** Format: int32 */
@@ -3214,7 +3539,7 @@ export interface operations {
                         /** @description The retry time in milliseconds. */
                         retry?: number;
                     } | {
-                        data: components["schemas"]["EntitySourceCreated"] | components["schemas"]["EntitySourceUpdated"] | components["schemas"]["EntitySourceDeleted"] | components["schemas"]["EntitySourceStatus"] | components["schemas"]["EntitySourceConsumers"] | components["schemas"]["EntityComposerCreated"] | components["schemas"]["EntityComposerUpdated"] | components["schemas"]["EntityComposerDeleted"] | components["schemas"]["EntityStreamCreated"] | components["schemas"]["EntityStreamUpdated"] | components["schemas"]["EntityStreamDeleted"] | components["schemas"]["EntityStreamStatus"] | components["schemas"]["EntityStreamMetrics"] | components["schemas"]["EntityStreamConsumers"];
+                        data: components["schemas"]["EntitySourceCreated"] | components["schemas"]["EntitySourceUpdated"] | components["schemas"]["EntitySourceDeleted"] | components["schemas"]["EntitySourceStatus"] | components["schemas"]["EntitySourceConsumers"] | components["schemas"]["EntityComposerCreated"] | components["schemas"]["EntityComposerUpdated"] | components["schemas"]["EntityComposerDeleted"] | components["schemas"]["EntityStreamCreated"] | components["schemas"]["EntityStreamUpdated"] | components["schemas"]["EntityStreamDeleted"] | components["schemas"]["EntityStreamStatus"] | components["schemas"]["EntityStreamMetrics"] | components["schemas"]["EntityStreamConsumers"] | components["schemas"]["EntitySensorCreated"] | components["schemas"]["EntitySensorUpdated"] | components["schemas"]["EntitySensorDeleted"] | components["schemas"]["EntitySensorStatus"];
                         /**
                          * @description The event name.
                          * @constant
@@ -3594,6 +3919,310 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-sensors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensorListData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-sensor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SensorCreateBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensorData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-sensor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Sensor identifier */
+                sensor_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensorData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-sensor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Sensor identifier */
+                sensor_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-sensor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Sensor identifier */
+                sensor_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SensorUpdateBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensorData"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
             };
             /** @description Unauthorized */
             401: {

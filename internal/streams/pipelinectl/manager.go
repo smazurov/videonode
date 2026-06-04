@@ -64,7 +64,12 @@ type Manager struct {
 	mu           sync.RWMutex
 	sources      map[string]*nativeConn // key: device_id
 	composers    map[string]*nativeConn // key: composer_id
+	sensors      map[string]*nativeConn // key: sensor_id
 	statusClosed bool                   // true once Stop() has closed statusCh
+
+	// onFinding, when set, fires for every Finding received on an sensor's
+	// StreamFindings stream. The BindingRouter consumes it to drive crops.
+	onFinding func(FindingParams)
 
 	// onColorMatrix, when set, fires when a source's detected YCbCr matrix
 	// is first reported (or later changes), so dependent encoders can
@@ -83,8 +88,9 @@ type nativeConn struct {
 	kind       string // "source" or "composer"
 	udsPath    string
 	cc         *grpc.ClientConn
-	srcClient  pb.SourceClient   // nil for composer
-	compClient pb.ComposerClient // nil for source
+	srcClient  pb.SourceClient   // nil for composer/sensor
+	compClient pb.ComposerClient // nil for source/sensor
+	anaClient  pb.SensorClient   // nil for source/composer
 
 	// Identity captured at Describe() time.
 	pid             uint32
@@ -121,6 +127,7 @@ func New(logger logging.Logger) *Manager {
 		statusCh:  make(chan StatusParams, 64),
 		sources:   make(map[string]*nativeConn),
 		composers: make(map[string]*nativeConn),
+		sensors:   make(map[string]*nativeConn),
 	}
 }
 
@@ -147,15 +154,19 @@ func (m *Manager) Stop() error {
 		m.cancel()
 	}
 	m.mu.Lock()
-	conns := make([]*nativeConn, 0, len(m.sources)+len(m.composers))
+	conns := make([]*nativeConn, 0, len(m.sources)+len(m.composers)+len(m.sensors))
 	for _, c := range m.sources {
 		conns = append(conns, c)
 	}
 	for _, c := range m.composers {
 		conns = append(conns, c)
 	}
+	for _, c := range m.sensors {
+		conns = append(conns, c)
+	}
 	m.sources = make(map[string]*nativeConn)
 	m.composers = make(map[string]*nativeConn)
+	m.sensors = make(map[string]*nativeConn)
 	already := m.statusClosed
 	m.statusClosed = true
 	m.mu.Unlock()
@@ -373,11 +384,15 @@ func (m *Manager) Unregister(id string) {
 	m.mu.Lock()
 	src, sok := m.sources[id]
 	comp, cok := m.composers[id]
+	ana, aok := m.sensors[id]
 	if sok {
 		delete(m.sources, id)
 	}
 	if cok {
 		delete(m.composers, id)
+	}
+	if aok {
+		delete(m.sensors, id)
 	}
 	m.mu.Unlock()
 	if sok {
@@ -385,6 +400,9 @@ func (m *Manager) Unregister(id string) {
 	}
 	if cok {
 		m.closeConn(comp)
+	}
+	if aok {
+		m.closeConn(ana)
 	}
 }
 

@@ -22,6 +22,7 @@ type NativePipelineConfig struct {
 	V4L2Source string
 	VNSink     string
 	Composer   string
+	Sensor     string
 
 	// Resolved availability — populated by Resolve() at startup. The Bool
 	// is true iff the path is non-empty AND points at an executable file.
@@ -35,6 +36,7 @@ type NativeAvailability struct {
 	V4L2Source bool
 	VNSink     bool
 	Composer   bool
+	Sensor     bool
 }
 
 // Resolve checks each configured path on disk and updates the Available
@@ -45,9 +47,11 @@ func (n *NativePipelineConfig) Resolve(logger logging.Logger) *NativePipelineCon
 	n.V4L2Source = expandHome(n.V4L2Source)
 	n.VNSink = expandHome(n.VNSink)
 	n.Composer = expandHome(n.Composer)
+	n.Sensor = expandHome(n.Sensor)
 	n.Available.V4L2Source = isExecutable(n.V4L2Source)
 	n.Available.VNSink = isExecutable(n.VNSink)
 	n.Available.Composer = isExecutable(n.Composer)
+	n.Available.Sensor = isExecutable(n.Sensor)
 
 	if logger != nil {
 		logger.Info("Native pipeline resolved",

@@ -41,6 +41,7 @@ func CreateOpenAPICmd() *cobra.Command {
 					Store:          es,
 					PipelineSwitch: memStore,
 				})
+				opts.SensorService = services.NewSensorService(services.SensorServiceOptions{Store: es})
 			}
 			server := api.NewServer(opts)
 

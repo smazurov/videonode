@@ -28,6 +28,8 @@ import (
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
+	"github.com/smazurov/videonode/internal/streams/sensors"
+	"github.com/smazurov/videonode/internal/streams/sensorwire"
 	"github.com/smazurov/videonode/internal/streams/services"
 	"github.com/smazurov/videonode/internal/streams/store"
 )
@@ -96,6 +98,7 @@ type Options struct {
 	NativeV4L2Source string `help:"Path to videonode-source binary"   default:"~/.local/bin/videonode-source"   toml:"native_pipeline.source"   env:"NATIVE_PIPELINE_SOURCE"`
 	NativeVNSink     string `help:"Path to videonode-sink binary"     default:"~/.local/bin/videonode-sink"     toml:"native_pipeline.sink"        env:"NATIVE_PIPELINE_SINK"`
 	NativeComposer   string `help:"Path to videonode-composer binary" default:"~/.local/bin/videonode-composer" toml:"native_pipeline.composer"    env:"NATIVE_PIPELINE_COMPOSER"`
+	NativeSensor     string `help:"Path to videonode-sensor binary" default:"~/.local/bin/videonode-sensor" toml:"native_pipeline.sensor"    env:"NATIVE_PIPELINE_SENSOR"`
 }
 
 func main() {
@@ -210,6 +213,7 @@ func main() {
 			V4L2Source: opts.NativeV4L2Source,
 			VNSink:     opts.NativeVNSink,
 			Composer:   opts.NativeComposer,
+			Sensor:     opts.NativeSensor,
 		}).Resolve(logger)
 
 		// Daemon-side control plane for native sidecars. Must bind
@@ -246,6 +250,7 @@ func main() {
 			VNSourceBin:    native.V4L2Source,
 			VNComposerBin:  native.Composer,
 			VNSinkBin:      native.VNSink,
+			VNSensorBin:    native.Sensor,
 			DRMDevice:      "/dev/dri/renderD128",
 			RTSPPort:       opts.StreamingRTSPPort,
 			DeviceResolver: streams.MakeDeviceResolver(),
@@ -343,6 +348,7 @@ func main() {
 			sourceSvc   api.SourceService
 			composerSvc api.ComposerService
 			streamSvc   api.StreamService
+			sensorSvc   api.SensorService
 		)
 		if entityStore != nil {
 			sourceOpts := services.SourceServiceOptions{
@@ -378,6 +384,42 @@ func main() {
 			}
 		}
 
+		// First-class sensor subsystem: each Sensor entity runs a
+		// daemon-provisioned analysis-composer tap + videonode-sensor process,
+		// emitting findings whether or not anything is bound. A composer input's
+		// auto_crop effect selects a sensor by ref; the binding reconciler maps
+		// that sensor's findings to a crop on the input. The Lifecycle is driven
+		// by the SensorService (CRUD), the BindingReconciler by composer changes.
+		if composerSvc != nil && entityStore != nil && ctlServer != nil && native.Available.Sensor {
+			// Observe every finding on the SSE bus so the UI / `curl /api/events`
+			// can watch a sensor live, attached or not (router also logs each).
+			var observe sensors.FindingObserver
+			if eventRegistry != nil {
+				observe = func(ev sensors.FindingEvent) {
+					eventRegistry.PublishLifecycle("sensor", events.ActionStatus, ev.SensorID, ev)
+				}
+			}
+			sensorLifecycle, sensorBindings, findingHandler := sensorwire.Build(
+				composerSvc, nativePipeline, entityStore,
+				sensorwire.Config{SensorBin: native.Sensor}, observe, logger)
+			nativePipeline.SetSensorReconciler(sensorBindings)
+			ctlServer.SetFindingHandler(findingHandler)
+			sensorSvc = services.NewSensorService(services.SensorServiceOptions{
+				Store:          entityStore,
+				Lifecycle:      sensorLifecycle,
+				Pipeline:       nativePipeline,
+				PipelineSwitch: streamStore,
+			})
+			if streamStore.GetPipeline().Enabled {
+				sensorLifecycle.ReconcileAll()
+				if comps, err := composerSvc.ListComposers(context.Background()); err == nil {
+					for i := range comps {
+						sensorBindings.ReconcileComposer(comps[i].ID)
+					}
+				}
+			}
+		}
+
 		// Create authenticator
 		authenticator := auth.New(auth.Config{
 			Type:     opts.AuthType,
@@ -396,6 +438,7 @@ func main() {
 			StreamService:      streamSvc,
 			SourceService:      sourceSvc,
 			ComposerService:    composerSvc,
+			SensorService:      sensorSvc,
 			ValidationProvider: validationProvider,
 			EventBus:           eventBus,
 			EventRegistry:      eventRegistry,

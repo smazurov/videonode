@@ -12,7 +12,7 @@ function mapConnectionStatus(status: SSEStatus): 'connecting' | 'connected' | 'd
 }
 
 export interface LogFilter {
-  key: 'source_id' | 'composer_id' | 'stream_id';
+  key: 'source_id' | 'composer_id' | 'stream_id' | 'sensor_id';
   id: string;
 }
 

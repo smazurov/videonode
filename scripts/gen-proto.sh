@@ -32,6 +32,7 @@ PATH="$BIN_DIR:$PATH" protoc \
   --go-grpc_out="$ROOT" --go-grpc_opt=module=github.com/smazurov/videonode \
   proto/control/common.proto \
   proto/control/source.proto \
-  proto/control/composer.proto
+  proto/control/composer.proto \
+  proto/control/sensor.proto
 
 echo "[gen-proto] wrote internal/streams/pipelinectl/pb/*.pb.go"

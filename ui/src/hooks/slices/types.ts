@@ -24,6 +24,20 @@ export interface Source extends SourceData {
   effective_fps?: number;
 }
 
+export type SensorData = components['schemas']['SensorData'];
+export type SensorCreateBody = components['schemas']['SensorCreateBody'];
+export type SensorUpdateBody = components['schemas']['SensorUpdateBody'];
+
+// SensorFinding is the typed `sensor.status` payload — one detection the
+// daemon emitted, with what the follow/commit policy decided. The live feed of
+// these is how the UI shows a sensor is actually working.
+export type SensorFinding = components['schemas']['FindingEvent'];
+
+export interface Sensor extends SensorData {
+  latest_finding?: SensorFinding;
+  last_finding_at?: string;
+}
+
 export type Composer = components['schemas']['ComposerData'];
 export type ComposerRequest = components['schemas']['ComposerData'];
 
