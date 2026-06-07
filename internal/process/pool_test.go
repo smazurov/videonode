@@ -215,13 +215,18 @@ func TestPoolOnStatsFires(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	time.Sleep(150 * time.Millisecond)
-
-	mu.Lock()
-	got := calls
-	mu.Unlock()
-	if got == 0 {
-		t.Fatal("expected OnStats to fire while a process was running")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		got := calls
+		mu.Unlock()
+		if got > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expected OnStats to fire while a process was running")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
