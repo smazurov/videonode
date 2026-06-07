@@ -12,6 +12,7 @@
 #include "src/source/broadcast.hpp"
 #include "src/source/capture_poll.hpp"
 #include "src/source/capture_session.hpp"
+#include "src/source/out_ring_gate.hpp"
 #include "src/source/source_service.hpp"
 #include "version.hpp"
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
@@ -174,8 +175,12 @@ csc::ConvertParams nv12_dst_params(const nv12_buf::Buffer& dst, int w, int h) {
     return p;
 }
 
-void commit_converted_slot(CaptureSession& cap, nv12_buf::Buffer& dst, jpeg_dec::DecodedNv12& out) {
-    cap.out_ring_write = (cap.out_ring_write + 1) % static_cast<uint32_t>(cap.out_ring.size());
+void commit_converted_slot(CaptureSession& cap, uint32_t slot, nv12_buf::Buffer& dst,
+                           jpeg_dec::DecodedNv12& out) {
+    cap.out_ring_write = (slot + 1) % static_cast<uint32_t>(cap.out_ring.size());
+    cap.out_ring_gen[slot] += 1;
+    out.slot_index = slot;
+    out.generation = cap.out_ring_gen[slot];
     nv12_buf::stage_for_read(dst);
     out.fd = (dst.staged_y_fd >= 0) ? dst.staged_y_fd : dst.y_fd;
     out.plane1_fd = (dst.staged_uv_fd >= 0) ? dst.staged_uv_fd : dst.uv_fd;
@@ -184,6 +189,15 @@ void commit_converted_slot(CaptureSession& cap, nv12_buf::Buffer& dst, jpeg_dec:
     out.y_offset = (dst.staged_y_fd >= 0) ? 0 : dst.y_offset;
     out.uv_offset = (dst.staged_uv_fd >= 0) ? 0 : dst.uv_offset;
     out.pixel_format = jpeg_dec::PixelFormat::Nv12;
+}
+
+// Reserve the next ring slot a consumer is not still reading. nullopt means a
+// full lap found every slot in flight — the caller drops the frame. The
+// in-process snapshot holder isn't an SCM consumer; its hold is covered by the
+// ring's +3 slack, not this gate.
+std::optional<uint32_t> reserve_free_slot_(LoopState& st) {
+    return reserve_out_slot(static_cast<uint32_t>(st.cap.out_ring.size()), st.cap.out_ring_write,
+                            [&](uint32_t s) { return st.prod.inflight_for(s) == 0; });
 }
 
 bool convert_mpp_to_nv12_(LoopState& st, jpeg_dec::DecodedNv12& decoded) {
@@ -209,7 +223,12 @@ bool convert_mpp_to_nv12_(LoopState& st, jpeg_dec::DecodedNv12& decoded) {
                           "colors may be wrong");
     }
 
-    nv12_buf::Buffer& dst_buf = st.cap.out_ring[st.cap.out_ring_write];
+    std::optional<uint32_t> slot = reserve_free_slot_(st);
+    if (!slot) {
+        ++st.cap.out_ring_drops;
+        return false;
+    }
+    nv12_buf::Buffer& dst_buf = st.cap.out_ring[*slot];
 
     csc::ConvertParams src_p;
     src_p.fd = decoded.fd;
@@ -230,7 +249,7 @@ bool convert_mpp_to_nv12_(LoopState& st, jpeg_dec::DecodedNv12& decoded) {
         return false;
     }
 
-    commit_converted_slot(st.cap, dst_buf, decoded);
+    commit_converted_slot(st.cap, *slot, dst_buf, decoded);
     return true;
 }
 
@@ -306,18 +325,23 @@ bool handle_dqbuf_(LoopState& st) {
     bool ok = false;
     jpeg_dec::DecodedNv12 decoded;
     if (st.cap.mode == DecodeMode::Rga) {
-        nv12_buf::Buffer& dst_buf = st.cap.out_ring[st.cap.out_ring_write];
-        csc::ConvertParams src_p;
-        src_p.fd = st.cap.cap.buffers()[df.index].primary_dma_buf();
-        src_p.fmt = st.cap.src_fmt;
-        src_p.width = st.cap.width;
-        src_p.height = st.cap.height;
-        csc::ConvertParams dst_p = nv12_dst_params(dst_buf, st.cap.width, st.cap.height);
-        if (csc::convert(src_p, dst_p)) {
-            decoded.width = st.cap.width;
-            decoded.height = st.cap.height;
-            commit_converted_slot(st.cap, dst_buf, decoded);
-            ok = true;
+        std::optional<uint32_t> slot = reserve_free_slot_(st);
+        if (!slot) {
+            ++st.cap.out_ring_drops;
+        } else {
+            nv12_buf::Buffer& dst_buf = st.cap.out_ring[*slot];
+            csc::ConvertParams src_p;
+            src_p.fd = st.cap.cap.buffers()[df.index].primary_dma_buf();
+            src_p.fmt = st.cap.src_fmt;
+            src_p.width = st.cap.width;
+            src_p.height = st.cap.height;
+            csc::ConvertParams dst_p = nv12_dst_params(dst_buf, st.cap.width, st.cap.height);
+            if (csc::convert(src_p, dst_p)) {
+                decoded.width = st.cap.width;
+                decoded.height = st.cap.height;
+                commit_converted_slot(st.cap, *slot, dst_buf, decoded);
+                ok = true;
+            }
         }
     } else { // DecodeMode::Mjpeg
         if (df.index < st.cap.in_maps.size() && df.bytesused > 0) {
@@ -649,6 +673,7 @@ void main_loop_(std::atomic<bool>& running, LoopState& st, nv12_buf::Allocator& 
             break;
 
         (void)st.prod.prune_dead_consumers();
+        (void)st.prod.drain_credits();
 
         handle_format_change_(st, allocator, publish_active_format, clear_active_format);
         maybe_reinit_capture_(st, allocator, publish_active_format);

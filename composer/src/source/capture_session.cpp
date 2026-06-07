@@ -166,6 +166,7 @@ bool setup_mjpeg_decoder_(CaptureSession& s, const Args& a, nv12_buf::Allocator&
         }
         s.out_ring.push_back(std::move(b));
     }
+    s.out_ring_gen.assign(s.out_ring.size(), 0);
     std::vector<jpeg_dec::TurboJpegDec::Slot> slots;
     slots.reserve(s.out_ring.size());
     for (auto& buf : s.out_ring) {
@@ -211,6 +212,7 @@ bool setup_rga_output_ring_(CaptureSession& s, const Args& a, nv12_buf::Allocato
         }
         s.out_ring.push_back(std::move(b));
     }
+    s.out_ring_gen.assign(s.out_ring.size(), 0);
     // Best-effort read mapping of the raw capture buffers so the no-signal
     // content detector can sample luma without a GPU readback. Skipped silently
     // on multiplanar devices (mmap_buffer_span returns nullopt); detection then
@@ -253,7 +255,9 @@ void teardown_session_(CaptureSession& s) {
     s.in_maps.clear();
     s.in_map_sizes.clear();
     s.out_ring.clear();
+    s.out_ring_gen.clear();
     s.out_ring_write = 0;
+    s.out_ring_drops = 0;
     s.cap.close(); // unmaps V4L2 in_maps inside Streamer
     s.active = false;
     s.width = 0;

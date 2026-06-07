@@ -29,6 +29,11 @@ struct CaptureSession {
     v4l2::Streamer cap;
     std::vector<nv12_buf::Buffer> out_ring;
     uint32_t out_ring_write = 0;
+    // Per out_ring slot reuse epoch, stamped into the dma-buf header so a
+    // consumer's credit can be matched to the exact generation it read.
+    std::vector<uint64_t> out_ring_gen;
+    // Frames dropped because every ring slot was still held by a consumer.
+    uint64_t out_ring_drops = 0;
     csc::PixelFormat src_fmt = csc::PixelFormat::Nv12;
     std::string src_fmt_name;
     int width = 0;
