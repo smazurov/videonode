@@ -19,6 +19,7 @@ func TestPoolStartStop(t *testing.T) {
 		},
 		Logger: poolTestLogger(),
 	})
+	defer pool.StopAll()
 
 	if err := pool.Start("test1"); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -169,6 +170,7 @@ func TestPoolStateChangeCallback(t *testing.T) {
 		},
 		Logger: poolTestLogger(),
 	})
+	defer pool.StopAll()
 
 	_ = pool.Start("test1")
 
@@ -215,18 +217,13 @@ func TestPoolOnStatsFires(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		mu.Lock()
-		got := calls
-		mu.Unlock()
-		if got > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("expected OnStats to fire while a process was running")
-		}
-		time.Sleep(10 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
+
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+	if got == 0 {
+		t.Fatal("expected OnStats to fire while a process was running")
 	}
 }
 
@@ -272,6 +269,7 @@ func TestPoolOnRemoveFiresAfterStop(t *testing.T) {
 		},
 		Logger: poolTestLogger(),
 	})
+	defer pool.StopAll()
 
 	if err := pool.Start("test1"); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -295,6 +293,7 @@ func TestPoolOnRemoveQuietForUnknownID(t *testing.T) {
 		OnRemove:        func(string) { calls++ },
 		Logger:          poolTestLogger(),
 	})
+	defer pool.StopAll()
 
 	if err := pool.Stop("never-started"); err != nil {
 		t.Fatalf("Stop failed: %v", err)
@@ -317,6 +316,7 @@ func TestPoolConfigureProcess(t *testing.T) {
 		},
 		Logger: poolTestLogger(),
 	})
+	defer pool.StopAll()
 
 	_ = pool.Start("test1")
 	time.Sleep(100 * time.Millisecond)
@@ -336,6 +336,7 @@ func TestPoolCommandProviderError(t *testing.T) {
 		},
 		Logger: poolTestLogger(),
 	})
+	defer pool.StopAll()
 
 	err := pool.Start("test1")
 	if err == nil {
@@ -365,6 +366,7 @@ func TestPoolProcessCrash(t *testing.T) {
 		},
 		Logger: poolTestLogger(),
 	})
+	defer pool.StopAll()
 
 	_ = pool.Start("test1")
 	time.Sleep(200 * time.Millisecond)
@@ -397,6 +399,7 @@ func TestPoolStopNotRunning(t *testing.T) {
 		},
 		Logger: poolTestLogger(),
 	})
+	defer pool.StopAll()
 
 	// Stop should not error when process is not running
 	if err := pool.Stop("nonexistent"); err != nil {
