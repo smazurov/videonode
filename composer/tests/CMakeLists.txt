@@ -44,6 +44,7 @@ vn_add_test(signal_activity     DEPS signal_activity              LABELS capture
 vn_add_test(v4l2_fps            DEPS v4l2_fps                     LABELS capture)
 vn_add_test(v4l2_colorimetry    DEPS v4l2_capture                 LABELS capture)
 vn_add_test(capture_poll                                          LABELS capture)
+vn_add_test(out_ring_gate                                         LABELS render)
 vn_add_test(jpeg_dec_turbo
     DEPS jpeg_dec_turbo PkgConfig::TURBOJPEG
     LABELS capture)
