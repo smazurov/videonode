@@ -28,6 +28,20 @@ constexpr int kMaxFds = 16;
 // MSG_CTRUNC under back-pressure.
 constexpr size_t kCmsgBufSize = CMSG_SPACE(sizeof(int) * kMaxFds) * 4;
 constexpr uint8_t kReadyByte = 0x01;
+constexpr size_t kCreditBytes = 16;
+constexpr size_t kMaxCreditsPerDrain = 64;
+
+void store_u64_le(std::span<uint8_t, 8> out, uint64_t v) {
+    for (size_t i = 0; i < 8; ++i)
+        out[i] = static_cast<uint8_t>((v >> (8 * i)) & 0xFF);
+}
+
+uint64_t load_u64_le(std::span<const uint8_t, 8> in) {
+    uint64_t v = 0;
+    for (size_t i = 0; i < 8; ++i)
+        v |= static_cast<uint64_t>(in[i]) << (8 * i);
+    return v;
+}
 
 bool set_addr(sockaddr_un& addr, const std::string& path) {
     if (path.size() + 1 > sizeof(addr.sun_path)) {
@@ -300,6 +314,41 @@ bool WaitForReady(int sock_fd, int timeout_ms) {
         return false;
     }
     return true;
+}
+
+bool SendCredit(int sock_fd, const Credit& c) {
+    std::array<uint8_t, kCreditBytes> buf{};
+    std::span<uint8_t> bs(buf);
+    store_u64_le(bs.first<8>(), c.slot_index);
+    store_u64_le(bs.subspan<8, 8>(), c.generation);
+    ssize_t n;
+    do {
+        n = ::send(sock_fd, buf.data(), buf.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
+    } while (n < 0 && errno == EINTR);
+    return n == static_cast<ssize_t>(buf.size());
+}
+
+int RecvCredits(int sock_fd, std::vector<Credit>& out) {
+    std::array<uint8_t, kCreditBytes * kMaxCreditsPerDrain> buf{};
+    ssize_t n;
+    do {
+        n = ::recv(sock_fd, buf.data(), buf.size(), MSG_DONTWAIT);
+    } while (n < 0 && errno == EINTR);
+    if (n == 0)
+        return -1;
+    if (n < 0)
+        return (errno == EAGAIN || errno == EWOULDBLOCK) ? 0 : -1;
+
+    std::span<const uint8_t> bytes(buf.data(), static_cast<size_t>(n));
+    int count = 0;
+    while (bytes.size() >= kCreditBytes) {
+        std::span<const uint8_t> rec = bytes.first(kCreditBytes);
+        out.push_back(Credit{.slot_index = load_u64_le(rec.first<8>()),
+                             .generation = load_u64_le(rec.subspan<8, 8>())});
+        ++count;
+        bytes = bytes.subspan(kCreditBytes);
+    }
+    return count;
 }
 
 } // namespace scm_socket

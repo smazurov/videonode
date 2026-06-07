@@ -15,6 +15,7 @@ vn_add_test(snapshot
     DEPS vn_snapshot Threads::Threads
     LABELS snapshot)
 vn_add_test(scm_socket          DEPS scm_socket                   LABELS ipc)
+vn_add_test(credit_channel      DEPS scm_socket                   LABELS ipc)
 vn_add_test(dmabuf_header       DEPS dmabuf_header                LABELS ipc)
 
 vn_add_test(scm_rights_source

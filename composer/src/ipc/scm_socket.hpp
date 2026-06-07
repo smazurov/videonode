@@ -71,4 +71,22 @@ namespace scm_socket {
 [[nodiscard]] bool SendReady(int sock_fd);
 [[nodiscard]] bool WaitForReady(int sock_fd, int timeout_ms);
 
+// Consumer→producer slot-reuse credit. The consumer echoes (slot_index,
+// generation) of a frame it is done reading; the producer decrements its
+// in-flight count for that slot so the ring slot can be recycled. Travels on
+// the same data socket, opposite direction to the frame stream.
+struct Credit {
+    uint64_t slot_index = 0;
+    uint64_t generation = 0;
+};
+
+// SendCredit emits one 16-byte little-endian credit non-blocking. Returns
+// false on EAGAIN (buffer full) or error — a lost credit is tolerated by the
+// producer's liveness path, so callers treat this as best-effort.
+[[nodiscard]] bool SendCredit(int sock_fd, const Credit& c);
+
+// RecvCredits drains up to 64 pending credits non-blocking. Returns the count
+// appended to `out`, 0 if none are pending, or -1 if the peer has closed.
+[[nodiscard]] int RecvCredits(int sock_fd, std::vector<Credit>& out);
+
 } // namespace scm_socket
