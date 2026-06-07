@@ -20,6 +20,7 @@ endif()
 
 if(HAVE_RGA)
     vn_add_probe(rga-csc-probe DEPS rga_csc dma_heap)
+    vn_add_probe(credit-stall-probe DEPS scm_socket dmabuf_header)
     if(BUILD_TESTS)
         add_test(NAME rga_csc_probe COMMAND rga-csc-probe)
     endif()
