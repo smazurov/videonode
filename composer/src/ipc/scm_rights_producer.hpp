@@ -30,6 +30,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace scm_rights_producer {
@@ -42,6 +43,11 @@ struct InitParams {
     // accept()'d and immediately closed to keep memory bounded.
     // Default 16; bump for high-fanout topologies.
     int max_consumers = 16;
+
+    // Evict a connected consumer that has been sent this many frames without
+    // crediting any of them — a wedged consumer would otherwise hold ring
+    // slots forever and starve every other consumer.
+    uint64_t credit_stall_frames = 30;
 };
 
 // Per-consumer diagnostic counters. Snapshotted with stats() — caller may
@@ -96,6 +102,18 @@ class ScmRightsProducer {
     // broadcast cadence.
     int prune_dead_consumers();
 
+    // drain_credits reads each consumer's pending slot-reuse credits
+    // (non-blocking) and decrements the matching slot's in-flight count so the
+    // producer may recycle that ring slot. Returns the number of credits
+    // applied. Callers should drive it from the same steady tick as
+    // prune_dead_consumers().
+    int drain_credits();
+
+    // inflight_for returns how many connected consumers still hold the current
+    // generation of ring slot `slot` (0 once every recipient has credited).
+    // The source's reuse gate refuses to overwrite a slot while this is > 0.
+    [[nodiscard]] uint32_t inflight_for(uint32_t slot) const;
+
     // Diagnostics. Thread-safe snapshot.
     int consumer_count() const;
     std::vector<ConsumerStats> stats() const;
@@ -113,6 +131,10 @@ class ScmRightsProducer {
         vn::base::unique_fd fd;
         uint64_t frames_sent = 0;
         uint64_t frames_dropped = 0;
+        // Per-slot count of frames this consumer has been sent but not yet
+        // credited. Released back to inflight_ wholesale on eviction.
+        std::unordered_map<uint32_t, uint32_t> outstanding;
+        uint64_t frames_since_credit = 0;
     };
 
     InitParams params_;
@@ -122,10 +144,18 @@ class ScmRightsProducer {
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
 
+    void release_consumer_(Consumer& c);
+    bool apply_credit_(Consumer& c, const scm_socket::Credit& cr);
+
     mutable std::mutex consumers_mu_;
     std::vector<Consumer> consumers_;
     std::vector<ConsumerStats> evicted_;
     uint64_t frame_counter_ = 0;
+    // Per ring-slot: live generation and how many consumer holds are
+    // outstanding across all consumers. Keyed by slot_index; sentinel
+    // (0xFFFFFFFF) frames are never recorded.
+    std::unordered_map<uint32_t, uint64_t> slot_gen_;
+    std::unordered_map<uint32_t, uint32_t> inflight_;
 };
 
 } // namespace scm_rights_producer

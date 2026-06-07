@@ -20,6 +20,8 @@ using vn::base::unique_fd;
 
 namespace {
 
+constexpr uint32_t kSentinelSlot = 0xFFFFFFFFu;
+
 // Set O_NONBLOCK on a connected socket. The producer never wants to block
 // a per-consumer send — slow consumers drop frames, fast ones don't pay.
 bool set_nonblock(int fd) {
@@ -39,6 +41,8 @@ bool ScmRightsProducer::init(const InitParams& p) {
     }
     if (params_.max_consumers <= 0)
         params_.max_consumers = 16;
+    if (params_.credit_stall_frames == 0)
+        params_.credit_stall_frames = 30;
 
     // Backlog of max_consumers gives us headroom for bursts of dials.
     listen_fd_ = scm_socket::BindAndListen(params_.socket_path, params_.max_consumers);
@@ -73,6 +77,8 @@ void ScmRightsProducer::stop() {
     {
         std::lock_guard<std::mutex> g(consumers_mu_);
         consumers_.clear(); // ~Consumer closes each fd
+        inflight_.clear();
+        slot_gen_.clear();
     }
     if (!params_.socket_path.empty()) {
         ::unlink(params_.socket_path.c_str());
@@ -122,7 +128,11 @@ void ScmRightsProducer::accept_loop_() {
             continue;
         }
         int cfd_raw = cfd.get();
-        consumers_.push_back(Consumer{.fd = std::move(cfd), .frames_sent = 0, .frames_dropped = 0});
+        consumers_.push_back(Consumer{.fd = std::move(cfd),
+                                      .frames_sent = 0,
+                                      .frames_dropped = 0,
+                                      .outstanding = {},
+                                      .frames_since_credit = 0});
         char fd_s[16], tot_s[16];
         std::snprintf(fd_s, sizeof(fd_s), "%d", cfd_raw);
         std::snprintf(tot_s, sizeof(tot_s), "%zu", consumers_.size());
@@ -149,6 +159,12 @@ int ScmRightsProducer::broadcast(const dmabuf_header::Header& header, const std:
         if (ok) {
             ++c.frames_sent;
             ++sent;
+            if (header.slot_index != kSentinelSlot) {
+                slot_gen_[header.slot_index] = header.generation;
+                ++inflight_[header.slot_index];
+                ++c.outstanding[header.slot_index];
+                ++c.frames_since_credit;
+            }
             continue;
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -164,6 +180,7 @@ int ScmRightsProducer::broadcast(const dmabuf_header::Header& header, const std:
                                          .frames_sent = c.frames_sent,
                                          .frames_dropped = c.frames_dropped,
                                          .evicted_at_frame = frame_counter_});
+        release_consumer_(c);
         to_evict.push_back(i);
     }
 
@@ -172,6 +189,73 @@ int ScmRightsProducer::broadcast(const dmabuf_header::Header& header, const std:
         consumers_.erase(consumers_.begin() + static_cast<std::ptrdiff_t>(*it));
     }
     return sent;
+}
+
+int ScmRightsProducer::drain_credits() {
+    std::lock_guard<std::mutex> g(consumers_mu_);
+    int applied = 0;
+    std::vector<size_t> to_evict;
+    auto evict = [&](Consumer& c, size_t i, const char* reason) {
+        char fd_s[16];
+        std::snprintf(fd_s, sizeof(fd_s), "%d", c.fd.get());
+        vn::log::info_s("scm_rights_producer: consumer gone, evicting",
+                        {vn::key::fd, fd_s, vn::key::reason, reason});
+        release_consumer_(c);
+        evicted_.push_back(ConsumerStats{.fd = c.fd.get(),
+                                         .frames_sent = c.frames_sent,
+                                         .frames_dropped = c.frames_dropped,
+                                         .evicted_at_frame = frame_counter_});
+        to_evict.push_back(i);
+    };
+    for (size_t i = 0; i < consumers_.size(); ++i) {
+        auto& c = consumers_[i];
+        std::vector<scm_socket::Credit> credits;
+        if (scm_socket::RecvCredits(c.fd.get(), credits) < 0) {
+            evict(c, i, "peer-close");
+            continue;
+        }
+        for (const auto& cr : credits)
+            applied += apply_credit_(c, cr) ? 1 : 0;
+        if (c.frames_since_credit > params_.credit_stall_frames)
+            evict(c, i, "credit-stall");
+    }
+    for (auto it = to_evict.rbegin(); it != to_evict.rend(); ++it)
+        consumers_.erase(consumers_.begin() + static_cast<std::ptrdiff_t>(*it));
+    return applied;
+}
+
+uint32_t ScmRightsProducer::inflight_for(uint32_t slot) const {
+    std::lock_guard<std::mutex> g(consumers_mu_);
+    auto it = inflight_.find(slot);
+    return it == inflight_.end() ? 0U : it->second;
+}
+
+void ScmRightsProducer::release_consumer_(Consumer& c) {
+    for (const auto& [slot, n] : c.outstanding) {
+        auto it = inflight_.find(slot);
+        if (it == inflight_.end())
+            continue;
+        it->second = (it->second > n) ? it->second - n : 0U;
+    }
+    c.outstanding.clear();
+}
+
+bool ScmRightsProducer::apply_credit_(Consumer& c, const scm_socket::Credit& cr) {
+    auto slot = static_cast<uint32_t>(cr.slot_index);
+    // Reject a credit for an already-recycled generation: it must not free the
+    // slot's current generation, which a new reader may still hold.
+    auto git = slot_gen_.find(slot);
+    if (git == slot_gen_.end() || git->second != cr.generation)
+        return false;
+    auto oit = c.outstanding.find(slot);
+    if (oit == c.outstanding.end() || oit->second == 0)
+        return false;
+    --oit->second;
+    auto fit = inflight_.find(slot);
+    if (fit != inflight_.end() && fit->second > 0)
+        --fit->second;
+    c.frames_since_credit = 0;
+    return true;
 }
 
 int ScmRightsProducer::prune_dead_consumers() {
@@ -200,6 +284,7 @@ int ScmRightsProducer::prune_dead_consumers() {
                                              .frames_sent = c.frames_sent,
                                              .frames_dropped = c.frames_dropped,
                                              .evicted_at_frame = frame_counter_});
+            release_consumer_(c);
             to_evict.push_back(i);
         }
     }

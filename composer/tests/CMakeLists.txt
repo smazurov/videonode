@@ -26,6 +26,10 @@ vn_add_test(scm_rights_producer
     DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
 
+vn_add_test(credit_refcount
+    DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
+    LABELS ipc)
+
 vn_add_test(scm_ctrunc_repro
     DEPS scm_socket dmabuf_header Threads::Threads
     LABELS ipc)
