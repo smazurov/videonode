@@ -22,6 +22,8 @@ using vn::base::unique_fd;
 OwnedFrameView& OwnedFrameView::operator=(OwnedFrameView&& o) noexcept {
     if (this == &o)
         return *this;
+    if (credit_sink != nullptr && slot_index != 0xFFFFFFFFu)
+        credit_sink->return_credit(slot_index, generation);
     fd = std::move(o.fd);
     plane1_fd = std::move(o.plane1_fd);
     width = o.width;
@@ -35,10 +37,15 @@ OwnedFrameView& OwnedFrameView::operator=(OwnedFrameView&& o) noexcept {
     frame_idx = o.frame_idx;
     slot_index = o.slot_index;
     generation = o.generation;
+    credit_sink = o.credit_sink;
+    o.credit_sink = nullptr;
     return *this;
 }
 
-OwnedFrameView::~OwnedFrameView() = default;
+OwnedFrameView::~OwnedFrameView() {
+    if (credit_sink != nullptr && slot_index != 0xFFFFFFFFu)
+        credit_sink->return_credit(slot_index, generation);
+}
 
 namespace {
 
@@ -266,7 +273,16 @@ OwnedFrameView ScmRightsSource::latest_frame() const {
     out.frame_idx = latest_.frame_idx;
     out.slot_index = latest_.slot_index;
     out.generation = latest_.generation;
+    if (latest_.fd >= 0 && latest_.slot_index != 0xFFFFFFFFu)
+        out.credit_sink = const_cast<ScmRightsSource*>(this);
     return out;
+}
+
+void ScmRightsSource::return_credit(uint64_t slot, uint64_t generation) {
+    std::lock_guard<std::mutex> g(credit_mu_);
+    if (!client_fd_)
+        return;
+    (void)scm_socket::SendCredit(client_fd_.get(), {.slot_index = slot, .generation = generation});
 }
 
 } // namespace scm_rights_source

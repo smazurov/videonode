@@ -54,6 +54,10 @@ struct OwnedFrameView {
     uint64_t frame_idx = 0;
     uint64_t slot_index = 0;
     uint64_t generation = 0;
+    // Non-owning back-reference to the producing source. On destruction (last
+    // read done) the view echoes a slot-reuse credit so the producer may
+    // recycle the ring slot. Null for sentinel / non-ring frames.
+    ScmRightsSource* credit_sink = nullptr;
 
     OwnedFrameView() = default;
     OwnedFrameView(OwnedFrameView&& o) noexcept { *this = std::move(o); }
@@ -89,6 +93,10 @@ class ScmRightsSource {
 
     OwnedFrameView latest_frame() const;
 
+    // Echo a slot-reuse credit back to the producer. Best-effort, non-blocking;
+    // called by OwnedFrameView's destructor when the consumer is done reading.
+    void return_credit(uint64_t slot, uint64_t generation);
+
     // Returns an eventfd that becomes readable each time a new frame
     // arrives. Consumers can poll() on this instead of busy-sleeping.
     // Returns -1 if init() hasn't been called yet.
@@ -110,6 +118,8 @@ class ScmRightsSource {
     std::atomic<bool> stop_requested_{false};
 
     vn::base::unique_fd notify_fd_;
+
+    mutable std::mutex credit_mu_;
 
     mutable std::mutex latest_mu_;
     // FrameView's `fd`/`plane1_fd` borrow into latest_owned_fds_. Consumers
