@@ -69,9 +69,14 @@ type Options struct {
 	StreamingRTSPPort string `help:"RTSP server port" default:":8554" toml:"streaming.rtsp_port" env:"STREAMING_RTSP_PORT"`
 
 	// SRT server settings
-	SRTEnabled bool   `help:"Enable SRT server" default:"true" toml:"srt.enabled" env:"SRT_ENABLED"`
-	SRTAddr    string `help:"SRT listen address" default:":6001" toml:"srt.addr" env:"SRT_ADDR"`
-	SRTLatency int    `help:"SRT latency in milliseconds" default:"20" toml:"srt.latency" env:"SRT_LATENCY"`
+	SRTEnabled         bool   `help:"Enable SRT server" default:"true" toml:"srt.enabled" env:"SRT_ENABLED"`
+	SRTAddr            string `help:"SRT listen address" default:":6001" toml:"srt.addr" env:"SRT_ADDR"`
+	SRTLatency         int    `help:"SRT peer latency in milliseconds (negotiated as the max with the receiver)" default:"20" toml:"srt.latency" env:"SRT_LATENCY"`
+	SRTOverheadBW      int    `help:"SRT retransmit bandwidth headroom in percent (10-100); raise on lossy WiFi" default:"25" toml:"srt.overhead_bw" env:"SRT_OVERHEAD_BW"`
+	SRTMaxBW           int64  `help:"SRT max send bandwidth in bytes/s (-1 unlimited, 0 relative to input_bw)" default:"-1" toml:"srt.max_bw" env:"SRT_MAX_BW"`
+	SRTInputBW         int64  `help:"SRT expected input rate in bytes/s for the relative max_bw cap" default:"0" toml:"srt.input_bw" env:"SRT_INPUT_BW"`
+	SRTPayloadSize     int    `help:"SRT payload size in bytes (1316 = 7x188 for MPEG-TS alignment)" default:"1316" toml:"srt.payload_size" env:"SRT_PAYLOAD_SIZE"`
+	SRTPeerIdleTimeout int    `help:"SRT peer idle timeout in milliseconds before dropping a dead peer" default:"5000" toml:"srt.peer_idle_timeout" env:"SRT_PEER_IDLE_TIMEOUT"`
 
 	// Metrics settings
 	SSEEnabled bool `help:"Enable SSE metrics" default:"true" toml:"metrics.sse_enabled" env:"METRICS_SSE_ENABLED"`
@@ -165,9 +170,14 @@ func main() {
 		var srtServer *streaming.SRTServer
 		if opts.SRTEnabled {
 			srtConfig := streaming.SRTConfig{
-				Enabled: true,
-				Addr:    opts.SRTAddr,
-				Latency: opts.SRTLatency,
+				Enabled:         true,
+				Addr:            opts.SRTAddr,
+				Latency:         opts.SRTLatency,
+				OverheadBW:      opts.SRTOverheadBW,
+				MaxBW:           opts.SRTMaxBW,
+				InputBW:         opts.SRTInputBW,
+				PayloadSize:     opts.SRTPayloadSize,
+				PeerIdleTimeout: opts.SRTPeerIdleTimeout,
 			}
 			srtServer = streaming.NewSRTServer(streamingServer, srtConfig, logging.GetLogger("srt"))
 		}

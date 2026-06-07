@@ -15,6 +15,29 @@ config_file = "streams.toml"
 # RTSP server port
 rtsp_port = ":8554"
 
+[srt]
+# SRT egress listener. The daemon is the sender; receivers (e.g. an OBS Media
+# Source) connect as callers and pull MPEG-TS.
+enabled = true
+addr = ":6001"
+# Peer latency in ms the listener demands of receivers. Negotiated as the max
+# with the receiver's own latency, so this is a floor. Raise for WiFi/WAN
+# (rule of thumb: >= 4x the round-trip time).
+latency = 20
+# Retransmit bandwidth headroom in percent (10-100). 25 covers up to ~10% loss;
+# raise for lossy WiFi.
+overhead_bw = 25
+# Max send bandwidth in bytes/s: -1 unlimited, 0 = relative cap from input_bw.
+max_bw = -1
+# Expected input rate in bytes/s, used only when max_bw = 0.
+input_bw = 0
+# Payload size in bytes; 1316 = 7x188 keeps MPEG-TS packets aligned and under
+# the WiFi/Ethernet MTU.
+payload_size = 1316
+# Idle timeout in ms before a silent peer is dropped. 5000 rides out brief
+# WiFi stalls/roams without false disconnects.
+peer_idle_timeout = 5000
+
 [metrics]
 # Enable SSE (Server-Sent Events) exporter
 sse_enabled = true

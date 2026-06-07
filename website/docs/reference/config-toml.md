@@ -11,9 +11,14 @@ config_file = "streams.toml"
 rtsp_port = ":8554"
 
 [srt]
-enabled = true
-addr    = ":6001"
-latency = 20
+enabled           = true
+addr              = ":6001"
+latency           = 20
+overhead_bw       = 25
+max_bw            = -1
+input_bw          = 0
+payload_size      = 1316
+peer_idle_timeout = 5000
 
 [metrics]
 sse_enabled = true
@@ -84,7 +89,12 @@ The mapping is `VIDEONODE_<ENV_TAG>`, where the env tag corresponds to the secti
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Enable the SRT server. |
 | `addr` | string | `":6001"` | UDP address the SRT server binds to. |
-| `latency` | int | `20` | SRT latency in milliseconds. |
+| `latency` | int | `20` | Peer latency in milliseconds the listener demands of receivers. The connection negotiates the maximum of this and the receiver's own latency, so it acts as a floor. Set it to at least 4x the round-trip time on WiFi or WAN links. |
+| `overhead_bw` | int | `25` | Retransmit bandwidth headroom in percent (valid range 10-100). 25 covers loss up to roughly 10%; raise it on lossy WiFi. |
+| `max_bw` | int | `-1` | Maximum send bandwidth in bytes/s including retransmissions. `-1` is unlimited; `0` derives the cap from `input_bw` and `overhead_bw`. |
+| `input_bw` | int | `0` | Expected stream input rate in bytes/s, used only when `max_bw` is `0`. `0` lets SRT estimate it. |
+| `payload_size` | int | `1316` | SRT payload size in bytes. 1316 is 7x188, which keeps MPEG-TS packets aligned and under the 1500-byte WiFi/Ethernet MTU. |
+| `peer_idle_timeout` | int | `5000` | Milliseconds the listener waits without any packet from a peer before declaring the connection dead. 5000 rides out brief WiFi stalls or roams. |
 
 ## `[metrics]`
 

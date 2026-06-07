@@ -117,6 +117,8 @@ const (
 	KeyErrno          = "errno"
 	KeyPixelclock     = "pixelclock"
 	KeyInterlaced     = "interlaced"
+	KeyOverheadBW     = "overhead_bw"
+	KeyPayloadSize    = "payload_size"
 )
 
 // HTTP requests.

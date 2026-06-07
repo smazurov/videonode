@@ -33,6 +33,15 @@ Two settings tune the SRT server, both via `config.toml` or an environment overr
 | `srt.enabled` | `true` | `VIDEONODE_SRT_ENABLED` | Set `false` to disable the SRT server entirely. |
 | `srt.latency` | `20` | `VIDEONODE_SRT_LATENCY` | Receiver latency in milliseconds. |
 
+### Receiving in OBS
+
+To pull a stream into OBS, add a **Media Source** and set:
+
+- **Input**: `srt://<host>:6001?streamid=cam-lobby`
+- **Input Format**: `mpegts`
+
+The daemon listens, so OBS connects as the caller (its default); leave the mode unset. On a lossy link, raise the receiver buffer with `&latency=200000` (microseconds) and the server-side retransmit headroom in [`config.toml`](../reference/config-toml#srt).
+
 ## WebRTC
 
 The simplest way to watch a stream over WebRTC is the built-in UI: log in to `http://<host>:8090/streams` and click the stream. The browser opens a peer connection for you.

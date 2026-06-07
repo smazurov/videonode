@@ -20,7 +20,31 @@ var ErrStreamNotFound = errors.New("stream not found")
 type SRTConfig struct {
 	Enabled bool   `yaml:"enabled" json:"enabled"`
 	Addr    string `yaml:"addr" json:"addr"`       // Listen address (default ":6001")
-	Latency int    `yaml:"latency" json:"latency"` // SRT latency in milliseconds (default 20)
+	Latency int    `yaml:"latency" json:"latency"` // Peer latency the listener demands of receivers, in milliseconds. The connection negotiates the max of this and the receiver's own latency.
+
+	// OverheadBW is the retransmit bandwidth headroom in percent (valid range
+	// 10-100). Raise it on lossy links such as WiFi so SRT has room to resend
+	// lost packets. Zero leaves the gosrt default (25).
+	OverheadBW int `yaml:"overhead_bw" json:"overhead_bw"`
+
+	// MaxBW caps total send bandwidth (incl. retransmissions) in bytes/s.
+	// -1 = unlimited (gosrt default); 0 = relative cap derived from InputBW
+	// and OverheadBW (MaxBW = InputBW * (100 + OverheadBW) / 100).
+	MaxBW int64 `yaml:"max_bw" json:"max_bw"`
+
+	// InputBW is the expected stream input rate in bytes/s, used for the
+	// relative MaxBW cap when MaxBW is 0. Zero lets SRT estimate it.
+	InputBW int64 `yaml:"input_bw" json:"input_bw"`
+
+	// PayloadSize is the SRT payload size in bytes. Pinned to 1316 (7x188)
+	// for MPEG-TS alignment; zero leaves the gosrt default.
+	PayloadSize int `yaml:"payload_size" json:"payload_size"`
+
+	// PeerIdleTimeout is how long, in milliseconds, the listener waits without
+	// any packet from a peer before declaring the connection dead. Zero leaves
+	// the gosrt default (5000); raising it lets a session ride out brief WiFi
+	// stalls or roams.
+	PeerIdleTimeout int `yaml:"peer_idle_timeout" json:"peer_idle_timeout"`
 }
 
 // SRTServer handles SRT connections and routes them to stream producers.
@@ -46,7 +70,24 @@ func NewSRTServer(streams StreamProvider, config SRTConfig, logger *slog.Logger)
 // Start begins listening for SRT connections.
 func (s *SRTServer) Start() error {
 	config := srt.DefaultConfig()
-	config.Latency = time.Duration(s.config.Latency) * time.Millisecond
+
+	// The listener is the sender, so PeerLatency is the knob that matters: it
+	// is the minimum latency the receiver will use after negotiation.
+	config.PeerLatency = time.Duration(s.config.Latency) * time.Millisecond
+
+	if s.config.OverheadBW > 0 {
+		config.OverheadBW = int64(s.config.OverheadBW)
+	}
+	config.MaxBW = s.config.MaxBW
+	if s.config.InputBW > 0 {
+		config.InputBW = s.config.InputBW
+	}
+	if s.config.PayloadSize > 0 {
+		config.PayloadSize = uint32(s.config.PayloadSize)
+	}
+	if s.config.PeerIdleTimeout > 0 {
+		config.PeerIdleTimeout = time.Duration(s.config.PeerIdleTimeout) * time.Millisecond
+	}
 
 	s.server = &srt.Server{
 		Addr:            s.config.Addr,
@@ -55,7 +96,11 @@ func (s *SRTServer) Start() error {
 		HandleSubscribe: s.handleSubscribe,
 	}
 
-	s.logger.Info("Starting SRT server", logging.KeyAddr, s.config.Addr, logging.KeyLatencyMS, s.config.Latency)
+	s.logger.Info("Starting SRT server",
+		logging.KeyAddr, s.config.Addr,
+		logging.KeyLatencyMS, s.config.Latency,
+		logging.KeyOverheadBW, config.OverheadBW,
+		logging.KeyPayloadSize, config.PayloadSize)
 
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, srt.ErrServerClosed) {
