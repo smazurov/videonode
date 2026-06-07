@@ -14,6 +14,7 @@ import (
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
+	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h265"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/mpegts"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/mpegts/codecs"
 )
@@ -45,6 +46,12 @@ type SRTConsumer struct {
 	h264SPS      []byte
 	h264PPS      []byte
 	firstH264IDR bool // Track if we've sent first IDR (skip P-frames until then)
+
+	// H265 VPS/SPS/PPS for prepending to IRAP frames
+	h265VPS      []byte
+	h265SPS      []byte
+	h265PPS      []byte
+	firstH265IDR bool // Track if we've sent first IRAP (skip P-frames until then)
 
 	done   chan struct{}
 	closed bool
@@ -91,6 +98,17 @@ func NewSRTConsumer(stream *Stream, consumerID, clientIP string, srtConn srt.Con
 						logging.KeyStreamID, c.streamID,
 						logging.KeySPSLen, len(c.h264SPS),
 						logging.KeyPPSLen, len(c.h264PPS))
+				}
+
+				// Store VPS/SPS/PPS for H265
+				if h265Forma, ok := forma.(*format.H265); ok {
+					c.h265VPS = h265Forma.VPS
+					c.h265SPS = h265Forma.SPS
+					c.h265PPS = h265Forma.PPS
+					c.logger.Debug("SRT consumer got H265 params",
+						logging.KeyStreamID, c.streamID,
+						logging.KeySPSLen, len(c.h265SPS),
+						logging.KeyPPSLen, len(c.h265PPS))
 				}
 			}
 		}
@@ -262,12 +280,34 @@ func (c *SRTConsumer) writeH264(track *mpegts.Track, pts, dts int64, au [][]byte
 }
 
 // writeH265 writes H265 access units to MPEG-TS.
+// It skips frames until the first random-access point and prepends VPS/SPS/PPS
+// before IRAP frames so a mid-GOP joiner (e.g. an OBS reconnect over WiFi) can
+// initialize its decoder instead of rendering garbage until the next keyframe.
 func (c *SRTConsumer) writeH265(track *mpegts.Track, pts, dts int64, au [][]byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
 		return io.ErrClosedPipe
+	}
+
+	isIRAP := h265.IsRandomAccess(au)
+
+	// Skip frames until we receive the first random-access frame so the
+	// decoder can initialize properly.
+	if !c.firstH265IDR {
+		if !isIRAP {
+			return nil // Skip non-IRAP frames before first IRAP
+		}
+		c.firstH265IDR = true
+		c.logger.Debug("SRT consumer received first IRAP", logging.KeyStreamID, c.streamID)
+	}
+
+	// Prepend VPS/SPS/PPS before IRAP frames. gortsplib lifts parameter sets
+	// out of the access unit into the format, so subscribers need them
+	// re-inserted to decode from a fresh connection.
+	if isIRAP && len(c.h265VPS) > 0 && len(c.h265SPS) > 0 && len(c.h265PPS) > 0 {
+		au = c.prependH265Params(au)
 	}
 
 	c.conn.SetWriteDeadline(time.Now().Add(srtWriteTimeout))
@@ -282,6 +322,43 @@ func (c *SRTConsumer) writeH265(track *mpegts.Track, pts, dts int64, au [][]byte
 
 	c.recordMetrics(au, "h265")
 	return nil
+}
+
+// prependH265Params inserts VPS/SPS/PPS ahead of an IRAP access unit when any
+// of them are not already present in-band.
+func (c *SRTConsumer) prependH265Params(au [][]byte) [][]byte {
+	var hasVPS, hasSPS, hasPPS bool
+	for _, nalu := range au {
+		if len(nalu) == 0 {
+			continue
+		}
+		switch h265.NALUType((nalu[0] >> 1) & 0b111111) {
+		case h265.NALUType_VPS_NUT:
+			hasVPS = true
+		case h265.NALUType_SPS_NUT:
+			hasSPS = true
+		case h265.NALUType_PPS_NUT:
+			hasPPS = true
+		}
+	}
+
+	if hasVPS && hasSPS && hasPPS {
+		return au
+	}
+
+	out := make([][]byte, 0, len(au)+3)
+	if !hasVPS {
+		out = append(out, c.h265VPS)
+	}
+	if !hasSPS {
+		out = append(out, c.h265SPS)
+	}
+	if !hasPPS {
+		out = append(out, c.h265PPS)
+	}
+	out = append(out, au...)
+	c.logger.Debug("SRT consumer prepended VPS/SPS/PPS", logging.KeyStreamID, c.streamID)
+	return out
 }
 
 // writeMPEG4Audio writes AAC audio to MPEG-TS.
