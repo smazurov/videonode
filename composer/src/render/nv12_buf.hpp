@@ -27,6 +27,15 @@ struct gbm_device;
 
 namespace nv12_buf {
 
+// dma-heap rows are padded to this so the composer's Panfrost/PanVK import
+// accepts the WSI pitch — a 1360-wide source is 16- but not 64-aligned and
+// otherwise trips "MESA: error: WSI pitch not properly aligned".
+inline constexpr uint32_t kRowAlign = 64;
+
+[[nodiscard]] constexpr uint32_t aligned_stride(int width) {
+    return (static_cast<uint32_t>(width) + (kRowAlign - 1U)) & ~(kRowAlign - 1U);
+}
+
 // One NV12 frame storage. Owns its dma-buf fd(s); destructor closes.
 struct Buffer {
     // Public layout (also the wire-format fields broadcast_frame fills in).

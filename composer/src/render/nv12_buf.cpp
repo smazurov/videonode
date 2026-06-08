@@ -235,7 +235,11 @@ Buffer Allocator::alloc(int width, int height) {
     if (width <= 0 || height <= 0 || (width & 1) || (height & 1))
         return out;
     auto impl = std::make_unique<DmaImpl>();
-    const size_t sz = static_cast<size_t>(width) * static_cast<size_t>(height) * 3 / 2;
+    // Pad rows so the composer's Panfrost/PanVK import accepts the WSI pitch
+    // (see kRowAlign). RGA honours the explicit wstride and consumers read
+    // pitch from the dma-buf header.
+    const uint32_t stride = aligned_stride(width);
+    const size_t sz = static_cast<size_t>(stride) * static_cast<size_t>(height) * 3 / 2;
     // "system" (cached) — consumers (vn-sink) mmap and CPU-read every
     // frame; uncached pages would serialize every load through DRAM.
     // RGA writes are coherent via DMA_BUF_IOCTL_SYNC.
@@ -247,9 +251,9 @@ Buffer Allocator::alloc(int width, int height) {
     out.y_fd = impl->bo.fd.get();
     out.uv_fd = impl->bo.fd.get(); // same fd, different offsets
     out.y_offset = 0;
-    out.uv_offset = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
-    out.y_pitch = static_cast<uint32_t>(width);
-    out.uv_pitch = static_cast<uint32_t>(width);
+    out.uv_offset = stride * static_cast<uint32_t>(height);
+    out.y_pitch = stride;
+    out.uv_pitch = stride;
     out.width = width;
     out.height = height;
     out.impl = impl.release();
