@@ -4,8 +4,9 @@ import { useShallow } from "zustand/shallow";
 import { useStreamStore } from "../hooks/useStreamStore";
 import { useSSEManager } from "../hooks/useSSEManager";
 import { cn } from "../utils";
+import { HexLogo, type HexTone } from "./HexLogo";
 
-// PipelineToggle is the "VN" brand mark, doubling as the daemon-wide
+// PipelineToggle is the VideoNode brand mark, doubling as the daemon-wide
 // start/stop button. Blue = running, red = stopped, gray = unknown.
 export function PipelineToggle() {
   const { pipelineEnabled, pipelineToggling, fetchPipelineState, startPipeline, stopPipeline, setPipelineEnabled } =
@@ -25,6 +26,12 @@ export function PipelineToggle() {
       fetchPipelineState();
     }
   }, [pipelineEnabled, fetchPipelineState]);
+
+  useEffect(() => {
+    if (pipelineEnabled === null) return;
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (link) link.href = pipelineEnabled ? "/favicon.ico" : "/favicon-red.ico";
+  }, [pipelineEnabled]);
 
   const handlePipelineEvent = useCallback(
     (event: { enabled: boolean }) => {
@@ -46,16 +53,16 @@ export function PipelineToggle() {
   }, [pipelineEnabled, startPipeline, stopPipeline]);
 
   let label: string;
-  let bg: string;
+  let tone: HexTone;
   if (pipelineEnabled === null) {
     label = "Pipeline state unknown";
-    bg = "bg-surface-muted";
+    tone = "gray";
   } else if (pipelineEnabled) {
     label = "Stop pipeline";
-    bg = "bg-accent group-hover:bg-accent-hover";
+    tone = "blue";
   } else {
     label = "Start pipeline";
-    bg = "bg-danger group-hover:bg-danger-hover";
+    tone = "red";
   }
 
   return (
@@ -66,22 +73,22 @@ export function PipelineToggle() {
       title={label}
       aria-label={label}
       className={cn(
-        "group outline-none rounded-sm",
+        "group outline-none rounded-md",
         "focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-focus-ring focus-visible:ring-offset-surface",
         pipelineToggling ? "opacity-70 cursor-wait" : undefined,
       )}
     >
-      <div
-        className={cn(
-          "w-8 h-8 rounded-sm flex items-center justify-center transition-colors duration-200",
-          bg,
-        )}
-      >
+      <div className="relative w-8 h-8 transition-transform duration-200 group-hover:scale-105">
+        <HexLogo
+          tone={tone}
+          title={label}
+          className="w-8 h-8 rounded-md transition-[filter] duration-200 group-hover:brightness-110"
+        />
         {pipelineToggling ? (
-          <div className="w-4 h-4 border-2 border-accent-fg border-t-transparent rounded-full animate-spin" />
-        ) : (
-          <span className="text-accent-fg font-bold text-sm">VN</span>
-        )}
+          <span className="absolute inset-0 flex items-center justify-center">
+            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          </span>
+        ) : null}
       </div>
     </button>
   );

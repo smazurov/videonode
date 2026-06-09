@@ -253,6 +253,8 @@ export default defineConfig([
       "src/components/Button.tsx",
       "src/components/IconButton.tsx",
       "src/components/Badge.tsx",
+      // Brand mark: literal hues are intrinsic to the logo, not themeable.
+      "src/components/HexLogo.tsx",
       "src/design/**",
       ...DESIGN_SYSTEM_DEBT,
     ],

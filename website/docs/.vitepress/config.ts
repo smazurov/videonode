@@ -12,7 +12,7 @@ const version = existsSync(versionPath)
 
 export default withMermaid(
   defineConfig({
-    title: 'VideoNode',
+    title: 'VideoNode Documentation',
     description: 'A hardware-accelerated video streaming daemon for Linux.',
     base: '/videonode/',
     cleanUrls: true,
@@ -24,6 +24,8 @@ export default withMermaid(
     ],
 
     themeConfig: {
+      logo: '/logo.svg',
+
       nav: [
         { text: 'Docs', link: '/getting-started/introduction' },
         {
