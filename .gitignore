@@ -14,7 +14,6 @@ bin/
 !composer/src/bin/
 
 streams.toml
-.testenv.local.toml
 dist/
 data/
 composer/build/
