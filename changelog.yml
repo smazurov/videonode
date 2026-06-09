@@ -1,3 +1,20 @@
+- semver: 4.1.0
+  date: 2026-06-08T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 6d32de6
+      note: "Processes panel rebuilt on a dedicated SSE process stream — live per-process stats pushed instead of polled, with explicit process-removed events; the UI fetches once on start/reconnect, then follows pushes"
+    - commit: 897d5fd
+      note: "the daemon now appears as its own self row with live CPU/RSS, the InfoBar derives its stats from the processes stream (dropping /api/system), and host GPU/MPP/NPU utilization is surfaced alongside"
+    - commit: 820265a
+      note: "source capture hardened — zero-copy dma-heap DMABUF capture, a libplacebo CSC fallback when RGA can't convert NV24, 64B NV12 stride padding, and steadier behavior through signal loss and HDMI link flaps; the v1->v2 config migration and migrate-config command are gone, so streams.toml must already be version 2"
+    - commit: 519fcb9
+      note: "smaller operational fixes: auth falls back to Basic when /etc/shadow is unreadable, WHEP DELETE is idempotent for an already-closed peer, and an opt-in net/http/pprof debug server for live profiling"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.0.0
   date: 2026-06-03T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
