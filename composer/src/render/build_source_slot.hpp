@@ -1,6 +1,6 @@
 #pragma once
 
-#include "src/render/pl_compose.hpp"
+#include "src/render/source_slot.hpp"
 #include "src/render/world.hpp"
 
 namespace render {

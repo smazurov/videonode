@@ -1,10 +1,10 @@
 #include "src/source/source_service.hpp"
 
 #include "src/capture/source_probe.hpp"
+#include "src/capture/v4l2_capture.hpp"
 #include "src/common/log_keys.hpp"
 #include "src/common/log_levels.hpp"
 #include "src/source/args.hpp"
-#include "src/source/capture_session.hpp" // for v4l2_pix_fmt_
 
 #include <chrono>
 #include <unistd.h>
@@ -36,7 +36,7 @@ grpc::Status SourceService::Describe(grpc::ServerContext* /*ctx*/,
 grpc::Status SourceService::SetFormat(grpc::ServerContext* /*ctx*/,
                                       const ::videonode::control::SetFormatRequest* req,
                                       ::videonode::control::SetFormatResponse* resp) {
-    if (source::v4l2_pix_fmt_(req->fourcc()) == 0) {
+    if (v4l2::pix_fmt_from_name(req->fourcc()) == 0) {
         return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "unsupported fourcc");
     }
     if (req->w() == 0 || req->h() == 0) {

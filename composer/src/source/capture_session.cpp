@@ -19,13 +19,6 @@ namespace source {
 
 namespace {
 
-uint32_t fourcc_(const std::string& s) {
-    if (s.size() != 4)
-        return 0;
-    return uint32_t(uint8_t(s[0])) | (uint32_t(uint8_t(s[1])) << 8) |
-           (uint32_t(uint8_t(s[2])) << 16) | (uint32_t(uint8_t(s[3])) << 24);
-}
-
 bool v4l2_to_csc_(uint32_t v4l2_fmt, csc::PixelFormat& out, std::string& name) {
     switch (v4l2_fmt) {
     case V4L2_PIX_FMT_NV12:
@@ -75,7 +68,7 @@ bool negotiate_format_(CaptureSession& s, const Args& a) {
         }
         maybe_renegotiate_to_rga_friendly_(s.cap, cur);
     } else {
-        cur.pixel_format = v4l2_pix_fmt_(a.in_format);
+        cur.pixel_format = v4l2::pix_fmt_from_name(a.in_format);
         cur.width = a.in_width > 0 ? a.in_width : a.placeholder_w;
         cur.height = a.in_height > 0 ? a.in_height : a.placeholder_h;
         cur.fps = a.in_fps;
@@ -224,24 +217,6 @@ bool setup_rga_output_ring_(CaptureSession& s, const Args& a, nv12_buf::Allocato
 }
 
 } // namespace
-
-uint32_t v4l2_pix_fmt_(const std::string& s) {
-    if (s == "NV12")
-        return V4L2_PIX_FMT_NV12;
-    if (s == "NV16")
-        return V4L2_PIX_FMT_NV16;
-    if (s == "NV24")
-        return V4L2_PIX_FMT_NV24;
-    if (s == "BGR3" || s == "BG24")
-        return V4L2_PIX_FMT_BGR24;
-    if (s == "YUYV")
-        return V4L2_PIX_FMT_YUYV;
-    if (s == "UYVY")
-        return V4L2_PIX_FMT_UYVY;
-    if (s == "MJPG" || s == "MJPEG")
-        return V4L2_PIX_FMT_MJPEG;
-    return fourcc_(s);
-}
 
 void teardown_session_(CaptureSession& s) {
     if (s.jpeg)

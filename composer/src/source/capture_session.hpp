@@ -54,8 +54,6 @@ struct CaptureSession {
     std::vector<void*> out_uv;
 };
 
-uint32_t v4l2_pix_fmt_(const std::string& s);
-
 void teardown_session_(CaptureSession& s);
 
 // Depth matches the RGA path (a.buffers + 3).

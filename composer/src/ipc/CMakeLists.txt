@@ -5,7 +5,7 @@ vn_add_library(dma_heap      SOURCES dma_heap.cpp)
 # dmabuf_header: fixed-shape binary wire format for the SCM_RIGHTS data
 # plane. Replaces the legacy JSON-RPC envelope (rpc/dmabuf_msg) — same
 # semantic shape, ~150 LOC encoder/decoder with no JSON dependency.
-vn_add_library(dmabuf_header SOURCES dmabuf_header.cpp)
+vn_add_library(dmabuf_header SOURCES dmabuf_header.cpp UNIT_SAFE)
 
 vn_add_library(scm_socket
     SOURCES scm_socket.cpp

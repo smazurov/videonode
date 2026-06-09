@@ -4,15 +4,16 @@
 vn_add_library(v4l2_fps SOURCES v4l2_fps.cpp)
 
 # v4l2_capture: pure UAPI ioctl wrapper for V4L2 capture devices.
-vn_add_library(v4l2_capture SOURCES v4l2_capture.cpp v4l2_format.cpp PUBLIC_DEPS v4l2_fps)
+vn_add_library(v4l2_capture SOURCES v4l2_capture.cpp v4l2_format.cpp PUBLIC_DEPS v4l2_fps UNIT_SAFE)
 
 # signal_activity: content-based no-signal detector (flat + frozen luma). Pure logic.
-vn_add_library(signal_activity SOURCES signal_activity.cpp)
+vn_add_library(signal_activity SOURCES signal_activity.cpp UNIT_SAFE)
 
 # source_probe: event-driven source-health state machine. Pure logic.
 vn_add_library(source_probe
     SOURCES source_probe.cpp
-    PUBLIC_DEPS v4l2_capture)
+    PUBLIC_DEPS v4l2_capture
+    UNIT_SAFE)
 
 # jpeg_dec_turbo: libjpeg-turbo (TurboJPEG API) software MJPEG → NV12 decoder.
 # Software fallback when MPP HW decode is unavailable (host builds).

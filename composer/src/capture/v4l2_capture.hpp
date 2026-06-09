@@ -15,6 +15,8 @@ namespace v4l2 {
 // The pipeline always emits limited range, so only the matrix is tracked.
 enum class ColorMatrix { Bt601, Bt709 };
 
+uint32_t pix_fmt_from_name(const std::string& name);
+
 [[nodiscard]] ColorMatrix resolve_matrix(uint32_t colorspace, uint32_t ycbcr_enc, uint32_t height);
 
 struct StreamFormat {

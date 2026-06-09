@@ -1,13 +1,20 @@
 # tests/CMakeLists.txt — host-runnable unit tests.
 #
-# Adding a test: `vn_add_test(<short_name> DEPS ... LABELS ...)`. Sources
-# default to tests/test_<short_name>.cpp. Each TEST() macro in the file is
-# auto-registered with ctest via gtest_discover_tests. LABELS lets ctest -L
-# select a domain (ipc, rpc, capture, render, process).
+# Two registration styles:
+#
+# 1. Pure logic tests (single-threaded, no sockets/fork/GL, always build)
+#    live under tests/unit/. Drop a test_*.cpp there — no CMake edit needed.
+#    vn_add_unit_suite globs the dir, links all UNIT_SAFE libs, and registers
+#    each TEST() case as its own ctest entry via gtest_discover_tests.
+#
+# 2. Tests that need process isolation (crash/hang risk), special link
+#    deps, or HAVE_* gating stay on `vn_add_test(<short> DEPS ... LABELS ...)`,
+#    one executable each. Sources default to tests/test_<short>.cpp.
+
+vn_add_unit_suite(vn_unit_tests GLOB "${CMAKE_CURRENT_SOURCE_DIR}/unit" LABELS unit)
 
 vn_add_test(ffmpeg_pipe_source_argv
-    DEPS ffmpeg_pipe_source dma_heap child_process egl_ctx gles_bundle
-         Threads::Threads
+    DEPS ffmpeg_pipe_source dma_heap egl_ctx Threads::Threads
     LABELS process)
 
 vn_add_test(child_process       DEPS child_process                LABELS process)
@@ -15,34 +22,23 @@ vn_add_test(snapshot
     DEPS vn_snapshot Threads::Threads
     LABELS snapshot)
 vn_add_test(scm_socket          DEPS scm_socket                   LABELS ipc)
-vn_add_test(dmabuf_header       DEPS dmabuf_header                LABELS ipc)
 
 vn_add_test(scm_rights_source
-    DEPS scm_rights_source scm_socket dmabuf_header Threads::Threads
+    DEPS scm_rights_source
     LABELS ipc)
 
 vn_add_test(scm_rights_producer
-    DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
+    DEPS scm_rights_producer scm_rights_source
     LABELS ipc)
 
 vn_add_test(scm_ctrunc_repro
-    DEPS scm_socket dmabuf_header Threads::Threads
+    DEPS scm_socket Threads::Threads
     LABELS ipc)
-
-vn_add_test(build_source_slot   DEPS build_source_slot            LABELS render)
-vn_add_test(placeholder_painter DEPS placeholder_painter          LABELS render)
-vn_add_test(homography          DEPS homography                   LABELS render)
-vn_add_test(hex_color                                             LABELS render)
 
 if(HAVE_RGA)
     vn_add_test(nv12_stride       DEPS nv12_buf                   LABELS render)
 endif()
 vn_add_test(world               DEPS world Threads::Threads       LABELS render)
-vn_add_test(source_probe        DEPS source_probe                 LABELS capture)
-vn_add_test(signal_activity     DEPS signal_activity              LABELS capture)
-vn_add_test(v4l2_fps            DEPS v4l2_fps                     LABELS capture)
-vn_add_test(v4l2_colorimetry    DEPS v4l2_capture                 LABELS capture)
-vn_add_test(capture_poll                                          LABELS capture)
 vn_add_test(jpeg_dec_turbo
     DEPS jpeg_dec_turbo PkgConfig::TURBOJPEG
     LABELS capture)
@@ -57,23 +53,23 @@ endif()
 # never unmaps or sync_end's the slot before broadcasting.
 if(HAVE_PLACEBO AND HAVE_GBM)
     vn_add_test(jpeg_dec_dmabuf_visibility
-        DEPS jpeg_dec_turbo nv12_buf csc_placebo egl_ctx gles_bundle placebo_bundle PkgConfig::TURBOJPEG
+        DEPS jpeg_dec_turbo nv12_buf csc_placebo PkgConfig::TURBOJPEG
         LABELS capture)
 
     vn_add_test(csc_placebo_yuyv
-        DEPS csc csc_placebo egl_ctx gles_bundle placebo_bundle gbm_alloc
+        DEPS csc gbm_alloc
         LABELS render)
 
     vn_add_test(pl_compose_fd_leak
-        DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc
+        DEPS pl_compose gbm_alloc
         LABELS render)
 
     vn_add_test(canvas_clear
-        DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc
+        DEPS pl_compose gbm_alloc
         LABELS render)
 
     vn_add_test(canvas_tearing
-        DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc Threads::Threads
+        DEPS pl_compose gbm_alloc Threads::Threads
         LABELS render)
 
     vn_add_test(nv12_ring_overwrite
@@ -81,12 +77,11 @@ if(HAVE_PLACEBO AND HAVE_GBM)
         LABELS render)
 
     vn_add_test(pipeline_tearing
-        DEPS pl_compose egl_ctx gles_bundle placebo_bundle gbm_alloc nv12_buf
-             scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
+        DEPS pl_compose gbm_alloc nv12_buf scm_rights_producer scm_rights_source
         LABELS render)
 
 endif()
 
 vn_add_test(fd_lifetime
-    DEPS scm_rights_producer scm_rights_source scm_socket dmabuf_header Threads::Threads
+    DEPS scm_rights_producer scm_rights_source
     LABELS ipc)

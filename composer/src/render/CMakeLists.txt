@@ -6,12 +6,12 @@ vn_add_library(fake_source
 
 # placeholder_painter: NV12 "NO SIGNAL" painter for the sidecar's
 # placeholder mode. Pure CPU, no Rockchip deps.
-vn_add_library(placeholder_painter SOURCES placeholder_painter.cpp)
+vn_add_library(placeholder_painter SOURCES placeholder_painter.cpp UNIT_SAFE)
 
 # homography: corner→3×3 row-major homography solver for the GPU composer.
 # Pure math, no GL, no allocation. Used by canvas_loop to translate
 # daemon-supplied corner points into the per-source warp matrix.
-vn_add_library(homography SOURCES homography.cpp)
+vn_add_library(homography SOURCES homography.cpp UNIT_SAFE)
 
 # world: composer-side mirror of daemon-pushed runtime state (canvas
 # dims, slot bindings, layout, effects, per-source state). Mutex-
@@ -25,7 +25,8 @@ vn_add_library(world
 # and unit-tests on the host regardless of HAVE_PLACEBO / HAVE_GBM.
 vn_add_library(build_source_slot
     SOURCES build_source_slot.cpp
-    PUBLIC_DEPS world)
+    PUBLIC_DEPS world
+    UNIT_SAFE)
 
 # composer_service: gRPC service impl for videonode.control.Composer.
 # Translates proto requests into composer_rpc structs and forwards to

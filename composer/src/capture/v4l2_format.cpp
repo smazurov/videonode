@@ -14,6 +14,27 @@
 
 namespace v4l2 {
 
+uint32_t pix_fmt_from_name(const std::string& name) {
+    if (name == "NV12")
+        return V4L2_PIX_FMT_NV12;
+    if (name == "NV16")
+        return V4L2_PIX_FMT_NV16;
+    if (name == "NV24")
+        return V4L2_PIX_FMT_NV24;
+    if (name == "BGR3" || name == "BG24")
+        return V4L2_PIX_FMT_BGR24;
+    if (name == "YUYV")
+        return V4L2_PIX_FMT_YUYV;
+    if (name == "UYVY")
+        return V4L2_PIX_FMT_UYVY;
+    if (name == "MJPG" || name == "MJPEG")
+        return V4L2_PIX_FMT_MJPEG;
+    if (name.size() != 4)
+        return 0;
+    return uint32_t(uint8_t(name[0])) | (uint32_t(uint8_t(name[1])) << 8) |
+           (uint32_t(uint8_t(name[2])) << 16) | (uint32_t(uint8_t(name[3])) << 24);
+}
+
 namespace {
 
 // Retry-on-EINTR ioctl wrapper. Duplicated from v4l2_capture.cpp; the
