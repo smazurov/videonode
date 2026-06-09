@@ -1,6 +1,9 @@
 package streaming
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // isICEChar reports whether r is in RFC 5245's ice-char set
 // (ALPHA / DIGIT / "+" / "/"), which both ice-ufrag and ice-pwd must satisfy.
@@ -54,5 +57,26 @@ func TestGenerateICEPassword(t *testing.T) {
 		if !isICEChar(r) {
 			t.Errorf("ICE password %q contains non-ice-char %q", pw, r)
 		}
+	}
+}
+
+func TestDisconnectPeer_RecentlyClosedIsIdempotent(t *testing.T) {
+	m := NewWebRTCManager(nil, WebRTCConfig{}, nil)
+
+	if m.DisconnectPeer("never-existed") {
+		t.Error("DisconnectPeer for an unknown peer ID should return false")
+	}
+
+	m.recentlyClosed["fresh"] = time.Now()
+	if !m.DisconnectPeer("fresh") {
+		t.Error("DisconnectPeer for a recently self-closed peer should return true")
+	}
+
+	m.recentlyClosed["stale"] = time.Now().Add(-recentlyClosedTTL - time.Second)
+	if m.DisconnectPeer("stale") {
+		t.Error("DisconnectPeer for a peer closed beyond the TTL should return false")
+	}
+	if _, ok := m.recentlyClosed["stale"]; ok {
+		t.Error("an expired recentlyClosed entry should be pruned on lookup")
 	}
 }

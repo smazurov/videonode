@@ -20,14 +20,19 @@ type WebRTCConfig struct {
 	ICEServers []pion.ICEServer
 }
 
+// recentlyClosedTTL is how long a self-closed peer ID is remembered so its
+// WHEP DELETE teardown is treated as an idempotent success instead of a 404.
+const recentlyClosedTTL = 30 * time.Second
+
 // WebRTCManager manages WebRTC peer connections.
 type WebRTCManager struct {
-	streams     StreamProvider
-	config      WebRTCConfig
-	peers       map[string]*webrtcPeer
-	streamPeers map[string]map[string]bool // streamID -> set of peerIDs
-	mu          sync.RWMutex
-	logger      logging.Logger
+	streams        StreamProvider
+	config         WebRTCConfig
+	peers          map[string]*webrtcPeer
+	streamPeers    map[string]map[string]bool // streamID -> set of peerIDs
+	recentlyClosed map[string]time.Time       // peerID -> close time, for idempotent WHEP DELETE
+	mu             sync.RWMutex
+	logger         logging.Logger
 }
 
 // webrtcPeer holds state for a single WebRTC peer connection.
@@ -48,11 +53,12 @@ type webrtcPeer struct {
 // NewWebRTCManager creates a new WebRTC manager.
 func NewWebRTCManager(streams StreamProvider, config WebRTCConfig, logger logging.Logger) *WebRTCManager {
 	return &WebRTCManager{
-		streams:     streams,
-		config:      config,
-		peers:       make(map[string]*webrtcPeer),
-		streamPeers: make(map[string]map[string]bool),
-		logger:      logger,
+		streams:        streams,
+		config:         config,
+		peers:          make(map[string]*webrtcPeer),
+		streamPeers:    make(map[string]map[string]bool),
+		recentlyClosed: make(map[string]time.Time),
+		logger:         logger,
 	}
 }
 
@@ -411,6 +417,8 @@ func prependH265ParamSets(au, params [][]byte) [][]byte {
 
 // closePeer cleans up a peer connection.
 func (m *WebRTCManager) closePeer(peerID, streamID, reason string) {
+	now := time.Now()
+
 	m.mu.Lock()
 	peer, ok := m.peers[peerID]
 	if !ok {
@@ -418,6 +426,13 @@ func (m *WebRTCManager) closePeer(peerID, streamID, reason string) {
 		return
 	}
 	delete(m.peers, peerID)
+
+	m.recentlyClosed[peerID] = now
+	for id, t := range m.recentlyClosed {
+		if now.Sub(t) > recentlyClosedTTL {
+			delete(m.recentlyClosed, id)
+		}
+	}
 
 	var remainingPeers int
 	if m.streamPeers[streamID] != nil {
@@ -507,15 +522,37 @@ func (m *WebRTCManager) StreamPeerInfo(streamID string) []WebRTCClientInfo {
 	return out
 }
 
-// DisconnectPeer disconnects a single WebRTC peer by ID. Returns false if not found.
+// DisconnectPeer disconnects a single WebRTC peer by ID. It returns true if the
+// peer was live (and is now closed) or if it self-closed within recentlyClosedTTL,
+// so a WHEP DELETE racing the peer's own ICE teardown is an idempotent success.
+// It returns false only for a genuinely unknown peer ID.
 func (m *WebRTCManager) DisconnectPeer(peerID string) bool {
 	m.mu.RLock()
 	peer, ok := m.peers[peerID]
 	m.mu.RUnlock()
 	if !ok {
-		return false
+		return m.wasRecentlyClosed(peerID)
 	}
 	m.closePeer(peerID, peer.streamID, "api_disconnect")
+	return true
+}
+
+// wasRecentlyClosed reports whether peerID self-closed within recentlyClosedTTL,
+// pruning the entry if it has expired.
+func (m *WebRTCManager) wasRecentlyClosed(peerID string) bool {
+	now := time.Now()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	closedAt, ok := m.recentlyClosed[peerID]
+	if !ok {
+		return false
+	}
+	if now.Sub(closedAt) > recentlyClosedTTL {
+		delete(m.recentlyClosed, peerID)
+		return false
+	}
 	return true
 }
 
