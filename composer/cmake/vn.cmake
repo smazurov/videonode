@@ -13,8 +13,19 @@
 #   vn_add_unit_suite(<binary> GLOB <dir> [LABELS ...])
 #       Globs test_*.cpp from <dir> (CONFIGURE_DEPENDS), links all UNIT_SAFE
 #       libs, and registers each TEST() case as its own ctest entry.
+#
+# VN_STRICT_DEPS=ON: builds every vn_add_library target as SHARED with
+# -Wl,--no-undefined so the linker rejects any symbol not resolvable from
+# declared deps.  Catches under-declared deps at link time, no parser needed.
+# Default is OFF (STATIC, normal behaviour unchanged).
 
 include(GNUInstallDirs)
+
+option(VN_STRICT_DEPS "Build vn_add_library targets as SHARED with --no-undefined to catch under-declared deps" OFF)
+
+if(VN_STRICT_DEPS)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 function(vn_add_library name)
     set(opts UNIT_SAFE)
@@ -26,7 +37,15 @@ function(vn_add_library name)
         set(ARG_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${name}.cpp")
     endif()
 
-    add_library(${name} STATIC ${ARG_SOURCES})
+    if(VN_STRICT_DEPS)
+        add_library(${name} SHARED ${ARG_SOURCES})
+        set_target_properties(${name} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+        target_link_options(${name} PRIVATE
+            -Wl,--no-undefined
+            -Wl,--no-allow-shlib-undefined)
+    else()
+        add_library(${name} STATIC ${ARG_SOURCES})
+    endif()
 
     if(ARG_PRIVATE_DEPS)
         target_link_libraries(${name} PRIVATE ${ARG_PRIVATE_DEPS})

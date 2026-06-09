@@ -19,7 +19,7 @@ vn_add_library(source_probe
 # Software fallback when MPP HW decode is unavailable (host builds).
 vn_add_library(jpeg_dec_turbo
     SOURCES jpeg_dec_turbo.cpp
-    PUBLIC_DEPS PkgConfig::TURBOJPEG)
+    PRIVATE_DEPS PkgConfig::TURBOJPEG)
 
 # mpp_jpeg_dec: Rockchip MPP HW MJPEG → NV12 decoder. Only built when MPP
 # headers + libs are present (rig path).

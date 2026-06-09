@@ -39,6 +39,13 @@ cmake --build build/dev --target lint       # clang-format dry-run
 cmake --build build/dev --target format     # clang-format -i
 cmake --build build/dev --target tidy-diff  # clang-tidy on changed lines vs origin/native
 cmake --build build/dev --target tidy-all   # clang-tidy whole tree (slow)
+
+# Strict-deps — catch under-declared library link deps. Builds every
+# vn_add_library target as a shared object with -Wl,--no-undefined; a lib that
+# uses a symbol without declaring the owning lib fails to link. OFF by default
+# (normal builds stay static). Run when you add/move a lib or edit DEPS.
+cmake -B build/strict -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVN_STRICT_DEPS=ON -DBUILD_TESTS=OFF
+cmake --build build/strict
 ```
 
 **After any composer/ change, the full quality sweep is:**
@@ -55,6 +62,15 @@ PR touches.
 
 **When to run TSan:** any change to `scm_rights_*`, anything threaded in
 `process/`, anything touching shared fd state.
+
+**When to run strict-deps (`VN_STRICT_DEPS=ON`):** any change that adds or
+moves a `vn_add_library`, or edits a target's `DEPS`/`PUBLIC_DEPS`/
+`PRIVATE_DEPS`. The shared + `-Wl,--no-undefined` link fails on a dependency a
+lib uses but doesn't declare — which the static build silently tolerates via
+transitive linking (the linker names the exact symbol + lib to add). It does
+NOT catch over-declared/dead deps. Host config can't see `HAVE_RGA`/`HAVE_MPP`
+libs, so run it on the rig too for full coverage. Not a CI gate — a local check
+you run when touching library structure.
 
 ## Environment contract
 

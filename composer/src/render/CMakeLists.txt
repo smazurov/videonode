@@ -33,7 +33,7 @@ vn_add_library(build_source_slot
 # World::apply_*. Daemon dials in over the per-instance UDS.
 vn_add_library(composer_service
     SOURCES composer_service.cpp
-    PUBLIC_DEPS world vn_proto grpc_server vn_snapshot)
+    PUBLIC_DEPS world vn_proto vn_snapshot)
 
 # nv12_buf: backend-agnostic NV12 output buffer abstraction used by
 # videonode-source. dma_heap single-buffer when HAVE_RGA (rig path); GBM
@@ -96,14 +96,16 @@ if(HAVE_GBM)
     if(HAVE_PLACEBO)
         vn_add_library(pl_compose
             SOURCES pl_compose.cpp
-            PUBLIC_DEPS egl_ctx gles_bundle placebo_bundle)
+            PUBLIC_DEPS egl_ctx gles_bundle placebo_bundle
+            PRIVATE_DEPS gbm_alloc)
     endif()
 
     # canvas_broadcast: BGRA canvas → NV12 (BT.709) via csc::convert into a
     # depth-N round-robin ring, broadcast over SCM_RIGHTS.
     vn_add_library(canvas_broadcast
         SOURCES canvas_broadcast.cpp
-        PUBLIC_DEPS csc nv12_buf vn_snapshot scm_rights_producer dmabuf_header)
+        PUBLIC_DEPS csc nv12_buf vn_snapshot scm_rights_producer
+        PRIVATE_DEPS dmabuf_header)
 
     # canvas_loop: composer compose-render-stdout-or-SCM loop, extracted
     # from videonode_composer_main.cpp so the binary stays argv-only.

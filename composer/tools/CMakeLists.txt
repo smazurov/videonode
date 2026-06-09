@@ -12,10 +12,10 @@ if(HAVE_MPP)
 endif()
 
 if(HAVE_GBM)
-    vn_add_probe(egl-probe             DEPS egl_ctx gles_bundle)
-    vn_add_probe(import-probe          DEPS dma_heap fake_source egl_ctx gles_bundle)
+    vn_add_probe(egl-probe             DEPS egl_ctx)
+    vn_add_probe(import-probe          DEPS fake_source egl_ctx)
     vn_add_probe(pipe-source-probe     DEPS dma_heap ffmpeg_pipe_source)
-    vn_add_probe(dmabuf-format-probe   DEPS egl_ctx gles_bundle)
+    vn_add_probe(dmabuf-format-probe   DEPS egl_ctx)
 endif()
 
 if(HAVE_RGA)

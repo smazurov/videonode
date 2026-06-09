@@ -281,3 +281,4 @@ The API includes endpoints for:
     2. `ctest --preset dev --output-on-failure`
     3. `cmake --build build/dev --target lint`       # clang-format dry-run
     4. `cmake --build build/dev --target tidy-diff`  # clang-tidy on changed lines vs origin/main
+    5. If you added/moved a lib or changed `DEPS`: `cmake -B build/strict -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVN_STRICT_DEPS=ON -DBUILD_TESTS=OFF && cmake --build build/strict`  # under-declared lib deps fail the link
