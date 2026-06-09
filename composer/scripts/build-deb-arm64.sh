@@ -8,6 +8,8 @@
 #                              Artifact: composer/$BUILD_DIR/staging/bin/videonode-*
 # MODE=dev                    cmake --preset dev → build → ctest
 # MODE=dev-asan               cmake --preset dev-asan → build → ctest (ASan/UBSan)
+# MODE=fuzz                   cmake --preset fuzz (clang) → build the libFuzzer
+#                              harness → time-boxed campaign over the seed corpus
 # MODE=lint                   cmake --preset dev → build lint + tidy-diff
 #                              Needs origin/main fetched (CI: fetch-depth: 0).
 #
@@ -20,9 +22,12 @@ MODE="${MODE:-release-nfpm}"
 BUILD_DIR="${BUILD_DIR:-build/deb-arm64}"
 
 case "$MODE" in
-    release-nfpm|dev|dev-asan|lint) ;;
+    release-nfpm|dev|dev-asan|fuzz|lint) ;;
     *) echo "build-deb-arm64.sh: unknown MODE='$MODE'" >&2; exit 2 ;;
 esac
+
+# libFuzzer campaign budget (seconds); override to run longer in nightly CI.
+FUZZ_MAX_TOTAL_TIME="${FUZZ_MAX_TOTAL_TIME:-60}"
 
 SUDO="${SUDO:-}"
 if [[ $EUID -ne 0 ]] && [[ -z "$SUDO" ]] && command -v sudo >/dev/null; then
@@ -36,6 +41,9 @@ fi
 case "$MODE" in
     lint)         extra_pkgs=(clang-format clang-tidy libgtest-dev libgmock-dev) ;;
     dev|dev-asan) extra_pkgs=(libgtest-dev libgmock-dev) ;;
+    # fuzz configures with BUILD_TESTS=OFF, so no gtest; clang-19 is the trixie
+    # default and its fuzzer/sanitizer runtimes live in the matching -19 dev pkgs.
+    fuzz)         extra_pkgs=(clang libclang-rt-19-dev libfuzzer-19-dev) ;;
     release-nfpm) extra_pkgs=(dpkg-dev) ;;
     *)            extra_pkgs=() ;;
 esac
@@ -79,6 +87,17 @@ case "$MODE" in
         cmake --build --preset dev-asan
         ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
             ctest --preset dev-asan --output-on-failure
+        ;;
+    fuzz)
+        # Only the harness target compiles under clang — not the whole GL/gRPC
+        # tree — so this stays fast and independent of clang's view of the rest.
+        cmake --preset fuzz -DBUILD_TESTS=OFF
+        cmake --build --preset fuzz --target fuzz_dmabuf_header_decode
+        seeds=fuzz/corpus/dmabuf_header_decode
+        workdir=build/fuzz/fuzz/fuzz_dmabuf_header_decode.corpus
+        mkdir -p "$workdir"
+        ./build/fuzz/fuzz/fuzz_dmabuf_header_decode "$workdir" "$seeds" \
+            -max_total_time="$FUZZ_MAX_TOTAL_TIME" -timeout=10 -error_exitcode=77
         ;;
     lint)
         cmake --preset dev

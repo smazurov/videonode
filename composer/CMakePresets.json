@@ -68,7 +68,7 @@
       "name": "fuzz",
       "inherits": "base",
       "displayName": "Fuzzing (libFuzzer + ASan + UBSan)",
-      "description": "Reserved for future fuzz harnesses; no fuzzers built yet",
+      "description": "libFuzzer harnesses under fuzz/ (ENABLE_FUZZING=ON); run a harness binary directly for a campaign or `ctest -L fuzz` for the bounded seed replay",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "BUILD_TESTS": "ON",
@@ -131,6 +131,13 @@
       },
       "environment": {
         "TSAN_OPTIONS": "suppressions=${sourceDir}/tsan-suppressions.txt:second_deadlock_stack=1:ignore_noninstrumented_modules=1"
+      }
+    },
+    {
+      "name": "fuzz",
+      "configurePreset": "fuzz",
+      "output": {
+        "outputOnFailure": true
       }
     }
   ]

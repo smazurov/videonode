@@ -70,6 +70,10 @@ if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+if(ENABLE_FUZZING)
+    enable_testing()
+    add_subdirectory(fuzz)
+endif()
 
 
 message(STATUS "")

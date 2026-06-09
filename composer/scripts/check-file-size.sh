@@ -12,5 +12,6 @@ while IFS= read -r f; do
 done < <(git ls-files \
            'composer/src/*.cpp' 'composer/src/*.hpp' \
            'composer/src/**/*.cpp' 'composer/src/**/*.hpp' \
-           'composer/tools/*.cpp' 'composer/tests/*.cpp')
+           'composer/tools/*.cpp' 'composer/tests/*.cpp' \
+           'composer/fuzz/*.cpp' 'composer/fuzz/*.hpp')
 exit $bad

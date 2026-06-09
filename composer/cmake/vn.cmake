@@ -13,6 +13,10 @@
 #   vn_add_unit_suite(<binary> GLOB <dir> [LABELS ...])
 #       Globs test_*.cpp from <dir> (CONFIGURE_DEPENDS), links all UNIT_SAFE
 #       libs, and registers each TEST() case as its own ctest entry.
+#   vn_add_fuzzer(<name>     [SOURCES ...] [DEPS ...] [CORPUS <dir>])
+#       Built only under the `fuzz` preset (ENABLE_FUZZING). SOURCES default
+#       fuzz_<name>.cpp; links libFuzzer; never installed. With CORPUS + tests
+#       on, registers a bounded -runs replay as a ctest (LABEL fuzz).
 #
 # VN_STRICT_DEPS=ON: builds every vn_add_library target as SHARED with
 # -Wl,--no-undefined so the linker rejects any symbol not resolvable from
@@ -22,6 +26,7 @@
 include(GNUInstallDirs)
 
 option(VN_STRICT_DEPS "Build vn_add_library targets as SHARED with --no-undefined to catch under-declared deps" OFF)
+option(ENABLE_FUZZING "Build libFuzzer harnesses under fuzz/ (clang only; set by the `fuzz` preset)" OFF)
 
 if(VN_STRICT_DEPS)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -138,5 +143,40 @@ function(vn_add_test short_name)
             PROPERTIES LABELS "${ARG_LABELS}")
     else()
         gtest_discover_tests(${target})
+    endif()
+endfunction()
+
+function(vn_add_fuzzer name)
+    if(NOT ENABLE_FUZZING)
+        return()
+    endif()
+
+    set(opts)
+    set(one_value CORPUS)
+    set(multi_value SOURCES DEPS)
+    cmake_parse_arguments(ARG "${opts}" "${one_value}" "${multi_value}" ${ARGN})
+
+    if(NOT ARG_SOURCES)
+        set(ARG_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/fuzz_${name}.cpp")
+    endif()
+
+    set(target "fuzz_${name}")
+    add_executable(${target} ${ARG_SOURCES})
+    if(ARG_DEPS)
+        target_link_libraries(${target} PRIVATE ${ARG_DEPS})
+    endif()
+    target_compile_options(${target} PRIVATE -fsanitize=fuzzer-no-link)
+    target_link_options(${target} PRIVATE -fsanitize=fuzzer)
+
+    # Bounded deterministic replay so the harness + seeds stay green in ctest.
+    # First (writable) corpus dir lives in the build tree so libFuzzer never
+    # mutates the committed seeds passed as the read-only second dir.
+    if(ARG_CORPUS AND BUILD_TESTS)
+        set(workdir "${CMAKE_CURRENT_BINARY_DIR}/${target}.corpus")
+        file(MAKE_DIRECTORY ${workdir})
+        add_test(NAME ${target}
+            COMMAND ${target} ${workdir} ${ARG_CORPUS}
+                    -runs=50000 -timeout=10 -error_exitcode=77)
+        set_tests_properties(${target} PROPERTIES LABELS fuzz)
     endif()
 endfunction()

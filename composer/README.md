@@ -118,6 +118,7 @@ composer/
 │   └── bin/                    # the three binary entry points
 ├── tools/                      # diagnostic probes (not installed)
 ├── tests/                      # ctest unit suite
+├── fuzz/                       # libFuzzer harnesses (ENABLE_FUZZING only)
 ├── shaders/                    # GLSL for videonode-composer
 ├── scripts/                    # rig sync / build helpers
 └── docs/                       # design and migration notes

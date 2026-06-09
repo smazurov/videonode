@@ -33,6 +33,12 @@ ASAN_OPTIONS=detect_leaks=1 ctest --preset dev-asan --output-on-failure
 cmake --preset dev-tsan && cmake --build --preset dev-tsan    # manual only
 ctest --preset dev-tsan --output-on-failure
 
+# Fuzzing — libFuzzer harnesses under fuzz/ (clang only, manual lane)
+cmake --preset fuzz && cmake --build --preset fuzz
+ctest --preset fuzz -L fuzz --output-on-failure              # bounded seed replay
+./build/fuzz/fuzz/fuzz_dmabuf_header_decode \
+    fuzz/corpus/dmabuf_header_decode -max_total_time=60      # real campaign
+
 # Lint
 cmake --build build/dev --target lint       # clang-format dry-run
 cmake --build build/dev --target format     # clang-format -i
@@ -106,6 +112,11 @@ you run when touching library structure.
   doesn't work (GCC incomplete-type limitations).
 - Template error walls: fix the call site. Do not refactor templates to
   silence diagnostics.
+- Untrusted-bytes decoders get a libFuzzer harness via `vn_add_fuzzer`.
+  `ipc/dmabuf_header::Decode` is the only one today
+  (`fuzz/fuzz_dmabuf_header_decode.cpp`, round-trip oracle); the gRPC
+  control plane needs none — libprotobuf parses it. Add a sibling harness
+  for any new decoder.
 - **Never add `NOLINT` comments.** Fix the code instead. If clang-tidy
   flags pointer arithmetic, use `std::span` and `.subspan()`. If it flags
   function size, split the function. If it flags designated initializers,
@@ -177,9 +188,3 @@ Library layout under `src/`:
 
 Vendored Rockchip stubs are gone — host builds either link real librga /
 librockchip_mpp or skip those code paths via `HAVE_RGA` / `HAVE_MPP`.
-
-## Known gaps (don't re-propose)
-
-- **Fuzzing**: `ipc/dmabuf_header::Decode` is the prime target (the
-  only remaining untrusted-bytes decoder; the gRPC control plane is
-  parsed by libprotobuf). Preset `fuzz` exists; harness not written.

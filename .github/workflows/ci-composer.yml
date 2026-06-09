@@ -41,6 +41,18 @@ jobs:
           MODE: dev-asan
         run: composer/scripts/build-deb-arm64.sh
 
+  fuzz:
+    runs-on: ubuntu-24.04-arm
+    container: arm64v8/debian:trixie
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build + run libFuzzer harness (fuzz preset)
+        env:
+          MODE: fuzz
+          FUZZ_MAX_TOTAL_TIME: 60
+        run: composer/scripts/build-deb-arm64.sh
+
   lint:
     runs-on: ubuntu-24.04-arm
     container: arm64v8/debian:trixie

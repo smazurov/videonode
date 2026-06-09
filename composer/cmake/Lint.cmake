@@ -9,7 +9,9 @@ file(GLOB_RECURSE _vn_lint_sources CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/tools/*.cpp"
     "${CMAKE_SOURCE_DIR}/tools/*.hpp"
     "${CMAKE_SOURCE_DIR}/tests/*.cpp"
-    "${CMAKE_SOURCE_DIR}/tests/*.hpp")
+    "${CMAKE_SOURCE_DIR}/tests/*.hpp"
+    "${CMAKE_SOURCE_DIR}/fuzz/*.cpp"
+    "${CMAKE_SOURCE_DIR}/fuzz/*.hpp")
 list(FILTER _vn_lint_sources EXCLUDE REGEX "/build[^/]*/")
 
 if(CLANG_FORMAT)
@@ -66,7 +68,7 @@ if(CLANG_TIDY_DIFF AND CLANG_TIDY_BIN)
     # `src/foo.cpp` which resolves correctly with cwd=composer. Wrapped in
     # `sh -c` so the shell handles the pipe.
     add_custom_target(tidy-diff
-        COMMAND sh -c "git -C '${CMAKE_SOURCE_DIR}/..' diff -U0 ${TIDY_DIFF_BASE}...HEAD -- composer/src composer/tools composer/tests | '${CLANG_TIDY_DIFF}' -p2 -path '${CMAKE_BINARY_DIR}' -clang-tidy-binary '${CLANG_TIDY_BIN}'"
+        COMMAND sh -c "git -C '${CMAKE_SOURCE_DIR}/..' diff -U0 ${TIDY_DIFF_BASE}...HEAD -- composer/src composer/tools composer/tests composer/fuzz | '${CLANG_TIDY_DIFF}' -p2 -path '${CMAKE_BINARY_DIR}' -clang-tidy-binary '${CLANG_TIDY_BIN}'"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "clang-tidy on lines changed vs ${TIDY_DIFF_BASE}"
         VERBATIM USES_TERMINAL)
@@ -80,7 +82,7 @@ endif()
 if(RUN_CLANG_TIDY AND CLANG_TIDY_BIN)
     add_custom_target(tidy-all
         COMMAND ${RUN_CLANG_TIDY} -p ${CMAKE_BINARY_DIR} -clang-tidy-binary ${CLANG_TIDY_BIN}
-            "^${CMAKE_SOURCE_DIR}/(src|tools|tests)/.*"
+            "^${CMAKE_SOURCE_DIR}/(src|tools|tests|fuzz)/.*"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "clang-tidy whole tree (slow)"
         VERBATIM USES_TERMINAL)
