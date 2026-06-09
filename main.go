@@ -517,8 +517,8 @@ func main() {
 								payload.SRTClients = srtServer.StreamConsumerInfo(sid)
 							}
 
-							// Client-info slices only change when counts do.
-							if !forceEmit {
+							// Active streams re-emit every tick for live bytes_sent/rtt_ms; idle ones only on count change.
+							if !forceEmit && payload.Total == 0 {
 								if prev, ok := lastConsumers[sid]; ok &&
 									prev.Total == payload.Total && prev.RTSP == payload.RTSP &&
 									prev.WebRTC == payload.WebRTC && prev.SRT == payload.SRT {
