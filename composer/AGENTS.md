@@ -183,5 +183,3 @@ librockchip_mpp or skip those code paths via `HAVE_RGA` / `HAVE_MPP`.
 - **Fuzzing**: `ipc/dmabuf_header::Decode` is the prime target (the
   only remaining untrusted-bytes decoder; the gRPC control plane is
   parsed by libprotobuf). Preset `fuzz` exists; harness not written.
-- **Hardened libstdc++**: enable `_GLIBCXX_ASSERTIONS` in `dev` preset
-  only.
