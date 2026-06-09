@@ -5,6 +5,7 @@
 #include "src/capture/source_probe.hpp"
 #include "src/common/log_keys.hpp"
 #include "src/common/log_levels.hpp"
+#include "src/ipc/dma_heap.hpp"
 #include "src/render/nv12_buf.hpp"
 #include "src/render/placeholder_painter.hpp"
 #include "src/rpc/grpc_server.hpp"
@@ -278,6 +279,17 @@ frame_luma_(const LoopState& st, const jpeg_dec::DecodedNv12& decoded, uint32_t 
     return std::nullopt;
 }
 
+// Clean the CPU-written capture buffer to DRAM (WRITE=for_device) before RGA
+// reads it via the IOMMU; READ here would invalidate, not flush.
+void flush_capture_for_rga_(const v4l2::BufferRef& buf) {
+    for (const auto& pl : buf.planes) {
+        if (pl.dma_buf_fd < 0)
+            continue;
+        dmaheap::sync_start(pl.dma_buf_fd, dmaheap::SyncDir::Write);
+        dmaheap::sync_end(pl.dma_buf_fd, dmaheap::SyncDir::Write);
+    }
+}
+
 bool handle_dqbuf_(LoopState& st) {
     v4l2::DequeuedFrame df;
     if (!st.cap.cap.dequeue_buffer(0, df)) {
@@ -300,12 +312,14 @@ bool handle_dqbuf_(LoopState& st) {
     jpeg_dec::DecodedNv12 decoded;
     if (st.cap.mode == DecodeMode::Rga) {
         nv12_buf::Buffer& dst_buf = st.cap.out_ring[st.cap.out_ring_write];
+        const v4l2::BufferRef& cap_buf = st.cap.cap.buffers()[df.index];
         csc::ConvertParams src_p;
-        src_p.fd = st.cap.cap.buffers()[df.index].primary_dma_buf();
+        src_p.fd = cap_buf.primary_dma_buf();
         src_p.fmt = st.cap.src_fmt;
         src_p.width = st.cap.width;
         src_p.height = st.cap.height;
         csc::ConvertParams dst_p = nv12_dst_params(dst_buf, st.cap.width, st.cap.height);
+        flush_capture_for_rga_(cap_buf);
         if (csc::convert(src_p, dst_p)) {
             decoded.width = st.cap.width;
             decoded.height = st.cap.height;
@@ -414,8 +428,18 @@ void poll_and_dispatch_(LoopState& st) {
     }
     if (act.drain_events)
         handle_v4l2_events_(st);
-    if (act.dequeue)
-        handle_dqbuf_(st);
+    if (act.dequeue && !handle_dqbuf_(st)) {
+        // POLLIN can stay asserted while VIDIOC_DQBUF returns EINVAL/EAGAIN:
+        // the rockchip hdmirx driver latches the fd readable on signal loss but
+        // has no frame to hand over. The poll-timeout pacing above is then
+        // defeated (poll() returns immediately every iteration) and the loop
+        // pins a core spinning on DQBUF. Pace to the broadcast deadline so
+        // placeholder frames run at frame rate until the signal relocks.
+        auto now = LoopState::clock::now();
+        if (st.next_broadcast <= now)
+            st.next_broadcast = now + st.broadcast_period;
+        std::this_thread::sleep_until(st.next_broadcast);
+    }
 }
 
 void maybe_publish_status_(LoopState& st, source_probe::Health h, bool health_changed,

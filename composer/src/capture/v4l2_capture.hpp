@@ -27,6 +27,7 @@ struct StreamFormat {
     // (rk_hdmirx is one). 0 = don't call S_PARM.
     uint32_t fps = 0;
     ColorMatrix color_matrix = ColorMatrix::Bt601;
+    uint32_t sizeimage = 0; // negotiated per-buffer byte size (single-plane)
 };
 
 // dma_buf_fd is owned by the Streamer; -1 until ExportBuffer is called.
@@ -82,6 +83,11 @@ class Streamer {
 
     // Subsequent calls re-request — the old set is cleaned.
     [[nodiscard]] bool request_buffers(int count, std::vector<BufferRef>& out);
+
+    // REQBUFS(V4L2_MEMORY_DMABUF) binding each index to a caller-owned dma-buf
+    // fd (borrowed, never closed here). Single-plane only. Returns false, staying
+    // in MMAP mode, if the driver rejects DMABUF so the caller can fall back.
+    [[nodiscard]] bool request_buffers_dmabuf(std::span<const int> dmabuf_fds, uint32_t buf_size);
 
     // Mutates the cached BufferRef so subsequent calls to buffers() see
     // the populated fd.
@@ -154,6 +160,7 @@ class Streamer {
     std::string device_path_;
     bool multiplanar_ = false;
     bool streaming_ = false;
+    uint32_t io_memory_ = 1; // V4L2_MEMORY_MMAP; DMABUF after request_buffers_dmabuf
     std::vector<BufferRef> bufs_;
     std::vector<std::pair<void*, size_t>> in_maps_;
 };

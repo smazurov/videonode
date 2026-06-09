@@ -84,12 +84,14 @@ bool Streamer::get_format(StreamFormat& out) const {
         out.pixel_format = vfmt.fmt.pix_mp.pixelformat;
         out.color_matrix =
             resolve_matrix(vfmt.fmt.pix_mp.colorspace, vfmt.fmt.pix_mp.ycbcr_enc, out.height);
+        out.sizeimage = vfmt.fmt.pix_mp.num_planes > 0 ? vfmt.fmt.pix_mp.plane_fmt[0].sizeimage : 0;
     } else {
         out.width = vfmt.fmt.pix.width;
         out.height = vfmt.fmt.pix.height;
         out.pixel_format = vfmt.fmt.pix.pixelformat;
         out.color_matrix =
             resolve_matrix(vfmt.fmt.pix.colorspace, vfmt.fmt.pix.ycbcr_enc, out.height);
+        out.sizeimage = vfmt.fmt.pix.sizeimage;
     }
     out.fps = query_capture_fps(xioctl, fd_, buf_type_());
     return true;

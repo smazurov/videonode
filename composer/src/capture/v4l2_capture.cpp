@@ -24,12 +24,13 @@ int xioctl(int fd, unsigned long req, void* arg) {
     return r;
 }
 
-void close_planes(BufferRef& b) {
+// owns=false for DMABUF capture, where the fds belong to the caller's dma-heap
+// buffers — drop the reference without closing.
+void close_planes(BufferRef& b, bool owns) {
     for (auto& p : b.planes) {
-        if (p.dma_buf_fd >= 0) {
+        if (p.dma_buf_fd >= 0 && owns)
             ::close(p.dma_buf_fd);
-            p.dma_buf_fd = -1;
-        }
+        p.dma_buf_fd = -1;
     }
 }
 
@@ -79,14 +80,16 @@ void Streamer::close() {
     if (streaming_)
         (void)stream_off();
     unmap_all_();
+    const bool owns = io_memory_ != V4L2_MEMORY_DMABUF;
     for (auto& b : bufs_)
-        close_planes(b);
+        close_planes(b, owns);
     bufs_.clear();
     if (fd_ >= 0) {
         ::close(fd_);
         fd_ = -1;
     }
     streaming_ = false;
+    io_memory_ = V4L2_MEMORY_MMAP;
 }
 
 Streamer::~Streamer() {
@@ -106,8 +109,9 @@ bool Streamer::request_buffers(int count, std::vector<BufferRef>& out) {
     // before re-requesting — the kernel reassigns offsets on each REQBUFS.
     unmap_all_();
     for (auto& b : bufs_)
-        close_planes(b);
+        close_planes(b, io_memory_ != V4L2_MEMORY_DMABUF);
     bufs_.clear();
+    io_memory_ = V4L2_MEMORY_MMAP;
 
     v4l2_requestbuffers req{};
     req.count = static_cast<uint32_t>(count);
@@ -130,6 +134,50 @@ bool Streamer::request_buffers(int count, std::vector<BufferRef>& out) {
         bufs_.push_back(std::move(b));
     }
     out = bufs_; // copy refs; dma_buf_fd is still -1 until export_buffer
+    return true;
+}
+
+bool Streamer::request_buffers_dmabuf(std::span<const int> dmabuf_fds, uint32_t buf_size) {
+    if (fd_ < 0) {
+        errno = EBADF;
+        return false;
+    }
+    if (multiplanar_) {
+        errno = ENOTSUP; // raw UVC capture is single-plane; DMABUF wiring assumes it
+        return false;
+    }
+    unmap_all_();
+    for (auto& b : bufs_)
+        close_planes(b, io_memory_ != V4L2_MEMORY_DMABUF);
+    bufs_.clear();
+
+    v4l2_requestbuffers req{};
+    req.count = static_cast<uint32_t>(dmabuf_fds.size());
+    req.type = buf_type_();
+    req.memory = V4L2_MEMORY_DMABUF;
+    if (xioctl(fd_, VIDIOC_REQBUFS, &req) < 0) {
+        vn::log::warn("v4l2_capture: REQBUFS(DMABUF) count=%zu: %s; falling back to MMAP",
+                      dmabuf_fds.size(), strerror(errno));
+        return false;
+    }
+    if (req.count < dmabuf_fds.size()) {
+        vn::log::warn("v4l2_capture: REQBUFS(DMABUF) gave %u of %zu buffers; falling back",
+                      req.count, dmabuf_fds.size());
+        return false;
+    }
+
+    io_memory_ = V4L2_MEMORY_DMABUF;
+    bufs_.reserve(dmabuf_fds.size());
+    for (uint32_t i = 0; i < dmabuf_fds.size(); ++i) {
+        BufferRef b;
+        b.index = i;
+        b.length = buf_size;
+        b.planes.resize(1);
+        b.planes[0].length = buf_size;
+        b.planes[0].mmap_offset = 0;
+        b.planes[0].dma_buf_fd = dmabuf_fds[i]; // borrowed; never closed here
+        bufs_.push_back(std::move(b));
+    }
     return true;
 }
 
@@ -208,14 +256,18 @@ bool Streamer::queue_buffer(uint32_t index) {
     v4l2_buffer buf{};
     v4l2_plane planes[VIDEO_MAX_PLANES]{};
     buf.type = buf_type_();
-    buf.memory = V4L2_MEMORY_MMAP;
+    buf.memory = io_memory_;
     buf.index = index;
     if (multiplanar_) {
         buf.m.planes = planes;
         buf.length = static_cast<uint32_t>(bufs_[index].planes.size());
         for (uint32_t p = 0; p < buf.length; ++p) {
             planes[p].length = bufs_[index].planes[p].length;
+            if (io_memory_ == V4L2_MEMORY_DMABUF)
+                planes[p].m.fd = bufs_[index].planes[p].dma_buf_fd;
         }
+    } else if (io_memory_ == V4L2_MEMORY_DMABUF) {
+        buf.m.fd = bufs_[index].planes[0].dma_buf_fd;
     }
     if (xioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
         vn::log::error("v4l2_capture: VIDIOC_QBUF index=%u: %s", index, strerror(errno));
@@ -246,7 +298,7 @@ bool Streamer::dequeue_buffer(int timeout_ms, DequeuedFrame& out) {
     v4l2_buffer buf{};
     v4l2_plane planes[VIDEO_MAX_PLANES]{};
     buf.type = buf_type_();
-    buf.memory = V4L2_MEMORY_MMAP;
+    buf.memory = io_memory_;
     if (multiplanar_) {
         buf.m.planes = planes;
         buf.length = VIDEO_MAX_PLANES;

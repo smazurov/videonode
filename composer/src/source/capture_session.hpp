@@ -2,6 +2,7 @@
 
 #include "src/capture/jpeg_dec.hpp"
 #include "src/capture/v4l2_capture.hpp"
+#include "src/ipc/dma_heap.hpp"
 #include "src/render/csc.hpp"
 #include "src/render/nv12_buf.hpp"
 #include "src/source/orchestrator.hpp"
@@ -47,6 +48,10 @@ struct CaptureSession {
     bool mpp_csc_ring_ready = false;
     std::vector<void*> in_maps;
     std::vector<size_t> in_map_sizes;
+    // Raw/RGA path: dma-heap buffers the driver captures into via DMABUF so RGA
+    // reads contiguous memory. Empty on the MMAP+EXPBUF fallback. in_maps alias.
+    std::vector<dmaheap::Buffer> cap_heap;
+    uint32_t cap_buf_size = 0; // negotiated sizeimage for cap_heap allocation
     // TurboJPEG decode writes NV12 directly into the bo: per-slot Y/UV
     // mmap pointers obtained from nv12_buf::map_rw. Held across the
     // session; nv12_buf::unmap() runs in teardown_session_.

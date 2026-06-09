@@ -85,6 +85,7 @@ bool negotiate_format_(CaptureSession& s, const Args& a) {
     s.height = int(cur.height);
     s.fps = cur.fps; // actual negotiated rate from VIDIOC_G_PARM
     s.color_matrix = cur.color_matrix;
+    s.cap_buf_size = cur.sizeimage;
     if (s.width <= 0 || s.height <= 0) {
         s.cap.close();
         return false;
@@ -112,6 +113,87 @@ bool allocate_and_queue_buffers_(CaptureSession& s, const Args& a) {
         s.cap.close();
         return false;
     }
+    return true;
+}
+
+// Fallback: RGA reads the V4L2-exported dma-buf (tears on uvcvideo's vmalloc
+// pages) — used only when the driver rejects DMABUF capture.
+bool allocate_raw_mmap_(CaptureSession& s, const Args& a) {
+    std::vector<v4l2::BufferRef> ignored;
+    if (!s.cap.request_buffers(a.buffers, ignored)) {
+        s.cap.close();
+        return false;
+    }
+    if (!s.cap.export_all_planes()) {
+        s.cap.close();
+        return false;
+    }
+    for (const auto& b : s.cap.buffers()) {
+        if (!s.cap.queue_buffer(b.index)) {
+            s.cap.close();
+            return false;
+        }
+    }
+    if (!s.cap.stream_on()) {
+        s.cap.close();
+        return false;
+    }
+    for (const auto& b : s.cap.buffers()) {
+        auto mapped = s.cap.mmap_buffer_span(b.index);
+        s.in_maps.push_back(mapped ? mapped->data() : nullptr);
+        s.in_map_sizes.push_back(mapped ? mapped->size() : 0);
+    }
+    vn::log::warn("videonode-source: raw capture via MMAP+EXPBUF (DMABUF unavailable); "
+                  "RGA may tear on uvcvideo sources");
+    return true;
+}
+
+// Capture straight into our system dma-heap buffers so RGA reads contiguous,
+// sync-coherent memory; falls back to MMAP+EXPBUF if the driver refuses DMABUF.
+bool allocate_raw_dmabuf_(CaptureSession& s, const Args& a) {
+    if (s.cap_buf_size == 0)
+        return allocate_raw_mmap_(s, a);
+    std::vector<dmaheap::Buffer> heap;
+    std::vector<int> fds;
+    for (int i = 0; i < a.buffers; ++i) {
+        dmaheap::Buffer b = dmaheap::alloc(dmaheap::kHeapSystem, s.cap_buf_size);
+        void* p = b.valid() ? dmaheap::mmap_rw(b) : nullptr;
+        if (p == nullptr) {
+            for (void* m : s.in_maps)
+                if (m != nullptr)
+                    dmaheap::munmap_rw(m, s.cap_buf_size);
+            s.in_maps.clear();
+            s.in_map_sizes.clear();
+            return false;
+        }
+        s.in_maps.push_back(p);
+        s.in_map_sizes.push_back(s.cap_buf_size);
+        fds.push_back(b.fd.get());
+        heap.push_back(std::move(b));
+    }
+    if (!s.cap.request_buffers_dmabuf(fds, s.cap_buf_size)) {
+        for (void* m : s.in_maps)
+            if (m != nullptr)
+                dmaheap::munmap_rw(m, s.cap_buf_size);
+        s.in_maps.clear();
+        s.in_map_sizes.clear();
+        heap.clear();
+        return allocate_raw_mmap_(s, a);
+    }
+    s.cap_heap = std::move(heap);
+    for (const auto& b : s.cap.buffers()) {
+        if (!s.cap.queue_buffer(b.index)) {
+            s.cap.close();
+            return false;
+        }
+    }
+    if (!s.cap.stream_on()) {
+        s.cap.close();
+        return false;
+    }
+    vn::log::info("videonode-source: raw capture via DMABUF into system dma-heap (%d buffers, "
+                  "%u bytes each)",
+                  a.buffers, s.cap_buf_size);
     return true;
 }
 
@@ -193,15 +275,6 @@ bool setup_rga_output_ring_(CaptureSession& s, const Args& a, nv12_buf::Allocato
         }
         s.out_ring.push_back(std::move(b));
     }
-    // Best-effort read mapping of the raw capture buffers so the no-signal
-    // content detector can sample luma without a GPU readback. Skipped silently
-    // on multiplanar devices (mmap_buffer_span returns nullopt); detection then
-    // no-ops for that source.
-    for (const auto& b : s.cap.buffers()) {
-        auto mapped = s.cap.mmap_buffer_span(b.index);
-        s.in_maps.push_back(mapped ? mapped->data() : nullptr);
-        s.in_map_sizes.push_back(mapped ? mapped->size() : 0);
-    }
     return true;
 }
 
@@ -214,11 +287,18 @@ void teardown_session_(CaptureSession& s) {
         nv12_buf::unmap(b);
     s.out_y.clear();
     s.out_uv.clear();
+    // DMABUF: in_maps point into cap_heap (MMAP's are unmapped by Streamer).
+    if (!s.cap_heap.empty())
+        for (size_t i = 0; i < s.in_maps.size() && i < s.in_map_sizes.size(); ++i)
+            if (s.in_maps[i] != nullptr)
+                dmaheap::munmap_rw(s.in_maps[i], s.in_map_sizes[i]);
     s.in_maps.clear();
     s.in_map_sizes.clear();
     s.out_ring.clear();
     s.out_ring_write = 0;
     s.cap.close(); // unmaps V4L2 in_maps inside Streamer
+    s.cap_heap.clear();
+    s.cap_buf_size = 0;
     s.active = false;
     s.width = 0;
     s.height = 0;
@@ -261,12 +341,14 @@ CaptureOpenStatus try_open_capture(CaptureSession& s, const Args& a, nv12_buf::A
     }
     if (!negotiate_format_(s, a))
         return CaptureOpenStatus::Failed;
-    if (!allocate_and_queue_buffers_(s, a))
-        return CaptureOpenStatus::Failed;
     if (s.mode == DecodeMode::Mjpeg) {
+        if (!allocate_and_queue_buffers_(s, a))
+            return CaptureOpenStatus::Failed;
         if (!setup_mjpeg_decoder_(s, a, allocator))
             return CaptureOpenStatus::Failed;
     } else {
+        if (!allocate_raw_dmabuf_(s, a))
+            return CaptureOpenStatus::Failed;
         if (!setup_rga_output_ring_(s, a, allocator))
             return CaptureOpenStatus::Failed;
     }
