@@ -1,3 +1,14 @@
+- semver: 4.1.1
+  date: 2026-06-09T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 37ff943
+      note: "SRT egress improvements for H265: subscribers joining between keyframes now get VPS/SPS/PPS prepended so the decoder starts immediately instead of stalling until the next IDR; the listener also gains tunable latency/bandwidth/idle-timeout knobs and aligns its payload to 1316 bytes (7x188) so MPEG-TS packets stay intact"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.1.0
   date: 2026-06-08T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
