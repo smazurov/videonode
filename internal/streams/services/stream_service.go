@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,7 +10,6 @@ import (
 	"github.com/smazurov/videonode/internal/api"
 	"github.com/smazurov/videonode/internal/api/models"
 	"github.com/smazurov/videonode/internal/logging"
-	"github.com/smazurov/videonode/internal/process"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
@@ -221,69 +219,8 @@ func (s *streamService) StartPipeline(ctx context.Context) (bool, error) {
 		return !wasEnabled, nil
 	}
 
-	s.startConfiguredEntities(ctx)
+	s.pipe.StartAll(ctx, s.store.ListSourceEntities(), s.store.ListComposerEntities(), s.store.ListPipelineStreams())
 	return !wasEnabled, nil
-}
-
-// startConfiguredEntities brings up every configured source, composer, and
-// stream best-effort. Per-entity failures are logged, not propagated: the
-// master switch is already persisted on, so a single unresolved device must
-// not fail the whole start and flip the UI back to "off" while the rest of
-// the pipeline is up. Skips entities that aren't idle (already running).
-func (s *streamService) startConfiguredEntities(ctx context.Context) {
-	sources := s.store.ListSourceEntities()
-	composers := s.store.ListComposerEntities()
-	pstreams := s.store.ListPipelineStreams()
-	s.logger.Info("StartPipeline: starting",
-		logging.KeySources, len(sources), logging.KeyComposers, len(composers), logging.KeyStreams, len(pstreams))
-
-	pool := s.pipe.Pool()
-	var failed int
-
-	for _, src := range sources {
-		if ctx.Err() != nil {
-			return
-		}
-		if pool.GetStatus(pipeline.SourcePoolKey(src.ID)).State != process.StateIdle {
-			continue
-		}
-		if err := s.pipe.ApplySource(src); err != nil {
-			failed++
-			s.logger.Error("StartPipeline: ApplySource failed", logging.KeySourceID, src.ID, logging.KeyError, err)
-		}
-	}
-
-	for _, c := range composers {
-		if ctx.Err() != nil {
-			return
-		}
-		if pool.GetStatus(pipeline.ComposerPoolKey(c.ID)).State != process.StateIdle {
-			continue
-		}
-		if err := s.pipe.ApplyComposer(c); err != nil {
-			failed++
-			s.logger.Error("StartPipeline: ApplyComposer failed", logging.KeyComposerID, c.ID, logging.KeyError, err)
-		}
-	}
-
-	for _, st := range pstreams {
-		if ctx.Err() != nil {
-			return
-		}
-		if pool.GetStatus(pipeline.EncoderIDFor(st.ID)).State != process.StateIdle {
-			continue
-		}
-		if err := s.pipe.ApplyStream(st); err != nil {
-			failed++
-			s.logger.Error("StartPipeline: ApplyStream failed", logging.KeyStreamID, st.ID, logging.KeyError, err)
-		}
-	}
-
-	if failed > 0 {
-		s.logger.Warn("StartPipeline: complete with failures", logging.KeyFailed, failed)
-		return
-	}
-	s.logger.Info("StartPipeline: complete")
 }
 
 // StopPipeline flips the persisted master switch off and stops every
@@ -297,28 +234,11 @@ func (s *streamService) StopPipeline(_ context.Context) (bool, error) {
 	if err := s.psw.SetPipeline(streams.PipelineConfig{Enabled: false}); err != nil {
 		return false, fmt.Errorf("persist pipeline state: %w", err)
 	}
-	var errs []error
+	var err error
 	if s.pipe != nil {
-		for _, st := range s.store.ListPipelineStreams() {
-			if err := s.pipe.StopEncoder(st.ID); err != nil {
-				s.logger.Error("StopPipeline: StopEncoder failed", logging.KeyStreamID, st.ID, logging.KeyError, err)
-				errs = append(errs, fmt.Errorf("stream %s: %w", st.ID, err))
-			}
-		}
-		for _, c := range s.store.ListComposerEntities() {
-			if err := s.pipe.StopComposer(c.ID); err != nil {
-				s.logger.Error("StopPipeline: StopComposer failed", logging.KeyComposerID, c.ID, logging.KeyError, err)
-				errs = append(errs, fmt.Errorf("composer %s: %w", c.ID, err))
-			}
-		}
-		for _, src := range s.store.ListSourceEntities() {
-			if err := s.pipe.StopSource(src.ID); err != nil {
-				s.logger.Error("StopPipeline: StopSource failed", logging.KeySourceID, src.ID, logging.KeyError, err)
-				errs = append(errs, fmt.Errorf("source %s: %w", src.ID, err))
-			}
-		}
+		err = s.pipe.StopAll(s.store.ListSourceEntities(), s.store.ListComposerEntities(), s.store.ListPipelineStreams())
 	}
-	return wasEnabled, errors.Join(errs...)
+	return wasEnabled, err
 }
 
 // validateStream runs static-shape validation that doesn't depend on the

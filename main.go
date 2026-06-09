@@ -214,7 +214,7 @@ func main() {
 			V4L2Source: opts.NativeV4L2Source,
 			VNSink:     opts.NativeVNSink,
 			Composer:   opts.NativeComposer,
-		}).Resolve(logger)
+		}).Resolve(logging.GetLogger("pipeline"))
 
 		// Daemon-side control plane for native sidecars. Must bind
 		// BEFORE the stream service spawns any sidecars so they can
@@ -374,14 +374,13 @@ func main() {
 
 		validationProvider := streams.NewValidationService(streamStore)
 
-		// Replay v2 entities into the pipeline at startup. When the
-		// pipeline switch is on, all processes spawn. When off, entities
-		// are registered in the pipeline registry (for upstream-ref
-		// resolution) but no processes are spawned.
-		if entityStore != nil {
-			if err := streams.ReplayV2Entities(entityStore, nativePipeline, streamStore.GetPipeline().Enabled); err != nil {
-				logger.Warn("Failed to replay v2 entities", logging.KeyError, err)
-			}
+		// Hydrate the pipeline from persisted v2 entities at startup. Off
+		// switch = nothing to spawn; the store already holds every spec.
+		if entityStore != nil && nativePipeline != nil && streamStore.GetPipeline().Enabled {
+			nativePipeline.StartAll(context.Background(),
+				entityStore.ListSourceEntities(),
+				entityStore.ListComposerEntities(),
+				entityStore.ListPipelineStreams())
 		}
 
 		// Create authenticator
