@@ -640,26 +640,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/system": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Daemon-wide resource summary
-         * @description Returns the daemon uptime and the combined CPU/memory footprint of the daemon plus every running supervised stage (sources, composers, encoders). The per-stage breakdown is available at /api/processes.
-         */
-        get: operations["system-stats"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/whep/{stream}": {
         parameters: {
             query?: never;
@@ -1656,13 +1636,13 @@ export interface components {
             cpu_percent?: number;
             /** @description Device id (sources only) */
             device?: string;
-            /** @description Pool key (e.g. 'source:hdmi0' / 'composer:cam-front') */
+            /** @description Pool key (e.g. 'source:hdmi0' / 'composer:cam-front'); 'self' for the daemon row */
             id: string;
             /**
-             * @description Entity kind for this stage
+             * @description Entity kind for this stage ('daemon' = the videonode process itself)
              * @enum {string}
              */
-            kind: "source" | "composer" | "encoder";
+            kind: "source" | "composer" | "encoder" | "daemon";
             /** @description Most recent error from the supervisor */
             last_error?: string;
             /**
@@ -1701,13 +1681,13 @@ export interface components {
              * @description CPU usage as percentage (0-100 per core)
              */
             cpu_percent?: number;
-            /** @description Pool key (e.g. 'source:hdmi0' / 'composer:cam-front') */
+            /** @description Pool key (e.g. 'source:hdmi0' / 'composer:cam-front'); 'self' for the daemon row */
             id: string;
             /**
-             * @description Entity kind for this stage
+             * @description Entity kind for this stage ('daemon' = the videonode process itself)
              * @enum {string}
              */
-            kind: "source" | "composer" | "encoder";
+            kind: "source" | "composer" | "encoder" | "daemon";
             /** @description Most recent error from the supervisor */
             last_error?: string;
             /**
@@ -2172,47 +2152,6 @@ export interface components {
             name?: string;
             /** @description Upstream reference */
             upstream?: string;
-        };
-        SystemStatsError: {
-            /** @description Pool key of the erroring stage */
-            id: string;
-            /** @description Most recent error from the supervisor */
-            message?: string;
-        };
-        SystemStatsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SystemStatsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
-             * Format: double
-             * @description Combined CPU usage (0-100 per core) of the daemon and all supervised stages
-             */
-            cpu_percent: number;
-            /**
-             * Format: int64
-             * @description Number of supervised stages currently in the error state
-             */
-            error_count: number;
-            /** @description Supervised stages currently in the error state (sorted by id) */
-            errors?: components["schemas"]["SystemStatsError"][] | null;
-            /**
-             * Format: int64
-             * @description Number of processes counted (the daemon plus running supervised stages)
-             */
-            process_count: number;
-            /**
-             * Format: int64
-             * @description Combined resident set size in bytes of the daemon and all supervised stages
-             */
-            rss_bytes: number;
-            /**
-             * Format: int64
-             * @description Daemon start time in Unix microseconds; render as uptime
-             */
-            started_at_us: number;
         };
         WebRTCClientInfo: {
             /** Format: int64 */
@@ -4387,44 +4326,6 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "system-stats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SystemStatsResponseBody"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
                 headers: {
                     [name: string]: unknown;
                 };

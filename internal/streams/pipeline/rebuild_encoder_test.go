@@ -51,6 +51,7 @@ func (p *recordingPool) GetStatus(id string) *process.Info {
 func (p *recordingPool) IsRunning(id string) bool { return p.running[id] }
 func (p *recordingPool) SetKind(_, _ string)      {}
 func (p *recordingPool) IDs() []string            { return nil }
+func (p *recordingPool) Self() *process.Info      { return nil }
 func (p *recordingPool) StopAll()                 {}
 
 func newPipelineWithPool(pool process.Pool) *Pipeline {

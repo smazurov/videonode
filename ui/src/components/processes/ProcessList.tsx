@@ -12,6 +12,7 @@ const STATE_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> =
 };
 
 const KIND_TONE: Record<string, 'canvas' | 'webrtc' | 'rtsp' | 'neutral'> = {
+  daemon: 'neutral',
   producer: 'rtsp',
   composer: 'canvas',
   encoder: 'webrtc',
@@ -119,7 +120,7 @@ export function ProcessList({ enabled = true }: ProcessListProps) {
   }, [enabled]);
 
   const grouped = useMemo(() => {
-    const order: Record<string, number> = { producer: 0, composer: 1, encoder: 2 };
+    const order: Record<string, number> = { daemon: 0, producer: 1, composer: 2, encoder: 3 };
     return [...processes].sort((a, b) => {
       const ka = order[a.kind] ?? 99;
       const kb = order[b.kind] ?? 99;

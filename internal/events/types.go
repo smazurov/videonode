@@ -72,8 +72,8 @@ func (e StreamCrashedEvent) Type() uint32 { return TypeStreamCrashed }
 // API edge normalizes the pipeline's internal "producer" label to "source"
 // before this lands on the wire.
 type ProcessInfo struct {
-	ID           string  `json:"id" doc:"Pool key (e.g. 'source:hdmi0' / 'composer:cam-front')"`
-	Kind         string  `json:"kind" enum:"source,composer,encoder" doc:"Entity kind for this stage"`
+	ID           string  `json:"id" doc:"Pool key (e.g. 'source:hdmi0' / 'composer:cam-front'); 'self' for the daemon row"`
+	Kind         string  `json:"kind" enum:"source,composer,encoder,daemon" doc:"Entity kind for this stage ('daemon' = the videonode process itself)"`
 	StreamID     string  `json:"stream_id,omitempty" doc:"User-facing stream id (empty for shared sources)"`
 	State        string  `json:"state" doc:"Pool state: idle/starting/running/stopping/error"`
 	PID          int     `json:"pid,omitempty" doc:"OS pid when running; 0 otherwise"`

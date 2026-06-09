@@ -67,6 +67,12 @@ type Config struct {
 	// that could drift from what was persisted. Required in production;
 	// tests inject a fake.
 	EntityStore EntityStore
+
+	// StartedAtUS is the daemon start time (Unix microseconds), surfaced as
+	// the "self" process row's uptime. When > 0 the pool samples the daemon's
+	// own CPU/RSS and Snapshot() prepends a daemon row, which is what the
+	// InfoBar rollup reads. Zero disables the self row.
+	StartedAtUS int64
 }
 
 // EntityStore is the read surface the pipeline needs over persisted
@@ -127,14 +133,19 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 		collectors:  make(map[string]*collectors.FFmpegCollector),
 		entityLocks: make(map[string]*sync.Mutex),
 	}
-	p.pool = process.NewPool(&process.PoolOptions{
+	poolOpts := &process.PoolOptions{
 		Logger:           logger,
 		CommandProvider:  p.commandFor,
 		ConfigureProcess: p.configureProcess,
 		OnStateChange:    p.onStateChange,
 		OnStats:          p.publishProcesses,
 		OnRemove:         p.publishProcessRemoved,
-	})
+	}
+	if cfg.StartedAtUS > 0 {
+		poolOpts.SelfSampler = &process.SelfSampler{}
+		poolOpts.SelfStartedAtUS = cfg.StartedAtUS
+	}
+	p.pool = process.NewPool(poolOpts)
 	return p
 }
 

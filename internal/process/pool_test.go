@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -252,6 +253,69 @@ func TestPoolOnStatsQuietWhenIdle(t *testing.T) {
 	mu.Unlock()
 	if got != 0 {
 		t.Fatalf("expected OnStats to stay quiet with no running process, fired %d times", got)
+	}
+}
+
+func TestPoolSelfMonitorFiresWhenIdle(t *testing.T) {
+	orig := statsPollInterval
+	statsPollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { statsPollInterval = orig })
+
+	startedAt := time.Now().Add(-time.Minute).UnixMicro()
+	var calls int
+	var mu sync.Mutex
+	pool := NewPool(&PoolOptions{
+		CommandProvider: func(id string) (string, error) { return fmt.Sprintf("echo %s", id), nil },
+		OnStats: func() {
+			mu.Lock()
+			calls++
+			mu.Unlock()
+		},
+		SelfSampler:     &SelfSampler{},
+		SelfStartedAtUS: startedAt,
+		Logger:          poolTestLogger(),
+	})
+	defer pool.StopAll()
+
+	time.Sleep(150 * time.Millisecond)
+
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+	if got == 0 {
+		t.Fatal("expected OnStats to fire from self monitoring with no children running")
+	}
+
+	self := pool.Self()
+	if self == nil {
+		t.Fatal("expected Self() to return the daemon row when self monitoring is enabled")
+	}
+	if self.ID != SelfID || self.Kind != SelfKind {
+		t.Errorf("self row: got id=%q kind=%q, want id=%q kind=%q", self.ID, self.Kind, SelfID, SelfKind)
+	}
+	if self.State != StateRunning {
+		t.Errorf("self row state: got %q, want %q", self.State, StateRunning)
+	}
+	if self.PID != os.Getpid() {
+		t.Errorf("self row pid: got %d, want %d", self.PID, os.Getpid())
+	}
+	if self.StartedAt.UnixMicro() != startedAt {
+		t.Errorf("self row started_at: got %d, want %d", self.StartedAt.UnixMicro(), startedAt)
+	}
+	if self.RSSBytes <= 0 {
+		t.Errorf("self row rss: got %d, want > 0 after a sample", self.RSSBytes)
+	}
+}
+
+func TestPoolSelfNilWhenDisabled(t *testing.T) {
+	pool := NewPool(&PoolOptions{
+		CommandProvider: func(id string) (string, error) { return fmt.Sprintf("echo %s", id), nil },
+		Logger:          poolTestLogger(),
+	})
+	defer pool.StopAll()
+
+	if self := pool.Self(); self != nil {
+		t.Fatalf("expected Self() to be nil without a SelfSampler, got %+v", self)
 	}
 }
 

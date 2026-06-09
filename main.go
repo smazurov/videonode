@@ -253,6 +253,7 @@ func main() {
 			Registry:       eventRegistry,
 			EventBus:       eventBus,
 			EntityStore:    entityStore,
+			StartedAtUS:    time.Now().UnixMicro(),
 			EncoderResolver: func(codec, inputPixFmt string) (pipeline.EncoderResolution, error) {
 				cfg, err := encoders.MapAPICodec(codec, inputPixFmt, streamStore)
 				if err != nil {

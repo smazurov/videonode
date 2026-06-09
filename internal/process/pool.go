@@ -4,10 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/smazurov/videonode/internal/logging"
+)
+
+// Pool key and kind for the synthetic daemon row surfaced via Self() when
+// self monitoring is enabled. The daemon is not a supervised child — it has
+// no command and is never started/stopped/restarted — so it lives outside the
+// processes map and carries an id with no "kind:entity" colon.
+const (
+	SelfID   = "self"
+	SelfKind = "daemon"
 )
 
 // Pool manages multiple named processes with lifecycle control.
@@ -35,6 +45,10 @@ type Pool interface {
 
 	// IDs returns a snapshot of currently-tracked process ids.
 	IDs() []string
+
+	// Self returns the daemon's own process row (CPU%/RSS/uptime) when self
+	// monitoring is enabled via PoolOptions.SelfSampler, or nil otherwise.
+	Self() *Info
 
 	// StopAll gracefully stops all running processes.
 	StopAll()
@@ -68,6 +82,11 @@ type pool struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
+
+	// Cached daemon footprint, refreshed by the stats poller when self
+	// monitoring is enabled. Guarded by mu (read by Self()).
+	selfRSS int64
+	selfCPU float64
 }
 
 // NewPool creates a new process pool.
@@ -294,10 +313,6 @@ func (p *pool) refreshStats() {
 	}
 	p.mu.RUnlock()
 
-	if len(snaps) == 0 {
-		return
-	}
-
 	type result struct {
 		id    string
 		rss   int64
@@ -326,24 +341,63 @@ func (p *pool) refreshStats() {
 		})
 	}
 
-	if len(results) == 0 {
+	if len(results) > 0 {
+		p.mu.Lock()
+		for _, r := range results {
+			mp, ok := p.processes[r.id]
+			if !ok {
+				continue
+			}
+			mp.rssBytes = r.rss
+			mp.cpuPct = r.cpu
+			mp.prevTicks = r.ticks
+			mp.prevWall = r.wall
+		}
+		p.mu.Unlock()
+	}
+
+	// Self monitoring keeps the daemon footprint fresh and the stats stream
+	// ticking every interval even with zero supervised children, so the
+	// operator UI's daemon stats don't freeze while the pipeline is idle.
+	if p.opts.SelfSampler != nil {
+		rss, cpu := p.opts.SelfSampler.Sample()
+		p.mu.Lock()
+		p.selfRSS = rss
+		p.selfCPU = cpu
+		p.mu.Unlock()
+	}
+
+	if len(results) == 0 && p.opts.SelfSampler == nil {
 		return
 	}
-
-	p.mu.Lock()
-	for _, r := range results {
-		mp, ok := p.processes[r.id]
-		if !ok {
-			continue
-		}
-		mp.rssBytes = r.rss
-		mp.cpuPct = r.cpu
-		mp.prevTicks = r.ticks
-		mp.prevWall = r.wall
-	}
-	p.mu.Unlock()
-
 	p.notifyStatsChange()
+}
+
+// Self returns the daemon's own process row when self monitoring is enabled,
+// or nil otherwise. CPU%/RSS come from the cache last refreshed by the stats
+// poller; the row is synthetic (no command, never restartable) so it carries
+// a bare "self" id and "daemon" kind.
+func (p *pool) Self() *Info {
+	if p.opts.SelfSampler == nil {
+		return nil
+	}
+	p.mu.RLock()
+	rss, cpu := p.selfRSS, p.selfCPU
+	p.mu.RUnlock()
+
+	var startedAt time.Time
+	if p.opts.SelfStartedAtUS > 0 {
+		startedAt = time.UnixMicro(p.opts.SelfStartedAtUS)
+	}
+	return &Info{
+		ID:         SelfID,
+		Kind:       SelfKind,
+		State:      StateRunning,
+		PID:        os.Getpid(),
+		StartedAt:  startedAt,
+		RSSBytes:   rss,
+		CPUPercent: cpu,
+	}
 }
 
 // SetKind sets the free-form classifier surfaced via Info.Kind for a
@@ -417,8 +471,9 @@ func (p *pool) notifyStateChange(id string, oldState, newState State, err error)
 }
 
 // notifyStatsChange invokes the OnStats callback if configured. Called from
-// refreshStats only when at least one running process was sampled, so the
-// callback never fires for an idle pool.
+// refreshStats when at least one running process was sampled, or on every tick
+// while self monitoring is enabled (so the daemon footprint keeps streaming
+// even when no children run).
 func (p *pool) notifyStatsChange() {
 	if p.opts.OnStats != nil {
 		p.opts.OnStats()

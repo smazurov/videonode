@@ -13,8 +13,8 @@ type StateChangeCallback func(id string, oldState, newState State, err error)
 // StatsChangeCallback is called once per stats sample after the pool has
 // refreshed every running process's CPU%/RSS. It is a notification, not a
 // payload: the consumer re-reads GetStatus for the processes it cares about.
-// Fired only when at least one process was sampled, so an idle pool stays
-// quiet.
+// Fired when at least one process was sampled; with SelfSampler set it also
+// fires on every tick so the daemon footprint keeps streaming while idle.
 type StatsChangeCallback func()
 
 // RemovedCallback is called after a process has been removed from the pool
@@ -43,6 +43,17 @@ type PoolOptions struct {
 	// OnRemove is called after a process is removed from the pool (optional).
 	// Used to push an explicit removal so subscribers drop the stale row.
 	OnRemove RemovedCallback
+
+	// SelfSampler, when non-nil, makes the pool sample the daemon's own
+	// CPU%/RSS on every stats tick and surface it via Self(). With self
+	// monitoring enabled the stats tick always fires OnStats — even with
+	// zero supervised children — so the daemon footprint keeps refreshing
+	// while the pipeline is idle.
+	SelfSampler *SelfSampler
+
+	// SelfStartedAtUS is the daemon start time (Unix microseconds) reported
+	// as the self row's StartedAt. Only meaningful when SelfSampler is set.
+	SelfStartedAtUS int64
 
 	// ConfigureProcess allows customization of the Process before start (optional).
 	ConfigureProcess Configurer

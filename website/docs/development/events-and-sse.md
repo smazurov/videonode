@@ -62,10 +62,10 @@ Different data uses different freshness mechanisms, one source of truth per datu
 | Device list | `device-discovery` event, plus a 30s fallback poll |
 | Pipeline switch | `pipeline-state-changed` event |
 | Live preview | MJPEG stream (`/api/sources/{id}/preview.mjpg`) |
-| Daemon CPU / memory, process list | REST poll every 2s (`/api/system`, `/api/processes`) |
+| Daemon CPU / memory, process list | `processes` event on `/api/events` (the daemon is a `self` row), seeded and resynced over `/api/processes` |
 | Encoder capabilities, health | one-shot REST on load (boot-static) |
 
-Per-entity runtime data rides the envelope, whole-daemon stats are polled, and boot-static capabilities are fetched once. The composer sidecar does not push status, so the UI shows composer process state from lifecycle events but no live canvas or consumer telemetry.
+Per-entity runtime data rides the envelope, whole-daemon and per-process stats ride the `processes` event (which includes a `self` row for the daemon itself, so the operator status bar needs no separate poll), and boot-static capabilities are fetched once. The composer sidecar does not push status, so the UI shows composer process state from lifecycle events but no live canvas or consumer telemetry.
 
 ## Authentication
 

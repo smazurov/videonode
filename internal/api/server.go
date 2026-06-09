@@ -14,7 +14,6 @@ import (
 	"github.com/smazurov/videonode/internal/devices"
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/logging"
-	"github.com/smazurov/videonode/internal/process"
 	"github.com/smazurov/videonode/internal/snapshots"
 	"github.com/smazurov/videonode/internal/streaming"
 	"github.com/smazurov/videonode/internal/streams/pipelinectl"
@@ -41,8 +40,6 @@ type Server struct {
 	streamEntity       *events.Entity[models.StreamData]
 	controlServer      *pipelinectl.Manager
 	logger             logging.Logger
-	startedAtUS        int64
-	selfSampler        process.SelfSampler
 }
 
 // rtspPortOrDefault returns the configured RTSP publish port (e.g.
@@ -225,7 +222,6 @@ func NewServer(opts *Options) *Server {
 		eventRegistry:      opts.EventRegistry,
 		controlServer:      opts.ControlServer,
 		logger:             logging.GetLogger("api"),
-		startedAtUS:        time.Now().UnixMicro(),
 	}
 
 	// Register entity handles so handlers can publish through the
@@ -566,9 +562,6 @@ func (s *Server) registerRoutes() {
 	// Pipeline processes endpoint (no-op when provider is nil — daemon
 	// without the new pipeline foundation wired).
 	RegisterProcessesRoutes(s.api, s.options.ProcessesProvider)
-
-	// Daemon-wide resource summary (uptime + combined CPU/memory)
-	s.registerSystemRoutes()
 
 	// Options endpoints
 	s.registerOptionsRoutes()
