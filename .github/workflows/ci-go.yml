@@ -8,6 +8,7 @@ on:
       - 'go.sum'
       - '.github/workflows/ci-go.yml'
       - '.golangci.yml'
+      - '.custom-gcl.yml'
   pull_request:
     branches: [main]
     paths:
@@ -16,6 +17,7 @@ on:
       - 'go.sum'
       - '.github/workflows/ci-go.yml'
       - '.golangci.yml'
+      - '.custom-gcl.yml'
   workflow_dispatch:
 
 permissions:
@@ -41,7 +43,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.8
+          version: v2.12.2
           args: --timeout=5m
 
       - name: Test
