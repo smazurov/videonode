@@ -40,7 +40,14 @@ linters:
     - sloglint
     - wastedassign
     - whitespace
+    - commentsize
   settings:
+    custom:
+      commentsize:
+        type: module
+        description: Flags contiguous non-doc comment blocks taller than the line budget
+        settings:
+          max-lines: 3
     lll:
       line-length: 140
     errcheck:
