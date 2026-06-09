@@ -6,14 +6,15 @@ The binary entry point is ~40 lines of signal wiring; everything else
 control-plane dispatch, status heartbeats, SCM_RIGHTS broadcast) lives
 here.
 
-Three TUs in one `orchestrator` library:
-- `orchestrator.cpp` — `Run()` main loop, argv parsing, format-change dispatch
+TUs in one `orchestrator` library:
+- `orchestrator.cpp` — `Run()` main loop, format-change dispatch
+- `orchestrator_flags.cpp` — ABSL_FLAG argv definitions and parsing into `Args`
 - `capture_session.cpp` — `CaptureSession` + `try_open_capture` + V4L2 setup/teardown
-- `broadcast.cpp` — `broadcast_nv12`, `broadcast_buffer`, status-params builder, JSON quoting, `now_ms`
+- `broadcast.cpp` — `broadcast_nv12`, `broadcast_buffer`, `build_status_proto`, `now_ms`
 
 ctest label: none — this library is exercised end-to-end via `videonode-source`,
 not unit-tested in isolation. Unit-test surfaces live in the leaf libraries
-(`ipc`, `rpc`, `capture`, `render`).
+(`ipc`, `capture`, `render`).
 
 Invariant: do not pull `bin/` includes here. `source/` is the orchestrator
 library; `bin/` is the thin binary entry. Reverse direction only.

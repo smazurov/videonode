@@ -4,7 +4,7 @@ VideoNode exposes each stream over three protocols simultaneously. The stream ID
 
 The default ports are `:8554` for RTSP, `:6001` for SRT, and `:8090` for the HTTP/WebRTC API. Override them in `config.toml` or via environment variables (`VIDEONODE_STREAMING_RTSP_PORT`, `VIDEONODE_SRT_ADDR`, `VIDEONODE_SERVER_PORT`).
 
-The encoder only starts when the first reader connects. Expect up to a few seconds of buffering on the initial connection.
+The encoder only starts when the first reader connects. Expect up to a few seconds of buffering on the initial connection. When the last reader disconnects, the encoder is not torn down immediately: a 30-second debounce keeps it warm so a reader that reconnects (for example, a WebRTC ICE flap that recovers) reattaches to the running encoder instead of waiting for a cold start.
 
 ## RTSP
 
@@ -25,6 +25,13 @@ ffplay "srt://localhost:6001?streamid=cam-lobby"
 ```
 
 The `streamid` query parameter is how the server routes the connection to the right encoder. VLC 4.x and mpv (with `--demuxer-lavf-o=streamid=cam-lobby`) also accept SRT URIs.
+
+Two settings tune the SRT server, both via `config.toml` or an environment override. Environment overrides require the `VIDEONODE_` prefix on the key:
+
+| Key | Default | Env override | Effect |
+|---|---|---|---|
+| `srt.enabled` | `true` | `VIDEONODE_SRT_ENABLED` | Set `false` to disable the SRT server entirely. |
+| `srt.latency` | `20` | `VIDEONODE_SRT_LATENCY` | Receiver latency in milliseconds. |
 
 ## WebRTC
 
@@ -93,3 +100,31 @@ DELETE http://<host>:8090/whep/<stream_id>/<session_id>
 ```
 
 Authentication follows the daemon's `auth.type` setting, using the same Linux-account or basic credentials as the rest of the API. See [config.toml reference](../reference/config-toml#auth).
+
+## Managing live streams and consumers
+
+To list the stream IDs that currently have an active producer, query `/api/streams/live`:
+
+```bash
+curl -u videonode:videonode http://localhost:8090/api/streams/live | jq '.streams'
+```
+
+To force-disconnect one consumer, send `DELETE` to `/api/streams/{stream_id}/{protocol}/consumers/{client_id}`, where `protocol` is `webrtc` or `srt` and `client_id` is the peer name or SRT consumer ID:
+
+```bash
+curl -u videonode:videonode -X DELETE \
+  http://localhost:8090/api/streams/cam-lobby/webrtc/consumers/192.0.2.10
+```
+
+## Changing capture format while streaming
+
+To switch a source's resolution, FPS, or pixel format without dropping its connected consumers, post to `/api/devices/{device_id}/format`:
+
+```bash
+curl -u videonode:videonode -X POST \
+  http://localhost:8090/api/devices/hdmi0/format \
+  -H 'Content-Type: application/json' \
+  -d '{"fourcc": "NV12", "width": 1920, "height": 1080, "fps": 30}'
+```
+
+The source re-opens the V4L2 device with the new format while keeping every attached consumer connected. This requires the native control plane to be enabled and the source already running; the call returns `503` otherwise.

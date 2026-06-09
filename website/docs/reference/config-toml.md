@@ -25,12 +25,11 @@ password = "videonode"
 
 [features]
 led_control_enabled = false
+pprof_enabled       = false
+pprof_addr          = "127.0.0.1:6060"
 
 [preview]
 max_fps = 10
-
-[vision]
-default_fps = 10
 
 [native_pipeline]
 source   = "~/.local/bin/videonode-source"
@@ -41,14 +40,13 @@ composer = "~/.local/bin/videonode-composer"
 level  = "info"
 format = "text"
 # Per-module overrides: any key other than level/format is treated as a module name.
-streams   = "info"
-streaming = "debug"
-devices   = "info"
-encoders  = "info"
-recording = "info"
-api       = "info"
-webrtc    = "debug"
-srt       = "debug"
+streams    = "info"
+devices    = "info"
+encoder    = "info"
+api        = "info"
+pipeline   = "info"
+webrtc     = "debug"
+srt        = "debug"
 ```
 
 ## Environment variable overrides
@@ -92,13 +90,13 @@ The mapping is `VIDEONODE_<ENV_TAG>`, where the env tag corresponds to the secti
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `sse_enabled` | bool | `true` | Enable the Server-Sent Events metrics exporter at `/api/events/*`. |
+| `sse_enabled` | bool | `true` | Enable periodic metrics publishing over SSE. The `/api/events` endpoint is always registered; this flag only gates the metrics exporter that pushes to it. |
 
 ## `[auth]`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `type` | string | `"linux"` | Authentication type. `"linux"` uses the service account's Linux credentials via `unix_chkpwd`; `"basic"` uses the username and password fields below. |
+| `type` | string | `"linux"` | Authentication type. `"linux"` verifies credentials against `/etc/shadow` in pure Go (yescrypt, SHA-256/512, MD5-APR1) and requires the user to be in the `videonode` group; `"basic"` uses the username and password fields below. If `/etc/shadow` is unreadable, the daemon silently falls back to basic auth. |
 | `username` | string | `"videonode"` | Basic auth username. Used when `type = "basic"` or when Linux auth is unavailable. |
 | `password` | string | `"videonode"` | Basic auth password. Used when `type = "basic"` or when Linux auth is unavailable. |
 
@@ -107,6 +105,8 @@ The mapping is `VIDEONODE_<ENV_TAG>`, where the env tag corresponds to the secti
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `led_control_enabled` | bool | `false` | Enable LED control. Requires appropriate hardware. |
+| `pprof_enabled` | bool | `false` | Enable the `net/http/pprof` debug server. The listener only binds when this is `true`. |
+| `pprof_addr` | string | `"127.0.0.1:6060"` | Address the pprof debug server binds to. |
 
 ## `[preview]`
 
@@ -114,17 +114,11 @@ The mapping is `VIDEONODE_<ENV_TAG>`, where the env tag corresponds to the secti
 |-------|------|---------|-------------|
 | `max_fps` | int | `10` | Upper bound on the frame rate served by `preview.mjpg` snapshot streams. Per-request `?fps` is clamped to `[1, max_fps]`. |
 
-## `[vision]`
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `default_fps` | int | `10` | Default frame rate for vision raw-frame pipes. Per-source `vision.fps` in source config overrides this. `0` disables throttling. |
-
 ## `[native_pipeline]`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `source` | string | `"~/.local/bin/videonode-source"` | Path to the `videonode-source` binary. Empty or missing path falls back to the legacy ffmpeg pipeline. |
+| `source` | string | `"~/.local/bin/videonode-source"` | Path to the `videonode-source` binary. An empty or missing path makes source creation fail; there is no ffmpeg fallback. |
 | `sink` | string | `"~/.local/bin/videonode-sink"` | Path to the `videonode-sink` binary. |
 | `composer` | string | `"~/.local/bin/videonode-composer"` | Path to the `videonode-composer` binary. |
 
@@ -132,6 +126,6 @@ The mapping is `VIDEONODE_<ENV_TAG>`, where the env tag corresponds to the secti
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `level` | string | `"info"` | Global log level. Accepted values: `"debug"`, `"info"`, `"warn"`, `"error"`. |
+| `level` | string | `"info"` | Global log level. Accepted values: `"debug"`, `"info"`, `"warn"` (or `"warning"`), `"error"`. |
 | `format` | string | `"text"` | Log output format. `"text"` for human-readable; `"json"` for structured output. |
-| `<module>` | string | inherits `level` | Any other key is treated as a module-specific level override. Built-in module names: `streams`, `streaming`, `devices`, `encoders`, `recording`, `api`, `webrtc`, `srt`. |
+| `<module>` | string | inherits `level` | Any other key is treated as a module-specific level override. Module loggers are created on first use, so the set is not fixed; common names include `api`, `auth`, `devices`, `pipeline`, `pipelinectl`, `producer`, `composer`, `encoder`, `snapshots`, `srt`, `streams`, and `webrtc`. |

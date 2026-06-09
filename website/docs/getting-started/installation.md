@@ -112,6 +112,8 @@ Follow these steps in order.
 
 The post-install script creates a `videonode` system user, writes default configuration to `/etc/videonode/config.toml`, enables `videonode.service`, and starts it immediately.
 
+The package installs the Go daemon (`/usr/bin/videonode`), the three native pipeline binaries (`videonode-source`, `videonode-sink`, `videonode-composer`), the `videonode.service` systemd unit, and the default `/etc/videonode/config.toml`. It does not bundle the Rockchip hardware stack (ffmpeg with `h264_rkmpp`, RGA, MPP); install that separately as described under [Install required runtime dependencies](#install-required-runtime-dependencies). The service logs a warning when those libraries are missing.
+
 ## Web UI authentication
 
 VideoNode authenticates web UI logins against the Linux user database (`/etc/shadow`). Two things must be true for a user to log in:

@@ -11,8 +11,7 @@ Presets live in `composer/CMakePresets.json`. Always invoke from
 ```bash
 # Dev build (Debug, compile_commands.json exported) — use this for
 # stepping with lldb. ~2x runtime CPU vs RelWithDebInfo because of
-# libstdc++ bounds checks + no inlining; do not install to ~/.local/bin
-# for day-to-day work.
+# no inlining; do not install to ~/.local/bin for day-to-day work.
 cmake --preset dev
 cmake --build --preset dev
 
@@ -22,7 +21,7 @@ cmake --preset relwithdebinfo
 cmake --build --preset relwithdebinfo
 cmake --install composer/build/relwithdebinfo
 
-# Test (always against dev preset — keeps bounds checks + asserts on)
+# Test (always against dev preset — keeps asserts on)
 ctest --preset dev --output-on-failure
 ctest --preset dev -R scm_socket           # filter by name
 ctest --preset dev -L ipc                  # filter by label (post-reorg)
@@ -181,16 +180,8 @@ librockchip_mpp or skip those code paths via `HAVE_RGA` / `HAVE_MPP`.
 
 ## Known gaps (don't re-propose)
 
-All three of these have a fuller writeup (rationale + sketch of the
-fix) in the `## Follow-ups` section of `composer/README.md` — read
-that before proposing work on any of them.
-
 - **Fuzzing**: `ipc/dmabuf_header::Decode` is the prime target (the
   only remaining untrusted-bytes decoder; the gRPC control plane is
   parsed by libprotobuf). Preset `fuzz` exists; harness not written.
-  See `composer/README.md` Follow-ups → Fuzzing.
-- **C++ modules**: deferred until clangd module-navigation support
-  stabilizes. Experiment candidate: `ipc/dmabuf_header`. See
-  `composer/README.md` Follow-ups → C++20 modules experiment.
 - **Hardened libstdc++**: enable `_GLIBCXX_ASSERTIONS` in `dev` preset
-  only. See `composer/README.md` Follow-ups → Hardened libstdc++.
+  only.

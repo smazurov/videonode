@@ -7,7 +7,7 @@ This page explains *why* VideoNode organises its runtime around three independen
 Sources, composers, and streams are top-level objects with separate identities and CRUD surfaces. They reference each other by explicit string (`"source:<id>"` or `"composer:<id>"`), not by containment. This separation means you can add or remove streams without touching a source, and rearrange a composer layout without restarting an encoder.
 
 - **Source**: one `videonode-source` process per source, capturing V4L2 frames (or emitting a test pattern) and broadcasting NV12 dma-bufs to N consumers over SCM_RIGHTS sockets.
-- **Composer**: one `videonode-composer` process per composer, reading N source sockets, compositing onto a BGRA canvas via OpenGL ES, and broadcasting the result.
+- **Composer**: one `videonode-composer` process per composer, reading N source sockets, compositing onto a canvas via libplacebo (Vulkan, with an OpenGL fallback), and broadcasting the result.
 - **Stream**: one `vn-sink | ffmpeg` encoder per stream, dialing an upstream source or composer socket and publishing to RTSP, SRT, or WebRTC.
 
 ## Pipeline-gated lifecycle (sources and composers)
@@ -35,12 +35,12 @@ stateDiagram-v2
 
   Idle: Idle\n(plan resident,\nencoder not running)
   Running: Running\n(encoder spawned,\n1+ readers)
-  Cooling: Cooling down\n(last reader gone,\n2 s timer armed)
+  Cooling: Cooling down\n(last reader gone,\n30 s timer armed)
 
   [*] --> Idle
   Idle --> Running: first reader<br/>connects
   Running --> Cooling: last reader<br/>disconnects
-  Cooling --> Idle: 2 s elapses
+  Cooling --> Idle: 30 s elapses
   Cooling --> Running: reader reconnects
 ```
 

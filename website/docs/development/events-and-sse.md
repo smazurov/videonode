@@ -23,29 +23,30 @@ Every per-entity update rides one wire schema:
 
 ```json
 {
-  "entity_type": "source",
+  "type": "source.status",
   "id": "cam-lobby",
-  "action": "status",
   "payload": {},
   "timestamp": "2026-05-29T10:30:00Z"
 }
 ```
 
-`entity_type` is `source`, `composer`, or `stream`. `action` is one of:
+The `type` tag is `<entity>.<action>`, where `<entity>` is `source`, `composer`, or `stream` and `<action>` is one of:
 
 - `created`, `updated`, `deleted`: lifecycle. Payload is the full entity snapshot, or absent on delete.
 - `status`: a runtime health snapshot from a sidecar.
 - `metrics`: fps, dropped frames, bitrate.
 - `consumers`: the per-client reader set.
 
-The UI discriminates on `(entity_type, action)` in one dispatcher (`ui/src/hooks/entityDispatch.ts`), so a new entity costs one map entry rather than a new event handler. Lifecycle events trigger a dependency fan-out: when a stream's upstream changes, `Registry.Touch` re-loads and republishes the affected source so its denormalized `consumers` rollup stays correct.
+The UI discriminates on the `type` tag in one dispatcher (`ui/src/hooks/entityDispatch.ts`), so a new entity costs one map entry rather than a new event handler. Lifecycle events trigger a dependency fan-out: when a stream's upstream changes, `Registry.Touch` re-loads and republishes the affected source so its denormalized `consumers` rollup stays correct.
 
 ## Global events
 
-Three events sit outside the envelope because they are not per-entity:
+Five events sit outside the envelope because they are not per-entity:
 
 - `device-discovery`: a V4L2 device was added, removed, or changed. The UI refetches the device list.
 - `pipeline-state-changed`: the daemon master switch toggled.
+- `processes`: supervised-process stats, including a `self` row for the daemon itself.
+- `process-removed`: a supervised process left the pool; carries its `id` so the UI drops the row.
 - `heartbeat`: emitted every 15 seconds to keep proxies and idle clients alive.
 
 ## Delivery and backpressure

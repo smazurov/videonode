@@ -20,7 +20,7 @@ var ErrStreamNotFound = errors.New("stream not found")
 type SRTConfig struct {
 	Enabled bool   `yaml:"enabled" json:"enabled"`
 	Addr    string `yaml:"addr" json:"addr"`       // Listen address (default ":6001")
-	Latency int    `yaml:"latency" json:"latency"` // SRT latency in milliseconds (default 120)
+	Latency int    `yaml:"latency" json:"latency"` // SRT latency in milliseconds (default 20)
 }
 
 // SRTServer handles SRT connections and routes them to stream producers.

@@ -19,10 +19,11 @@ The current pipeline is a ~80-line zero-dep Node script. Drop-in upgrade path: i
 
 ## Semantic vocabulary
 
-Use semantic names. Palette names (`slate-800`, `red-500`) are banned by ESLint in `src/components/**`.
+Use semantic names. Raw Tailwind palette classes (`bg-slate-800`, `text-red-500`) are banned by ESLint in `src/components/**`.
 
 ### Surfaces (`bg-*`)
 - `surface` — default page/panel background
+- `surface-sunken` — recessed area below the page surface
 - `surface-muted` — de-emphasized block, skeleton, menu hover
 - `surface-raised` — card, menu, dialog panel
 - `surface-overlay` — modal scrim

@@ -40,7 +40,7 @@ cmake --install composer/build/relwithdebinfo            # writes to ~/.local/bi
 
 Use the `dev` preset (Debug) only when you're actively stepping with
 lldb; running daemons against it has ~2× the per-frame CPU because
-libstdc++ bounds checks and `-O0` defeat inlining. Sanitizer presets
+`-O0` defeats inlining. Sanitizer presets
 (`dev-asan`, `dev-tsan`) build into separate dirs; install from those
 only when deliberately running the daemon against an instrumented
 binary. Verify with `ls -l ~/.local/bin/videonode-{source,sink,composer}`
@@ -164,7 +164,7 @@ Use `go doc` or the `mcp__godoc__get_doc` tool to read package documentation:
 # Internal packages
 go doc ./internal/api                            # API server: streams.go + sources.go + composers.go handlers
 go doc ./internal/streams                        # SourceService / ComposerService / StreamService split
-go doc ./internal/streams/store                  # TOML persistence + v1→v2 auto-migration (migrate.go)
+go doc ./internal/streams/store                  # TOML persistence (v2 only; non-v2 rejected on load)
 go doc ./internal/streams/pipelinectl            # gRPC client manager for native binaries
 go doc ./internal/streams/pipelinectl/pb         # Generated control-plane proto stubs
 go doc ./internal/encoders                       # Hardware encoder detection
@@ -187,13 +187,13 @@ Service-layer split (all live under `internal/streams`):
 - `ComposerService` — CRUD + live layout/effect edits for `videonode-composer` instances (pipeline-gated).
 - `StreamService` — CRUD for encoder/audio config; owns the lazy-encoder-on-reader lifecycle and the pipeline master switch. The publish destination is the hardcoded local RTSP relay, set when the encoder stage is built.
 
-The HTTP surface is implemented in `internal/api/sources.go` and `internal/api/composers.go` (new alongside `streams.go`), with their request/response models in `internal/api/models/`. TOML persistence and the v1→v2 auto-migration live in `internal/streams/store` (see `migrate.go`).
+The HTTP surface is implemented in `internal/api/sources.go` and `internal/api/composers.go` (new alongside `streams.go`), with their request/response models in `internal/api/models/`. TOML persistence lives in `internal/streams/store` (see `toml.go`); only `version = 2` is supported and a non-v2 file is rejected on load.
 
 Use `go doc -all <path>` for complete documentation including unexported symbols.
 
 ### API Design
 - **OpenAPI Documentation**: Automatically generated at `/docs` endpoint
-- **Basic Authentication**: All endpoints except `/api/health` require Basic Auth
+- **Authentication**: All endpoints except `/api/health` require auth — Linux (`/etc/shadow`) by default, Basic Auth fallback when shadow is unreadable
 - **RESTful Design**: Standard HTTP methods and status codes
 - **Error Handling**: Structured error responses with Huma v2 error format
 - **SSE Support**: Real-time updates via Server-Sent Events at `/api/events/*`
@@ -220,18 +220,14 @@ The legacy `/api/streams/canvas/layout` endpoint is gone; canvas layout has move
 ### Configuration
 - **Main Config**: `config.toml` with sections for server, obs, capture, auth, features, and logging
 - **Entity Definitions**: `streams.toml` carries the three top-level tables — `[[sources]]`, `[[composers]]`, `[[streams]]` — with `version = 2` at the top.
-- **Auto-migration**: v1-shape files (monolithic `[[streams]]` with inline `inputs`/`layout`/`effects`/`force_composer`/stream-level `test_mode`) are auto-migrated on load by `internal/streams/store/migrate.go` and rewritten in place. Legacy `publish` target entries (from v1 or older v2 files) are silently dropped on load — the publish destination is now hardcoded.
+- **Config version**: only `version = 2` is supported. A non-v2 file is rejected on load with a clear error; the v1→v2 auto-migration and the `migrate-config` command were removed. There is no `publish` config field — the publish destination is hardcoded (any stray entries are ignored on decode).
 - **Environment Variables**: All config values can be overridden via env vars (e.g., `VIDEONODE_SERVER_PORT`)
 
 ### Debugging & Logging
 
-#### systemd-run Logs
-- **Critical Finding**: `systemd-run --user` logs appear in the **system journal**, NOT the user journal
-- Even though the command runs in user systemd, stdout/stderr goes to system journal
+#### Daemon Logs
+- The daemon logs to the system journal via a journal handler (direct `exec.Command`, no `systemd-run`).
 - **View logs**: `journalctl --since "1 hour ago" | grep ffmpeg`
-- **NOT**: `journalctl --user` (returns empty/minimal results)
-- The `--collect` flag removes the unit after completion, but **logs persist in journald**
-- Per systemd docs: "after unloading the unit it cannot be inspected using systemctl status, but its logs are still in journal"
 
 #### slog Attributes in journald
 slog attributes map to uppercase journal fields (e.g., `STREAM_ID`, `MODULE`).

@@ -1,7 +1,7 @@
 # render/
 
 GPU compose + colorspace conversion + NV12 allocator. CSC dispatcher
-picks RGA on rig (HAVE_RGA) or GLES2 two-pass MRT on host (HAVE_GLES_CSC).
+picks RGA on rig (HAVE_RGA) or the libplacebo GPU fallback (HAVE_PLACEBO_CSC).
 
 ctest label: `render`
 

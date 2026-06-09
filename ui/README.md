@@ -6,29 +6,29 @@ The React TypeScript frontend for VideoNode - a video streaming and device manag
 
 ### Prerequisites
 - Node.js 22.15.0 (or compatible version)
-- npm
+- pnpm
 
 ### Setup
 ```bash
-npm install
+pnpm install
 ```
 
 ### Development Server
 ```bash
-npm run dev
+pnpm dev
 ```
 
-The development server will start on `http://localhost:3000` with proxy configuration to forward API calls to the VideoNode backend at `http://localhost:8090`.
+The development server starts on `http://localhost:5173` (override with `VITE_DEV_PORT`) with proxy configuration to forward API calls to the VideoNode backend at `http://localhost:8090`.
 
 ### Build
 ```bash
-npm run build
+pnpm build
 ```
 
 ### Linting
 ```bash
-npm run lint
-npm run lint:fix
+pnpm lint
+pnpm lint:fix
 ```
 
 ## Project Structure
@@ -36,9 +36,11 @@ npm run lint:fix
 ```
 src/
 ├── components/     # Reusable UI components
+├── design/        # Design system: tokens + primitives
 ├── hooks/         # Custom React hooks
-├── assets/        # Static assets (images, icons, etc.)
+├── lib/           # Shared library code
 ├── routes/        # Route components and pages
+├── router.tsx     # Route configuration
 ├── main.tsx       # Application entry point
 ├── root.tsx       # Root layout component
 ├── utils.ts       # Utility functions
@@ -58,9 +60,9 @@ src/
 ## Features
 
 - Modern React with TypeScript
-- Dark/Light mode support
+- Dark mode infrastructure (CSS `.dark` selector; no in-app toggle)
 - Responsive design with Tailwind CSS
 - Custom Circular font family
 - ESLint and Prettier configured
-- Path aliasing for clean imports (@components/*, @routes/*, etc.)
+- Path aliases configured (`@components/*`, `@routes/*`, etc.; not currently used in source)
 - API proxy to VideoNode backend

@@ -8,7 +8,7 @@ Install the following before building:
 
 - **Go** 1.25 or later
 - **Node.js** 22.15 or later, **pnpm** 10
-- **CMake** 3.30 or later, **Ninja**, a C++20-capable compiler (GCC 12+ or Clang 16+)
+- **CMake** 3.25 or later for a bare configure (the presets used below require 3.30), **Ninja**, a C++20-capable compiler (GCC 10+ or Clang 10+)
 
 ## Building the Go daemon
 
@@ -23,6 +23,12 @@ To verify the build and run tests:
 ```bash
 go test ./...
 golangci-lint run ./...
+```
+
+Integration tests need real hardware and longer timeouts, so they are gated behind a build tag and excluded from the default run:
+
+```bash
+go test -tags=integration ./...
 ```
 
 ## Building the UI

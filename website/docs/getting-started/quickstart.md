@@ -16,15 +16,15 @@ A *source* is the upstream that produces frames: a real V4L2 device or a built-i
 
 ![New source form: ID field, test-mode checkbox, video device dropdown, format / resolution / framerate selectors](/screenshots/new-source.png)
 
-Pick a Source ID (kebab-case), select your capture device from the **Video Device** dropdown, and pick a format, resolution, and framerate. If you don't have hardware plugged in yet, tick **Test mode** to use the built-in test-pattern producer instead. Click **Create Source**.
+Pick a Source ID (kebab-case), select your capture device from the **Video Device** dropdown, and pick a format, resolution, and framerate. If you don't have hardware plugged in yet, tick **Test mode**: the source runs without a V4L2 device and broadcasts placeholder frames. Click **Create Source**.
 
-The source appears in the table with status **Running** and consumer count `0`. It's broadcasting frames but no one is listening yet.
+The source appears in the table with status **Running**. It's broadcasting frames but no one is listening yet.
 
 ![Sources page showing a running test source](/screenshots/sources-list.png)
 
 ## Step 3: Create a stream
 
-A *stream* pairs an upstream (your new source) with an encoder and a publish target. Click **Streams**, then **Create Stream**.
+A *stream* pairs an upstream (your new source) with an encoder. The daemon publishes the encoded stream over RTSP, SRT, and WebRTC; there is no publish target to choose. Click **Streams**, then **Create Stream**.
 
 ![New stream form: stream ID, upstream selector, encoder fields, audio block](/screenshots/new-stream.png)
 
@@ -32,8 +32,8 @@ Set:
 
 - **Stream ID**: anything kebab-case; this becomes the URL path component for RTSP/SRT/WebRTC consumers.
 - **Upstream**: pick your source from the dropdown.
-- **Codec**: `H.264` for widest compatibility.
-- **Bitrate**: `2M` is a reasonable default for 1080p.
+- **Codec**: `H.264`.
+- **Bitrate**: leave empty to use the `4M` default, or set your own.
 
 Leave the rest at defaults and click **Create Stream**. The stream appears in the Streams table.
 

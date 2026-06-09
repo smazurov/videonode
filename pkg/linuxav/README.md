@@ -17,20 +17,20 @@ go test -short ./pkg/linuxav/...
 # Unit tests with race detector
 go test -short -race ./pkg/linuxav/...
 
-# All tests including integration tests
-go test ./pkg/linuxav/...
+# All tests including integration tests (requires the build tag)
+go test -tags=integration ./pkg/linuxav/...
 ```
 
 ## Integration Tests
 
-Integration tests require actual hardware and are skipped in `-short` mode.
+Integration tests require actual hardware and are gated behind the `integration` build tag (excluded from normal runs).
 
 ### Hotplug Monitor Test
 
 Tests real device hotplug events via netlink socket.
 
 ```bash
-go test -v -run TestMonitorIntegration -timeout 60s ./pkg/linuxav/hotplug/
+go test -tags=integration -v -run TestMonitorIntegration -timeout 60s ./pkg/linuxav/hotplug/
 ```
 
 Then plug/unplug a USB device (webcam, audio interface) within 30 seconds to trigger events.

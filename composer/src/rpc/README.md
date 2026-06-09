@@ -1,10 +1,13 @@
 # rpc/
 
-JSON-RPC 2.0 framing + dma-buf metadata envelopes + bidirectional control
-channel between Go daemon and C++ sidecars.
+gRPC server lifecycle wrapper (`grpc_server`) plus the strong-typed
+composer request structs (`composer_rpc`, header-only) that the daemon→
+composer control surface marshals proto messages into. The wire format is
+gRPC/protobuf, not JSON-RPC; schemas live in `proto/control/*.proto`.
 
-ctest label: `rpc`
+ctest label: none — the `composer_rpc` structs are exercised via the
+`render` World unit tests; `grpc_server` is covered end-to-end.
 
-Invariant: every decoder rejects truncated/malformed input and never
-reads past the bytes it was given (fuzz-target shape). No allocations
-outside the result struct on the error path.
+Invariant: `composer_rpc::Request` structs are the stable `World::apply_*`
+boundary — keep proto details from leaking past the service handler so the
+World unit-test surface stays pure C++.

@@ -21,7 +21,7 @@ features:
     details: Sources, composers, and streams as independent top-level entities, each with its own lifecycle, CRUD API, and ref-based wiring.
     link: /reference/pipeline-model
   - title: Hardware encoders
-    details: Rockchip MPP, VAAPI, software fallback. validate-encoders picks the right one per platform.
+    details: Rockchip MPP, VAAPI, software fallback. Run validate-encoders to probe which encoders work and record the result.
     link: /operating/encoders
   - title: Live composition
     details: Multi-input GPU canvas with per-source layout and perspective transforms, edited via unary RPCs without restarting the pipeline.

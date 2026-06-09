@@ -56,6 +56,7 @@ export default withMermaid(
             { text: 'config.toml', link: '/reference/config-toml' },
             { text: 'Pipeline model', link: '/reference/pipeline-model' },
             { text: 'REST API', link: '/reference/rest-api' },
+            { text: 'CLI', link: '/reference/cli' },
           ],
         },
         {
@@ -63,6 +64,7 @@ export default withMermaid(
           collapsed: false,
           items: [
             { text: 'Streaming outputs', link: '/operating/streaming-outputs' },
+            { text: 'Composers', link: '/operating/composers' },
             { text: 'Encoders', link: '/operating/encoders' },
             { text: 'Observability', link: '/operating/observability' },
           ],
