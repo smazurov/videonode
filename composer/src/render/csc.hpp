@@ -1,8 +1,11 @@
-// One backend is selected at build time:
-//   - HAVE_RGA       → Rockchip RGA (librga) on RK3588.
-//   - HAVE_GLES_CSC  → Mesa EGL/GLES MRT shader on generic Linux.
+// CSC backends are selected at build time:
+//   - HAVE_RGA + HAVE_PLACEBO_CSC → RGA (fixed-function) first, with a
+//     libplacebo GPU fallback for formats RGA can't convert (NV24 / YUV 4:4:4
+//     on RK3588). The chosen path is latched per source-format.
+//   - HAVE_RGA only               → Rockchip RGA (librga).
+//   - HAVE_PLACEBO_CSC only       → libplacebo GPU (Mesa boxes).
 //
-// If neither is compiled in, convert() logs once and returns false; the
+// If no backend is compiled in, convert() logs once and returns false; the
 // caller drops the frame.
 //
 // Output is always NV12 / MPEG-2 siting; luma matrix/range per call via

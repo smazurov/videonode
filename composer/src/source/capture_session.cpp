@@ -49,16 +49,6 @@ bool v4l2_to_csc_(uint32_t v4l2_fmt, csc::PixelFormat& out, std::string& name) {
     return false;
 }
 
-bool maybe_renegotiate_to_rga_friendly_(v4l2::Streamer& cap, v4l2::StreamFormat& cur) {
-    if (cur.pixel_format != V4L2_PIX_FMT_NV24)
-        return false;
-    v4l2::StreamFormat want = cur;
-    want.pixel_format = V4L2_PIX_FMT_NV16;
-    if (!cap.set_format(want))
-        return false;
-    return cap.get_format(cur);
-}
-
 bool negotiate_format_(CaptureSession& s, const Args& a) {
     v4l2::StreamFormat cur;
     if (a.in_format.empty()) {
@@ -66,7 +56,6 @@ bool negotiate_format_(CaptureSession& s, const Args& a) {
             s.cap.close();
             return false;
         }
-        maybe_renegotiate_to_rga_friendly_(s.cap, cur);
     } else {
         cur.pixel_format = v4l2::pix_fmt_from_name(a.in_format);
         cur.width = a.in_width > 0 ? a.in_width : a.placeholder_w;

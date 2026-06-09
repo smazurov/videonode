@@ -202,13 +202,6 @@ bool convert_mpp_to_nv12_(LoopState& st, jpeg_dec::DecodedNv12& decoded) {
                            "non-NV12 source cannot be converted, dropping frames");
         return false;
     }
-    if (decoded.pixel_format == jpeg_dec::PixelFormat::Nv24) {
-        static std::atomic<bool> warned{false};
-        if (!warned.exchange(true))
-            vn::log::warn("videonode-source: NV24 (4:4:4) -> NV12 chroma is best-effort; "
-                          "colors may be wrong");
-    }
-
     nv12_buf::Buffer& dst_buf = st.cap.out_ring[st.cap.out_ring_write];
 
     csc::ConvertParams src_p;
