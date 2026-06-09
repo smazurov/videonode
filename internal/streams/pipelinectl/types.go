@@ -92,13 +92,9 @@ type SourceConsumerEntry struct {
 	EvictedAtFrame uint64 `json:"evicted_at_frame,omitempty"`
 }
 
-// ============================================================
-// Composer-side method params (daemon -> videonode-composer).
-//
-// Composer is daemon-driven: argv is just --drm-device / --ctl-connect /
-// --composer-id. The daemon pushes everything else over the same
-// control channel pipelinectl already runs for videonode-source.
-// ============================================================
+// Composer-side method params (daemon -> videonode-composer). Composer
+// argv is just --drm-device / --ctl-connect / --composer-id; the daemon
+// pushes everything else over the same control channel as videonode-source.
 
 // SetCanvasParams configures the composer's output canvas. Must arrive
 // before composer can render anything useful.

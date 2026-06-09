@@ -1,12 +1,5 @@
 package api
 
-// /api/processes — operator-visible view of the pipeline's supervised
-// processes (Producer / Composer / Encoder stages). Joins pool state +
-// stage kind + producer refcounts on a single REST surface.
-//
-// Endpoint surface is read-only; stop/restart actions land in a
-// follow-up once authorization semantics are agreed.
-
 import (
 	"context"
 	"errors"

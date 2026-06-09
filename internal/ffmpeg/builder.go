@@ -64,10 +64,7 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -i " + p.DevicePath)
 	}
 
-	// Audio inputs + maps. Two modes:
-	//   - AudioInputs (multi): one ALSA -i per entry, filter_complex with
-	//     aresample per input, one output track per input
-	//   - AudioDevice (single, back-compat): existing behavior verbatim
+	// The single AudioDevice path keeps legacy behavior verbatim for back-compat.
 	switch {
 	case len(p.AudioInputs) > 0:
 		writeMultiAudioInputs(&cmd, p.AudioInputs)

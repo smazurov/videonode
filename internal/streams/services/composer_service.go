@@ -268,10 +268,9 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 				if err := s.pipe.ApplyComposer(*c); err != nil {
 					return err
 				}
-				// A canvas resize changes the composer's broadcast dims, which each
-				// consuming stream's ffmpeg `-s` is fixed to at encoder-build time.
-				// Rebuild dependents (bounces only the running ones); gated on
-				// dimsChanged so layout/input/background-only edits leave readers undisturbed.
+				// A canvas resize must rebuild dependent encoders: their ffmpeg
+				// `-s` is fixed to the broadcast dims at build time. Gated on
+				// dimsChanged so other edits leave readers undisturbed.
 				if dimsChanged {
 					s.rebuildDependentEncoders(id)
 				}

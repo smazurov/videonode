@@ -139,10 +139,9 @@ func (c *Cache) runScheduler(kind Kind, id string, set *subscriberSet, gen uint6
 		case <-time.After(interval):
 		}
 
-		// If a higher-priority subscriber dropped, fps may have changed;
-		// peakFPS re-reads it on the next iteration. If the set was torn
-		// down and re-created mid-loop (rapid resubscribe with same key),
-		// `gen` mismatches and we exit so the new scheduler can take over.
+		// peakFPS re-reads fps next iteration in case a higher-priority
+		// subscriber dropped; a gen mismatch means rapid resubscribe re-created
+		// the set mid-loop, so exit and let the new scheduler take over.
 		set.mu.Lock()
 		curGen := set.gen
 		set.mu.Unlock()

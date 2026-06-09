@@ -196,10 +196,6 @@ func (p *Pipeline) ApplySource(s Source) error {
 	if err := p.restartStage(stage); err != nil {
 		return err
 	}
-	// Initial gRPC registration + (when the spec carries one) SetFormat
-	// push. Without registration the daemon can't reach the source over
-	// gRPC at all, so SetFormat / Snapshot / status would all silently
-	// fail. Mirrors the composer-side pushComposerConfig pattern.
 	if p.cfg.ControlServer != nil {
 		go p.registerAndConfigureSource(s, stage.GrpcUds)
 	}

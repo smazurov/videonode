@@ -2,10 +2,9 @@ package store
 
 import "time"
 
-// V2 types are the canonical persisted (on-disk) shapes for sources,
-// composers, and streams. They mirror pipeline.Source / Composer / Stream
-// at the TOML layer so the store persists the v2 schema without depending
-// on the pipeline package; convert.go bridges the two.
+// V2 types are the canonical on-disk shapes. They mirror the pipeline
+// types so the store persists the v2 schema without depending on the
+// pipeline package; convert.go bridges the two.
 
 // V2Source is one frame producer.
 type V2Source struct {

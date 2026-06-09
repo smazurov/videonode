@@ -280,11 +280,8 @@ func (m *Manager) RegisterSource(ctx context.Context, deviceID, udsPath string) 
 		return fmt.Errorf("pipelinectl: describe source %s: %w", deviceID, err)
 	}
 	// Wire the lifecycle context + done channel BEFORE publishing to
-	// m.sources, so a concurrent Unregister sees non-nil values and
-	// joins the runStatusStream goroutine on closeConn. Without this
-	// pre-publish, an Unregister between m.sources[id]=c and the
-	// `c.statusCancel=cancel` line below would skip the join and leave
-	// the goroutine running against a closed gRPC channel.
+	// m.sources: an Unregister racing in between would skip joining the
+	// runStatusStream goroutine, leaving it running on a closed channel.
 	if m.ctx == nil {
 		_ = cc.Close()
 		return fmt.Errorf("pipelinectl: manager not started")
@@ -472,11 +469,9 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 			if params.DeviceID == "" {
 				params.DeviceID = c.id
 			}
-			// Cache the latest health token so REST reads
-			// (SourceHealth) can report liveness synchronously.
-			// Skip if Stop closed statusCh between our last ctx check
-			// and now — sending on a closed chan would panic. The flag
-			// is set under m.mu in Stop.
+			// Cache health under m.mu so REST reads (SourceHealth) report
+			// liveness synchronously, and check statusClosed in the same
+			// section — sending on a chan Stop already closed would panic.
 			m.mu.Lock()
 			c.lastHealth = params.Health
 			c.lastConsumerCount = params.Consumers.Count

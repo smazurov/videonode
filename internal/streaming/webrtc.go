@@ -152,10 +152,9 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer, clientIP string) (peerID
 				peer.h264Encoders[medi] = encoder
 			}
 
-			// Create H265 encoder for re-packetizing access units for WebRTC.
-			// Raw RTP passthrough produced oversized packets (loss) and never
-			// carried in-band VPS/SPS/PPS, so subscribers joining mid-stream
-			// could not decode; re-packetizing fixes both.
+			// Re-packetize H265 rather than raw RTP passthrough: passthrough
+			// produced oversized packets (loss) and never carried in-band
+			// VPS/SPS/PPS, so mid-stream joiners could not decode.
 			if h265, ok := forma.(*format.H265); ok {
 				encoder := &rtph265.Encoder{
 					PayloadType:    96,
@@ -322,10 +321,9 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer, clientIP string) (peerID
 func (m *WebRTCManager) createTrack(forma format.Format, audioIdx int) (*pion.TrackLocalStaticRTP, error) {
 	switch f := forma.(type) {
 	case *format.H264:
-		// Build fmtp line with H264 profile parameters for browser codec negotiation
-		// Use profile-level-id that matches registered codecs in webrtc_api.go
-		// The actual profile from SPS (e.g., 640c34) may have constraint flags that
-		// don't match browser-supported profiles, so we normalize to standard profiles
+		// The SPS profile (e.g. 640c34) may carry constraint flags browsers
+		// don't support, so normalize the fmtp profile-level-id to the
+		// standard profiles registered in webrtc_api.go.
 		fmtp := "level-asymmetry-allowed=1;packetization-mode=1"
 		if len(f.SPS) >= 4 {
 			profileIdc := f.SPS[1]

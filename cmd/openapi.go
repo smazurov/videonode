@@ -28,11 +28,9 @@ func CreateOpenAPICmd() *cobra.Command {
 				WebRTCManager:     &streaming.WebRTCManager{},
 				ProcessesProvider: noopProcessesProvider{},
 			}
-			// Wire StreamService/SourceService/ComposerService so all CRUD
-			// routes surface in the generated spec. The in-memory store
-			// never writes to disk during openapi gen; pipeline is nil
-			// because route registration walks the table without serving
-			// traffic.
+			// Wire the entity services so all CRUD routes surface in the
+			// spec; the in-memory store never touches disk and a nil
+			// pipeline is fine since route registration serves no traffic.
 			memStore := store.NewInMemory()
 			if es, ok := memStore.(streams.EntityStore); ok {
 				opts.SourceService = services.NewSourceService(services.SourceServiceOptions{Store: es})

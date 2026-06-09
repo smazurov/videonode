@@ -5,11 +5,6 @@ import (
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
 
-// V2 ↔ pipeline.{Source,Composer,Stream} converters. The persisted V2*
-// types live in store/ so the package compiles independently of the
-// upstream services; these adapters bridge them to the canonical
-// pipeline types every service-layer consumer expects.
-
 // sourceFromV2 converts a persisted V2Source to its canonical shape.
 func sourceFromV2(v V2Source) streams.Source {
 	out := streams.Source{

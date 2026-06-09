@@ -45,11 +45,9 @@ type tomlStore struct {
 // NewTOML creates a new TOML-based store.
 func NewTOML(configPath string) streams.Store {
 	if configPath == "" {
-		// Silent fallback hid a real bug: callers that forgot to thread a path
-		// got a store pointing at a phantom file in $PWD, never reaching the
-		// server's real config. Warn so a future regression is visible in logs.
-		// Callers that genuinely need an in-memory store (openapi codegen,
-		// tests) should use NewInMemory instead.
+		// A silent fallback hid a real bug: callers that forgot to thread a
+		// path got a store on a phantom $PWD file. Warn so a regression is
+		// visible; in-memory callers (codegen, tests) should use NewInMemory.
 		slog.Warn("streams store opened with empty path, defaulting to ./streams.toml; caller should pass an explicit path or use NewInMemory")
 		configPath = "streams.toml"
 	}
@@ -354,11 +352,6 @@ func (s *tomlStore) RemoveV2Stream(id string) error {
 	}
 	return fmt.Errorf("stream %q not found", id)
 }
-
-// --- EntityStore implementation (B9 service split).
-//
-// These adapt persisted V2* types into the canonical pipeline.Source /
-// pipeline.Composer / pipeline.Stream shapes the new services consume.
 
 // ListSourceEntities returns all sources as pipeline.Source values.
 func (s *tomlStore) ListSourceEntities() []streams.Source {

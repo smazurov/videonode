@@ -208,12 +208,9 @@ func TestDedupHandler_LiveCallbackUpdates(t *testing.T) {
 }
 
 func TestDedupHandler_PublishedAttributesNotMutated(t *testing.T) {
-	// The Attributes map handed to a consumer (live SSE callback / ReadAll) must
-	// never be mutated afterwards: an SSE goroutine json-marshals it while the
-	// dedup handler updates suppression, and a concurrent map write during
-	// marshal panics ("index out of range" in mapEncoder). Using the real
-	// BufferHandler as inner reproduces the shared-map: the first occurrence's
-	// map is the one written to the ring buffer AND delivered to the callback.
+	// A published Attributes map must never be mutated afterwards: an SSE
+	// goroutine json-marshals it while the handler updates suppression. The
+	// real BufferHandler as inner reproduces the shared-map case.
 	buf := NewRingBuffer(100)
 	var cbMu sync.Mutex
 	var delivered []LogEntry
@@ -261,11 +258,9 @@ func TestDedupHandler_PublishedAttributesNotMutated(t *testing.T) {
 }
 
 func TestDedupHandler_ConcurrentStreamWhileSuppressing(t *testing.T) {
-	// Regression for the SSE log panic ("index out of range" in json mapEncoder):
-	// one goroutine marshals streamed entries (ReadAll snapshots share the ring
-	// buffer's Attributes maps by reference) while another emits duplicates that
-	// update suppression. Pre-fix this was a concurrent map write during marshal.
-	// Run under `go test -race`.
+	// Regression for the SSE log panic ("index out of range" in mapEncoder):
+	// marshaling ReadAll snapshots (which share Attributes maps by reference)
+	// raced with suppression updates. Run under `go test -race`.
 	buf := NewRingBuffer(100)
 
 	mutex.Lock()

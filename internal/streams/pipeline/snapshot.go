@@ -73,10 +73,9 @@ func (p *Pipeline) Snapshot() []ProcessView {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	// The daemon's own row (when self monitoring is enabled) is pinned ahead
-	// of the supervised stages so the operator dashboard reads top-down from
-	// host → pipeline. It is the single input the InfoBar rollup needs beyond
-	// the supervised stages.
+	// The daemon's own row is pinned ahead of the supervised stages so the
+	// operator dashboard reads top-down from host → pipeline; it is the one
+	// extra input the InfoBar rollup needs.
 	if self := p.pool.Self(); self != nil {
 		view := ProcessView{
 			ID:         self.ID,

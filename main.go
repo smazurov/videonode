@@ -110,11 +110,8 @@ func main() {
 	// Create Huma CLI
 	var cli humacli.CLI
 	cli = humacli.New(func(hooks humacli.Hooks, opts *Options) {
-		// Heavy server init (logging, stream service load, updater, API
-		// wiring, SSE exporter) only runs for the default
-		// (no-subcommand) server invocation. Every subcommand is lightweight
-		// by default — they each do their own minimal setup and shouldn't
-		// pay for, or interfere with, the running production server's state.
+		// Subcommands do their own minimal setup; only the default server
+		// invocation pays for heavy init or touches the running server's state.
 		if isSubcommandInvocation(os.Args) {
 			return
 		}
@@ -136,10 +133,6 @@ func main() {
 		// Create event bus for in-process event handling
 		eventBus := events.New()
 
-		// Entity registry: drives the uniform SSE entity envelope and
-		// (Step 2) the auto-publish HTTP middleware. Constructed here
-		// because every service that registers an entity needs to dial
-		// into the same registry instance the API server reads from.
 		eventRegistry := events.NewRegistry(eventBus)
 
 		// Set up log callback to publish log entries to event bus for SSE streaming
@@ -228,10 +221,8 @@ func main() {
 					logging.KeyError, err)
 				ctlServer = nil
 			}
-			// The StatusFeed pump goroutine is started AFTER
-			// nativePipeline is constructed below, so it can stamp
-			// StartedAtUs onto each status payload from the supervisor
-			// pool.
+			// The StatusFeed pump starts after nativePipeline is constructed
+			// below so it can stamp StartedAtUs from the supervisor pool.
 		}
 
 		// Shared v2 entity store; the pipeline reads source/composer specs
@@ -239,13 +230,6 @@ func main() {
 		// rejects consumers for streams that aren't configured at all.
 		entityStore, _ := streamStore.(streams.EntityStore)
 
-		// Create stream service
-		// Construct pipeline.Pipeline as the canonical process supervisor.
-		// Replaces the legacy streamProcessManager + processor +
-		// canvasProcessor + producerManager stack with a unified
-		// Producer→Composer→Encoder model. The legacy stack is gone;
-		// existing /api/streams CRUD flows through Pipeline via
-		// pipelineProcessManager (the translation layer).
 		nativePipeline := pipeline.New(pipeline.Config{
 			VNSourceBin:    native.V4L2Source,
 			VNComposerBin:  native.Composer,
@@ -272,17 +256,10 @@ func main() {
 			},
 		}, logging.GetLogger("pipeline"))
 
-		// Pump status notifications into the event bus AND the uniform
-		// entity envelope so the UI's per-source status pill and
-		// consumer count react in real time. RunStatusFanout decouples
-		// the drain from the publish so a slow event subscriber can
-		// never block the StatusFeed channel.
 		if ctlServer != nil {
-			// Source consumers change far less often than the ~1 Hz status
-			// heartbeat, and the status payload already embeds the consumer
-			// set. Strip consumers from the status event and publish a
-			// dedicated consumers event only when the membership (count +
-			// live fds) changes — no double-send, no per-tick churn.
+			// Consumers change far less often than the ~1 Hz status heartbeat,
+			// so strip them from the status event and publish a dedicated
+			// consumers event only when the membership signature changes.
 			lastConsumerSig := make(map[string]string)
 			consumerSig := func(c pipelinectl.SourceConsumersInfo) string {
 				fds := make([]int, 0, len(c.Live))
@@ -316,10 +293,6 @@ func main() {
 			)
 		}
 
-		// Lazy encoder lifecycle: idle the encoder once the last consumer
-		// disconnects, restart it on the next consumer attach. Mirror
-		// encoder teardown on the entity envelope so the UI's per-stream
-		// status pill flips back to "idle" without polling.
 		streamingServer.SetOnLastReaderGone(func(streamID string) {
 			_ = nativePipeline.StopEncoder(streamID)
 			if eventRegistry != nil {
@@ -422,12 +395,6 @@ func main() {
 
 		server := api.NewServer(apiOpts)
 
-		// Self-check the entity registry against the actual Huma route
-		// table. Fails fast on common wiring mistakes: a registered
-		// entity with no CRUD routes (forgot RegisterEntityRoutes), or
-		// a CRUD route with no events.Register call (forgot to wire a
-		// new entity into the registry). The error message names the
-		// missing call so future contributors don't have to grep.
 		if err := eventRegistry.SelfCheck(context.Background(), server); err != nil {
 			logger.Error("entity registry self-check failed", logging.KeyError, err)
 			os.Exit(1)
@@ -470,10 +437,7 @@ func main() {
 				sseExporter.Start(context.Background())
 			}
 
-			// Per-stream consumer-count broadcaster. Polls every second
-			// and emits an `entity.stream.consumers` envelope so the UI's
-			// per-stream reader-count column updates without piggybacking
-			// on encoder restarts.
+			// Per-stream reader counts emit no event to hook, so poll.
 			if eventRegistry != nil && streamSvc != nil {
 				go func() {
 					ticker := time.NewTicker(1 * time.Second)
@@ -545,11 +509,8 @@ func main() {
 				logger.Error("Error stopping HTTP server", logging.KeyError, err)
 			}
 
-			// Tear down the native control plane FIRST: cancels in-flight
-			// StreamStatus goroutines and closes the StatusFeed channel
-			// that the fan-out goroutines drain. This must happen before
-			// Pool().StopAll() kills the source processes, otherwise the
-			// StreamStatus recv loop enters a retry loop against a dead
+			// Stop the control plane before StopAll() kills the sources;
+			// otherwise the StreamStatus recv loop retries against a dead
 			// socket until the 30s StaleStreamTimeout evicts it.
 			if ctlServer != nil {
 				if err := ctlServer.Stop(); err != nil {
@@ -580,10 +541,9 @@ func main() {
 		})
 	})
 
-	// Add validate-encoders command. The path resolver shares the same precedence
-	// the server uses (flag → env → default). We can't reuse opts.StreamsConfigFile
-	// here because the lightweight subcommand short-circuits the humacli init that
-	// populates it.
+	// The resolver mirrors server precedence (flag → env → default);
+	// opts.StreamsConfigFile is unusable because lightweight subcommands
+	// short-circuit the humacli init that populates it.
 	cli.Root().AddCommand(cmd.CreateValidateEncodersCmd(cmd.ResolveStreamsConfigPath))
 	cli.Root().AddCommand(cmd.CreateValidateConfigCmd(cmd.ResolveStreamsConfigPath))
 

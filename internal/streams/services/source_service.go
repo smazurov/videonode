@@ -196,10 +196,9 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 		return nil, fmt.Errorf("persist source update: %w", err)
 	}
 	if s.pipe != nil && switchEnabled(s.psw) {
-		// Format-only edit on a real device: hot-apply via gRPC so
-		// connected consumers (composer, vn-sink) stay attached. Falls
-		// back to ApplySource (restart) if the hot-apply path can't
-		// reach the source (not registered yet, RPC error).
+		// Format-only edits hot-apply via gRPC so connected consumers stay
+		// attached; falls back to ApplySource (restart) when the hot-apply
+		// path can't reach the source (not registered yet, RPC error).
 		formatOnly := !src.TestMode &&
 			patch.Device == nil &&
 			patch.TestMode == nil &&
@@ -224,13 +223,9 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 			}
 		}
 	}
-	// Switch off: the patch is persisted and the pipeline reads source specs
-	// through the store, so no registry refresh or spawn is needed here.
-	// A resolution/framerate change is baked into each consuming stream's
-	// ffmpeg `-s`/`-framerate` at encoder-build time and the source hot-apply
-	// keeps those encoders attached, so they'd otherwise keep the stale
-	// geometry. Rebuild dependents (bounces only the running ones). Gated on an
-	// actual dims change so a no-op edit doesn't disturb connected readers.
+	// A dims change must rebuild dependent encoders: source hot-apply keeps
+	// them attached with stale `-s`/`-framerate` baked in at build time.
+	// Gated on an actual change so a no-op edit doesn't disturb readers.
 	if s.pipe != nil && switchEnabled(s.psw) && patch.Format != nil &&
 		sourceDimsChanged(prev.Format, src.Format) {
 		s.rebuildDependentEncoders(id)

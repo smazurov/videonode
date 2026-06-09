@@ -149,11 +149,9 @@ func (h *DedupHandler) Handle(ctx context.Context, r slog.Record) error {
 		buf.UpdateLatest(
 			func(e *LogEntry) bool { return dedupKey(e.Level, e.Module, e.Message, e.Attributes) == key },
 			func(e *LogEntry) {
-				// Copy-on-write: a previously-published reference to this map
-				// (live SSE callback or a ReadAll snapshot) may be mid-marshal
-				// on another goroutine. Swap in a fresh map instead of mutating
-				// the shared one — a concurrent map write during json.Marshal
-				// panics in mapEncoder.
+				// Copy-on-write: a published reference to this map may be
+				// mid-marshal on another goroutine, and a concurrent map
+				// write during json.Marshal panics in mapEncoder.
 				next := make(map[string]any, len(e.Attributes)+1)
 				maps.Copy(next, e.Attributes)
 				next["suppressed"] = entry.suppressed

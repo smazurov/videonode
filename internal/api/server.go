@@ -231,9 +231,7 @@ func NewServer(opts *Options) *Server {
 		logger:             logging.GetLogger("api"),
 	}
 
-	// Register entity handles so handlers can publish through the
-	// uniform EntityEvent envelope. Lifecycle publishes are still
-	// invoked explicitly from each handler during this additive step;
+	// Lifecycle publishes are still invoked explicitly from each handler;
 	// the auto-publish middleware (Step 2) will replace those calls.
 	if opts.EventRegistry != nil {
 		if opts.SourceService != nil {
@@ -279,13 +277,9 @@ func NewServer(opts *Options) *Server {
 			})
 		}
 
-		// Cross-entity dependencies: when a stream's lifecycle changes
-		// the upstream source or composer's denormalized Consumers
-		// field is stale. Touch the upstream so its Loader re-reads
-		// and republishes — UI gets the updated Consumers list with
-		// no client-side join. Touch is dedup'd within a single
-		// dispatch scope so two streams pointing at the same source
-		// only republish it once.
+		// A stream lifecycle change stales the upstream source/composer's
+		// denormalized Consumers field; touch the upstream so its Loader
+		// re-reads and republishes (touches dedup'd per dispatch scope).
 		if server.streamEntity != nil {
 			events.OnLifecycle(server.streamEntity,
 				[]string{events.ActionCreated, events.ActionUpdated, events.ActionDeleted},
@@ -293,10 +287,8 @@ func NewServer(opts *Options) *Server {
 					return upstreamRef(server, st.Upstream)
 				})
 		}
-		// Composer → source fan-out: a composer's Inputs reference one
-		// or more sources by "source:<id>" ref. When the composer is
-		// created/updated/deleted, each referenced source's denormalized
-		// Consumers list is stale. Touch each so its Loader re-reads.
+		// A composer lifecycle change stales the denormalized Consumers list
+		// of each input source it references; touch each so its Loader re-reads.
 		if server.composerEntity != nil {
 			events.OnLifecycle(server.composerEntity,
 				[]string{events.ActionCreated, events.ActionUpdated, events.ActionDeleted},
@@ -487,10 +479,8 @@ func (s *Server) Start(addr string) error {
 	s.logger.Info("Starting VideoNode API server", logging.KeyAddr, addr)
 	s.logger.Info("OpenAPI documentation available", logging.KeyURL, "http://"+addr+"/docs")
 
-	// Start device monitoring. v2 sources/composers/streams have their own
-	// lifecycle decoupled from hotplug; the daemon's hotplug-driven device
-	// pool (when wired) consumes events directly. Here we only need to fan
-	// out to SSE clients via Server.BroadcastDeviceDiscovery.
+	// Entity lifecycles are decoupled from hotplug; monitoring here only
+	// fans device events out to SSE clients via BroadcastDeviceDiscovery.
 	s.deviceDetector = devices.NewDetector()
 	if err := s.deviceDetector.StartMonitoring(context.Background(), s); err != nil {
 		s.logger.Warn("Failed to start device monitoring", logging.KeyError, err)

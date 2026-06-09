@@ -188,10 +188,8 @@ func (e *Entity[T]) Touch(ctx context.Context, ids ...string) {
 		}
 		payload, err := e.loader(ctx, id)
 		if err != nil {
-			// Loader miss is expected when an entity has just been
-			// deleted (Touch racing with delete). Don't republish a
-			// stale snapshot; the .deleted event already informed
-			// subscribers.
+			// Loader miss = Touch racing a delete; don't republish a stale
+			// snapshot — the .deleted event already informed subscribers.
 			continue
 		}
 		e.publish(ActionUpdated, id, payload)
@@ -203,10 +201,8 @@ func (e *Entity[T]) publish(action, id string, payload any) {
 		return
 	}
 	Publish(e.bus, newEntityEvent(e.typ, action, id, payload))
-	// Lifecycle events trigger dependency fan-out so cross-entity
-	// rollups (Source.Consumers when a Stream changes, etc.) refresh
-	// in the same dispatch scope. Status/metrics/consumers events are
-	// per-entity by design — no fan-out.
+	// Lifecycle events fan out so cross-entity rollups refresh in the same
+	// dispatch scope; status/metrics/consumers events are per-entity by design.
 	if e.reg != nil && isLifecycleAction(action) {
 		e.reg.DispatchDependencies(context.Background(), e.typ, action, payload)
 	}
