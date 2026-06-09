@@ -86,10 +86,7 @@ type Options struct {
 	// Features settings
 	FeaturesLEDControl bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
 
-	// Profiling settings. When enabled, net/http/pprof is served on PprofAddr
-	// (localhost-only by default) for CPU/heap/allocation profiling. Off by
-	// default; safe to leave compiled in since the listener only binds when
-	// the flag is set.
+	// Profiling settings. The pprof listener only binds when enabled.
 	FeaturesPprof bool   `help:"Enable net/http/pprof debug server" default:"false" toml:"features.pprof_enabled" env:"FEATURES_PPROF"`
 	PprofAddr     string `help:"Address for the pprof debug server" default:"127.0.0.1:6060" toml:"features.pprof_addr" env:"FEATURES_PPROF_ADDR"`
 
@@ -440,12 +437,13 @@ func main() {
 
 		// Create SSE exporter if enabled
 		if opts.SSEEnabled {
-			sseExporter = exporters.NewSSEExporter(eventRegistry)
+			sseExporter = exporters.NewSSEExporter(eventRegistry, func() bool {
+				return server.SSEClientCount() > 0
+			})
 		}
 
 		hooks.OnStart(func() {
-			// Profiling server (net/http/pprof on DefaultServeMux). Bound to
-			// localhost by default; reach it via an SSH tunnel.
+			// net/http/pprof on DefaultServeMux, localhost by default.
 			if opts.FeaturesPprof {
 				logger.Info("Starting pprof server", logging.KeyAddr, opts.PprofAddr)
 				go func() {
@@ -482,17 +480,24 @@ func main() {
 				go func() {
 					ticker := time.NewTicker(1 * time.Second)
 					defer ticker.Stop()
+					lastConsumers := make(map[string]streaming.StreamConsumersPayload)
+					var lastClients int64
 					for range ticker.C {
+						// Force a full re-emit when a new subscriber connects
+						// so it sees current counts without waiting for a change.
+						clients := server.SSEClientCount()
+						forceEmit := clients > lastClients
+						lastClients = clients
+						if clients == 0 {
+							continue
+						}
+
 						streamsCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 						list, err := streamSvc.List(streamsCtx)
 						cancel()
 						if err != nil {
 							continue
 						}
-						// Emit every tick (no de-dup) so fresh SSE
-						// subscribers see the current count within 1s of
-						// connect instead of waiting for the next
-						// connect/disconnect transition.
 						for _, st := range list {
 							sid := st.ID
 							rtsp := streamingServer.StreamRTSPCount(sid)
@@ -513,6 +518,16 @@ func main() {
 							if srtServer != nil {
 								payload.SRTClients = srtServer.StreamConsumerInfo(sid)
 							}
+
+							// Client-info slices only change when counts do.
+							if !forceEmit {
+								if prev, ok := lastConsumers[sid]; ok &&
+									prev.Total == payload.Total && prev.RTSP == payload.RTSP &&
+									prev.WebRTC == payload.WebRTC && prev.SRT == payload.SRT {
+									continue
+								}
+							}
+							lastConsumers[sid] = payload
 							eventRegistry.Publish("stream", events.ActionConsumers, sid, payload)
 						}
 					}

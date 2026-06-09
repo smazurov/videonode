@@ -36,6 +36,9 @@ func (s *Server) registerSSERoutes() {
 		"process-removed":        events.ProcessRemovedEvent{},
 		"heartbeat":              events.HeartbeatEvent{},
 	}, func(ctx context.Context, _ *sseInput, send sse.Sender) {
+		s.sseClients.Add(1)
+		defer s.sseClients.Add(-1)
+
 		eventCh := make(chan any, 10)
 
 		unsubscribers := []func(){

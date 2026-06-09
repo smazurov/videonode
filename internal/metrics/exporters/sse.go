@@ -19,19 +19,22 @@ type EntityPublisher interface {
 
 // SSEExporter publishes per-stream FFmpeg metrics on the entity envelope.
 type SSEExporter struct {
-	registry EntityPublisher
-	interval time.Duration
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	registry       EntityPublisher
+	hasSubscribers func() bool
+	interval       time.Duration
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
 }
 
-// NewSSEExporter creates a new SSE metrics exporter bound to the entity
-// registry it publishes through.
-func NewSSEExporter(registry EntityPublisher) *SSEExporter {
+// NewSSEExporter creates an SSE metrics exporter. A nil hasSubscribers
+// gathers every tick; otherwise the per-tick registry gather is skipped
+// when it returns false.
+func NewSSEExporter(registry EntityPublisher, hasSubscribers func() bool) *SSEExporter {
 	return &SSEExporter{
-		registry: registry,
-		interval: 1 * time.Second,
+		registry:       registry,
+		hasSubscribers: hasSubscribers,
+		interval:       1 * time.Second,
 	}
 }
 
@@ -60,18 +63,19 @@ func (s *SSEExporter) run() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
+			if s.hasSubscribers != nil && !s.hasSubscribers() {
+				continue
+			}
 			s.publishMetrics()
 		}
 	}
 }
 
 func (s *SSEExporter) publishMetrics() {
-	allMetrics, err := metrics.GetFFmpegMetricsFromRegistry()
+	allMetrics, egress, err := metrics.GetStreamMetricsFromRegistry()
 	if err != nil {
 		return
 	}
-
-	egress, _ := metrics.GetStreamEgressMetrics()
 
 	// Collect all stream IDs from both sources.
 	streamIDs := make(map[string]struct{})

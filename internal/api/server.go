@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -40,6 +41,12 @@ type Server struct {
 	streamEntity       *events.Entity[models.StreamData]
 	controlServer      *pipelinectl.Manager
 	logger             logging.Logger
+	sseClients         atomic.Int64
+}
+
+// SSEClientCount returns the number of connected /api/events subscribers.
+func (s *Server) SSEClientCount() int64 {
+	return s.sseClients.Load()
 }
 
 // rtspPortOrDefault returns the configured RTSP publish port (e.g.

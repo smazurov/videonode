@@ -101,6 +101,69 @@ func GetStreamEgressMetrics() (map[string]*StreamEgressMetrics, error) {
 	return result, nil
 }
 
+// GetStreamMetricsFromRegistry gathers the registry once and returns both
+// per-stream FFmpeg metrics and egress counters, keyed by stream_id.
+func GetStreamMetricsFromRegistry() (map[string]*FFmpegStreamMetrics, map[string]*StreamEgressMetrics, error) {
+	families, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ffmpeg := make(map[string]*FFmpegStreamMetrics)
+	egress := make(map[string]*StreamEgressMetrics)
+
+	for _, mf := range families {
+		name := mf.GetName()
+		switch {
+		case strings.HasPrefix(name, "videonode_ffmpeg_"):
+			for _, m := range mf.GetMetric() {
+				streamID := getLabelValue(m.GetLabel(), "stream_id")
+				if streamID == "" {
+					continue
+				}
+				if ffmpeg[streamID] == nil {
+					ffmpeg[streamID] = &FFmpegStreamMetrics{}
+				}
+				value := m.GetGauge().GetValue()
+				switch name {
+				case "videonode_ffmpeg_fps":
+					ffmpeg[streamID].FPS = value
+				case "videonode_ffmpeg_dropped_frames_total":
+					ffmpeg[streamID].DroppedFrames = value
+				case "videonode_ffmpeg_duplicate_frames_total":
+					ffmpeg[streamID].DuplicateFrames = value
+				case "videonode_ffmpeg_processing_speed":
+					ffmpeg[streamID].Speed = value
+				}
+			}
+		case name == "videonode_webrtc_stream_bytes_total",
+			name == "videonode_srt_stream_bytes_total",
+			name == "videonode_webrtc_stream_packets_total",
+			name == "videonode_srt_stream_packets_total":
+			for _, m := range mf.GetMetric() {
+				streamID := getLabelValue(m.GetLabel(), "stream_id")
+				if streamID == "" {
+					continue
+				}
+				if egress[streamID] == nil {
+					egress[streamID] = &StreamEgressMetrics{}
+				}
+				value := m.GetCounter().GetValue()
+				switch name {
+				case "videonode_webrtc_stream_bytes_total",
+					"videonode_srt_stream_bytes_total":
+					egress[streamID].BytesOut += value
+				case "videonode_webrtc_stream_packets_total",
+					"videonode_srt_stream_packets_total":
+					egress[streamID].PacketsOut += value
+				}
+			}
+		}
+	}
+
+	return ffmpeg, egress, nil
+}
+
 // GetProducerMetricsFromRegistry extracts per-source producer-process metrics
 // (RSS / CPU) from Prometheus registry keyed by source_id.
 func GetProducerMetricsFromRegistry() (map[string]*ProducerProcessMetrics, error) {

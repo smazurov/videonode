@@ -104,17 +104,17 @@ func (m *Monitor) Run(ctx context.Context, events chan<- Event) error {
 
 	buf := make([]byte, 8192)
 
+	// Persists on the socket; wakes each Recvfrom every second to re-check ctx.
+	tv := syscall.Timeval{Sec: 1}
+	if err := syscall.SetsockoptTimeval(m.fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv); err != nil {
+		return err
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-		}
-
-		// Set read timeout so we can check context periodically
-		tv := syscall.Timeval{Sec: 1}
-		if err := syscall.SetsockoptTimeval(m.fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv); err != nil {
-			return err
 		}
 
 		n, _, err := syscall.Recvfrom(m.fd, buf, 0)
@@ -132,17 +132,20 @@ func (m *Monitor) Run(ctx context.Context, events chan<- Event) error {
 			continue
 		}
 
-		event := ParseUEvent(buf[:n])
-		if event == nil {
+		// Drop unwatched subsystems before ParseUEvent allocates an Event+map.
+		m.filtersMu.RLock()
+		filterCount := len(m.filters)
+		var matchesFilter bool
+		if filterCount > 0 {
+			_, matchesFilter = m.filters[string(subsystemOf(buf[:n]))]
+		}
+		m.filtersMu.RUnlock()
+		if filterCount > 0 && !matchesFilter {
 			continue
 		}
 
-		// Apply subsystem filter
-		m.filtersMu.RLock()
-		filterCount := len(m.filters)
-		_, matchesFilter := m.filters[event.Subsystem]
-		m.filtersMu.RUnlock()
-		if filterCount > 0 && !matchesFilter {
+		event := ParseUEvent(buf[:n])
+		if event == nil {
 			continue
 		}
 
@@ -152,6 +155,23 @@ func (m *Monitor) Run(ctx context.Context, events chan<- Event) error {
 			return ctx.Err()
 		}
 	}
+}
+
+// subsystemOf returns the SUBSYSTEM= value from a raw uevent without
+// allocating. The result aliases data; valid only until buf is reused.
+func subsystemOf(data []byte) []byte {
+	for len(data) > 0 {
+		field := data
+		if i := bytes.IndexByte(data, 0); i >= 0 {
+			field, data = data[:i], data[i+1:]
+		} else {
+			data = nil
+		}
+		if v, ok := bytes.CutPrefix(field, []byte("SUBSYSTEM=")); ok {
+			return v
+		}
+	}
+	return nil
 }
 
 // ParseUEvent parses a kernel uevent message.

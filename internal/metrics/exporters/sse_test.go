@@ -58,7 +58,7 @@ func TestSSEExporterPublishesMetrics(t *testing.T) {
 	metrics.SetFFmpegDuplicateFrames(streamID, 2)
 
 	mock := newMockRegistry()
-	exporter := NewSSEExporter(mock)
+	exporter := NewSSEExporter(mock, nil)
 	exporter.interval = 50 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -114,7 +114,7 @@ func TestSSEExporterNoMetrics(t *testing.T) {
 	metrics.DeleteFFmpegMetrics(testStreamID)
 
 	mock := newMockRegistry()
-	exporter := NewSSEExporter(mock)
+	exporter := NewSSEExporter(mock, nil)
 	exporter.interval = 20 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -140,7 +140,7 @@ func TestSSEExporterStopIdempotent(t *testing.T) {
 	defer metrics.DeleteFFmpegMetrics(streamID)
 
 	mock := newMockRegistry()
-	exporter := NewSSEExporter(mock)
+	exporter := NewSSEExporter(mock, nil)
 	exporter.interval = 10 * time.Millisecond
 
 	ctx := context.Background()
@@ -172,7 +172,7 @@ func TestSSEExporterStopBeforeStart(t *testing.T) {
 	defer metrics.DeleteFFmpegMetrics(streamID)
 
 	mock := newMockRegistry()
-	exporter := NewSSEExporter(mock)
+	exporter := NewSSEExporter(mock, nil)
 	exporter.interval = 10 * time.Millisecond
 
 	// Stop before start should not panic
