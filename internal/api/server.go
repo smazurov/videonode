@@ -485,7 +485,6 @@ func (s *Server) Start(addr string) error {
 	// pool (when wired) consumes events directly. Here we only need to fan
 	// out to SSE clients via Server.BroadcastDeviceDiscovery.
 	s.deviceDetector = devices.NewDetector()
-	s.deviceDetector.SetEventBus(s.eventBus)
 	if err := s.deviceDetector.StartMonitoring(context.Background(), s); err != nil {
 		s.logger.Warn("Failed to start device monitoring", logging.KeyError, err)
 	}

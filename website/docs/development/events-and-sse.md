@@ -6,7 +6,7 @@ This page explains how VideoNode delivers real-time UI updates: the in-process e
 
 The daemon runs one in-process publish/subscribe bus (`internal/events`, wrapping `kelindar/event`). Producers call `events.Publish(bus, ev)`; consumers call `events.Subscribe(bus, fn)`. The concrete Go type selects the delivery topic, so adding an event type needs no change to the bus itself.
 
-The bus is the hub, not the wire. SSE is one subscriber that bridges bus events to the browser. Other subscribers stay in-process: the device detector reacts to `StreamCrashedEvent` to recheck the HDMI signal and never touches SSE. Keeping the bus separate from SSE lets in-process reactions and browser pushes evolve independently.
+The bus is the hub, not the wire. SSE is one subscriber that bridges bus events to the browser, but nothing forces a subscriber onto the wire: any in-process consumer can react to the same events without involving SSE. Keeping the bus separate from SSE lets in-process reactions and browser pushes evolve independently.
 
 ## The two SSE streams
 
@@ -82,11 +82,12 @@ flowchart LR
     A producer publishes to the in-process bus. The SSE handler is one bus
     subscriber that forwards events over /api/events to the browser SSE
     client, which dispatches entity events into Zustand stores. The device
-    detector is a second bus subscriber that reacts in-process.
+    detector is a second producer, publishing device-discovery events into
+    the same bus.
   }
   prod["API / sidecar"] --> bus["event bus"]
+  det["device detector"] --> bus
   bus --> sse["/api/events handler"]
-  bus --> det["device detector"]
   sse --> client["SSEClient (browser)"]
   client --> disp["entityDispatch"]
   disp --> store["Zustand stores"]
