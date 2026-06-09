@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"os"
 	"os/user"
 	"testing"
 	"time"
@@ -207,9 +208,22 @@ func TestLinuxAuthenticator_Type(t *testing.T) {
 }
 
 func TestLinuxAuthenticator_Available(t *testing.T) {
-	a := NewLinux(nil)
-	if !a.Available() {
-		t.Error("Available() should always return true for the pure-Go authenticator")
+	tests := []struct {
+		name   string
+		shadow ShadowSource
+		want   bool
+	}{
+		{"shadow readable", fakeShadow{entries: map[string]ShadowEntry{}}, true},
+		{"shadow read denied", fakeShadow{err: ErrShadowReadDenied}, false},
+		{"shadow missing", fakeShadow{err: os.ErrNotExist}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &LinuxAuthenticator{shadow: tt.shadow}
+			if got := a.Available(); got != tt.want {
+				t.Errorf("Available() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

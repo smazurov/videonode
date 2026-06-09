@@ -199,7 +199,7 @@ func (a *LinuxAuthenticator) Authenticate(username, password string) Result {
 func (a *LinuxAuthenticator) reject(username, reason string, extra ...any) Result {
 	if a.logger != nil {
 		args := append([]any{logging.KeyUsername, username, logging.KeyReason, reason}, extra...)
-		a.logger.Info("auth rejected", args...)
+		a.logger.Info("authentication rejected: "+reasonText(reason), args...)
 	}
 	return Result{Valid: false, Username: username, Reason: reason}
 }
@@ -235,8 +235,12 @@ func verifyHash(hash, password string) (bool, error) {
 	return false, fmt.Errorf("unsupported hash prefix in %.4q", hash)
 }
 
-// Available always returns true — no external binaries needed.
-func (a *LinuxAuthenticator) Available() bool { return true }
+// Available reports whether /etc/shadow is readable; the empty username can't
+// match a real row, so any non-"not found" error means no shadow access.
+func (a *LinuxAuthenticator) Available() bool {
+	_, err := a.shadow.Lookup("")
+	return err == nil || errors.Is(err, ErrUserNotInShadow)
+}
 
 // Type returns the authenticator type.
 func (a *LinuxAuthenticator) Type() string { return "linux" }

@@ -385,7 +385,7 @@ func main() {
 			Type:     opts.AuthType,
 			Username: opts.AuthUsername,
 			Password: opts.AuthPassword,
-		}, logger)
+		}, logging.GetLogger("auth"))
 
 		snapshotCache := snapshots.NewCache(
 			snapshots.Config{MaxFPS: opts.PreviewMaxFPS},

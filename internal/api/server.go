@@ -138,7 +138,7 @@ func (s *Server) basicAuthMiddleware(authenticator auth.Authenticator) func(huma
 		}
 		if !result.Valid {
 			if s.logger != nil {
-				s.logger.Info("authentication rejected",
+				s.logger.Debug("authentication rejected",
 					logging.KeyUsername, parts[0],
 					logging.KeyRemoteAddr, ctx.RemoteAddr(),
 					logging.KeyReason, result.Reason)

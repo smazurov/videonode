@@ -21,6 +21,27 @@ const (
 	ReasonSystemError      = "system_error"
 )
 
+func reasonText(reason string) string {
+	switch reason {
+	case ReasonUnknownUser:
+		return "user not found"
+	case ReasonNotInGroup:
+		return "user not in login group"
+	case ReasonInvalidPassword:
+		return "invalid password"
+	case ReasonAccountLocked:
+		return "account locked"
+	case ReasonAccountExpired:
+		return "account expired"
+	case ReasonShadowReadDenied:
+		return "/etc/shadow not readable"
+	case ReasonUnsupportedHash:
+		return "unsupported password hash"
+	default:
+		return "rejected"
+	}
+}
+
 // Authenticator validates user credentials.
 type Authenticator interface {
 	Authenticate(username, password string) Result

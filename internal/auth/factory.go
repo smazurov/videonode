@@ -18,7 +18,7 @@ func newUncached(cfg Config, logger logging.Logger) Authenticator {
 		auth := NewLinux(logger)
 		if !auth.Available() {
 			if logger != nil {
-				logger.Warn("Linux auth unavailable (unix_chkpwd not found), falling back to basic")
+				logger.Warn("Linux auth unavailable (/etc/shadow not readable), falling back to basic")
 			}
 			return NewBasic(cfg.Username, cfg.Password)
 		}
