@@ -3,4 +3,4 @@ name: custom-gcl
 destination: ./bin
 plugins:
   - module: github.com/smazurov/golangci-lint-commentsize
-    version: v0.1.4
+    version: v0.1.3
