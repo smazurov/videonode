@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -398,11 +399,9 @@ func TestPipelineDefault(t *testing.T) {
 	}
 }
 
-// TestLoad_V1LegacyTableWithDatetimeTimestamps reproduces the panic that
-// occurred when a legacy [streams.<id>] config wrote created_at/updated_at as
-// bare TOML datetimes — the decoder used to bind them into a string field and
-// panic with "value of type time.Time is not assignable to type string".
-func TestLoad_V1LegacyTableWithDatetimeTimestamps(t *testing.T) {
+// TestLoad_V1Rejected verifies that a non-v2 file is refused with a clear
+// error now that v1→v2 auto-migration has been removed.
+func TestLoad_V1Rejected(t *testing.T) {
 	repo, testFile := setupTestStore(t)
 
 	v1 := `version = 1
@@ -410,28 +409,17 @@ func TestLoad_V1LegacyTableWithDatetimeTimestamps(t *testing.T) {
 [streams]
 [streams.c920]
 id = 'c920'
-name = 'c920'
 device = 'usb-046d_HD_Pro_Webcam_C920_D6BA64DF-video-index0'
-test_mode = false
-created_at = 2026-05-23T18:26:13.593427325-06:00
-updated_at = 0001-01-01T00:00:00Z
-
-[streams.c920.ffmpeg]
-codec = 'h264'
-input_format = 'mjpeg'
-resolution = '1920x1080'
-fps = '30'
 `
 	if err := os.WriteFile(testFile, []byte(v1), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
-	if err := repo.Load(); err != nil {
-		t.Fatalf("Load: %v", err)
+	err := repo.Load()
+	if err == nil {
+		t.Fatal("Load: expected error for v1 config, got nil")
 	}
-
-	got := repo.GetAllSources()
-	if len(got) != 1 || got[0].Device != "usb-046d_HD_Pro_Webcam_C920_D6BA64DF-video-index0" {
-		t.Errorf("expected one migrated source for c920, got %+v", got)
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Errorf("Load: expected 'unsupported' version error, got %v", err)
 	}
 }

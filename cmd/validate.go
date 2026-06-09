@@ -37,23 +37,25 @@ func CreateValidateEncodersCmd(streamsConfigPath func(cmd *cobra.Command) string
 	return cmd
 }
 
-// CreateValidateConfigCmd creates the validate-config command. Loads streams.toml,
-// auto-migrates v1 shape to v2 in memory if needed, then runs structural validation
-// against the v2 schema (sources/composers/streams). Prints actionable errors and
-// exits non-zero on the first failure.
+// CreateValidateConfigCmd creates the validate-config command. Loads a v2
+// streams.toml and runs structural validation against the v2 schema
+// (sources/composers/streams). Prints actionable errors and exits non-zero
+// on the first failure.
 func CreateValidateConfigCmd(streamsConfigPath func(cmd *cobra.Command) string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate-config",
 		Short: "Validate streams.toml structure (sources/composers/streams refs)",
 		Long: `Catches dangling upstream refs ("source:X" where source X does not exist), ` +
 			`layout entries pointing at unknown inputs, source-id / composer-id / stream-id ` +
-			`collisions, and source TestMode/Device conflicts. Legacy v1 files are auto-migrated ` +
-			`in memory before validation.`,
+			`collisions, and source TestMode/Device conflicts.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			path := streamsConfigPath(c)
 			cfg, err := loadV2Config(path)
 			if err != nil {
-				return err
+				if _, perr := fmt.Fprintf(c.ErrOrStderr(), "validate-config: %s\n", err); perr != nil {
+					return perr
+				}
+				os.Exit(1)
 			}
 			if errs := ValidateV2Config(cfg); len(errs) > 0 {
 				if _, perr := fmt.Fprintf(c.ErrOrStderr(), "validate-config: %d error(s) in %s\n", len(errs), path); perr != nil {
@@ -75,36 +77,33 @@ func CreateValidateConfigCmd(streamsConfigPath func(cmd *cobra.Command) string) 
 	return cmd
 }
 
-// loadV2Config reads streams.toml at path. If the file is at version 2, parses it
-// directly. If it's a v1 (pre-split) shape, runs the migrator in memory.
+// loadV2Config reads a v2 streams.toml at path. A non-v2 file is rejected
+// with a clear error; v1 auto-migration has been removed.
 func loadV2Config(path string) (*V2Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	// Peek at version to decide which parser to dispatch.
-	var peek struct {
+	// Peek at the version before binding the full document so any non-v2
+	// shape (including the legacy [streams.<id>] table) fails with a clear
+	// message rather than a confusing table-vs-slice decode error.
+	var head struct {
 		Version int `toml:"version"`
 	}
-	if err := toml.Unmarshal(data, &peek); err != nil {
+	if err := toml.Unmarshal(data, &head); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-
-	if peek.Version >= 2 {
-		var cfg V2Config
-		if err := toml.Unmarshal(data, &cfg); err != nil {
-			return nil, fmt.Errorf("parse v2 %s: %w", path, err)
-		}
-		return &cfg, nil
+	if head.Version != 2 {
+		return nil, fmt.Errorf("%s: version %d unsupported: v1→v2 auto-migration was "+
+			"removed; restore a version-2 config", path, head.Version)
 	}
 
-	// v1 path: parse legacy shape, migrate in memory.
-	v1 := &v1Config{Streams: map[string]v1Stream{}}
-	if err := toml.Unmarshal(data, v1); err != nil {
-		return nil, fmt.Errorf("parse v1 %s: %w", path, err)
+	var cfg V2Config
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	return MigrateV1ToV2(v1)
+	return &cfg, nil
 }
 
 // ValidateV2Config runs structural validation against a parsed v2 config.

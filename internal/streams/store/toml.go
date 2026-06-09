@@ -6,18 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/smazurov/videonode/internal/logging"
 	"github.com/smazurov/videonode/internal/streams"
 	"github.com/smazurov/videonode/internal/types"
 )
 
-// SchemaVersion is the persisted on-disk format version. V1 was the
-// legacy monolithic [[streams]] with inputs/effects/force_composer; v2
-// is the split top-level [[sources]] / [[composers]] / [[streams]].
+// schemaVersion is the persisted on-disk format version. The current format
+// is the split top-level [[sources]] / [[composers]] / [[streams]]. The legacy
+// monolithic v1 [[streams]] (with inputs/effects/force_composer) is no longer
+// supported; its auto-migration has been removed.
 const schemaVersion = 2
 
 // config is the persisted v2 layout marshalled to/from TOML.
@@ -31,47 +30,7 @@ type config struct {
 	Streams   []V2Stream   `toml:"streams,omitempty" json:"streams,omitempty"`
 }
 
-// streamsRawV1Entry is just enough of the legacy StreamSpec to seed a
-// migration. We only need device + test_mode + minimal encoder shape.
-type streamsRawV1Entry struct {
-	ID                  string               `toml:"id"`
-	Name                string               `toml:"name"`
-	Device              string               `toml:"device"`
-	TestMode            bool                 `toml:"test_mode"`
-	FFmpeg              v1LegacyFFmpeg       `toml:"ffmpeg"`
-	Canvas              *v1LegacyCanvas      `toml:"canvas"`
-	CustomFFmpegCommand string               `toml:"custom_ffmpeg_command"`
-	Perspective         *v1LegacyPerspective `toml:"perspective"`
-	// CreatedAt/UpdatedAt are accepted but unused by the migrator. Typed as
-	// time.Time because legacy on-disk files write these as bare TOML
-	// datetimes; decoding into a string field panics in go-toml.
-	CreatedAt time.Time `toml:"created_at"`
-	UpdatedAt time.Time `toml:"updated_at"`
-}
-
-type v1LegacyFFmpeg struct {
-	Codec       string   `toml:"codec"`
-	InputFormat string   `toml:"input_format"`
-	Resolution  string   `toml:"resolution"`
-	FPS         string   `toml:"fps"`
-	AudioDevice string   `toml:"audio_device"`
-	Options     []string `toml:"options"`
-}
-
-type v1LegacyCanvas struct {
-	Width         int      `toml:"width"`
-	Height        int      `toml:"height"`
-	FPS           string   `toml:"fps"`
-	SourceStreams []string `toml:"source_streams"`
-	AudioDevices  []string `toml:"audio_devices"`
-}
-
-type v1LegacyPerspective struct {
-	Corners [4][2]int `toml:"corners"`
-}
-
-// tomlStore implements Store using TOML file storage with auto-migration
-// from v1 (legacy + intermediate) shapes to v2.
+// tomlStore implements Store using TOML file storage.
 type tomlStore struct {
 	// mu guards config. The pipeline reads entity specs through the store
 	// off the service-layer mutex, so reads and writes must be safe to
@@ -114,9 +73,8 @@ func NewInMemory() streams.Store {
 	}
 }
 
-// Load reads the config file, auto-migrating v1 → v2 in place. After a
-// successful migration the rewritten v2 TOML is written back so subsequent
-// loads are pure v2 reads.
+// Load reads the v2 config file. A non-v2 file is rejected with a clear
+// error; the v1 → v2 auto-migration has been removed.
 func (s *tomlStore) Load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -130,153 +88,25 @@ func (s *tomlStore) Load() error {
 		return fmt.Errorf("failed to read streams config: %w", err)
 	}
 
-	// Peek at version + validation/pipeline first; never bind `streams` here
-	// since its shape varies across v1 forms (array vs table).
+	// Peek at the version before binding the full document so a non-v2 file
+	// fails with a clear message rather than a confusing partial decode.
 	var head struct {
-		Version    int                      `toml:"version"`
-		Validation *types.ValidationResults `toml:"validation"`
-		Pipeline   *streams.PipelineConfig  `toml:"pipeline"`
+		Version int `toml:"version"`
 	}
 	if err := toml.Unmarshal(data, &head); err != nil {
 		return fmt.Errorf("failed to parse streams config: %w", err)
 	}
 
-	if head.Version == schemaVersion {
-		// Pure v2 decode.
-		cfg := &config{}
-		if err := toml.Unmarshal(data, cfg); err != nil {
-			return fmt.Errorf("failed to parse v2 streams config: %w", err)
-		}
-		s.config = cfg
-		return nil
+	if head.Version != schemaVersion {
+		return fmt.Errorf("streams.toml version %d unsupported: v1→v2 auto-migration "+
+			"was removed; restore a version-2 config", head.Version)
 	}
 
-	// Dispatch between intermediate ([[streams]] array) and legacy
-	// ([streams.<id>] table) forms by trying each in turn.
-	v1Streams, err := decodeV1Streams(data)
-	if err != nil {
-		return fmt.Errorf("failed to parse v1 streams config: %w", err)
+	cfg := &config{}
+	if err := toml.Unmarshal(data, cfg); err != nil {
+		return fmt.Errorf("failed to parse v2 streams config: %w", err)
 	}
-
-	mr, err := migrateV1Streams(v1Streams)
-	if err != nil {
-		return fmt.Errorf("v1→v2 migration failed: %w", err)
-	}
-	s.config = &config{
-		Version:    schemaVersion,
-		Validation: head.Validation,
-		Pipeline:   head.Pipeline,
-		Sources:    mr.Sources,
-		Composers:  mr.Composers,
-		Streams:    mr.Streams,
-	}
-
-	if err := s.save(); err != nil {
-		return fmt.Errorf("failed to persist migrated config: %w", err)
-	}
-	slog.Info("streams.toml migrated to v2",
-		logging.KeySources, len(s.config.Sources),
-		logging.KeyComposers, len(s.config.Composers),
-		logging.KeyStreams, len(s.config.Streams),
-	)
-	return nil
-}
-
-// decodeV1Streams tries the intermediate [[streams]] array shape first
-// (canonical v1) and falls back to the legacy [streams.<id>] table shape
-// if that yields zero streams.
-func decodeV1Streams(data []byte) ([]v1RawStream, error) {
-	var asArray struct {
-		Streams []v1RawStream `toml:"streams"`
-	}
-	if err := toml.Unmarshal(data, &asArray); err == nil && len(asArray.Streams) > 0 {
-		return asArray.Streams, nil
-	}
-
-	var asTable struct {
-		Streams map[string]streamsRawV1Entry `toml:"streams"`
-	}
-	if err := toml.Unmarshal(data, &asTable); err != nil {
-		return nil, err
-	}
-	return convertLegacyTableToIntermediate(asTable.Streams), nil
-}
-
-// convertLegacyTableToIntermediate maps the [streams.<id>] StreamSpec shape
-// into the intermediate v1 [[streams]] form so a single migrateV1Streams
-// path handles both. Canvas streams become multi-input intermediate streams.
-func convertLegacyTableToIntermediate(table map[string]streamsRawV1Entry) []v1RawStream {
-	out := make([]v1RawStream, 0, len(table))
-	for id, e := range table {
-		if e.ID == "" {
-			e.ID = id
-		}
-		var inputs []v1RawInput
-		var layout []v1RawSlot
-		if e.Canvas != nil && len(e.Canvas.SourceStreams) > 0 {
-			for i, src := range e.Canvas.SourceStreams {
-				inputs = append(inputs, v1RawInput{
-					ID:     fmt.Sprintf("inp%d", i+1),
-					Device: src,
-				})
-			}
-			cw := e.Canvas.Width
-			if cw == 0 {
-				cw = 1920
-			}
-			ch := e.Canvas.Height
-			if ch == 0 {
-				ch = 1080
-			}
-			// Legacy [streams.<id>].canvas had no per-source slot config;
-			// default to a side-by-side row so every input gets a slot.
-			// Without one slot per input the composer renders only the
-			// first source.
-			n := len(e.Canvas.SourceStreams)
-			slotW := cw / n
-			for i := range n {
-				layout = append(layout, v1RawSlot{
-					Slot: i,
-					X:    i * slotW,
-					Y:    0,
-					W:    slotW,
-					H:    ch,
-				})
-			}
-		} else {
-			inputs = append(inputs, v1RawInput{ID: "inp1", Device: e.Device})
-		}
-
-		effects := map[string][]v1RawFx{}
-		if e.Perspective != nil {
-			effects[inputs[0].ID] = []v1RawFx{{Type: "perspective", Corners: e.Perspective.Corners}}
-		}
-
-		out = append(out, v1RawStream{
-			ID:       e.ID,
-			Name:     e.Name,
-			Inputs:   inputs,
-			Layout:   layout,
-			Effects:  effects,
-			TestMode: e.TestMode,
-			Audio: V2AudioConfig{
-				Devices: legacyAudioDevices(e),
-			},
-			Encoder: V2EncoderConfig{
-				Codec: e.FFmpeg.Codec,
-			},
-		})
-	}
-	return out
-}
-
-func legacyAudioDevices(e streamsRawV1Entry) []string {
-	if e.FFmpeg.AudioDevice != "" {
-		return []string{e.FFmpeg.AudioDevice}
-	}
-	if e.Canvas != nil && len(e.Canvas.AudioDevices) > 0 {
-		return e.Canvas.AudioDevices
-	}
+	s.config = cfg
 	return nil
 }
 

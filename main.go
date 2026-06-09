@@ -38,7 +38,6 @@ import (
 // uses this list to short-circuit the heavy server init.
 var subcommandNames = []string{
 	"composer",
-	"migrate-config",
 	"openapi",
 	"source",
 	"stream",
@@ -591,7 +590,6 @@ func main() {
 	// populates it.
 	cli.Root().AddCommand(cmd.CreateValidateEncodersCmd(cmd.ResolveStreamsConfigPath))
 	cli.Root().AddCommand(cmd.CreateValidateConfigCmd(cmd.ResolveStreamsConfigPath))
-	cli.Root().AddCommand(cmd.CreateMigrateConfigCmd())
 
 	// Add entity-CRUD subcommands. Each is a thin REST client; the daemon owns the schema.
 	cli.Root().AddCommand(cmd.CreateSourceCmd())
