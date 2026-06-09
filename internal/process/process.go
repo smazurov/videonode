@@ -91,6 +91,19 @@ func (p *Process) SetLogParser(logger logging.Logger, parser LogParser) {
 	p.logParser = parser
 }
 
+// SetLogger overrides the logger used for supervisor lifecycle events. Callers
+// route it to a per-entity module logger so these lines land on the owning
+// entity's log page instead of the orchestration module.
+func (p *Process) SetLogger(logger logging.Logger) {
+	p.logger = logger
+}
+
+// Logger returns the supervisor logger so the pool can attribute its own
+// lifecycle lines to the same per-entity module.
+func (p *Process) Logger() logging.Logger {
+	return p.logger
+}
+
 // RequestRestart requests a restart with a new command; no-op when one is pending.
 func (p *Process) RequestRestart(newCommand string) {
 	select {
@@ -192,7 +205,7 @@ func exitCodeFromError(err error) int {
 func (p *Process) handleProcessExit(processErr error) int {
 	exitCode := exitCodeFromError(processErr)
 	if processErr != nil && exitCode == 1 {
-		p.logger.Error("Process exited with error", logging.KeyError, processErr)
+		p.logger.Debug("Process exited with error", logging.KeyError, processErr)
 	}
 	return exitCode
 }
@@ -211,16 +224,16 @@ func (p *Process) Run() int {
 
 	select {
 	case <-p.ctx.Done():
-		p.logger.Info("Context cancelled, shutting down process")
+		p.logger.Debug("Context cancelled, shutting down process")
 		p.sendStopSignal()
 		return p.waitForExit(rp.processDone, p.gracefulTimeout)
 	case sig := <-sigChan:
-		p.logger.Info("Received shutdown signal", logging.KeySignal, sig.String())
+		p.logger.Debug("Received shutdown signal", logging.KeySignal, sig.String())
 		p.sendStopSignal()
 		return p.waitForExit(rp.processDone, p.gracefulTimeout)
 	case processErr := <-rp.processDone:
 		exitCode := p.handleProcessExit(processErr)
-		p.logger.Info("Process exited", logging.KeyExitCode, exitCode)
+		p.logger.Debug("Process exited", logging.KeyExitCode, exitCode)
 		return exitCode
 	}
 }

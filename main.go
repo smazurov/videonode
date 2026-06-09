@@ -266,7 +266,7 @@ func main() {
 				}
 				return res, nil
 			},
-		}, logger)
+		}, logging.GetLogger("pipeline"))
 
 		// Pump status notifications into the event bus AND the uniform
 		// entity envelope so the UI's per-source status pill and

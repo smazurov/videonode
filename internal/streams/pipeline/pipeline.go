@@ -1311,6 +1311,7 @@ func (p *Pipeline) configureProcess(id string, proc *process.Process) {
 		}
 		moduleLogger = moduleLogger.With(args...)
 	}
+	proc.SetLogger(moduleLogger)
 	proc.SetLogParser(moduleLogger, stage.LogParser())
 }
 

@@ -115,25 +115,44 @@ func NewPool(opts *PoolOptions) Pool {
 	return p
 }
 
+// withLock runs fn under the write lock. Keep fn to map/state mutation only —
+// callbacks and blocking work must run after it returns to avoid holding the
+// lock across re-entrant pool calls.
+func (p *pool) withLock(fn func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	fn()
+}
+
+// withRLock runs fn under the read lock.
+func (p *pool) withRLock(fn func()) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	fn()
+}
+
 // Start starts a process by ID.
 func (p *pool) Start(id string) error {
-	p.mu.Lock()
-
-	if proc, exists := p.processes[id]; exists {
-		if proc.state == StateRunning || proc.state == StateStarting {
-			p.mu.Unlock()
-			return fmt.Errorf("process %s already running", id)
+	var startErr error
+	p.withLock(func() {
+		if proc, exists := p.processes[id]; exists {
+			if proc.state == StateRunning || proc.state == StateStarting {
+				startErr = fmt.Errorf("process %s already running", id)
+				return
+			}
 		}
-	}
 
-	command, err := p.opts.CommandProvider(id)
-	if err != nil {
-		p.mu.Unlock()
-		return fmt.Errorf("failed to generate command: %w", err)
-	}
+		command, err := p.opts.CommandProvider(id)
+		if err != nil {
+			startErr = fmt.Errorf("failed to generate command: %w", err)
+			return
+		}
 
-	p.startProcess(id, command)
-	p.mu.Unlock()
+		p.startProcess(id, command)
+	})
+	if startErr != nil {
+		return startErr
+	}
 
 	p.notifyStateChange(id, StateIdle, StateStarting, nil)
 	return nil
@@ -169,54 +188,57 @@ func (p *pool) startProcess(id string, command string) {
 
 // runProcess runs the process and handles state transitions.
 func (p *pool) runProcess(ctx context.Context, mp *managedProcess) {
-	p.mu.Lock()
-	oldState := mp.state
-	mp.state = StateRunning
-	p.mu.Unlock()
+	var oldState State
+	p.withLock(func() {
+		oldState = mp.state
+		mp.state = StateRunning
+	})
 	p.notifyStateChange(mp.id, oldState, StateRunning, nil)
 
 	exitCode := mp.proc.Run()
+	cleanStop := ctx.Err() != nil
 
-	p.mu.Lock()
-	oldState = mp.state
-	switch {
-	case ctx.Err() != nil:
-		// Expected exit - we stopped it via Stop()
-		mp.state = StateIdle
-	default:
-		// Process exited on its own - always unexpected
-		mp.state = StateError
-		mp.lastError = fmt.Errorf("process exited with code %d", exitCode)
-		p.logger.Error("Process exited unexpectedly", logging.KeyPoolID, mp.id, logging.KeyExitCode, exitCode)
-	}
-	newState := mp.state
-	lastErr := mp.lastError
-	p.mu.Unlock()
+	var newState State
+	var lastErr error
+	p.withLock(func() {
+		oldState = mp.state
+		if cleanStop {
+			mp.state = StateIdle
+		} else {
+			mp.state = StateError
+			mp.lastError = fmt.Errorf("process exited with code %d", exitCode)
+		}
+		newState = mp.state
+		lastErr = mp.lastError
+	})
 
 	p.notifyStateChange(mp.id, oldState, newState, lastErr)
-	p.logger.Info("Process stopped", logging.KeyPoolID, mp.id, logging.KeyExitCode, exitCode)
+	if cleanStop {
+		mp.proc.Logger().Info("Process stopped", logging.KeyPoolID, mp.id, logging.KeyExitCode, exitCode)
+	} else {
+		mp.proc.Logger().Error("Process exited unexpectedly", logging.KeyPoolID, mp.id, logging.KeyExitCode, exitCode)
+	}
 }
 
 // Stop gracefully stops a process by ID.
 func (p *pool) Stop(id string) error {
-	p.mu.Lock()
-	mp, exists := p.processes[id]
-	if !exists {
-		p.mu.Unlock()
+	var mp *managedProcess
+	var oldState State
+	p.withLock(func() {
+		m, exists := p.processes[id]
+		if !exists || (m.state != StateRunning && m.state != StateStarting) {
+			return
+		}
+		oldState = m.state
+		m.state = StateStopping
+		mp = m
+	})
+	if mp == nil {
 		return nil
 	}
-
-	if mp.state != StateRunning && mp.state != StateStarting {
-		p.mu.Unlock()
-		return nil
-	}
-
-	oldState := mp.state
-	mp.state = StateStopping
-	p.mu.Unlock()
 
 	p.notifyStateChange(id, oldState, StateStopping, nil)
-	p.logger.Info("Stopping process", logging.KeyPoolID, id)
+	mp.proc.Logger().Info("Stopping process", logging.KeyPoolID, id)
 
 	mp.cancel()
 	mp.proc.Shutdown()
@@ -224,12 +246,10 @@ func (p *pool) Stop(id string) error {
 	select {
 	case <-mp.done:
 	case <-time.After(10 * time.Second):
-		p.logger.Warn("Timeout waiting for process to stop", logging.KeyPoolID, id)
+		mp.proc.Logger().Warn("Timeout waiting for process to stop", logging.KeyPoolID, id)
 	}
 
-	p.mu.Lock()
-	delete(p.processes, id)
-	p.mu.Unlock()
+	p.withLock(func() { delete(p.processes, id) })
 
 	p.notifyRemoved(id)
 	return nil
@@ -237,7 +257,13 @@ func (p *pool) Stop(id string) error {
 
 // Restart stops and restarts a process.
 func (p *pool) Restart(id string) error {
-	p.logger.Info("Restarting process", logging.KeyPoolID, id)
+	restartLogger := p.logger
+	p.withRLock(func() {
+		if mp, exists := p.processes[id]; exists {
+			restartLogger = mp.proc.Logger()
+		}
+	})
+	restartLogger.Info("Restarting process", logging.KeyPoolID, id)
 	if err := p.Stop(id); err != nil {
 		return fmt.Errorf("failed to stop process: %w", err)
 	}
@@ -248,26 +274,25 @@ func (p *pool) Restart(id string) error {
 // takes a write lock. RSS/CPU values are populated by the background
 // stats poller.
 func (p *pool) GetStatus(id string) *Info {
-	p.mu.RLock()
-	mp, exists := p.processes[id]
-	if !exists {
-		p.mu.RUnlock()
-		return &Info{ID: id, State: StateIdle}
-	}
-
-	info := &Info{
-		ID:           id,
-		Kind:         mp.kind,
-		State:        mp.state,
-		PID:          mp.proc.PID(),
-		StartedAt:    mp.startedAt,
-		RestartCount: mp.restartCount,
-		LastError:    mp.lastError,
-		RSSBytes:     mp.rssBytes,
-		CPUPercent:   mp.cpuPct,
-	}
-	p.mu.RUnlock()
-
+	var info *Info
+	p.withRLock(func() {
+		mp, exists := p.processes[id]
+		if !exists {
+			info = &Info{ID: id, State: StateIdle}
+			return
+		}
+		info = &Info{
+			ID:           id,
+			Kind:         mp.kind,
+			State:        mp.state,
+			PID:          mp.proc.PID(),
+			StartedAt:    mp.startedAt,
+			RestartCount: mp.restartCount,
+			LastError:    mp.lastError,
+			RSSBytes:     mp.rssBytes,
+			CPUPercent:   mp.cpuPct,
+		}
+	})
 	return info
 }
 
@@ -296,22 +321,23 @@ func (p *pool) refreshStats() {
 		prevWall  time.Time
 	}
 
-	p.mu.RLock()
-	snaps := make([]snap, 0, len(p.processes))
-	for _, mp := range p.processes {
-		if mp.state != StateRunning {
-			continue
+	var snaps []snap
+	p.withRLock(func() {
+		snaps = make([]snap, 0, len(p.processes))
+		for _, mp := range p.processes {
+			if mp.state != StateRunning {
+				continue
+			}
+			pid := mp.proc.PID()
+			if pid <= 0 {
+				continue
+			}
+			snaps = append(snaps, snap{
+				id: mp.id, pid: pid,
+				prevTicks: mp.prevTicks, prevWall: mp.prevWall,
+			})
 		}
-		pid := mp.proc.PID()
-		if pid <= 0 {
-			continue
-		}
-		snaps = append(snaps, snap{
-			id: mp.id, pid: pid,
-			prevTicks: mp.prevTicks, prevWall: mp.prevWall,
-		})
-	}
-	p.mu.RUnlock()
+	})
 
 	type result struct {
 		id    string
@@ -342,18 +368,18 @@ func (p *pool) refreshStats() {
 	}
 
 	if len(results) > 0 {
-		p.mu.Lock()
-		for _, r := range results {
-			mp, ok := p.processes[r.id]
-			if !ok {
-				continue
+		p.withLock(func() {
+			for _, r := range results {
+				mp, ok := p.processes[r.id]
+				if !ok {
+					continue
+				}
+				mp.rssBytes = r.rss
+				mp.cpuPct = r.cpu
+				mp.prevTicks = r.ticks
+				mp.prevWall = r.wall
 			}
-			mp.rssBytes = r.rss
-			mp.cpuPct = r.cpu
-			mp.prevTicks = r.ticks
-			mp.prevWall = r.wall
-		}
-		p.mu.Unlock()
+		})
 	}
 
 	// Self monitoring keeps the daemon footprint fresh and the stats stream
@@ -361,10 +387,10 @@ func (p *pool) refreshStats() {
 	// operator UI's daemon stats don't freeze while the pipeline is idle.
 	if p.opts.SelfSampler != nil {
 		rss, cpu := p.opts.SelfSampler.Sample()
-		p.mu.Lock()
-		p.selfRSS = rss
-		p.selfCPU = cpu
-		p.mu.Unlock()
+		p.withLock(func() {
+			p.selfRSS = rss
+			p.selfCPU = cpu
+		})
 	}
 
 	if len(results) == 0 && p.opts.SelfSampler == nil {
@@ -381,9 +407,9 @@ func (p *pool) Self() *Info {
 	if p.opts.SelfSampler == nil {
 		return nil
 	}
-	p.mu.RLock()
-	rss, cpu := p.selfRSS, p.selfCPU
-	p.mu.RUnlock()
+	var rss int64
+	var cpu float64
+	p.withRLock(func() { rss, cpu = p.selfRSS, p.selfCPU })
 
 	var startedAt time.Time
 	if p.opts.SelfStartedAtUS > 0 {
@@ -440,12 +466,13 @@ func (p *pool) StopAll() {
 	p.logger.Info("Stopping all processes")
 	p.cancel()
 
-	p.mu.RLock()
-	ids := make([]string, 0, len(p.processes))
-	for id := range p.processes {
-		ids = append(ids, id)
-	}
-	p.mu.RUnlock()
+	var ids []string
+	p.withRLock(func() {
+		ids = make([]string, 0, len(p.processes))
+		for id := range p.processes {
+			ids = append(ids, id)
+		}
+	})
 
 	// Fan out — each Stop blocks up to the per-process shutdown timeout, so
 	// stopping N processes serially would take N × timeout on a stuck system.
