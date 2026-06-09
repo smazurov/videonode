@@ -108,9 +108,8 @@ type ComposerStage struct {
 // ComposerPoolKey returns the pool.Pool key for a composer.
 func ComposerPoolKey(composerID string) string { return "composer:" + composerID }
 
-// ComposerIDFor returns the stable composer-id identifier used by the
-// daemon control plane.
-func ComposerIDFor(composerID string) string { return composerID }
+// ComposerRefFor returns the upstream ref a stream uses to consume a composer.
+func ComposerRefFor(composerID string) string { return "composer:" + composerID }
 
 // ID returns the stage's process.Pool key.
 func (c *ComposerStage) ID() string { return ComposerPoolKey(c.ComposerID) }

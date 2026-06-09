@@ -104,7 +104,7 @@ func (s *composerService) applyImportedComposer(prev, c pipeline.Composer, exist
 	if s.pipe == nil {
 		return nil
 	}
-	if !s.pipelineSwitchEnabled() {
+	if !switchEnabled(s.psw) {
 		// Switch off: the imported spec is already persisted; the pipeline
 		// reads through to the store, so there's nothing to spawn or cache.
 		return nil

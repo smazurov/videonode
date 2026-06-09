@@ -88,19 +88,12 @@ func NewSourceService(opts SourceServiceOptions) api.SourceService {
 // real matrix yet; this corrects an already-running encoder's VUI tag
 // without a manual re-apply. Idle encoders only get a fresh cached stage.
 func (s *sourceService) onColorMatrixResolved(sourceID string) {
-	if s.pipe == nil || !s.pipelineSwitchEnabled() {
+	if s.pipe == nil || !switchEnabled(s.psw) {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rebuildDependentEncoders(sourceID)
-}
-
-func (s *sourceService) pipelineSwitchEnabled() bool {
-	if s.psw == nil {
-		return true
-	}
-	return s.psw.GetPipeline().Enabled
 }
 
 // List returns all configured sources, each with Consumers denormalized.
@@ -154,13 +147,13 @@ func (s *sourceService) Create(_ context.Context, src api.Source) (*api.Source, 
 	if err := s.store.AddSourceEntity(entity); err != nil {
 		return nil, fmt.Errorf("persist source: %w", err)
 	}
-	if s.pipe != nil && s.pipelineSwitchEnabled() {
-		if err := s.pipe.ApplySource(entity); err != nil {
-			if rmErr := s.store.RemoveSourceEntity(src.ID); rmErr != nil {
-				s.logger.Error("Create: rollback after ApplySource failure also failed",
-					logging.KeySourceID, src.ID, logging.KeyApplyError, err, logging.KeyRollbackError, rmErr)
-			}
-			return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
+	if s.pipe != nil && switchEnabled(s.psw) {
+		if err := applyOrRollback(
+			func() error { return s.pipe.ApplySource(entity) },
+			func() error { return s.store.RemoveSourceEntity(src.ID) },
+			s.logger, "Create", rejectSource, logging.KeySourceID, src.ID,
+		); err != nil {
+			return nil, err
 		}
 	}
 	out := sourceToAPI(entity)
@@ -202,7 +195,7 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 	if err := s.store.UpdateSourceEntity(id, src); err != nil {
 		return nil, fmt.Errorf("persist source update: %w", err)
 	}
-	if s.pipe != nil && s.pipelineSwitchEnabled() {
+	if s.pipe != nil && switchEnabled(s.psw) {
 		// Format-only edit on a real device: hot-apply via gRPC so
 		// connected consumers (composer, vn-sink) stay attached. Falls
 		// back to ApplySource (restart) if the hot-apply path can't
@@ -222,12 +215,12 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 			}
 		}
 		if !applied {
-			if err := s.pipe.ApplySource(src); err != nil {
-				if restoreErr := s.store.UpdateSourceEntity(id, prev); restoreErr != nil {
-					s.logger.Error("Update: rollback after ApplySource failure also failed",
-						logging.KeySourceID, id, logging.KeyApplyError, err, logging.KeyRollbackError, restoreErr)
-				}
-				return nil, &api.SourceInvalidError{Message: "pipeline rejected source: " + err.Error()}
+			if err := applyOrRollback(
+				func() error { return s.pipe.ApplySource(src) },
+				func() error { return s.store.UpdateSourceEntity(id, prev) },
+				s.logger, "Update", rejectSource, logging.KeySourceID, id,
+			); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -238,7 +231,7 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 	// keeps those encoders attached, so they'd otherwise keep the stale
 	// geometry. Rebuild dependents (bounces only the running ones). Gated on an
 	// actual dims change so a no-op edit doesn't disturb connected readers.
-	if s.pipe != nil && s.pipelineSwitchEnabled() && patch.Format != nil &&
+	if s.pipe != nil && switchEnabled(s.psw) && patch.Format != nil &&
 		sourceDimsChanged(prev.Format, src.Format) {
 		s.rebuildDependentEncoders(id)
 	}
@@ -256,23 +249,8 @@ func sourceDimsChanged(a, b *pipeline.SourceFormat) bool {
 	return a.Width != b.Width || a.Height != b.Height || a.FPS != b.FPS
 }
 
-// rebuildDependentEncoders rebuilds the encoder of every stream that consumes
-// this source so a resolution change reaches their launch-time ffmpeg `-s`.
-// Best-effort: logs and continues on per-stream failure.
 func (s *sourceService) rebuildDependentEncoders(id string) {
-	if s.pipe == nil {
-		return
-	}
-	target := pipeline.SourceIDFor(id)
-	for _, st := range s.store.ListPipelineStreams() {
-		if st.Upstream != target {
-			continue
-		}
-		if err := s.pipe.RebuildStreamEncoder(st); err != nil {
-			s.logger.Warn("Update: rebuild dependent encoder failed",
-				logging.KeyStreamID, st.ID, logging.KeyError, err)
-		}
-	}
+	rebuildEncodersForUpstream(s.pipe, s.store, s.logger, pipeline.SourceIDFor(id))
 }
 
 // apiFormatToPipeline maps the API SourceFormat (FourCC-keyed, validated

@@ -68,13 +68,6 @@ func NewComposerService(opts ComposerServiceOptions) api.ComposerService {
 	return svc
 }
 
-func (s *composerService) pipelineSwitchEnabled() bool {
-	if s.psw == nil {
-		return true
-	}
-	return s.psw.GetPipeline().Enabled
-}
-
 // editComposer is the shared shape of every in-place composer config edit:
 // lock, load, apply mutate (which edits AND validates the working copy and
 // returns the live-push thunk capturing exactly what changed), persist, then
@@ -115,7 +108,7 @@ func (s *composerService) syncComposerEdit(op, id string, prev pipeline.Composer
 	if s.pipe == nil {
 		return nil
 	}
-	if !s.pipelineSwitchEnabled() || push == nil {
+	if !switchEnabled(s.psw) || push == nil {
 		// Switch off (or no live edit): the store already holds the new spec
 		// and the pipeline reads through to it; nothing to push.
 		return nil
@@ -166,7 +159,7 @@ func (s *composerService) GetComposer(_ context.Context, id string) (*models.Com
 // helper stays pure for tests.
 func (s *composerService) enrichRuntime(out *models.ComposerData, streams []streams.PipelineStream) {
 	downstream := make([]string, 0)
-	wanted := "composer:" + out.ID
+	wanted := pipeline.ComposerRefFor(out.ID)
 	for _, st := range streams {
 		if st.Upstream == wanted {
 			downstream = append(downstream, st.ID)
@@ -220,7 +213,7 @@ func (s *composerService) CreateComposer(_ context.Context, data models.Composer
 	if err := s.store.AddComposerEntity(entity); err != nil {
 		return nil, &api.ComposerError{Code: api.ComposerErrInternal, Message: err.Error()}
 	}
-	if s.pipe != nil && s.pipelineSwitchEnabled() {
+	if s.pipe != nil && switchEnabled(s.psw) {
 		if err := s.pipe.ApplyComposer(entity); err != nil {
 			if rmErr := s.store.RemoveComposerEntity(entity.ID); rmErr != nil {
 				s.logger.Error("CreateComposer: rollback after ApplyComposer failure also failed",
@@ -297,23 +290,8 @@ func (s *composerService) UpdateComposer(_ context.Context, id string, patch mod
 	})
 }
 
-// rebuildDependentEncoders rebuilds the encoder of every stream that consumes
-// this composer so a canvas resize reaches their launch-time ffmpeg `-s`.
-// Best-effort: logs and continues on per-stream failure.
 func (s *composerService) rebuildDependentEncoders(id string) {
-	if s.pipe == nil {
-		return
-	}
-	target := "composer:" + id
-	for _, st := range s.store.ListPipelineStreams() {
-		if st.Upstream != target {
-			continue
-		}
-		if err := s.pipe.RebuildStreamEncoder(st); err != nil {
-			s.logger.Warn("UpdateComposer: rebuild dependent encoder failed",
-				logging.KeyStreamID, st.ID, logging.KeyError, err)
-		}
-	}
+	rebuildEncodersForUpstream(s.pipe, s.store, s.logger, pipeline.ComposerRefFor(id))
 }
 
 // DeleteComposer refuses when any stream still references this composer;
@@ -326,7 +304,7 @@ func (s *composerService) DeleteComposer(_ context.Context, id string) error {
 		return &api.ComposerError{Code: api.ComposerErrNotFound, Message: "composer " + id + " not found"}
 	}
 
-	target := "composer:" + id
+	target := pipeline.ComposerRefFor(id)
 	var refs []string
 	for _, st := range s.store.ListPipelineStreams() {
 		if st.Upstream == target {

@@ -99,14 +99,14 @@ func (s *streamService) Create(_ context.Context, in pipeline.Stream) (*pipeline
 	if err := s.store.AddPipelineStream(entity); err != nil {
 		return nil, fmt.Errorf("persist stream: %w", err)
 	}
-	if s.pipe != nil && s.pipelineSwitchEnabled() {
-		if err := s.pipe.ApplyStream(entity); err != nil {
-			// Roll back so persisted state matches what the pipeline accepts.
-			if rmErr := s.store.RemovePipelineStream(entity.ID); rmErr != nil {
-				s.logger.Error("Create: rollback after ApplyStream failure also failed",
-					logging.KeyStreamID, entity.ID, logging.KeyApplyError, err, logging.KeyRollbackError, rmErr)
-			}
-			return nil, &api.StreamInvalidError{Message: "pipeline rejected stream: " + err.Error()}
+	if s.pipe != nil && switchEnabled(s.psw) {
+		// Roll back the persisted add so state matches what the pipeline accepts.
+		if err := applyOrRollback(
+			func() error { return s.pipe.ApplyStream(entity) },
+			func() error { return s.store.RemovePipelineStream(entity.ID) },
+			s.logger, "Create", rejectStream, logging.KeyStreamID, entity.ID,
+		); err != nil {
+			return nil, err
 		}
 	}
 	return &entity, nil
@@ -147,13 +147,13 @@ func (s *streamService) Update(_ context.Context, id string, patch func(*pipelin
 	if err := s.store.UpdatePipelineStream(id, next); err != nil {
 		return nil, fmt.Errorf("persist stream update: %w", err)
 	}
-	if s.pipe != nil && s.pipelineSwitchEnabled() {
-		if err := s.pipe.ApplyStream(next); err != nil {
-			if restoreErr := s.store.UpdatePipelineStream(id, prev); restoreErr != nil {
-				s.logger.Error("Update: rollback after ApplyStream failure also failed",
-					logging.KeyStreamID, id, logging.KeyApplyError, err, logging.KeyRollbackError, restoreErr)
-			}
-			return nil, &api.StreamInvalidError{Message: "pipeline rejected stream: " + err.Error()}
+	if s.pipe != nil && switchEnabled(s.psw) {
+		if err := applyOrRollback(
+			func() error { return s.pipe.ApplyStream(next) },
+			func() error { return s.store.UpdatePipelineStream(id, prev) },
+			s.logger, "Update", rejectStream, logging.KeyStreamID, id,
+		); err != nil {
+			return nil, err
 		}
 	}
 	return &next, nil
@@ -179,19 +179,9 @@ func (s *streamService) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-// pipelineSwitchEnabled reports the daemon-wide pipeline master switch.
-// Defaults to true when no switch is wired (production main.go always
-// wires the streamStore as the switch).
-func (s *streamService) pipelineSwitchEnabled() bool {
-	if s.psw == nil {
-		return true
-	}
-	return s.psw.GetPipeline().Enabled
-}
-
 // PipelineEnabled returns the persisted daemon-wide master switch state.
 func (s *streamService) PipelineEnabled() bool {
-	return s.pipelineSwitchEnabled()
+	return switchEnabled(s.psw)
 }
 
 // EncoderStatus returns the process pool state for a stream's encoder
