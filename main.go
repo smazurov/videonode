@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"slices"
 	"time"
@@ -84,6 +85,13 @@ type Options struct {
 
 	// Features settings
 	FeaturesLEDControl bool `help:"Enable LED control" default:"false" toml:"features.led_control_enabled" env:"FEATURES_LED_CONTROL"`
+
+	// Profiling settings. When enabled, net/http/pprof is served on PprofAddr
+	// (localhost-only by default) for CPU/heap/allocation profiling. Off by
+	// default; safe to leave compiled in since the listener only binds when
+	// the flag is set.
+	FeaturesPprof bool   `help:"Enable net/http/pprof debug server" default:"false" toml:"features.pprof_enabled" env:"FEATURES_PPROF"`
+	PprofAddr     string `help:"Address for the pprof debug server" default:"127.0.0.1:6060" toml:"features.pprof_addr" env:"FEATURES_PPROF_ADDR"`
 
 	// Snapshot preview settings
 	PreviewMaxFPS int `help:"Max fps for snapshot preview streams" default:"10" toml:"preview.max_fps" env:"PREVIEW_MAX_FPS"`
@@ -436,6 +444,17 @@ func main() {
 		}
 
 		hooks.OnStart(func() {
+			// Profiling server (net/http/pprof on DefaultServeMux). Bound to
+			// localhost by default; reach it via an SSH tunnel.
+			if opts.FeaturesPprof {
+				logger.Info("Starting pprof server", logging.KeyAddr, opts.PprofAddr)
+				go func() {
+					if err := http.ListenAndServe(opts.PprofAddr, nil); err != nil && !errors.Is(err, http.ErrServerClosed) {
+						logger.Error("pprof server failed", logging.KeyError, err)
+					}
+				}()
+			}
+
 			// Start RTSP streaming server first (must be ready for FFmpeg)
 			if err := streamingServer.Start(opts.StreamingRTSPPort); err != nil {
 				logger.Error("Failed to start RTSP server", logging.KeyError, err)
