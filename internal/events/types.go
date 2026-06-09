@@ -2,6 +2,7 @@ package events
 
 import (
 	"github.com/smazurov/videonode/internal/api/models"
+	"github.com/smazurov/videonode/internal/hostmetrics"
 )
 
 // Event type constants for kelindar/event. These are runtime-only topic keys
@@ -82,6 +83,11 @@ type ProcessInfo struct {
 	LastError    string  `json:"last_error,omitempty" doc:"Most recent error from the supervisor"`
 	RSSBytes     int64   `json:"rss_bytes,omitempty" doc:"Resident set size in bytes"`
 	CPUPercent   float64 `json:"cpu_percent,omitempty" doc:"CPU usage as percentage (0-100 per core)"`
+
+	// Device-global hardware utilization, on the 'self' (daemon) row only.
+	RKMPP []hostmetrics.RKMPPCore  `json:"rkmpp,omitempty" doc:"Per-core Rockchip MPP codec load (host row only)"`
+	GPU   *hostmetrics.DevfreqLoad `json:"gpu,omitempty" doc:"Mali GPU devfreq load (host row only)"`
+	NPU   *hostmetrics.DevfreqLoad `json:"npu,omitempty" doc:"RKNN NPU devfreq load (host row only)"`
 }
 
 // ProcessesEvent carries the current set of supervised processes on the

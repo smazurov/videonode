@@ -15,6 +15,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/smazurov/videonode/internal/events"
+	"github.com/smazurov/videonode/internal/hostmetrics"
 	"github.com/smazurov/videonode/internal/streams/pipeline"
 )
 
@@ -50,6 +51,11 @@ type ProcessEntry struct {
 	Device       string   `json:"device,omitempty" doc:"Device id (sources only)"`
 	Refcount     int      `json:"refcount,omitempty" doc:"Number of streams holding this source (sources only)"`
 	Consumers    []string `json:"consumers,omitempty" doc:"Stream ids holding this source (sources only; sorted)"`
+
+	// Device-global hardware utilization — daemon ('self') row only.
+	RKMPP []hostmetrics.RKMPPCore  `json:"rkmpp,omitempty" doc:"Per-core Rockchip MPP codec load (host row only)"`
+	GPU   *hostmetrics.DevfreqLoad `json:"gpu,omitempty" doc:"Mali GPU devfreq load (host row only)"`
+	NPU   *hostmetrics.DevfreqLoad `json:"npu,omitempty" doc:"RKNN NPU devfreq load (host row only)"`
 }
 
 // ProcessesListResponse is the response body for GET /api/processes.
@@ -122,6 +128,9 @@ func toProcessEntries(views []pipeline.ProcessView) []ProcessEntry {
 			LastError:    v.LastError,
 			RSSBytes:     v.RSSBytes,
 			CPUPercent:   v.CPUPercent,
+			RKMPP:        v.RKMPP,
+			GPU:          v.GPU,
+			NPU:          v.NPU,
 		}
 	}
 	return out

@@ -22,7 +22,6 @@ import (
 	"github.com/smazurov/videonode/internal/events"
 	"github.com/smazurov/videonode/internal/led"
 	"github.com/smazurov/videonode/internal/logging"
-	"github.com/smazurov/videonode/internal/metrics/collectors"
 	"github.com/smazurov/videonode/internal/metrics/exporters"
 	"github.com/smazurov/videonode/internal/snapshots"
 	"github.com/smazurov/videonode/internal/streaming"
@@ -106,8 +105,8 @@ func main() {
 	// Create Huma CLI
 	var cli humacli.CLI
 	cli = humacli.New(func(hooks humacli.Hooks, opts *Options) {
-		// Heavy server init (logging, MPP collector, stream service load,
-		// updater, API wiring, SSE exporter) only runs for the default
+		// Heavy server init (logging, stream service load, updater, API
+		// wiring, SSE exporter) only runs for the default
 		// (no-subcommand) server invocation. Every subcommand is lightweight
 		// by default — they each do their own minimal setup and shouldn't
 		// pay for, or interfere with, the running production server's state.
@@ -125,15 +124,6 @@ func main() {
 		logging.Initialize(loggingConfig)
 
 		logger := logging.GetLogger("api")
-
-		// Start MPP collector if available (Rockchip hardware encoder metrics)
-		var mppCollector *collectors.MPPCollector
-		if _, statErr := os.Stat("/proc/mpp_service/load"); statErr == nil {
-			mppCollector = collectors.NewMPPCollector()
-			if err := mppCollector.Start(context.Background()); err != nil {
-				logger.Warn("Failed to start MPP collector", logging.KeyError, err)
-			}
-		}
 
 		// Create SSE exporter if enabled
 		var sseExporter *exporters.SSEExporter
@@ -576,9 +566,6 @@ func main() {
 
 			if sseExporter != nil {
 				sseExporter.Stop()
-			}
-			if mppCollector != nil {
-				_ = mppCollector.Stop()
 			}
 		})
 	})

@@ -1,0 +1,14 @@
+fdb51000.avsd-plus        load:   0.00% utilization:   0.00%
+fdb50400.vdpu             load:   0.00% utilization:   0.00%
+fdb50000.vepu             load:   0.00% utilization:   0.00%
+fdb90000.jpegd            load:   0.00% utilization:   0.00%
+fdba0000.jpege-core       load:   0.00% utilization:   0.00%
+fdba4000.jpege-core       load:   0.00% utilization:   0.00%
+fdba8000.jpege-core       load:   0.00% utilization:   0.00%
+fdbac000.jpege-core       load:   0.00% utilization:   0.00%
+fdbb0000.iep              load:   0.00% utilization:   0.00%
+fdbd0000.rkvenc-core      load:  22.18% utilization:  21.63%
+fdbe0000.rkvenc-core      load:   0.00% utilization:   0.00%
+fdc38100.rkvdec-core      load:   0.00% utilization:   0.00%
+fdc48100.rkvdec-core      load:   0.00% utilization:   0.00%
+fdc70000.av1d             load:   0.00% utilization:   0.00%

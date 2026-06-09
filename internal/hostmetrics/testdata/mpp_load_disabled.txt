@@ -1,0 +1,3 @@
+please set load_interval first!!!
+e.g. set 1000ms to load_interval:
+echo 1000 > /proc/mpp_service/load_interval

@@ -7,7 +7,9 @@ import {
   ClockIcon,
   CpuChipIcon,
   CircleStackIcon,
-  Square3Stack3DIcon
+  Square3Stack3DIcon,
+  RectangleGroupIcon,
+  FilmIcon
 } from "@heroicons/react/24/outline";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { Link } from "react-router-dom";
@@ -151,6 +153,11 @@ function formatRSS(bytes: number): string {
   return `${bytes} B`;
 }
 
+// devfreq frequencies arrive in Hz; the tooltip shows them in MHz.
+function mhz(hz?: number): number {
+  return Math.round((hz ?? 0) / 1e6);
+}
+
 export function InfoBar({ className }: Readonly<InfoBarProps>) {
   const devices = useDeviceStore((state) => state.devices);
   const streamsById = useStreamStore((state) => state.streamsById);
@@ -288,6 +295,60 @@ export function InfoBar({ className }: Readonly<InfoBarProps>) {
                 value={systemStats ? `${systemStats.cpu_percent.toFixed(1)}%` : '—'} />
               <Stat icon={CircleStackIcon} label="Mem" valueWidth="min-w-[3rem]"
                 value={systemStats ? formatRSS(systemStats.rss_bytes) : '—'} />
+              {systemStats?.gpu ? (
+                <Tooltip.Provider>
+                  <Tooltip.Root>
+                    <Tooltip.Trigger asChild>
+                      <span>
+                        <Stat icon={RectangleGroupIcon} label="GPU" valueWidth="min-w-[2.25rem]"
+                          value={`${systemStats.gpu.load_percent.toFixed(0)}%`} />
+                      </span>
+                    </Tooltip.Trigger>
+                    <Tooltip.Portal>
+                      <Tooltip.Content
+                        className="z-50 px-3 py-2 text-xs bg-surface-raised text-fg border border-border rounded-md shadow-lg max-w-md"
+                        sideOffset={5}
+                      >
+                        <div className="space-y-1 font-mono">
+                          <div className="text-fg">{systemStats.gpu.node}</div>
+                          <div className="text-fg-muted">
+                            load {systemStats.gpu.load_percent.toFixed(0)}% · {mhz(systemStats.gpu.cur_freq_hz)}/{mhz(systemStats.gpu.max_freq_hz)} MHz
+                          </div>
+                        </div>
+                        <Tooltip.Arrow className="fill-surface-raised" />
+                      </Tooltip.Content>
+                    </Tooltip.Portal>
+                  </Tooltip.Root>
+                </Tooltip.Provider>
+              ) : null}
+              {systemStats?.rkmpp && systemStats.rkmpp.length > 0 ? (
+                <Tooltip.Provider>
+                  <Tooltip.Root>
+                    <Tooltip.Trigger asChild>
+                      <span>
+                        <Stat icon={FilmIcon} label="MPP" valueWidth="min-w-[2.25rem]"
+                          value={`${Math.min(100, systemStats.rkmpp.reduce((s, c) => s + c.load_percent, 0)).toFixed(0)}%`} />
+                      </span>
+                    </Tooltip.Trigger>
+                    <Tooltip.Portal>
+                      <Tooltip.Content
+                        className="z-50 px-3 py-2 text-xs bg-surface-raised text-fg border border-border rounded-md shadow-lg max-w-md"
+                        sideOffset={5}
+                      >
+                        <div className="space-y-1 font-mono">
+                          {systemStats.rkmpp.map((c) => (
+                            <div key={c.node} className={cn("flex justify-between gap-4", c.load_percent === 0 ? "text-fg-subtle" : undefined)}>
+                              <span className="text-fg">{c.class}</span>
+                              <span className="text-fg-muted">{c.load_percent.toFixed(1)}% / {c.utilization_percent.toFixed(1)}%</span>
+                            </div>
+                          ))}
+                        </div>
+                        <Tooltip.Arrow className="fill-surface-raised" />
+                      </Tooltip.Content>
+                    </Tooltip.Portal>
+                  </Tooltip.Root>
+                </Tooltip.Provider>
+              ) : null}
               {systemStats && systemStats.error_count > 0 ? (
                 <Tooltip.Provider>
                   <Tooltip.Root>

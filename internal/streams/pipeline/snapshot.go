@@ -4,6 +4,8 @@ import (
 	"maps"
 	"sort"
 	"strings"
+
+	"github.com/smazurov/videonode/internal/hostmetrics"
 )
 
 // ProcessView is the per-stage snapshot the /api/processes endpoint
@@ -22,6 +24,13 @@ type ProcessView struct {
 	LastError    string  `json:"last_error,omitempty" doc:"Most recent error from the supervisor"`
 	RSSBytes     int64   `json:"rss_bytes,omitempty" doc:"Resident set size in bytes"`
 	CPUPercent   float64 `json:"cpu_percent,omitempty" doc:"CPU usage as percentage (0-100 per core)"`
+
+	// Device-global hardware utilization — populated on the 'self' (daemon)
+	// row only, when the host exposes the hardware. The kernel reports these
+	// per-IP-block, not per-process, so they do not attach to supervised stages.
+	RKMPP []hostmetrics.RKMPPCore  `json:"rkmpp,omitempty" doc:"Per-core Rockchip MPP codec load (host row only)"`
+	GPU   *hostmetrics.DevfreqLoad `json:"gpu,omitempty" doc:"Mali GPU devfreq load (host row only)"`
+	NPU   *hostmetrics.DevfreqLoad `json:"npu,omitempty" doc:"RKNN NPU devfreq load (host row only)"`
 }
 
 // Snapshot returns the current set of supervised processes joined with
@@ -80,6 +89,10 @@ func (p *Pipeline) Snapshot() []ProcessView {
 		if !self.StartedAt.IsZero() {
 			view.StartedAtUS = self.StartedAt.UnixMicro()
 		}
+		host := hostmetrics.Sample()
+		view.RKMPP = host.RKMPP
+		view.GPU = host.GPU
+		view.NPU = host.NPU
 		out = append([]ProcessView{view}, out...)
 	}
 	return out

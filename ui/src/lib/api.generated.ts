@@ -971,6 +971,25 @@ export interface components {
              */
             y: number;
         };
+        DevfreqLoad: {
+            /**
+             * Format: int64
+             * @description Current operating frequency in Hz
+             */
+            cur_freq_hz?: number;
+            /**
+             * Format: double
+             * @description Device busy percentage (devfreq governor)
+             */
+            load_percent: number;
+            /**
+             * Format: int64
+             * @description Maximum operating frequency in Hz
+             */
+            max_freq_hz?: number;
+            /** @description devfreq node, e.g. fb000000.gpu-panthor / fdab0000.npu */
+            node: string;
+        };
         DeviceCapabilitiesData: {
             /**
              * Format: uri
@@ -1636,6 +1655,8 @@ export interface components {
             cpu_percent?: number;
             /** @description Device id (sources only) */
             device?: string;
+            /** @description Mali GPU devfreq load (host row only) */
+            gpu?: components["schemas"]["DevfreqLoad"];
             /** @description Pool key (e.g. 'source:hdmi0' / 'composer:cam-front'); 'self' for the daemon row */
             id: string;
             /**
@@ -1645,6 +1666,8 @@ export interface components {
             kind: "source" | "composer" | "encoder" | "daemon";
             /** @description Most recent error from the supervisor */
             last_error?: string;
+            /** @description RKNN NPU devfreq load (host row only) */
+            npu?: components["schemas"]["DevfreqLoad"];
             /**
              * Format: int64
              * @description OS pid when running; 0 otherwise
@@ -1660,6 +1683,8 @@ export interface components {
              * @description Times the supervisor restarted this stage
              */
             restart_count?: number;
+            /** @description Per-core Rockchip MPP codec load (host row only) */
+            rkmpp?: components["schemas"]["RKMPPCore"][] | null;
             /**
              * Format: int64
              * @description Resident set size in bytes
@@ -1681,6 +1706,8 @@ export interface components {
              * @description CPU usage as percentage (0-100 per core)
              */
             cpu_percent?: number;
+            /** @description Mali GPU devfreq load (host row only) */
+            gpu?: components["schemas"]["DevfreqLoad"];
             /** @description Pool key (e.g. 'source:hdmi0' / 'composer:cam-front'); 'self' for the daemon row */
             id: string;
             /**
@@ -1690,6 +1717,8 @@ export interface components {
             kind: "source" | "composer" | "encoder" | "daemon";
             /** @description Most recent error from the supervisor */
             last_error?: string;
+            /** @description RKNN NPU devfreq load (host row only) */
+            npu?: components["schemas"]["DevfreqLoad"];
             /**
              * Format: int64
              * @description OS pid when running; 0 otherwise
@@ -1700,6 +1729,8 @@ export interface components {
              * @description Times the supervisor restarted this stage
              */
             restart_count?: number;
+            /** @description Per-core Rockchip MPP codec load (host row only) */
+            rkmpp?: components["schemas"]["RKMPPCore"][] | null;
             /**
              * Format: int64
              * @description Resident set size in bytes
@@ -1736,6 +1767,22 @@ export interface components {
             readonly $schema?: string;
             /** @description All supervised pipeline stages */
             processes: components["schemas"]["ProcessEntry"][] | null;
+        };
+        RKMPPCore: {
+            /** @description RKMPP IP class: rkvenc/rkvdec/jpege/jpegd/vepu/vdpu/iep/av1d/avsd-plus */
+            class: string;
+            /**
+             * Format: double
+             * @description Percent of the sampling window the core was busy
+             */
+            load_percent: number;
+            /** @description Device-tree node, e.g. fdbd0000.rkvenc-core */
+            node: string;
+            /**
+             * Format: double
+             * @description Percent of active time spent in hardware execution
+             */
+            utilization_percent: number;
         };
         RTSPClientInfo: {
             client_ip: string;

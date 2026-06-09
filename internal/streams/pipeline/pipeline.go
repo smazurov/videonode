@@ -1255,6 +1255,9 @@ func (p *Pipeline) publishProcesses() {
 			LastError:    v.LastError,
 			RSSBytes:     v.RSSBytes,
 			CPUPercent:   v.CPUPercent,
+			RKMPP:        v.RKMPP,
+			GPU:          v.GPU,
+			NPU:          v.NPU,
 		}
 	}
 	events.Publish(p.cfg.EventBus, events.ProcessesEvent{

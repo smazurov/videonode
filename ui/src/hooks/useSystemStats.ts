@@ -1,6 +1,10 @@
 import { useMemo } from 'react';
 import { useProcesses, type ProcessEntry } from './useProcesses';
 import { useConnectionStatus } from './useConnectionStatus';
+import type { components } from '../lib/api.generated';
+
+export type RKMPPCore = components['schemas']['RKMPPCore'];
+export type DevfreqLoad = components['schemas']['DevfreqLoad'];
 
 export interface SystemStatsError {
   id: string;
@@ -18,6 +22,11 @@ export interface SystemStats {
   process_count: number;
   error_count: number;
   errors: SystemStatsError[];
+  // Device-global hardware utilization, carried on the daemon ('self') row.
+  // Undefined when the host lacks the hardware. Raw per-core data — the
+  // InfoBar sums the RKMPP cores itself.
+  rkmpp?: RKMPPCore[] | undefined;
+  gpu?: DevfreqLoad | undefined;
 }
 
 interface UseSystemStatsOptions {
@@ -38,9 +47,15 @@ function reduce(processes: ProcessEntry[]): SystemStats {
   let rss = 0;
   let count = 0;
   let startedAtUs = 0;
+  let rkmpp: RKMPPCore[] | undefined;
+  let gpu: DevfreqLoad | undefined;
   const errors: SystemStatsError[] = [];
   for (const p of processes) {
-    if (p.id === 'self') startedAtUs = p.started_at_us ?? 0;
+    if (p.id === 'self') {
+      startedAtUs = p.started_at_us ?? 0;
+      rkmpp = p.rkmpp ?? undefined;
+      gpu = p.gpu ?? undefined;
+    }
     if (p.state === 'running' && (p.pid ?? 0) > 0) {
       cpu += p.cpu_percent ?? 0;
       rss += p.rss_bytes ?? 0;
@@ -57,6 +72,8 @@ function reduce(processes: ProcessEntry[]): SystemStats {
     process_count: count,
     error_count: errors.length,
     errors,
+    rkmpp,
+    gpu,
   };
 }
 

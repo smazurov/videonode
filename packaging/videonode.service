@@ -8,6 +8,11 @@ User=videonode
 Group=video
 WorkingDirectory=/etc/videonode
 ExecStartPre=-/usr/bin/videonode validate-encoders --quiet
+# Enable Rockchip MPP load sampling so the daemon (non-root) can read
+# /proc/mpp_service/load. The '+' runs this line as root; the load_interval
+# node is root-owned 0644 and has no module-param/cmdline alternative. Guarded
+# by 'test -w' so it is a clean no-op on hosts without the MPP service.
+ExecStartPre=+/bin/sh -c 'test -w /proc/mpp_service/load_interval && echo 1000 > /proc/mpp_service/load_interval || true'
 ExecStart=/usr/bin/videonode -c /etc/videonode/config.toml
 Restart=on-failure
 RestartSec=5
