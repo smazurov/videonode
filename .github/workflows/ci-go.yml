@@ -8,6 +8,7 @@ on:
       - 'go.sum'
       - '.github/workflows/ci-go.yml'
       - '.golangci.yml'
+      - '.custom-gcl.yml'
   pull_request:
     branches: [main]
     paths:
@@ -16,6 +17,7 @@ on:
       - 'go.sum'
       - '.github/workflows/ci-go.yml'
       - '.golangci.yml'
+      - '.custom-gcl.yml'
   workflow_dispatch:
 
 permissions:
