@@ -136,6 +136,10 @@ const char* SourceProbe::dv_timings_label(v4l2::Streamer::DvTimingsState s) {
 
 void SourceProbe::apply_dv_timings_state(v4l2::Streamer::DvTimingsState s) {
     using S = v4l2::Streamer::DvTimingsState;
+    // rk_hdmirx flaps NoLink<->Unstable on an idle input; an Unstable blip out
+    // of NoLink is the same "no usable signal", so hold NoLink and don't churn.
+    if (s == S::Unstable && dv_timings_state_ == S::NoLink)
+        return;
     bool new_cable = (s != S::NoLink);
     bool new_lock = (s == S::Locked);
     if (s == dv_timings_state_)
@@ -150,7 +154,7 @@ void SourceProbe::apply_dv_timings_state(v4l2::Streamer::DvTimingsState s) {
         source_change_pending_ = false;
         consecutive_failures_ = 0;
     }
-    vn::log::info("source_probe: dv_timings -> %s", dv_timings_label(s));
+    vn::log::debug("source_probe: dv_timings -> %s", dv_timings_label(s));
 }
 
 void SourceProbe::note_dqbuf_success(std::chrono::steady_clock::time_point now) {
