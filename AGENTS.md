@@ -10,7 +10,7 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Test all**: `go test ./...`
 - **Test single package**: `go test ./internal/ffmpeg`
 - **Test with verbose**: `go test -v ./internal/ffmpeg`
-- **Lint**: `golangci-lint run ./...`
+- **Lint**: `golangci-lint run ./...` (if results look stale, clear the cache first: `golangci-lint cache clean`)
 - **Lint & fix**: `golangci-lint run --fix ./...`
 - **Install deps**: `go mod tidy`
 - **Validate encoders**: `./videonode validate-encoders`
