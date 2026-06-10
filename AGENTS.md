@@ -10,8 +10,9 @@ This file provides guidance for agentic coding agents working with this Go-based
 - **Test all**: `go test ./...`
 - **Test single package**: `go test ./internal/ffmpeg`
 - **Test with verbose**: `go test -v ./internal/ffmpeg`
-- **Lint**: `golangci-lint run ./...` (if results look stale, clear the cache first: `golangci-lint cache clean`)
-- **Lint & fix**: `golangci-lint run --fix ./...`
+- **Lint**: `./bin/custom-gcl run ./...` (if results look stale, clear the cache first: `./bin/custom-gcl cache clean`)
+- **Lint & fix**: `./bin/custom-gcl run --fix ./...`
+- **Build the linter** (first run, or after `.custom-gcl.yml` changes): `golangci-lint custom` — plain `golangci-lint run` fails with `plugin "commentsize" not found` because `.golangci.yml` requires the commentsize plugin; `golangci-lint custom` bakes it into `./bin/custom-gcl` (gitignored). Your golangci-lint version must match `version:` in `.custom-gcl.yml`.
 - **Install deps**: `go mod tidy`
 - **Validate encoders**: `./videonode validate-encoders`
 
@@ -268,7 +269,7 @@ The API includes endpoints for:
   - Go (any `.go` change):
     1. `go build ./...`
     2. `go test ./...`
-    3. `golangci-lint run ./...`
+    3. `./bin/custom-gcl run ./...` (build it first with `golangci-lint custom` if missing — see Lint above)
   - TypeScript (any `ui/` change):
     1. `cd ui && pnpm typecheck`
     2. `cd ui && pnpm lint`

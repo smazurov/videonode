@@ -134,6 +134,8 @@ func (p *pool) withRLock(fn func()) {
 // Start starts a process by ID.
 func (p *pool) Start(id string) error {
 	var startErr error
+	var mp *managedProcess
+	var runCtx context.Context
 	p.withLock(func() {
 		if proc, exists := p.processes[id]; exists {
 			if proc.state == StateRunning || proc.state == StateStarting {
@@ -148,20 +150,25 @@ func (p *pool) Start(id string) error {
 			return
 		}
 
-		p.startProcess(id, command)
+		mp, runCtx = p.startProcess(id, command)
 	})
 	if startErr != nil {
 		return startErr
 	}
 
 	p.notifyStateChange(id, StateIdle, StateStarting, nil)
+	// Spawn after the Starting notification so callbacks see transitions in order.
+	p.wg.Go(func() {
+		defer close(mp.done)
+		p.runProcess(runCtx, mp)
+	})
 	return nil
 }
 
-// startProcess inserts a new managed process and spawns its run
-// goroutine. Caller must hold p.mu and must call notifyStateChange
+// startProcess inserts a new managed process. Caller must hold p.mu;
+// Start emits the Starting notification and spawns the run goroutine
 // after releasing the lock.
-func (p *pool) startProcess(id string, command string) {
+func (p *pool) startProcess(id string, command string) (*managedProcess, context.Context) {
 	ctx, cancel := context.WithCancel(p.ctx)
 
 	mp := &managedProcess{
@@ -180,10 +187,7 @@ func (p *pool) startProcess(id string, command string) {
 
 	p.processes[id] = mp
 
-	p.wg.Go(func() {
-		defer close(mp.done)
-		p.runProcess(ctx, mp)
-	})
+	return mp, ctx
 }
 
 // runProcess runs the process and handles state transitions.

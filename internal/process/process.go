@@ -122,7 +122,7 @@ func (p *Process) Shutdown() {
 
 type runningProcess struct {
 	processDone <-chan error
-	outputDone  chan struct{} // receives twice, one per output stream
+	outputDone  chan struct{} // closed once both output streams are drained
 }
 
 // startProcess parses the command, starts the subprocess, and returns channels for monitoring.
@@ -166,18 +166,23 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 
 	p.logger.Info("Process started", logging.KeyPoolID, p.id, logging.KeyPID, p.cmd.Process.Pid, logging.KeyCommand, command)
 
-	outputDone := make(chan struct{}, 2)
+	outputDone := make(chan struct{})
+	var streams sync.WaitGroup
+	streams.Add(2)
 	go func() {
+		defer streams.Done()
 		p.streamOutput(stdout, "stdout")
-		outputDone <- struct{}{}
 	}()
 	go func() {
+		defer streams.Done()
 		p.streamOutput(stderr, "stderr")
-		outputDone <- struct{}{}
 	}()
 
 	processDone := make(chan error, 1)
 	go func() {
+		// cmd.Wait closes the pipes, discarding unread output; drain first.
+		streams.Wait()
+		close(outputDone)
 		processDone <- p.cmd.Wait()
 	}()
 
@@ -186,7 +191,6 @@ func (p *Process) startProcess(command string) (*runningProcess, error) {
 
 // waitOutputDone waits for both output streams to complete.
 func (p *Process) waitOutputDone(outputDone <-chan struct{}) {
-	<-outputDone
 	<-outputDone
 }
 
