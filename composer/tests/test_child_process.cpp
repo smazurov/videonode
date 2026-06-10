@@ -9,6 +9,8 @@
 #include <csignal>
 #include <cstring>
 #include <cstdio>
+#include <sys/prctl.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 TEST(ChildProcess, StdoutPipeReadsChildOutput) {
@@ -63,6 +65,8 @@ TEST(ChildProcess, ShellGroupReadsChildOutput) {
 }
 
 TEST(ChildProcess, ReapGroupKillsWholeProcessGroup) {
+    // Subreaper: CI's non-reaping PID 1 leaves a zombie that keeps the pgroup alive.
+    ASSERT_EQ(::prctl(PR_SET_CHILD_SUBREAPER, 1), 0);
     auto r = child_process::spawn_shell_group("sleep 30 & wait", SIGKILL);
     ASSERT_GT(r.pid, 0);
     ::usleep(200 * 1000);
@@ -72,6 +76,8 @@ TEST(ChildProcess, ReapGroupKillsWholeProcessGroup) {
 
     bool group_gone = false;
     for (int i = 0; i < 20; ++i) {
+        while (::waitpid(-1, nullptr, WNOHANG) > 0) {
+        }
         if (::kill(-r.pid, 0) < 0 && errno == ESRCH) {
             group_gone = true;
             break;
@@ -79,6 +85,7 @@ TEST(ChildProcess, ReapGroupKillsWholeProcessGroup) {
         ::usleep(100 * 1000);
     }
     EXPECT_TRUE(group_gone);
+    ::prctl(PR_SET_CHILD_SUBREAPER, 0);
 }
 
 TEST(ChildProcess, ReapGroupHandlesAlreadyDead) {
