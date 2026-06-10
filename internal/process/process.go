@@ -2,6 +2,7 @@ package process
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -341,9 +342,38 @@ func (p *Process) waitForExit(processDone <-chan error, timeout time.Duration) i
 	}
 }
 
+// scanCRLines is bufio.ScanLines with bare \r accepted as a terminator (\r\n
+// counts once), so ffmpeg-style carriage-return progress updates emit as
+// individual lines instead of accumulating until the next newline.
+func scanCRLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	i := bytes.IndexAny(data, "\r\n")
+	if i < 0 {
+		if atEOF {
+			return len(data), data, nil
+		}
+		return 0, nil, nil
+	}
+	if data[i] == '\n' {
+		return i + 1, data[:i], nil
+	}
+	// \r at the end of the buffer: wait for more data to see if \n follows.
+	if i == len(data)-1 && !atEOF {
+		return 0, nil, nil
+	}
+	advance = i + 1
+	if advance < len(data) && data[advance] == '\n' {
+		advance++
+	}
+	return advance, data[:i], nil
+}
+
 // streamOutput pipes child output through processLogger (fallback: logger) and logParser.
 func (p *Process) streamOutput(reader io.Reader, source string) {
 	scanner := bufio.NewScanner(reader)
+	scanner.Split(scanCRLines)
 
 	logger := p.processLogger
 	if logger == nil {

@@ -1,7 +1,10 @@
 package process
 
 import (
+	"bufio"
 	"log/slog"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -251,4 +254,32 @@ type testOutputHandler struct {
 
 func (h *testOutputHandler) HandleLine(_, line string) {
 	*h.lines = append(*h.lines, line)
+}
+
+func TestScanCRLines(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{"newlines only", "a\nb\n", []string{"a", "b"}},
+		{"bare carriage returns", "f=1\rf=2\rf=3\n", []string{"f=1", "f=2", "f=3"}},
+		{"crlf counts once", "a\r\nb\r\n", []string{"a", "b"}},
+		{"mixed", "a\rb\nc\r\nd", []string{"a", "b", "c", "d"}},
+		{"no trailing terminator", "tail", []string{"tail"}},
+		{"cr at eof", "a\r", []string{"a"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := bufio.NewScanner(strings.NewReader(tt.input))
+			sc.Split(scanCRLines)
+			var got []string
+			for sc.Scan() {
+				got = append(got, sc.Text())
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("scanCRLines(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
 }
