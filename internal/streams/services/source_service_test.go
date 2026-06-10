@@ -35,3 +35,31 @@ func TestSourceDimsChanged(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSourcePayload(t *testing.T) {
+	tests := []struct {
+		name     string
+		device   string
+		testMode bool
+		pipe     string
+		wantErr  bool
+	}{
+		{"device only", "cam0", false, "", false},
+		{"test mode only", "", true, "", false},
+		{"pipe only", "", false, "ffmpeg ... -", false},
+		{"none", "", false, "", true},
+		{"device and test mode", "cam0", true, "", true},
+		{"device and pipe", "cam0", false, "cmd", true},
+		{"test mode and pipe", "", true, "cmd", true},
+		{"all three", "cam0", true, "cmd", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSourcePayload(tt.device, tt.testMode, tt.pipe)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateSourcePayload(%q, %v, %q) err = %v, wantErr %v",
+					tt.device, tt.testMode, tt.pipe, err, tt.wantErr)
+			}
+		})
+	}
+}

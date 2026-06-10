@@ -27,6 +27,7 @@ type Source struct {
 	ID            string
 	Device        string
 	TestMode      bool
+	Pipe          string
 	Format        *SourceFormat
 	Status        models.ProcessStatus
 	Liveness      models.SourceLiveness
@@ -54,6 +55,7 @@ type SourceFormat struct {
 type SourcePatch struct {
 	Device   *string
 	TestMode *bool
+	Pipe     *string
 	Format   *SourceFormat
 }
 
@@ -144,7 +146,7 @@ func (s *Server) registerSourceRoutes() {
 		Method:      http.MethodPost,
 		Path:        "/api/sources",
 		Summary:     "Create Source",
-		Description: "Register a new source. Provide either device for a V4L2 producer or test_mode=true for the test-pattern producer (mutually exclusive).",
+		Description: "Register a new source. Provide exactly one of: device for a V4L2 producer, test_mode=true for the test-pattern producer, or pipe for a shell command emitting yuv4mpegpipe frames on stdout.",
 		Tags:        []string{"sources"},
 		Errors:      []int{400, 401, 409, 500},
 		Security:    withAuth(),
@@ -157,6 +159,7 @@ func (s *Server) registerSourceRoutes() {
 			ID:       input.Body.SourceID,
 			Device:   input.Body.Device,
 			TestMode: input.Body.TestMode,
+			Pipe:     input.Body.Pipe,
 			Format:   format,
 		}
 		created, err := s.sourceService.Create(ctx, src)
@@ -207,6 +210,7 @@ func (s *Server) registerSourceRoutes() {
 		patch := SourcePatch{
 			Device:   input.Body.Device,
 			TestMode: input.Body.TestMode,
+			Pipe:     input.Body.Pipe,
 			Format:   format,
 		}
 		updated, err := s.sourceService.Update(ctx, input.SourceID, patch)
@@ -249,6 +253,7 @@ func sourceToAPI(src Source) models.SourceData {
 		SourceID:      src.ID,
 		Device:        src.Device,
 		TestMode:      src.TestMode,
+		Pipe:          src.Pipe,
 		Status:        src.Status,
 		Liveness:      src.Liveness,
 		ConsumerCount: src.ConsumerCount,

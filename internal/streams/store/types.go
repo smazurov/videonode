@@ -11,6 +11,7 @@ type V2Source struct {
 	ID        string          `toml:"id" json:"id"`
 	Device    string          `toml:"device,omitempty" json:"device,omitempty"`
 	TestMode  bool            `toml:"test_mode,omitempty" json:"test_mode,omitempty"`
+	Pipe      string          `toml:"pipe,omitempty" json:"pipe,omitempty"`
 	Format    *V2SourceFormat `toml:"format,omitempty" json:"format,omitempty"`
 	CreatedAt time.Time       `toml:"created_at" json:"created_at"`
 	UpdatedAt time.Time       `toml:"updated_at" json:"updated_at"`

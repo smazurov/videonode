@@ -7,6 +7,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <spawn.h>
+#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -69,29 +70,86 @@ SpawnResult spawn(const std::string& program, const std::vector<std::string>& ar
     return {.pid = pid, .pipe_fd = parent_end};
 }
 
+namespace {
+
+bool wait_exit(pid_t pid, int total_ms) {
+    int status = 0;
+    for (int waited = 0; waited <= total_ms; waited += 100) {
+        pid_t r = ::waitpid(pid, &status, WNOHANG);
+        if (r == pid || (r < 0 && errno == ECHILD))
+            return true;
+        ::usleep(100 * 1000);
+    }
+    return false;
+}
+
+} // namespace
+
 void reap(pid_t pid, int pipe_fd, int graceful_ms) {
     if (pipe_fd >= 0)
         ::close(pipe_fd);
     if (pid <= 0)
         return;
 
-    auto wait_for = [&](int total_ms) -> bool {
-        int status = 0;
-        for (int waited = 0; waited <= total_ms; waited += 100) {
-            if (::waitpid(pid, &status, WNOHANG) == pid)
-                return true;
-            ::usleep(100 * 1000);
-        }
-        return false;
-    };
-
-    if (wait_for(graceful_ms))
+    if (wait_exit(pid, graceful_ms))
         return;
     ::kill(pid, SIGTERM);
-    if (wait_for(graceful_ms))
+    if (wait_exit(pid, graceful_ms))
         return;
     ::kill(pid, SIGKILL);
     int status = 0;
     ::waitpid(pid, &status, 0);
 }
+
+ShellSpawnResult spawn_shell_group(const std::string& shell_cmd, int pdeathsig) {
+    int pipefd[2];
+    if (::pipe2(pipefd, O_CLOEXEC) < 0) {
+        vn::log::error("child_process: pipe2: %s", strerror(errno));
+        return {};
+    }
+    const pid_t parent_pid = ::getpid();
+    pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(pipefd[0]);
+        ::close(pipefd[1]);
+        vn::log::error("child_process: fork: %s", strerror(errno));
+        return {};
+    }
+    if (pid == 0) {
+        ::setpgid(0, 0);
+        ::prctl(PR_SET_PDEATHSIG, pdeathsig);
+        // pdeathsig is racy against a parent that died before prctl ran.
+        if (::getppid() != parent_pid)
+            ::_exit(127);
+        if (::dup2(pipefd[1], STDOUT_FILENO) < 0)
+            ::_exit(127);
+        ::execl("/bin/sh", "sh", "-c", shell_cmd.c_str(), static_cast<char*>(nullptr));
+        ::_exit(127);
+    }
+    // Parent-side setpgid too, so reap_group can't race the child's own call.
+    (void)::setpgid(pid, pid);
+    ::close(pipefd[1]);
+    return {.pid = pid, .stdout_fd = pipefd[0]};
+}
+
+void reap_group(pid_t pid, int pipe_fd, int graceful_ms) {
+    if (pipe_fd >= 0)
+        ::close(pipe_fd);
+    if (pid <= 0)
+        return;
+
+    if (wait_exit(pid, graceful_ms)) {
+        (void)::kill(-pid, SIGKILL);
+        return;
+    }
+    (void)::kill(-pid, SIGTERM);
+    if (wait_exit(pid, graceful_ms)) {
+        (void)::kill(-pid, SIGKILL);
+        return;
+    }
+    (void)::kill(-pid, SIGKILL);
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+}
+
 } // namespace child_process

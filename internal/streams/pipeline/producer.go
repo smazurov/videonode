@@ -20,12 +20,13 @@ import (
 // source registry tracks one ProducerStage per source-id; consumers
 // don't refcount the producer themselves.
 //
-// Exactly one of DevicePath / TestMode must be non-zero. The Pipeline
-// validates this at ApplySource time.
+// Exactly one of DevicePath / TestMode / PipeCmd must be non-zero. The
+// Pipeline validates this at ApplySource time.
 type ProducerStage struct {
 	SourceID   string // logical source identity from Source.ID
-	DevicePath string // resolved /dev/videoN path; empty when TestMode is true
+	DevicePath string // resolved /dev/videoN path; empty when TestMode or PipeCmd is set
 	TestMode   bool   // omits --device so the source runs in placeholder mode
+	PipeCmd    string // shell command emitting y4m on stdout; passed as --pipe-cmd
 	BinaryPath string // path to videonode-source binary
 	// GrpcUds is the per-instance gRPC UDS the daemon dials for control
 	// plane RPCs (SetFormat / Snapshot / status subscription).
@@ -56,15 +57,28 @@ func (p *ProducerStage) Command() ([]string, []string, error) {
 	if p.SourceID == "" {
 		return nil, nil, errors.New("producer: SourceID is required")
 	}
-	if p.TestMode && p.DevicePath != "" {
-		return nil, nil, errors.New("producer: TestMode and DevicePath are mutually exclusive")
+	modes := 0
+	if p.DevicePath != "" {
+		modes++
 	}
-	if !p.TestMode && p.DevicePath == "" {
-		return nil, nil, errors.New("producer: one of DevicePath or TestMode is required")
+	if p.TestMode {
+		modes++
+	}
+	if p.PipeCmd != "" {
+		modes++
+	}
+	if modes > 1 {
+		return nil, nil, errors.New("producer: DevicePath, TestMode, and PipeCmd are mutually exclusive")
+	}
+	if modes == 0 {
+		return nil, nil, errors.New("producer: one of DevicePath, TestMode, or PipeCmd is required")
 	}
 
 	argv := []string{p.BinaryPath}
-	if !p.TestMode {
+	switch {
+	case p.PipeCmd != "":
+		argv = append(argv, "--pipe-cmd", p.PipeCmd)
+	case p.DevicePath != "":
 		argv = append(argv, "--device", p.DevicePath)
 	}
 	argv = append(argv, "--out-socket", p.SCMSocketPath())

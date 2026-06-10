@@ -82,7 +82,13 @@ export function useSourceForm(initialData?: SourceData) {
 
   const [id, setId] = useState(initialData?.id ?? '');
   const [device, setDevice] = useState(initialData?.device ?? '');
-  const [testMode, setTestMode] = useState<boolean>(initialData?.test_mode ?? false);
+  // Pipe sources present as "test mode + command": the checkbox reveals an
+  // optional command field, and a non-empty command sends `pipe` instead of
+  // `test_mode` (the API keeps the three modes mutually exclusive).
+  const [testMode, setTestMode] = useState<boolean>(
+    (initialData?.test_mode ?? false) || !!initialData?.pipe,
+  );
+  const [pipe, setPipe] = useState(initialData?.pipe ?? '');
   const [format, setFormat] = useState<SourceFormatBody | null>(
     initialData?.format ?? null,
   );
@@ -114,7 +120,7 @@ export function useSourceForm(initialData?: SourceData) {
     const map = new Map<string, string>();
     for (const s of Object.values(sourcesById)) {
       if (initialData && s.id === initialData.id) continue;
-      if (s.test_mode) continue;
+      if (s.test_mode || s.pipe) continue;
       if (s.device) map.set(s.device, s.id);
     }
     return map;
@@ -127,15 +133,19 @@ export function useSourceForm(initialData?: SourceData) {
 
   const isValid = Object.keys(errors).length === 0;
 
+  const effectivePipe = testMode ? pipe.trim() : '';
+  const effectiveTestMode = testMode && effectivePipe === '';
+
   const isDirty = useMemo(() => {
     if (mode === 'create') return true;
     if (!initialData) return false;
     return (
       device !== initialData.device ||
-      testMode !== initialData.test_mode ||
+      effectiveTestMode !== (initialData.test_mode ?? false) ||
+      effectivePipe !== (initialData.pipe ?? '') ||
       !formatsEqual(format, initialData.format)
     );
-  }, [mode, initialData, device, testMode, format]);
+  }, [mode, initialData, device, effectiveTestMode, effectivePipe, format]);
 
   const toggleTestMode = useCallback(
     (next: boolean) => {
@@ -143,31 +153,37 @@ export function useSourceForm(initialData?: SourceData) {
       if (next) {
         setDevice('');
         setFormat(null);
+      } else {
+        setPipe('');
       }
     },
     [setDevice],
   );
 
   const buildRequest = useCallback((): SourceRequestData => {
-    if (testMode) {
+    if (effectivePipe) {
+      return { id, pipe: effectivePipe, device: '' };
+    }
+    if (effectiveTestMode) {
       return { id, test_mode: true, device: '' };
     }
     const base: SourceRequestData = { id, device, test_mode: false };
     if (formatComplete(format)) base.format = format;
     return base;
-  }, [id, device, testMode, format]);
+  }, [id, device, effectiveTestMode, effectivePipe, format]);
 
   const buildPatch = useCallback(
     (prev: SourceData): Partial<SourceRequestData> => {
       const payload: Partial<SourceRequestData> = {};
       if (device !== prev.device) payload.device = testMode ? '' : device;
-      if (testMode !== prev.test_mode) payload.test_mode = testMode;
+      if (effectiveTestMode !== (prev.test_mode ?? false)) payload.test_mode = effectiveTestMode;
+      if (effectivePipe !== (prev.pipe ?? '')) payload.pipe = effectivePipe;
       if (!testMode && formatComplete(format) && !formatsEqual(format, prev.format)) {
         payload.format = format;
       }
       return payload;
     },
-    [device, testMode, format],
+    [device, testMode, effectiveTestMode, effectivePipe, format],
   );
 
   const submit = useCallback(async (): Promise<boolean> => {
@@ -200,6 +216,8 @@ export function useSourceForm(initialData?: SourceData) {
     setDevice: setDeviceWithReset,
     testMode,
     toggleTestMode,
+    pipe,
+    setPipe,
     format,
     setFormat,
     errors,

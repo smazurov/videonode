@@ -97,7 +97,9 @@ void build_status_proto(::videonode::control::Status& out, const StatusContext& 
     out.set_ts_ms(wall_ms());
     // A device-less test_mode source has no V4L2 frames to lock onto, so the
     // probe sits at Probing; report it as live since the test producer is up.
-    out.set_health(ctx.args.device.empty() ? "live" : source_probe::health_token(ctx.health));
+    // Pipe sources DO have real frame flow, so they report true probe health.
+    const bool test_mode = ctx.args.device.empty() && ctx.args.pipe_cmd.empty();
+    out.set_health(test_mode ? "live" : source_probe::health_token(ctx.health));
 
     auto* dev = out.mutable_device();
     dev->set_path(ctx.args.device);
@@ -122,6 +124,15 @@ void build_status_proto(::videonode::control::Status& out, const StatusContext& 
                                     : "rga";
         fmt->set_mode(mode_name);
         fmt->set_color_matrix(ctx.cap.color_matrix == v4l2::ColorMatrix::Bt709 ? "bt709" : "bt601");
+    } else if (!ctx.args.pipe_cmd.empty() && ctx.pipe_w > 0) {
+        fmt->set_fourcc("NV12");
+        fmt->set_w(ctx.pipe_w);
+        fmt->set_h(ctx.pipe_h);
+        fmt->set_fps(ctx.pipe_fps);
+        fmt->set_buffers(3);
+        fmt->set_mode("pipe");
+        // Matches the broadcast header's height-based matrix pick.
+        fmt->set_color_matrix(ctx.pipe_h >= 720 ? "bt709" : "bt601");
     } else {
         // V4L2 not negotiated (test_mode sources, or capture still
         // initialising). Broadcasts are NV12 placeholder frames at

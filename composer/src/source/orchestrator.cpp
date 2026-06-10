@@ -7,22 +7,18 @@
 #include "src/common/log_levels.hpp"
 #include "src/ipc/dma_heap.hpp"
 #include "src/render/nv12_buf.hpp"
-#include "src/render/placeholder_painter.hpp"
 #include "src/rpc/grpc_server.hpp"
 #include "src/snapshot/snapshot.hpp"
 #include "src/source/broadcast.hpp"
 #include "src/source/capture_poll.hpp"
 #include "src/source/capture_session.hpp"
+#include "src/source/placeholder_ring.hpp"
+#include "src/source/source_runtime.hpp"
 #include "src/source/source_service.hpp"
-#include "version.hpp"
-#if defined(HAVE_GBM) && !defined(HAVE_RGA)
-#include "src/render/csc_placebo.hpp"
-#endif
 
 #include <atomic>
 #include <cerrno>
 #include <chrono>
-#include <cstring>
 #include <linux/videodev2.h>
 #include <optional>
 #include <poll.h>
@@ -35,72 +31,6 @@
 namespace source {
 
 namespace {
-
-struct PlaceholderRing {
-    int width = 0;
-    int height = 0;
-    std::vector<nv12_buf::Buffer> bufs;
-    std::vector<uint8_t> stage_;
-    int next = 0;
-    uint64_t tick_idx = 0;
-
-    bool init(nv12_buf::Allocator& alloc, int w, int h, const std::string& device_path) {
-        width = w;
-        height = h;
-        const size_t tight = size_t(w) * h * 3 / 2;
-        stage_.assign(tight, 0);
-        if (!placeholder_painter::paint_base(stage_, w, h, device_path.c_str()))
-            return false;
-        std::span<const uint8_t> stage_span(stage_);
-        auto y_plane = stage_span.first(size_t(w) * h);
-        auto uv_plane = stage_span.subspan(size_t(w) * h);
-        for (int i = 0; i < 2; ++i) {
-            nv12_buf::Buffer b = alloc.alloc(w, h);
-            if (!b.valid())
-                return false;
-            auto m = nv12_buf::map_rw(b);
-            if (!m.y || !m.uv)
-                return false;
-            auto dst_y = m.y_bytes();
-            auto dst_uv = m.uv_bytes();
-            for (int y = 0; y < h; ++y) {
-                std::memcpy(dst_y.subspan(size_t(y) * b.y_pitch, size_t(w)).data(),
-                            y_plane.subspan(size_t(y) * w, size_t(w)).data(), size_t(w));
-            }
-            for (int y = 0; y < h / 2; ++y) {
-                std::memcpy(dst_uv.subspan(size_t(y) * b.uv_pitch, size_t(w)).data(),
-                            uv_plane.subspan(size_t(y) * w, size_t(w)).data(), size_t(w));
-            }
-            nv12_buf::unmap(b);
-            bufs.push_back(std::move(b));
-        }
-        return true;
-    }
-    nv12_buf::Buffer& paint_and_pick(uint64_t wallclock_ms, const char* status) {
-        ++tick_idx;
-        int idx = next;
-        next = (next + 1) % int(bufs.size());
-        (void)placeholder_painter::paint_tick(stage_, width, height, tick_idx, wallclock_ms,
-                                              status);
-        nv12_buf::Buffer& b = bufs[idx];
-        auto m = nv12_buf::map_rw(b);
-        if (m.y) {
-            std::span<const uint8_t> stage_span(stage_);
-            auto dst_y = m.y_bytes();
-            for (int y = 0; y < height; ++y) {
-                std::memcpy(dst_y.subspan(size_t(y) * b.y_pitch, size_t(width)).data(),
-                            stage_span.subspan(size_t(y) * width, size_t(width)).data(),
-                            size_t(width));
-            }
-        }
-        nv12_buf::unmap(b);
-        return b;
-    }
-    void destroy() {
-        bufs.clear();
-        stage_.clear();
-    }
-};
 
 struct LoopState {
     using clock = std::chrono::steady_clock;
@@ -565,63 +495,6 @@ void handle_format_change_(LoopState& st, nv12_buf::Allocator& allocator,
     }
 }
 
-// On rig (HAVE_RGA) this is dma_heap-backed; on host (HAVE_GBM, no RGA)
-// the allocator must share csc_placebo's GBM device.
-bool init_allocator_(nv12_buf::Allocator& allocator) {
-#if defined(HAVE_GBM) && !defined(HAVE_RGA)
-    if (!csc_placebo::init()) {
-        vn::log::fatal(
-            "videonode-source: csc_placebo::init failed; cannot bring up Mesa CSC backend "
-            "(needed for the GBM allocator's gbm_device)");
-        return false;
-    }
-    gbm_device* alloc_gbm = csc_placebo::gbm_device_for_io();
-    if (alloc_gbm == nullptr) {
-        vn::log::fatal("videonode-source: csc_placebo::gbm_device_for_io returned null");
-        return false;
-    }
-    if (!allocator.init(alloc_gbm)) {
-        vn::log::fatal("videonode-source: nv12_buf::Allocator::init failed");
-        return false;
-    }
-#else
-    if (!allocator.init()) {
-        vn::log::fatal("videonode-source: nv12_buf::Allocator::init failed");
-        return false;
-    }
-#endif
-    return true;
-}
-
-bool start_grpc_(const Args& a, nativerpc::SourceService& grpc_svc, nativerpc::GrpcServer& grpc_srv,
-                 bool& grpc_enabled) {
-    grpc_enabled = !a.grpc_listen.empty() && !a.device_id.empty();
-    if (!grpc_enabled)
-        return true;
-    std::vector<grpc::Service*> services = {&grpc_svc};
-    if (!grpc_srv.Start(a.grpc_listen, services)) {
-        vn::log::fatal("videonode-source: gRPC server failed to start on %s",
-                       a.grpc_listen.c_str());
-        grpc_enabled = false;
-        return false;
-    }
-    vn::log::debug("videonode-source: grpc server listening on %s (id=%s)", a.grpc_listen.c_str(),
-                   a.device_id.c_str());
-    return true;
-}
-
-void populate_gctx_(nativerpc::SourceContext& gctx, std::atomic<bool>& running, Args& a,
-                    bool& need_reinit_flag, source_probe::SourceProbe& probe,
-                    std::optional<nativerpc::ActiveFormat>& active_format) {
-    gctx.device_id = a.device_id;
-    gctx.version = vn::kVersion;
-    gctx.running = &running;
-    gctx.args = &a;
-    gctx.need_reinit_for_format_change = &need_reinit_flag;
-    gctx.probe = &probe;
-    gctx.active_format = &active_format;
-}
-
 void shutdown_(LoopState& st, nativerpc::GrpcServer& grpc_srv, PlaceholderRing& ph) {
     char real_s[24], ph_s[24];
     std::snprintf(real_s, sizeof(real_s), "%llu",
@@ -710,10 +583,12 @@ void main_loop_(std::atomic<bool>& running, LoopState& st, nv12_buf::Allocator& 
 } // namespace
 
 int Run(const Args& a_in, std::atomic<bool>& running) {
+    if (!a_in.pipe_cmd.empty())
+        return RunPipe(a_in, running);
     Args a = a_in;
 
     nv12_buf::Allocator allocator;
-    if (!init_allocator_(allocator))
+    if (!init_allocator(allocator))
         return 1;
 
     PlaceholderRing ph;
@@ -734,7 +609,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     bool need_reinit_for_format_change = false;
     std::optional<nativerpc::ActiveFormat> active_format;
     nativerpc::SourceContext gctx;
-    populate_gctx_(gctx, running, a, need_reinit_for_format_change, probe, active_format);
+    populate_gctx(gctx, running, a, need_reinit_for_format_change, probe, active_format);
 
     auto publish_active_format = [&]([[maybe_unused]] const Args& used) {
         std::lock_guard<std::mutex> lock(gctx.set_format_mu);
@@ -757,7 +632,7 @@ int Run(const Args& a_in, std::atomic<bool>& running) {
     nativerpc::SourceService grpc_svc(&gctx);
     nativerpc::GrpcServer grpc_srv;
     bool grpc_enabled = false;
-    start_grpc_(a, grpc_svc, grpc_srv, grpc_enabled);
+    (void)start_grpc(a, grpc_svc, grpc_srv, grpc_enabled);
 
     using clock = std::chrono::steady_clock;
     const auto broadcast_period =

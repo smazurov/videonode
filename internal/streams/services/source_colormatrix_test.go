@@ -30,7 +30,10 @@ func (p *stubSourcePipeline) RebuildStreamEncoder(s pipeline.Stream) error {
 func (p *stubSourcePipeline) SourceLiveness(_ string) string    { return "" }
 func (p *stubSourcePipeline) SourceConsumerCount(_ string) int  { return 0 }
 func (p *stubSourcePipeline) SourceColorMatrix(_ string) string { return "" }
-func (p *stubSourcePipeline) Pool() process.Pool                { return nil }
+func (p *stubSourcePipeline) SourceDetectedFormat(_ string) (w, h, fps uint32, ok bool) {
+	return 0, 0, 0, false
+}
+func (p *stubSourcePipeline) Pool() process.Pool { return nil }
 
 func newSourceSvc(store streams.EntityStore, pipe sourcePipeline, enabled bool) *sourceService {
 	return &sourceService{

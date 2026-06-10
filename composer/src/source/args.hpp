@@ -9,6 +9,9 @@ namespace source {
 
 struct Args {
     std::string device = "/dev/video0";
+    // Shell command whose stdout emits yuv4mpegpipe (y4m) frames; mutually
+    // exclusive with device. Geometry/fps come from the y4m stream header.
+    std::string pipe_cmd;
     std::string in_format;
     int in_width = 0;
     int in_height = 0;

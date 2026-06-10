@@ -150,16 +150,23 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 }
 
 // ApplySource creates or updates the per-source `videonode-source`
-// process. Validates that exactly one of Device or TestMode is set.
+// process. Validates that exactly one of Device, TestMode, or Pipe is set.
 func (p *Pipeline) ApplySource(s Source) error {
 	if s.ID == "" {
 		return errors.New("pipeline: source.ID is required")
 	}
-	if s.TestMode && s.Device != "" {
-		return fmt.Errorf("pipeline: source %s has both Device and TestMode set", s.ID)
+	modes := 0
+	if s.Device != "" {
+		modes++
 	}
-	if !s.TestMode && s.Device == "" {
-		return fmt.Errorf("pipeline: source %s requires one of Device or TestMode", s.ID)
+	if s.TestMode {
+		modes++
+	}
+	if s.Pipe != "" {
+		modes++
+	}
+	if modes != 1 {
+		return fmt.Errorf("pipeline: source %s requires exactly one of Device, TestMode, or Pipe", s.ID)
 	}
 
 	mu := p.entityLock("source:" + s.ID)
@@ -171,7 +178,7 @@ func (p *Pipeline) ApplySource(s Source) error {
 	}
 
 	var devicePath string
-	if !s.TestMode {
+	if s.Device != "" {
 		if p.cfg.DeviceResolver == nil {
 			return errors.New("pipeline: Config.DeviceResolver is nil")
 		}
@@ -184,6 +191,7 @@ func (p *Pipeline) ApplySource(s Source) error {
 		SourceID:   s.ID,
 		DevicePath: devicePath,
 		TestMode:   s.TestMode,
+		PipeCmd:    s.Pipe,
 		BinaryPath: p.cfg.VNSourceBin,
 		GrpcUds:    GrpcSocketPathFor("source", s.ID),
 	}
@@ -322,6 +330,16 @@ func (p *Pipeline) SourceColorMatrix(id string) string {
 		return m
 	}
 	return ""
+}
+
+// SourceDetectedFormat reports the y4m-detected geometry of a pipe source,
+// read from its last status frame. Returns ok=false when the source isn't
+// running, isn't a pipe source, or the stream header hasn't arrived yet.
+func (p *Pipeline) SourceDetectedFormat(id string) (w, h, fps uint32, ok bool) {
+	if p.cfg.ControlServer == nil {
+		return 0, 0, 0, false
+	}
+	return p.cfg.ControlServer.SourceDetectedFormat(id)
 }
 
 // StopSource stops the source's process and tears down its gRPC
@@ -928,6 +946,13 @@ func (p *Pipeline) resolveUpstream(upstream string) (FrameSource, error) {
 			pfs.Width = int(src.Format.Width)
 			pfs.Height = int(src.Format.Height)
 			pfs.Fps = int(src.Format.FPS)
+		}
+		// Pipe sources carry no operator Format; geometry comes from the
+		// y4m header, reported back through the status push.
+		if src.Pipe != "" && p.cfg.ControlServer != nil {
+			if w, h, fps, detected := p.cfg.ControlServer.SourceDetectedFormat(id); detected {
+				pfs.Width, pfs.Height, pfs.Fps = int(w), int(h), int(fps)
+			}
 		}
 		if pfs.Width == 0 || pfs.Height == 0 {
 			pfs.Width, pfs.Height = 1920, 1080

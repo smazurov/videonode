@@ -109,6 +109,14 @@ type nativeConn struct {
 	// the most recent status frame; cached so encoder-build can tag the
 	// ffmpeg VUI synchronously. Empty until the first status frame.
 	lastColorMatrix string
+
+	// lastPipeW/H/FPS cache the y4m-detected geometry from a pipe-mode
+	// source's status frames (format.mode == "pipe"); zero until the
+	// stream header is reported. Encoder builds read these via
+	// SourceDetectedFormat since pipe sources carry no operator format.
+	lastPipeW   uint32
+	lastPipeH   uint32
+	lastPipeFPS uint32
 }
 
 // New constructs an unstarted Manager.
@@ -216,6 +224,19 @@ func (m *Manager) SourceColorMatrix(id string) (string, bool) {
 		return "", false
 	}
 	return c.lastColorMatrix, true
+}
+
+// SourceDetectedFormat returns the y4m-detected geometry from a pipe-mode
+// source's most recent status frame, or ok=false when the source is unknown
+// or no pipe format has been reported yet. Pure cache read.
+func (m *Manager) SourceDetectedFormat(id string) (w, h, fps uint32, ok bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, exists := m.sources[id]
+	if !exists || c.lastPipeW == 0 {
+		return 0, 0, 0, false
+	}
+	return c.lastPipeW, c.lastPipeH, c.lastPipeFPS, true
 }
 
 // SetColorMatrixHandler registers a callback invoked (outside Manager.mu)
@@ -480,13 +501,22 @@ func (m *Manager) runStatusStream(ctx context.Context, c *nativeConn) {
 				c.lastColorMatrix = cm
 				matrixResolved = true
 			}
+			// Pipe-detected dims ride the same rebuild hook as the matrix:
+			// dependent encoders bake -s/-framerate at build time and must
+			// refresh once the y4m header reveals the real geometry.
+			dimsResolved := false
+			if f := params.Format; f.Mode == "pipe" && f.W > 0 &&
+				(f.W != c.lastPipeW || f.H != c.lastPipeH || f.FPS != c.lastPipeFPS) {
+				c.lastPipeW, c.lastPipeH, c.lastPipeFPS = f.W, f.H, f.FPS
+				dimsResolved = true
+			}
 			closed := m.statusClosed
 			onMatrix := m.onColorMatrix
 			m.mu.Unlock()
 			if closed {
 				return
 			}
-			if matrixResolved && onMatrix != nil {
+			if (matrixResolved || dimsResolved) && onMatrix != nil {
 				onMatrix(c.id)
 			}
 			select {

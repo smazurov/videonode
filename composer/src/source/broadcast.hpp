@@ -55,6 +55,10 @@ struct StatusContext {
     uint64_t placeholder_frames;
     uint32_t last_seq;
     scm_rights_producer::ScmRightsProducer& prod;
+    // Pipe mode: y4m-detected geometry; 0 until the stream header arrives.
+    uint32_t pipe_w = 0;
+    uint32_t pipe_h = 0;
+    uint32_t pipe_fps = 0;
 };
 
 void build_status_proto(::videonode::control::Status& out, const StatusContext& ctx);

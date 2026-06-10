@@ -13,13 +13,25 @@ vn_add_library(source_service
     SOURCES source_service.cpp
     PUBLIC_DEPS source_probe vn_proto vn_snapshot)
 
+# y4m_reader: incremental yuv4mpegpipe parser feeding pipe-mode sources.
+vn_add_library(y4m_reader
+    SOURCES y4m_reader.cpp
+    UNIT_SAFE)
+
+# pipe_session: --pipe-cmd child lifecycle + y4m -> NV12 dma-buf ring.
+vn_add_library(pipe_session
+    SOURCES pipe_session.cpp
+    PUBLIC_DEPS nv12_buf y4m_reader
+    PRIVATE_DEPS child_process)
+
 vn_add_library(orchestrator
     SOURCES orchestrator.cpp orchestrator_flags.cpp capture_session.cpp broadcast.cpp
+            placeholder_ring.cpp source_runtime.cpp pipe_orchestrator.cpp
     PUBLIC_DEPS v4l2_capture csc nv12_buf placeholder_painter source_probe signal_activity
                 scm_rights_producer dmabuf_header
                 jpeg_dec_turbo
                 source_service grpc_server vn_proto
-                vn_snapshot
+                vn_snapshot pipe_session
                 absl_bundle
                 Threads::Threads)
 if(HAVE_RGA)

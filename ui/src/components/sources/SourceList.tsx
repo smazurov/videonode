@@ -28,13 +28,27 @@ export function SourceList({ sources }: Readonly<SourceListProps>) {
     {
       id: 'device',
       header: 'Device',
-      cell: (row) =>
-        row.test_mode ? (
-          <Badge tone="info" size="xs">test pattern</Badge>
-        ) : (
-          <span className="text-fg-muted text-xs font-mono">{row.device ?? '—'}</span>
-        ),
-      sortValue: (row) => (row.test_mode ? 'zzz-test-pattern' : row.device ?? ''),
+      cell: (row) => {
+        if (row.test_mode) {
+          return <Badge tone="info" size="xs">test pattern</Badge>;
+        }
+        if (row.pipe) {
+          return (
+            <span className="inline-flex items-center gap-1.5">
+              <Badge tone="info" size="xs">pipe</Badge>
+              <span className="text-fg-muted text-xs font-mono max-w-48 truncate" title={row.pipe}>
+                {row.pipe}
+              </span>
+            </span>
+          );
+        }
+        return <span className="text-fg-muted text-xs font-mono">{row.device ?? '—'}</span>;
+      },
+      sortValue: (row) => {
+        if (row.test_mode) return 'zzz-test-pattern';
+        if (row.pipe) return `zzz-pipe-${row.pipe}`;
+        return row.device ?? '';
+      },
     },
     {
       id: 'format',

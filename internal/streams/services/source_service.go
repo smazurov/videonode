@@ -38,6 +38,7 @@ type sourcePipeline interface {
 	SourceLiveness(id string) string
 	SourceConsumerCount(id string) int
 	SourceColorMatrix(id string) string
+	SourceDetectedFormat(id string) (w, h, fps uint32, ok bool)
 	Pool() process.Pool
 }
 
@@ -140,6 +141,7 @@ func (s *sourceService) Create(_ context.Context, src api.Source) (*api.Source, 
 		ID:        src.ID,
 		Device:    src.Device,
 		TestMode:  src.TestMode,
+		Pipe:      src.Pipe,
 		Format:    apiFormatToPipeline(src.Format),
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -176,16 +178,19 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 	if patch.TestMode != nil {
 		src.TestMode = *patch.TestMode
 	}
+	if patch.Pipe != nil {
+		src.Pipe = *patch.Pipe
+	}
 	if patch.Format != nil {
 		src.Format = apiFormatToPipeline(patch.Format)
 	}
-	// Flipping to test_mode clears any previously-persisted V4L2 format —
-	// the two are mutually exclusive, and toggling test_mode on shouldn't
-	// need a separate "clear format" step from the client.
-	if src.TestMode {
+	// Flipping to test_mode or pipe clears any previously-persisted V4L2
+	// format — neither mode takes an operator format (pipe geometry is
+	// y4m-detected), and toggling shouldn't need a separate clear step.
+	if src.TestMode || src.Pipe != "" {
 		src.Format = nil
 	}
-	if err := validateSourcePayload(src.Device, src.TestMode); err != nil {
+	if err := validateSourcePayload(src.Device, src.TestMode, src.Pipe); err != nil {
 		return nil, err
 	}
 	if src.TestMode && src.Format != nil {
@@ -199,9 +204,10 @@ func (s *sourceService) Update(_ context.Context, id string, patch api.SourcePat
 		// Format-only edits hot-apply via gRPC so connected consumers stay
 		// attached; falls back to ApplySource (restart) when the hot-apply
 		// path can't reach the source (not registered yet, RPC error).
-		formatOnly := !src.TestMode &&
+		formatOnly := !src.TestMode && src.Pipe == "" &&
 			patch.Device == nil &&
 			patch.TestMode == nil &&
+			patch.Pipe == nil &&
 			patch.Format != nil &&
 			src.Format != nil
 		applied := false
@@ -320,6 +326,13 @@ func (s *sourceService) enrichStatus(out *api.Source) {
 		out.Status = models.ProcessStatus(s.pipe.Pool().GetStatus(pipeline.SourcePoolKey(out.ID)).State)
 		out.Liveness = models.SourceLiveness(s.pipe.SourceLiveness(out.ID))
 		out.ConsumerCount = s.pipe.SourceConsumerCount(out.ID)
+		// Pipe sources carry no operator format; surface the y4m-detected
+		// geometry so the UI shows real dims instead of nothing.
+		if out.Pipe != "" && out.Format == nil {
+			if w, h, fps, ok := s.pipe.SourceDetectedFormat(out.ID); ok {
+				out.Format = &api.SourceFormat{FourCC: "NV12", Width: w, Height: h, FPS: fps}
+			}
+		}
 		if out.Format != nil {
 			out.Format.ColorMatrix = s.pipe.SourceColorMatrix(out.ID)
 		}
@@ -330,15 +343,28 @@ func validateSourceCreate(src api.Source) error {
 	if strings.TrimSpace(src.ID) == "" {
 		return &api.SourceInvalidError{Message: "id is required"}
 	}
-	return validateSourcePayload(src.Device, src.TestMode)
+	if src.Pipe != "" && src.Format != nil {
+		return &api.SourceInvalidError{Message: "format cannot be set while pipe is set"}
+	}
+	return validateSourcePayload(src.Device, src.TestMode, src.Pipe)
 }
 
-func validateSourcePayload(device string, testMode bool) error {
+func validateSourcePayload(device string, testMode bool, pipe string) error {
+	modes := 0
+	if device != "" {
+		modes++
+	}
+	if testMode {
+		modes++
+	}
+	if pipe != "" {
+		modes++
+	}
 	switch {
-	case device != "" && testMode:
-		return &api.SourceInvalidError{Message: "device and test_mode are mutually exclusive"}
-	case device == "" && !testMode:
-		return &api.SourceInvalidError{Message: "one of device or test_mode is required"}
+	case modes > 1:
+		return &api.SourceInvalidError{Message: "device, test_mode, and pipe are mutually exclusive"}
+	case modes == 0:
+		return &api.SourceInvalidError{Message: "one of device, test_mode, or pipe is required"}
 	}
 	return nil
 }
@@ -348,6 +374,7 @@ func sourceToAPI(src pipeline.Source) api.Source {
 		ID:        src.ID,
 		Device:    src.Device,
 		TestMode:  src.TestMode,
+		Pipe:      src.Pipe,
 		CreatedAt: src.CreatedAt,
 		UpdatedAt: src.UpdatedAt,
 	}

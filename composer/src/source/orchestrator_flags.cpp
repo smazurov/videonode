@@ -7,6 +7,10 @@
 ABSL_FLAG(std::string, device, "",
           "V4L2 capture device path (/dev/videoN). Empty = no device; the "
           "source paints placeholders and waits for SetDevice via gRPC.");
+ABSL_FLAG(std::string, pipe_cmd, "",
+          "shell command whose stdout emits yuv4mpegpipe (y4m) frames; "
+          "geometry and fps are detected from the stream header. "
+          "Mutually exclusive with --device.");
 ABSL_FLAG(std::string, in_format, "",
           "input pixel format: NV24/NV16/NV12/BGR3/YUYV/UYVY/MJPG (empty = auto)");
 ABSL_FLAG(int, in_width, 0, "input frame width when --in_format is set");
@@ -37,6 +41,7 @@ namespace source {
 Args BuildArgsFromFlags() {
     Args a;
     a.device = absl::GetFlag(FLAGS_device);
+    a.pipe_cmd = absl::GetFlag(FLAGS_pipe_cmd);
     a.in_format = absl::GetFlag(FLAGS_in_format);
     a.in_width = absl::GetFlag(FLAGS_in_width);
     a.in_height = absl::GetFlag(FLAGS_in_height);

@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <cstdio>
 #include <unistd.h>
@@ -45,6 +47,46 @@ TEST(ChildProcess, ReapHandlesAlreadyDead) {
     // blocking on signals.
     child_process::reap(r.pid, r.pipe_fd, 1000);
     child_process::reap(-1, -1, 100);
+}
+
+TEST(ChildProcess, ShellGroupReadsChildOutput) {
+    auto r = child_process::spawn_shell_group("printf hello", SIGKILL);
+    EXPECT_TRUE(r.pid > 0);
+    EXPECT_TRUE(r.stdout_fd >= 0);
+
+    char buf[16] = {};
+    ssize_t n = ::read(r.stdout_fd, buf, sizeof(buf) - 1);
+    EXPECT_EQ(n, 5);
+    EXPECT_EQ(std::string(buf), std::string("hello"));
+
+    child_process::reap_group(r.pid, r.stdout_fd, 1000);
+}
+
+TEST(ChildProcess, ReapGroupKillsWholeProcessGroup) {
+    auto r = child_process::spawn_shell_group("sleep 30 & wait", SIGKILL);
+    ASSERT_GT(r.pid, 0);
+    ::usleep(200 * 1000);
+    EXPECT_EQ(::kill(-r.pid, 0), 0);
+
+    child_process::reap_group(r.pid, r.stdout_fd, 300);
+
+    bool group_gone = false;
+    for (int i = 0; i < 20; ++i) {
+        if (::kill(-r.pid, 0) < 0 && errno == ESRCH) {
+            group_gone = true;
+            break;
+        }
+        ::usleep(100 * 1000);
+    }
+    EXPECT_TRUE(group_gone);
+}
+
+TEST(ChildProcess, ReapGroupHandlesAlreadyDead) {
+    auto r = child_process::spawn_shell_group("true", SIGKILL);
+    ASSERT_GT(r.pid, 0);
+    ::usleep(50 * 1000);
+    child_process::reap_group(r.pid, r.stdout_fd, 1000);
+    child_process::reap_group(-1, -1, 100);
 }
 
 TEST(ChildProcess, SpawnUnknownProgramFailsCleanly) {

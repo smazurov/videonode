@@ -11,6 +11,7 @@ func sourceFromV2(v V2Source) streams.Source {
 		ID:        v.ID,
 		Device:    v.Device,
 		TestMode:  v.TestMode,
+		Pipe:      v.Pipe,
 		CreatedAt: v.CreatedAt,
 		UpdatedAt: v.UpdatedAt,
 	}
@@ -31,6 +32,7 @@ func sourceToV2(s streams.Source) V2Source {
 		ID:        s.ID,
 		Device:    s.Device,
 		TestMode:  s.TestMode,
+		Pipe:      s.Pipe,
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	}

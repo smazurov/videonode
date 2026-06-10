@@ -511,7 +511,7 @@ export interface paths {
         put?: never;
         /**
          * Create Source
-         * @description Register a new source. Provide either device for a V4L2 producer or test_mode=true for the test-pattern producer (mutually exclusive).
+         * @description Register a new source. Provide exactly one of: device for a V4L2 producer, test_mode=true for the test-pattern producer, or pipe for a shell command emitting yuv4mpegpipe frames on stdout.
          */
         post: operations["create-source"];
         delete?: never;
@@ -1846,17 +1846,22 @@ export interface components {
              */
             readonly $schema?: string;
             /**
-             * @description Stable device identifier. Omit when test_mode is true.
+             * @description Stable device identifier. Omit when test_mode or pipe is set.
              * @example rk3588-hdmi-rx
              */
             device?: string;
-            /** @description Initial V4L2 capture format. Omit to let the source auto-negotiate. */
+            /** @description Initial V4L2 capture format. Omit to let the source auto-negotiate. Not allowed with pipe. */
             format?: components["schemas"]["SourceFormatBody"];
             /**
              * @description Stable source identifier (kebab-case)
              * @example hdmi-slides
              */
             id: string;
+            /**
+             * @description Shell command whose stdout emits yuv4mpegpipe (y4m) frames; geometry/fps auto-detected. Mutually exclusive with device and test_mode.
+             * @example ffmpeg -nostats -hide_banner -re -stream_loop -1 -i clip.mp4 -an -f yuv4mpegpipe -pix_fmt yuv420p -
+             */
+            pipe?: string;
             /**
              * @description When true, use the test-pattern producer instead of a V4L2 device.
              * @example false
@@ -1888,7 +1893,7 @@ export interface components {
              * @example rk3588-hdmi-rx
              */
             device?: string;
-            /** @description Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate. */
+            /** @description Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate. For pipe sources this is read-only: the y4m-detected geometry. */
             format?: components["schemas"]["SourceFormatBody"];
             /**
              * @description Stable source identifier (kebab-case)
@@ -1902,13 +1907,18 @@ export interface components {
              */
             liveness?: "live" | "transitioning" | "no_cable" | "no_signal" | "initializing" | "offline" | "unknown";
             /**
+             * @description Shell command whose stdout emits yuv4mpegpipe (y4m) frames. Geometry and fps are auto-detected from the stream header. Mutually exclusive with device and test_mode.
+             * @example ffmpeg -nostats -hide_banner -re -stream_loop -1 -i clip.mp4 -an -f yuv4mpegpipe -pix_fmt yuv420p -
+             */
+            pipe?: string;
+            /**
              * @description Process pool state
              * @example running
              * @enum {string}
              */
             status?: "idle" | "starting" | "running" | "stopping" | "error";
             /**
-             * @description When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device.
+             * @description When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device and pipe.
              * @example false
              */
             test_mode?: boolean;
@@ -2015,6 +2025,11 @@ export interface components {
             device?: string;
             /** @description Replace the V4L2 capture format. Send null in a future revision to clear; today omitting leaves the prior format untouched. */
             format?: components["schemas"]["SourceFormatBody"];
+            /**
+             * @description New pipe command; clears when sent as empty string. Mutually exclusive with device and test_mode.
+             * @example ffmpeg -nostats -hide_banner -re -stream_loop -1 -i clip.mp4 -an -f yuv4mpegpipe -pix_fmt yuv420p -
+             */
+            pipe?: string;
             /**
              * @description Toggle test-pattern mode
              * @example true

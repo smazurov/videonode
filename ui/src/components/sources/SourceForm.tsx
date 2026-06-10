@@ -92,6 +92,18 @@ export function SourceForm({
             disabled={form.saving}
           />
 
+          {form.testMode && (
+            <InputField
+              label="Pipe command (optional)"
+              type="text"
+              value={form.pipe}
+              onChange={(e) => form.setPipe(e.target.value)}
+              placeholder="ffmpeg -nostats -hide_banner -re -stream_loop -1 -i clip.mp4 -an -f yuv4mpegpipe -pix_fmt yuv420p -"
+              disabled={form.saving}
+              hint="Shell command emitting yuv4mpegpipe (y4m) on stdout. Leave empty for the built-in test pattern; resolution and fps are auto-detected from the stream."
+            />
+          )}
+
           {!form.testMode && (
             <>
               <SourceDeviceField

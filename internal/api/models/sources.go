@@ -7,10 +7,11 @@ package models
 
 import "time"
 
-// SourceData represents a frame producer (V4L2 device or test pattern).
+// SourceData represents a frame producer (V4L2 device, test pattern, or
+// pipe command).
 //
-// Exactly one of Device or TestMode must be set; the daemon rejects both
-// empty or both populated.
+// Exactly one of Device, TestMode, or Pipe must be set; the daemon rejects
+// none or multiple populated.
 //
 // Consumers is the denormalized cross-entity rollup — every composer
 // and stream currently referencing this source. Computed server-side
@@ -20,8 +21,9 @@ import "time"
 type SourceData struct {
 	SourceID      string            `json:"id" example:"hdmi-slides" doc:"Stable source identifier (kebab-case)"`
 	Device        string            `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Empty when test_mode is true."`
-	TestMode      bool              `json:"test_mode,omitempty" example:"false" doc:"When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device."`
-	Format        *SourceFormatBody `json:"format,omitempty" doc:"Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate."`
+	TestMode      bool              `json:"test_mode,omitempty" example:"false" doc:"When true, swap the V4L2 producer for an RPC-driven test-pattern producer. Mutually exclusive with device and pipe."`
+	Pipe          string            `json:"pipe,omitempty" example:"ffmpeg -nostats -hide_banner -re -stream_loop -1 -i clip.mp4 -an -f yuv4mpegpipe -pix_fmt yuv420p -" doc:"Shell command whose stdout emits yuv4mpegpipe (y4m) frames. Geometry and fps are auto-detected from the stream header. Mutually exclusive with device and test_mode."`
+	Format        *SourceFormatBody `json:"format,omitempty" doc:"Operator-selected V4L2 capture format. Omit to let the source binary auto-negotiate. For pipe sources this is read-only: the y4m-detected geometry."`
 	Consumers     []SourceReference `json:"consumers,omitempty" republish:"stream,composer" doc:"Composers and streams currently referencing this source. Server-denormalized; auto-republished when references change."`
 	Status        ProcessStatus     `json:"status,omitempty" example:"running" enum:"idle,starting,running,stopping,error" doc:"Process pool state"`
 	Liveness      SourceLiveness    `json:"liveness,omitempty" example:"live" enum:"live,transitioning,no_cable,no_signal,initializing,offline,unknown" doc:"Source-reported health, independent of the process pool state. offline when the process isn't running."`
@@ -64,9 +66,10 @@ type SourceResponse struct {
 // SourceCreateBody is the create-source request payload.
 type SourceCreateBody struct {
 	SourceID string            `json:"id" minLength:"1" maxLength:"64" pattern:"^[a-z0-9][a-z0-9-]*$" example:"hdmi-slides" doc:"Stable source identifier (kebab-case)"`
-	Device   string            `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Omit when test_mode is true."`
+	Device   string            `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"Stable device identifier. Omit when test_mode or pipe is set."`
 	TestMode bool              `json:"test_mode,omitempty" example:"false" doc:"When true, use the test-pattern producer instead of a V4L2 device."`
-	Format   *SourceFormatBody `json:"format,omitempty" doc:"Initial V4L2 capture format. Omit to let the source auto-negotiate."`
+	Pipe     string            `json:"pipe,omitempty" example:"ffmpeg -nostats -hide_banner -re -stream_loop -1 -i clip.mp4 -an -f yuv4mpegpipe -pix_fmt yuv420p -" doc:"Shell command whose stdout emits yuv4mpegpipe (y4m) frames; geometry/fps auto-detected. Mutually exclusive with device and test_mode."`
+	Format   *SourceFormatBody `json:"format,omitempty" doc:"Initial V4L2 capture format. Omit to let the source auto-negotiate. Not allowed with pipe."`
 }
 
 // SourceCreateRequest wraps SourceCreateBody for Huma input parsing.
@@ -79,6 +82,7 @@ type SourceCreateRequest struct {
 type SourceUpdateBody struct {
 	Device   *string           `json:"device,omitempty" example:"rk3588-hdmi-rx" doc:"New device identifier; clears when sent as empty string while test_mode is true"`
 	TestMode *bool             `json:"test_mode,omitempty" example:"true" doc:"Toggle test-pattern mode"`
+	Pipe     *string           `json:"pipe,omitempty" example:"ffmpeg -nostats -hide_banner -re -stream_loop -1 -i clip.mp4 -an -f yuv4mpegpipe -pix_fmt yuv420p -" doc:"New pipe command; clears when sent as empty string. Mutually exclusive with device and test_mode."`
 	Format   *SourceFormatBody `json:"format,omitempty" doc:"Replace the V4L2 capture format. Send null in a future revision to clear; today omitting leaves the prior format untouched."`
 }
 

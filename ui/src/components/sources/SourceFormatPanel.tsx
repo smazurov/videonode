@@ -10,6 +10,7 @@ interface SourceFormatPanelProps {
 export function SourceFormatPanel({ source }: Readonly<SourceFormatPanelProps>) {
   const format = source.latest_status?.format;
   const device = source.latest_status?.device;
+  const isPipe = !!source.pipe;
 
   const entries: KVEntry[] = format
     ? [
@@ -21,14 +22,19 @@ export function SourceFormatPanel({ source }: Readonly<SourceFormatPanelProps>) 
       ]
     : [];
 
-  if (device) {
+  if (isPipe) {
+    entries.push({ label: 'pipe_command', value: source.pipe, mono: true });
+  } else if (device) {
     entries.push({ label: 'device_path', value: device.path });
     entries.push({ label: 'multiplanar', value: String(device.multiplanar) });
   }
 
   return (
     <Card padding="lg">
-      <SectionHeader title="Format" description="Active V4L2 capture format." />
+      <SectionHeader
+        title="Format"
+        description={isPipe ? 'Detected from the y4m pipe stream.' : 'Active V4L2 capture format.'}
+      />
       <KVInspector entries={entries} emptyText="No format data yet" />
     </Card>
   );

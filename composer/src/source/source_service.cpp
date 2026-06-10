@@ -56,6 +56,10 @@ grpc::Status SourceService::SetFormat(grpc::ServerContext* /*ctx*/,
     }
     {
         std::lock_guard<std::mutex> lock(ctx_->set_format_mu);
+        if (ctx_->args && !ctx_->args->pipe_cmd.empty()) {
+            return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                                "pipe source: format is detected from the y4m stream");
+        }
         // Short-circuit when the orchestrator's active capture already
         // matches the request. The daemon pushes the operator-configured
         // format every time it (re-)registers a source; when the source
@@ -110,6 +114,10 @@ grpc::Status SourceService::SetDevice(grpc::ServerContext* /*ctx*/,
     }
     {
         std::lock_guard<std::mutex> lock(ctx_->set_format_mu);
+        if (ctx_->args && !ctx_->args->pipe_cmd.empty()) {
+            return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                                "pipe source: device is fixed at spawn");
+        }
         if (ctx_->args) {
             ctx_->args->device = path;
         }
