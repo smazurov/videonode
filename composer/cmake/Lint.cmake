@@ -49,8 +49,8 @@ if(ENABLE_CLANG_TIDY)
 endif()
 
 # tidy-diff lints only lines changed vs TIDY_DIFF_BASE; tidy-all runs the whole
-# tree. Base is origin/native since composer/ doesn't exist on origin/main.
-set(TIDY_DIFF_BASE "origin/native" CACHE STRING
+# tree. Diffs committed changes only (BASE...HEAD), not the working tree.
+set(TIDY_DIFF_BASE "origin/main" CACHE STRING
     "Git ref to diff against for tidy-diff (clang-tidy on changed lines).")
 
 find_program(CLANG_TIDY_BIN NAMES clang-tidy)
