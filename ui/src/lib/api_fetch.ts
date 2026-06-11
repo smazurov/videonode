@@ -5,6 +5,10 @@
 
 export const API_BASE_URL = window.location.origin;
 
+// apiUrl absolutizes a server-relative path ("/api/...") for media elements
+// and raw fetches that bypass the typed client.
+export const apiUrl = (path?: string): string => (path ? `${API_BASE_URL}${path}` : '');
+
 export const SESSION_EXPIRED_MSG = 'Session expired. Please log in again.';
 
 // Default ceiling for any single request. Without it, a black-holed socket

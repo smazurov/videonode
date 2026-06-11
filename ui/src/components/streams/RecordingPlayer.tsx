@@ -10,14 +10,12 @@ import {
   MediaMuteButton,
   MediaFullscreenButton,
 } from 'media-chrome/react';
-import { API_BASE_URL } from '../../lib/api';
+import { apiUrl } from '../../lib/api_fetch';
 import { cn } from '../../utils';
 import { RecordingFilmstrip } from './RecordingFilmstrip';
 import type { components } from '../../lib/api.generated';
 
 type RecordingStatus = components['schemas']['RecordingStatusData'];
-
-const abs = (path: string | undefined): string => (path ? `${API_BASE_URL}${path}` : '');
 
 interface RecordingPlayerProps {
   readonly status: RecordingStatus;
@@ -33,8 +31,8 @@ export function RecordingPlayer({ status, className }: RecordingPlayerProps) {
   const [currentTime, setCurrentTime] = useState(0);
 
   const live = status.active ?? false;
-  const playlistUrl = abs(status.playlist_url);
-  const vttUrl = abs(status.thumbnails_vtt_url);
+  const playlistUrl = apiUrl(status.playlist_url);
+  const vttUrl = apiUrl(status.thumbnails_vtt_url);
   const sessionBase = playlistUrl.replace(/\/index\.m3u8$/, '');
 
   // Attach hls.js to the <video>. Prefer MSE (Hls.isSupported) so Firefox/

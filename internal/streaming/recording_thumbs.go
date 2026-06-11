@@ -35,6 +35,10 @@ type thumbnailConfig struct {
 	intervalSec int
 	width       int
 	fetch       thumbnailFetchFunc
+	// mediaStart reports the wall-clock instant of media t=0 (first accepted
+	// keyframe). Frames are skipped until it reports ok, so cue offsets line
+	// up with the playback timeline instead of consumer-creation time.
+	mediaStart func() (time.Time, bool)
 }
 
 // thumbCue is one storyboard frame: its time offset and tile position.
@@ -52,20 +56,22 @@ type thumbCue struct {
 type thumbnailWriter struct {
 	dir    string
 	cfg    thumbnailConfig
-	start0 time.Time
 	logger *slog.Logger
 
 	done chan struct{}
 	wg   sync.WaitGroup
 
-	mu    sync.Mutex
-	tileW int
-	tileH int
-	sheet *image.RGBA
-	cues  []thumbCue
+	mu       sync.Mutex
+	tileW    int
+	tileH    int
+	sheet    *image.RGBA
+	cues     []thumbCue
+	vtt      bytes.Buffer     // accumulated cue text, appended per frame
+	sizes    map[string]int64 // latest on-disk size per file (sheets get rewritten)
+	bytesOut int64
 }
 
-func newThumbnailWriter(dir string, cfg thumbnailConfig, start time.Time, logger *slog.Logger) (*thumbnailWriter, error) {
+func newThumbnailWriter(dir string, cfg thumbnailConfig, logger *slog.Logger) (*thumbnailWriter, error) {
 	if cfg.intervalSec <= 0 {
 		cfg.intervalSec = 5
 	}
@@ -75,13 +81,15 @@ func newThumbnailWriter(dir string, cfg thumbnailConfig, start time.Time, logger
 	if err := os.MkdirAll(filepath.Join(dir, "sprites"), 0o755); err != nil {
 		return nil, fmt.Errorf("create sprites dir: %w", err)
 	}
-	return &thumbnailWriter{
+	w := &thumbnailWriter{
 		dir:    dir,
 		cfg:    cfg,
-		start0: start,
 		logger: logger,
 		done:   make(chan struct{}),
-	}, nil
+		sizes:  make(map[string]int64),
+	}
+	w.vtt.WriteString("WEBVTT\n\n")
+	return w, nil
 }
 
 func (t *thumbnailWriter) start() {
@@ -109,6 +117,10 @@ func (t *thumbnailWriter) capture() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
+	mediaT0, started := t.cfg.mediaStart()
+	if !started {
+		return // nothing recorded yet; a cue here would lead the timeline
+	}
 	raw, _, _, err := t.cfg.fetch(ctx)
 	if err != nil {
 		t.logger.Debug("thumbnail fetch failed", logging.KeyError, err)
@@ -119,7 +131,7 @@ func (t *thumbnailWriter) capture() {
 		t.logger.Debug("thumbnail decode failed", logging.KeyError, err)
 		return
 	}
-	offset := time.Since(t.start0).Seconds()
+	offset := time.Since(mediaT0).Seconds()
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -139,11 +151,11 @@ func (t *thumbnailWriter) capture() {
 	y := (cell / spriteCols) * t.tileH
 	draw.Draw(t.sheet, image.Rect(x, y, x+t.tileW, y+t.tileH), tile, image.Point{}, draw.Src)
 
-	if !t.writeSheetLocked(sheetNum) {
+	if !t.writeSheetLocked(sheetNum, y+t.tileH) {
 		return
 	}
 	t.cues = append(t.cues, thumbCue{offsetS: offset, sheet: sheetNum, cell: cell})
-	t.writeVTTLocked()
+	t.appendCueLocked(offset, sheetNum, x, y)
 }
 
 // initTileDims fixes the tile size from the first frame's aspect at the
@@ -168,11 +180,14 @@ func (t *thumbnailWriter) writePoster(frame image.Image) {
 }
 
 // writeSheetLocked re-encodes the current sheet to sprites/sprite_NNN.jpg
-// (write-temp-rename, so live readers always see a complete JPEG). Caller
-// holds t.mu.
-func (t *thumbnailWriter) writeSheetLocked(sheetNum int) bool {
+// (write-temp-rename, so live readers always see a complete JPEG). Only the
+// rows filled so far are encoded — #xywh cues never address unfilled rows, so
+// a partial-height JPEG is valid and the per-frame encode cost stops growing
+// with empty rows. Caller holds t.mu.
+func (t *thumbnailWriter) writeSheetLocked(sheetNum, filledH int) bool {
+	img := t.sheet.SubImage(image.Rect(0, 0, spriteCols*t.tileW, filledH))
 	var out bytes.Buffer
-	if err := jpeg.Encode(&out, t.sheet, &jpeg.Options{Quality: 72}); err != nil {
+	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: 72}); err != nil {
 		t.logger.Debug("sprite encode failed", logging.KeyError, err)
 		return false
 	}
@@ -180,23 +195,14 @@ func (t *thumbnailWriter) writeSheetLocked(sheetNum int) bool {
 	return true
 }
 
-// writeVTTLocked rewrites thumbnails.vtt with one #xywh cue per frame. Cues
-// are only ever appended; rewrite-and-rename keeps reads atomic. Caller holds
-// t.mu.
-func (t *thumbnailWriter) writeVTTLocked() {
-	var vtt bytes.Buffer
-	vtt.WriteString("WEBVTT\n\n")
-	for i, c := range t.cues {
-		end := c.offsetS + float64(t.cfg.intervalSec)
-		if i+1 < len(t.cues) {
-			end = t.cues[i+1].offsetS
-		}
-		x := (c.cell % spriteCols) * t.tileW
-		y := (c.cell / spriteCols) * t.tileH
-		fmt.Fprintf(&vtt, "%s --> %s\nsprites/sprite_%03d.jpg#xywh=%d,%d,%d,%d\n\n",
-			formatVTTTime(c.offsetS), formatVTTTime(end), c.sheet, x, y, t.tileW, t.tileH)
-	}
-	t.writeAtomic("thumbnails.vtt", vtt.Bytes())
+// appendCueLocked appends one #xywh cue (end = start + interval) to the
+// accumulated VTT and republishes it. Append-plus-rename keeps the file write
+// O(n) but the formatting O(1) per frame. Caller holds t.mu.
+func (t *thumbnailWriter) appendCueLocked(offset float64, sheetNum, x, y int) {
+	fmt.Fprintf(&t.vtt, "%s --> %s\nsprites/sprite_%03d.jpg#xywh=%d,%d,%d,%d\n\n",
+		formatVTTTime(offset), formatVTTTime(offset+float64(t.cfg.intervalSec)),
+		sheetNum, x, y, t.tileW, t.tileH)
+	t.writeAtomic("thumbnails.vtt", t.vtt.Bytes())
 }
 
 func (t *thumbnailWriter) stop() {
@@ -205,14 +211,20 @@ func (t *thumbnailWriter) stop() {
 }
 
 func (t *thumbnailWriter) writeAtomic(name string, data []byte) {
-	tmp := filepath.Join(t.dir, filepath.Dir(name), "."+filepath.Base(name)+".tmp")
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := writeFileAtomic(t.dir, name, data); err != nil {
 		t.logger.Debug("thumbnail write failed", logging.KeyError, err)
 		return
 	}
-	if err := os.Rename(tmp, filepath.Join(t.dir, name)); err != nil {
-		t.logger.Debug("thumbnail rename failed", logging.KeyError, err)
-	}
+	t.bytesOut += int64(len(data)) - t.sizes[name]
+	t.sizes[name] = int64(len(data))
+}
+
+// bytesWritten reports the storyboard bytes currently on disk (latest size of
+// each written file).
+func (t *thumbnailWriter) bytesWritten() int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.bytesOut
 }
 
 // formatVTTTime renders seconds as HH:MM:SS.mmm for a WebVTT cue.

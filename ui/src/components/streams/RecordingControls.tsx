@@ -5,20 +5,15 @@ import { StopIcon } from '@heroicons/react/24/outline';
 import { useStreamStore } from '../../hooks/useStreamStore';
 import { useRecordingStore } from '../../hooks/useRecordingStore';
 import { Button } from '../Button';
-import { API_BASE_URL } from '../../lib/api';
+import { apiUrl } from '../../lib/api_fetch';
 import { fetchStoryboard, SPRITE_GRID, type StoryboardCue } from '../../lib/storyboard';
+import { formatClock } from './format';
 import type { components } from '../../lib/api.generated';
 
 type RecordingStatus = components['schemas']['RecordingStatusData'];
 
 interface RecordingControlsProps {
   readonly streamId: string;
-}
-
-function formatClock(sec: number): string {
-  const s = Math.max(0, Math.floor(sec));
-  const m = Math.floor(s / 60);
-  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
 // RecordingControls is the compact recording cell on the stream overview
@@ -49,7 +44,7 @@ export function RecordingControls({ streamId }: RecordingControlsProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const active = status?.active ?? false;
-  const vttUrl = status?.thumbnails_vtt_url ? `${API_BASE_URL}${status.thumbnails_vtt_url}` : '';
+  const vttUrl = apiUrl(status?.thumbnails_vtt_url);
   const sessionBase = vttUrl.replace(/\/thumbnails\.vtt$/, '');
   const detailHref = status
     ? `/recordings/${encodeURIComponent(status.stream_id)}/${encodeURIComponent(status.recording_id)}`
@@ -62,8 +57,8 @@ export function RecordingControls({ streamId }: RecordingControlsProps) {
     if (!storeLoaded) void fetchRecordings();
   }, [storeLoaded, fetchRecordings]);
 
-  // Ticks only while recording; on stop nowMs freezes, so the timer shows the
-  // final length.
+  // Ticks only while recording; a stopped session displays the server's
+  // duration_seconds instead.
   useEffect(() => {
     if (!active) return;
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -105,7 +100,6 @@ export function RecordingControls({ streamId }: RecordingControlsProps) {
     setBusy(true);
     try {
       upsertRecording(await stopRecording(streamId));
-      setNowMs(Date.now());
       toast.success('Recording stopped');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to stop recording');

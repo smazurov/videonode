@@ -43,6 +43,7 @@ type Server struct {
 	controlServer      *pipelinectl.Manager
 	logger             logging.Logger
 	sseClients         atomic.Int64
+	done               chan struct{} // closed by Stop; ends background workers
 }
 
 // SSEClientCount returns the number of connected /api/events subscribers.
@@ -231,6 +232,7 @@ func NewServer(opts *Options) *Server {
 		eventRegistry:      opts.EventRegistry,
 		controlServer:      opts.ControlServer,
 		logger:             logging.GetLogger("api"),
+		done:               make(chan struct{}),
 	}
 
 	// Lifecycle publishes are still invoked explicitly from each handler;
@@ -513,6 +515,12 @@ func (s *Server) Start(addr string) error {
 // Stop gracefully shuts down the server.
 func (s *Server) Stop() error {
 	s.logger.Info("Stopping API server")
+
+	select {
+	case <-s.done:
+	default:
+		close(s.done)
+	}
 
 	// Stop device monitoring
 	if s.deviceDetector != nil {

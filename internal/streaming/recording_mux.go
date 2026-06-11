@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4"
 	mp4codecs "github.com/bluenviron/mediacommon/v2/pkg/formats/mp4/codecs"
@@ -15,7 +16,6 @@ import (
 
 const (
 	videoTrackID   = 1
-	audioTrackID   = 2
 	videoTimescale = 90000 // RTSP H264/H265 RTP clock; relay PTS/DTS arrive in these units.
 )
 
@@ -31,43 +31,37 @@ type segInfo struct {
 // is playable while still being written (no #EXT-X-ENDLIST until close).
 //
 // It is fed decoded access units from a streaming.Reader (see RecordingConsumer)
-// and stream-copies them: no re-encode. Video is required; Opus audio optional.
+// and stream-copies them: no re-encode. Video only — the relay does not
+// depacketize Opus yet (see newRecordingConsumer).
 type recMuxer struct {
 	dir          string
 	targetSegSec float64
 
-	vIsH265        bool
-	haveAudio      bool
-	audioTimescale uint32
+	vIsH265 bool
 
 	mu sync.Mutex
 
-	started bool // first video keyframe seen
-	seq     uint32
-	segs    []segInfo
-	closed  bool
+	started   bool      // first video keyframe seen
+	startWall time.Time // wall clock at the first accepted keyframe (media t=0)
+	seq       uint32
+	segs      []segInfo
+	closed    bool
+	failed    error // first unrecoverable write error; muxer stops accepting
+	bytesOut  int64 // bytes written so far (init + segments)
 
 	// video segment buffer
 	vFirstDTS   int64
 	vHaveFirst  bool
 	vPending    []*fmp4.Sample
-	vPendingDTS []int64
+	vLastRel    int64 // rebased DTS of the last buffered sample
 	vSegBaseDTS int64
 	vSegHasData bool
-
-	// audio segment buffer (accumulated since last cut)
-	aFirstDTS   int64
-	aHaveFirst  bool
-	aPending    []*fmp4.Sample
-	aPendingDTS []int64
-	aSegBaseDTS int64
-	aSegHasData bool
 }
 
 // newRecMuxer creates the session dir, writes init.mp4, and returns a muxer
 // ready to accept samples. The vCodec is &mp4codecs.H264{SPS,PPS} or
-// &mp4codecs.H265{VPS,SPS,PPS}; aCodec is &mp4codecs.Opus{...} or nil.
-func newRecMuxer(dir string, vCodec mp4codecs.Codec, isH265 bool, aCodec mp4codecs.Codec, audioTimescale uint32, targetSegSec float64) (*recMuxer, error) {
+// &mp4codecs.H265{VPS,SPS,PPS}.
+func newRecMuxer(dir string, vCodec mp4codecs.Codec, isH265 bool, targetSegSec float64) (*recMuxer, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create recording dir: %w", err)
 	}
@@ -76,40 +70,47 @@ func newRecMuxer(dir string, vCodec mp4codecs.Codec, isH265 bool, aCodec mp4code
 	}
 
 	tracks := []*fmp4.InitTrack{{ID: videoTrackID, TimeScale: videoTimescale, Codec: vCodec}}
-	if aCodec != nil {
-		if audioTimescale == 0 {
-			audioTimescale = 48000
-		}
-		tracks = append(tracks, &fmp4.InitTrack{ID: audioTrackID, TimeScale: audioTimescale, Codec: aCodec})
-	}
 	init := fmp4.Init{Tracks: tracks}
-	if err := marshalToFile(filepath.Join(dir, "init.mp4"), init.Marshal); err != nil {
+	initBytes, err := marshalToFile(filepath.Join(dir, "init.mp4"), init.Marshal)
+	if err != nil {
 		return nil, fmt.Errorf("write init.mp4: %w", err)
 	}
 
 	return &recMuxer{
-		dir:            dir,
-		targetSegSec:   targetSegSec,
-		vIsH265:        isH265,
-		haveAudio:      aCodec != nil,
-		audioTimescale: audioTimescale,
+		dir:          dir,
+		targetSegSec: targetSegSec,
+		vIsH265:      isH265,
+		bytesOut:     initBytes,
 	}, nil
 }
 
-// marshalToFile creates path and runs the fmp4 marshaler (fmp4.Init.Marshal /
-// fmp4.Part.Marshal) against it. *os.File is the io.WriteSeeker the marshaler
-// needs for box back-patching.
-func marshalToFile(path string, marshal func(io.WriteSeeker) error) (err error) {
+// marshalToFile creates path, runs the fmp4 marshaler (fmp4.Init.Marshal /
+// fmp4.Part.Marshal) against it, and reports the bytes written. *os.File is
+// the io.WriteSeeker the marshaler needs for box back-patching.
+func marshalToFile(path string, marshal func(io.WriteSeeker) error) (size int64, err error) {
 	f, err := os.Create(path)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() {
 		if cerr := f.Close(); cerr != nil && err == nil {
 			err = cerr
 		}
 	}()
-	return marshal(f)
+	if err := marshal(f); err != nil {
+		return 0, err
+	}
+	return f.Seek(0, io.SeekEnd)
+}
+
+// sampleDur clamps a rebased-DTS delta into a sane uint32 sample duration.
+// H265 arrives with DTS=PTS (no extractor), so B-frame reordering can make
+// deltas negative; an unclamped cast would wrap to ~13h durations.
+func sampleDur(delta int64) uint32 {
+	if delta < 0 {
+		return 0
+	}
+	return uint32(min(delta, int64(^uint32(0))))
 }
 
 // writeVideo appends one video access unit. The dts is in 90kHz units; keyframe
@@ -120,11 +121,15 @@ func (m *recMuxer) writeVideo(dts int64, ptsOffset int32, au [][]byte, keyframe 
 	if m.closed {
 		return nil
 	}
+	if m.failed != nil {
+		return m.failed
+	}
 	if !m.started {
 		if !keyframe {
 			return nil // drop until the first keyframe so segment 1 is seekable
 		}
 		m.started = true
+		m.startWall = time.Now()
 	}
 	if !m.vHaveFirst {
 		m.vFirstDTS = dts
@@ -134,13 +139,13 @@ func (m *recMuxer) writeVideo(dts int64, ptsOffset int32, au [][]byte, keyframe 
 
 	// Close out the previous sample's duration now that we know the next DTS.
 	if n := len(m.vPending); n > 0 {
-		m.vPending[n-1].Duration = uint32(rel - m.vPendingDTS[n-1])
+		m.vPending[n-1].Duration = sampleDur(rel - m.vLastRel)
 	}
 
 	// Cut on a keyframe once the open segment is long enough.
 	if keyframe && m.vSegHasData {
 		if float64(rel-m.vSegBaseDTS)/videoTimescale >= m.targetSegSec {
-			if err := m.flushSegmentLocked(rel); err != nil {
+			if err := m.flushSegmentLocked(); err != nil {
 				return err
 			}
 		}
@@ -161,49 +166,20 @@ func (m *recMuxer) writeVideo(dts int64, ptsOffset int32, au [][]byte, keyframe 
 		m.vSegHasData = true
 	}
 	m.vPending = append(m.vPending, &s)
-	m.vPendingDTS = append(m.vPendingDTS, rel)
-	return nil
-}
-
-// writeAudio appends Opus packets (one fMP4 sample each). The pts is in the
-// audio timescale; packets in a call are spaced by a default 20ms Opus frame.
-func (m *recMuxer) writeAudio(pts int64, packets [][]byte) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed || !m.haveAudio || !m.started {
-		return nil
-	}
-	frameDur := int64(m.audioTimescale / 50) // 20ms
-	for i, pkt := range packets {
-		dts := pts + int64(i)*frameDur
-		if !m.aHaveFirst {
-			m.aFirstDTS = dts
-			m.aHaveFirst = true
-		}
-		rel := dts - m.aFirstDTS
-		if n := len(m.aPending); n > 0 {
-			m.aPending[n-1].Duration = uint32(rel - m.aPendingDTS[n-1])
-		}
-		payload := make([]byte, len(pkt))
-		copy(payload, pkt)
-		if !m.aSegHasData {
-			m.aSegBaseDTS = rel
-			m.aSegHasData = true
-		}
-		m.aPending = append(m.aPending, &fmp4.Sample{Payload: payload})
-		m.aPendingDTS = append(m.aPendingDTS, rel)
-	}
+	m.vLastRel = rel
 	return nil
 }
 
 // flushSegmentLocked writes the buffered samples as one .m4s part and rewrites
-// the playlist. Caller holds m.mu.
-func (m *recMuxer) flushSegmentLocked(_ int64) error {
+// the playlist. On write failure the buffers are dropped and the muxer latches
+// failed — better to lose the open segment than to buffer the bitstream in RAM
+// forever on a full disk. Caller holds m.mu.
+func (m *recMuxer) flushSegmentLocked() error {
 	if len(m.vPending) == 0 {
 		return nil
 	}
 	// Trailing video sample: no successor yet, fall back to the prior delta.
-	fixTrailingDuration(m.vPending, m.vPendingDTS, videoTimescale/30)
+	fixTrailingDuration(m.vPending, videoTimescale/30)
 
 	m.seq++
 	name := fmt.Sprintf("seg%05d.m4s", m.seq)
@@ -213,34 +189,27 @@ func (m *recMuxer) flushSegmentLocked(_ int64) error {
 		BaseTime: uint64(m.vSegBaseDTS),
 		Samples:  m.vPending,
 	}}
-	if m.haveAudio && len(m.aPending) > 0 {
-		fixTrailingDuration(m.aPending, m.aPendingDTS, int64(m.audioTimescale/50))
-		tracks = append(tracks, &fmp4.PartTrack{
-			ID:       audioTrackID,
-			BaseTime: uint64(m.aSegBaseDTS),
-			Samples:  m.aPending,
-		})
-	}
-
-	part := fmp4.Part{SequenceNumber: m.seq, Tracks: tracks}
-	if err := marshalToFile(filepath.Join(m.dir, name), part.Marshal); err != nil {
-		return fmt.Errorf("write %s: %w", name, err)
-	}
-
 	var dur float64
 	for _, s := range m.vPending {
 		dur += float64(s.Duration) / videoTimescale
 	}
-	m.segs = append(m.segs, segInfo{name: name, dur: dur})
 
-	m.vPending, m.vPendingDTS, m.vSegHasData = nil, nil, false
-	m.aPending, m.aPendingDTS, m.aSegHasData = nil, nil, false
+	m.vPending, m.vSegHasData = nil, false
+
+	part := fmp4.Part{SequenceNumber: m.seq, Tracks: tracks}
+	size, err := marshalToFile(filepath.Join(m.dir, name), part.Marshal)
+	if err != nil {
+		m.failed = fmt.Errorf("write %s: %w", name, err)
+		return m.failed
+	}
+	m.bytesOut += size
+	m.segs = append(m.segs, segInfo{name: name, dur: dur})
 
 	return m.writePlaylistLocked(false)
 }
 
 // fixTrailingDuration sets the last sample's Duration when it has no successor.
-func fixTrailingDuration(samples []*fmp4.Sample, _ []int64, fallback int64) {
+func fixTrailingDuration(samples []*fmp4.Sample, fallback int64) {
 	n := len(samples)
 	if n == 0 {
 		return
@@ -251,7 +220,7 @@ func fixTrailingDuration(samples []*fmp4.Sample, _ []int64, fallback int64) {
 	if n >= 2 && samples[n-2].Duration != 0 {
 		samples[n-1].Duration = samples[n-2].Duration
 	} else {
-		samples[n-1].Duration = uint32(fallback)
+		samples[n-1].Duration = sampleDur(fallback)
 	}
 }
 
@@ -276,12 +245,7 @@ func (m *recMuxer) writePlaylistLocked(end bool) error {
 		b.WriteString("#EXT-X-ENDLIST\n")
 	}
 
-	// Write-temp-rename so a concurrent player never reads a half-written playlist.
-	tmp := filepath.Join(m.dir, ".index.m3u8.tmp")
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(m.dir, "index.m3u8"))
+	return writeFileAtomic(m.dir, "index.m3u8", []byte(b.String()))
 }
 
 // close flushes the open segment and finalizes the playlist with #EXT-X-ENDLIST.
@@ -292,8 +256,12 @@ func (m *recMuxer) close() error {
 		return nil
 	}
 	m.closed = true
+	if m.failed != nil {
+		// Finalize what made it to disk so the partial session stays playable.
+		return m.writePlaylistLocked(true)
+	}
 	if len(m.vPending) > 0 {
-		if err := m.flushSegmentLocked(0); err != nil {
+		if err := m.flushSegmentLocked(); err != nil {
 			return err
 		}
 	}
@@ -305,4 +273,44 @@ func (m *recMuxer) segmentCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.segs)
+}
+
+// bytesWritten reports the bytes persisted so far (init + closed segments).
+func (m *recMuxer) bytesWritten() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.bytesOut
+}
+
+// durationSeconds reports the media duration: closed segments plus the span of
+// the open one.
+func (m *recMuxer) durationSeconds() float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var total float64
+	for _, s := range m.segs {
+		total += s.dur
+	}
+	if m.vSegHasData {
+		total += float64(m.vLastRel-m.vSegBaseDTS) / videoTimescale
+	}
+	return total
+}
+
+// mediaStartTime reports the wall-clock instant of media t=0 (the first
+// accepted keyframe); ok is false until recording actually started.
+func (m *recMuxer) mediaStartTime() (time.Time, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.startWall, m.started
+}
+
+// writeFileAtomic writes dir/name via a temp file + rename so concurrent
+// readers never observe a partial file.
+func writeFileAtomic(dir, name string, data []byte) error {
+	tmp := filepath.Join(dir, filepath.Dir(name), "."+filepath.Base(name)+".tmp")
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dir, filepath.Dir(name), filepath.Base(name)))
 }

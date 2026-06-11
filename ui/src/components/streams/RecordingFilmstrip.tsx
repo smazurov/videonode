@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchBitmapRaw } from '../../lib/api_fetch';
 import { fetchStoryboard, type StoryboardCue } from '../../lib/storyboard';
+import { formatClock } from './format';
 import { cn } from '../../utils';
 
 // Tiles narrower than this are unrecognizable slivers; the strip shows fewer,
@@ -20,12 +21,6 @@ interface RecordingFilmstripProps {
   /** Seek the player to the given offset in seconds. */
   readonly onSeek: (seconds: number) => void;
   readonly className?: string;
-}
-
-function formatClock(sec: number): string {
-  const s = Math.max(0, Math.floor(sec));
-  const m = Math.floor(s / 60);
-  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
 // RecordingFilmstrip is the storyboard timeline, canvas-rendered from sprite
@@ -55,7 +50,15 @@ export function RecordingFilmstrip({
     let cancelled = false;
     const load = async () => {
       const next = await fetchStoryboard(vttUrl);
-      if (!cancelled && next && next.length > 0) setCues(next);
+      if (cancelled || !next || next.length === 0) return;
+      // Keep the previous array identity on no-op polls so the tiles memo and
+      // canvas repaint don't churn between thumbnail intervals.
+      setCues((prev) =>
+        prev.length === next.length &&
+        prev[prev.length - 1]?.start === next[next.length - 1]?.start
+          ? prev
+          : next,
+      );
     };
     void load();
     if (!live) return;
@@ -78,6 +81,15 @@ export function RecordingFilmstrip({
     setWidth(el.clientWidth);
     return () => ro.disconnect();
   }, [hasCues]);
+
+  // Release decoded sheets when the strip unmounts.
+  useEffect(() => {
+    const cache = bitmapsRef.current;
+    return () => {
+      for (const entry of cache.values()) entry.bmp.close();
+      cache.clear();
+    };
+  }, []);
 
   const interval = useMemo(() => {
     const a = cues[0];
@@ -122,6 +134,14 @@ export function RecordingFilmstrip({
 
       const cache = bitmapsRef.current;
       const wanted = new Map(tiles.map((c) => [c.url, srcFor(c)]));
+      // Evict sheets the sampled tile set no longer references (long live
+      // sessions stride past old sheets; each decode is megabytes of RGBA).
+      for (const [key, entry] of cache) {
+        if (!wanted.has(key)) {
+          entry.bmp.close();
+          cache.delete(key);
+        }
+      }
       await Promise.all(
         [...wanted].map(async ([key, src]) => {
           if (cache.get(key)?.src === src) return;

@@ -148,15 +148,29 @@ func (s *Server) registerRecordingRoutes() {
 		}, nil
 	})
 
+	// Recordings finalized outside the API Stop path (producer replaced,
+	// write failure, shutdown) still need a terminal SSE event or clients
+	// stay stuck on active:true.
+	if s.recordingEntity != nil {
+		mgr.SetOnFinalized(func(info streaming.RecordingInfo) {
+			s.recordingEntity.PublishUpdated(recordingInfoToAPI(mgr.Dir(), info))
+		})
+	}
+
 	// Push progress (segments/size/duration) for active sessions so clients
-	// stay live without polling. No-op while nothing records.
+	// stay live without polling. No-op while nothing records; ends on Stop.
 	if s.recordingEntity != nil {
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
-			for range ticker.C {
-				for _, info := range mgr.List() {
-					s.recordingEntity.PublishUpdated(recordingInfoToAPI(mgr.Dir(), info))
+			for {
+				select {
+				case <-s.done:
+					return
+				case <-ticker.C:
+					for _, info := range mgr.List() {
+						s.recordingEntity.PublishUpdated(recordingInfoToAPI(mgr.Dir(), info))
+					}
 				}
 			}
 		}()
@@ -166,11 +180,14 @@ func (s *Server) registerRecordingRoutes() {
 // recordingInfoToAPI projects a streaming.RecordingInfo into the API view,
 // deriving the playback/thumbnail URLs and on-disk size from the session dir.
 func recordingInfoToAPI(baseDir string, info streaming.RecordingInfo) models.RecordingStatusData {
-	base := fmt.Sprintf("/api/streams/%s/recordings/%s", info.StreamID, info.Session)
-	dir := filepath.Join(baseDir, info.StreamID, info.Session)
-	duration := playlistDuration(dir)
-	if info.Active {
-		duration = time.Since(info.StartedAt).Seconds()
+	base := fmt.Sprintf("/api/streams/%s/recordings/%s", info.StreamID, info.RecordingID)
+	size := info.SizeBytes
+	duration := info.DurationSeconds
+	if !info.Active {
+		// Completed sessions: read the truth from disk once.
+		dir := filepath.Join(baseDir, info.StreamID, info.RecordingID)
+		size = sessionSize(dir)
+		duration = playlistDuration(dir)
 	}
 	return models.RecordingStatusData{
 		RecordingID:      info.RecordingID,
@@ -178,7 +195,7 @@ func recordingInfoToAPI(baseDir string, info streaming.RecordingInfo) models.Rec
 		Active:           info.Active,
 		StartedAt:        info.StartedAt,
 		Segments:         info.Segments,
-		SizeBytes:        sessionSize(dir),
+		SizeBytes:        size,
 		DurationSeconds:  duration,
 		PlaylistURL:      base + "/index.m3u8",
 		ThumbnailsVTTURL: base + "/thumbnails.vtt",
@@ -285,7 +302,7 @@ func loadRecordingByEventID(mgr *streaming.RecordingManager, id string) (models.
 	if !ok {
 		return models.RecordingStatusData{}, fmt.Errorf("malformed recording id %q", id)
 	}
-	if info, active := mgr.Status(streamID); active && info.Session == session {
+	if info, active := mgr.Status(streamID); active && info.RecordingID == session {
 		return recordingInfoToAPI(mgr.Dir(), info), nil
 	}
 	data, found := diskRecordingData(mgr.Dir(), streamID, session)

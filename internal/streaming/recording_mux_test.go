@@ -40,7 +40,7 @@ func feedGOPs(t *testing.T, m *recMuxer, gops, framesPerGOP int, frameDur int64)
 
 func TestRecMuxer_SegmentsAndPlaylist(t *testing.T) {
 	dir := t.TempDir()
-	m, err := newRecMuxer(dir, &mp4codecs.H264{SPS: testSPS, PPS: testPPS}, false, nil, 0, 1 /*sec*/)
+	m, err := newRecMuxer(dir, &mp4codecs.H264{SPS: testSPS, PPS: testPPS}, false, 1 /*sec*/)
 	if err != nil {
 		t.Fatalf("newRecMuxer: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestRecMuxer_SegmentsAndPlaylist(t *testing.T) {
 
 func TestRecMuxer_DropsUntilFirstKeyframe(t *testing.T) {
 	dir := t.TempDir()
-	m, err := newRecMuxer(dir, &mp4codecs.H264{SPS: testSPS, PPS: testPPS}, false, nil, 0, 1)
+	m, err := newRecMuxer(dir, &mp4codecs.H264{SPS: testSPS, PPS: testPPS}, false, 1)
 	if err != nil {
 		t.Fatalf("newRecMuxer: %v", err)
 	}

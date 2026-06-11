@@ -3,7 +3,9 @@ package streaming
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,14 +35,16 @@ type RecordingConfig struct {
 	ThumbnailWidth int    // storyboard frame width in px
 }
 
-// RecordingInfo is a point-in-time view of one recording session.
+// RecordingInfo is a point-in-time view of one recording session. The
+// RecordingID doubles as the session directory name.
 type RecordingInfo struct {
-	RecordingID string    // session id (== Session dir name)
-	StreamID    string    // recorded stream
-	Session     string    // session dir name (timestamp), used to build playback URLs
-	Active      bool      // currently capturing
-	StartedAt   time.Time // UTC start
-	Segments    int       // HLS segments written so far
+	RecordingID     string    // session id == session dir name
+	StreamID        string    // recorded stream
+	Active          bool      // currently capturing
+	StartedAt       time.Time // UTC start
+	Segments        int       // HLS segments written so far
+	SizeBytes       int64     // bytes written so far (muxer + thumbnails)
+	DurationSeconds float64   // media duration written so far
 }
 
 // ThumbnailSource fetches a fresh JPEG of an upstream entity (kind is
@@ -54,6 +58,11 @@ type RecordingManager struct {
 	cfg      RecordingConfig
 	thumbSrc ThumbnailSource // optional; nil disables the thumbnail track
 	logger   *slog.Logger
+
+	// onFinalized fires whenever a recording ends OUTSIDE the API Stop path
+	// (producer replaced, write failure, daemon shutdown), so the API layer
+	// can publish the terminal SSE event the UI would otherwise never see.
+	onFinalized func(RecordingInfo)
 
 	mu     sync.Mutex
 	active map[string]*RecordingConsumer // streamID -> consumer
@@ -77,6 +86,12 @@ func NewRecordingManager(streams StreamProvider, cfg RecordingConfig, thumbSrc T
 // Dir returns the configured base recordings directory.
 func (m *RecordingManager) Dir() string { return m.cfg.Dir }
 
+// SetOnFinalized registers the out-of-band finalization callback. Call before
+// any recording starts.
+func (m *RecordingManager) SetOnFinalized(fn func(RecordingInfo)) {
+	m.onFinalized = fn
+}
+
 // Start begins recording streamID. The upstreamRef ("source:<id>" /
 // "composer:<id>") drives the storyboard thumbnail track. It lazily spawns the
 // encoder (and pins it up for the recording's duration) via EnsureStreamReady.
@@ -93,8 +108,10 @@ func (m *RecordingManager) Start(streamID, upstreamRef string) (RecordingInfo, e
 		return RecordingInfo{}, ErrStreamNotFound
 	}
 
-	session := time.Now().UTC().Format("20060102T150405Z")
-	dir := filepath.Join(m.cfg.Dir, streamID, session)
+	session, dir, err := m.newSessionDir(streamID)
+	if err != nil {
+		return RecordingInfo{}, err
+	}
 
 	thumbCfg := thumbnailConfig{
 		intervalSec: m.cfg.ThumbnailSec,
@@ -112,6 +129,7 @@ func (m *RecordingManager) Start(streamID, upstreamRef string) (RecordingInfo, e
 	if err != nil {
 		return RecordingInfo{}, err
 	}
+	consumer.onFailure = func(err error) { m.finalize(streamID, consumer, "write failure: "+err.Error()) }
 
 	m.mu.Lock()
 	// Lost a race: another Start won. Tear ours down.
@@ -123,12 +141,38 @@ func (m *RecordingManager) Start(streamID, upstreamRef string) (RecordingInfo, e
 	m.active[streamID] = consumer
 	m.mu.Unlock()
 
+	// The producer can be replaced between EnsureStreamReady and registration
+	// (consumer setup writes files); a consumer attached to that dead Stream
+	// would record nothing while reporting active. Detect and bail.
+	if m.streams.GetStream(streamID) != stream {
+		m.finalize(streamID, consumer, "stream replaced during start")
+		return RecordingInfo{}, ErrStreamNotFound
+	}
+
 	m.logger.Info("recording started",
 		logging.KeyStreamID, streamID, logging.KeySession, session, logging.KeyPath, dir)
 	return consumer.info(), nil
 }
 
-// Stop finalizes the active recording for streamID.
+// newSessionDir picks a unique session id (UTC second resolution, suffixed on
+// collision so a same-second restart can't overwrite the previous session).
+func (m *RecordingManager) newSessionDir(streamID string) (string, string, error) {
+	base := time.Now().UTC().Format("20060102T150405Z")
+	for i := range 100 {
+		session := base
+		if i > 0 {
+			session = fmt.Sprintf("%s-%d", base, i+1)
+		}
+		dir := filepath.Join(m.cfg.Dir, streamID, session)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			return session, dir, nil
+		}
+	}
+	return "", "", fmt.Errorf("no free session dir for %s at %s", streamID, base)
+}
+
+// Stop finalizes the active recording for streamID. The consumer is stopped
+// BEFORE the snapshot so the returned info includes the final flushed segment.
 func (m *RecordingManager) Stop(streamID string) (RecordingInfo, error) {
 	m.mu.Lock()
 	consumer, ok := m.active[streamID]
@@ -139,10 +183,9 @@ func (m *RecordingManager) Stop(streamID string) (RecordingInfo, error) {
 	if !ok {
 		return RecordingInfo{}, ErrNotRecording
 	}
-	info := consumer.info()
-	info.Active = false
 	_ = consumer.Stop()
-	m.logger.Info("recording stopped", logging.KeyStreamID, streamID, logging.KeySession, info.Session)
+	info := consumer.info()
+	m.logger.Info("recording stopped", logging.KeyStreamID, streamID, logging.KeySession, info.RecordingID)
 	return info, nil
 }
 
@@ -198,32 +241,42 @@ func (m *RecordingManager) DeleteSession(streamID, session string) error {
 	return os.RemoveAll(dir)
 }
 
+// finalize deregisters and stops a consumer outside the API Stop path, then
+// notifies onFinalized so clients get the terminal state over SSE.
+func (m *RecordingManager) finalize(streamID string, consumer *RecordingConsumer, reason string) {
+	m.mu.Lock()
+	if m.active[streamID] == consumer {
+		delete(m.active, streamID)
+	}
+	m.mu.Unlock()
+	_ = consumer.Stop()
+	m.logger.Info("recording finalized",
+		logging.KeyStreamID, streamID,
+		logging.KeySession, consumer.recordingID,
+		logging.KeyReason, reason)
+	if m.onFinalized != nil {
+		m.onFinalized(consumer.info())
+	}
+}
+
 // CloseStreamConsumers finalizes any active recording for a stream when its
 // producer is replaced/removed, so the on-disk HLS is closed cleanly.
 func (m *RecordingManager) CloseStreamConsumers(streamID string) {
 	m.mu.Lock()
 	consumer, ok := m.active[streamID]
-	if ok {
-		delete(m.active, streamID)
-	}
 	m.mu.Unlock()
 	if ok {
-		m.logger.Info("recording finalized on producer replace", logging.KeyStreamID, streamID)
-		_ = consumer.Stop()
+		m.finalize(streamID, consumer, "producer replaced")
 	}
 }
 
 // StopAll finalizes every active recording (daemon shutdown).
 func (m *RecordingManager) StopAll() {
 	m.mu.Lock()
-	consumers := make([]*RecordingConsumer, 0, len(m.active))
-	for id, c := range m.active {
-		consumers = append(consumers, c)
-		delete(m.active, id)
-	}
+	byID := maps.Clone(m.active)
 	m.mu.Unlock()
-	for _, c := range consumers {
-		_ = c.Stop()
+	for id, c := range byID {
+		m.finalize(id, c, "shutdown")
 	}
 }
 

@@ -55,13 +55,19 @@ func recordingFileHandler(baseDir string) http.HandlerFunc {
 		if ct := recordingContentType(full); ct != "" {
 			w.Header().Set("Content-Type", ct)
 		}
-		// Playlists and the growing thumbnail indexes must not be cached while
-		// a recording is live; segments/thumbnails are immutable once written.
-		switch strings.ToLower(filepath.Ext(full)) {
-		case ".m3u8", ".vtt", ".json":
+		// Playlists, the growing VTT index, and sprite sheets (the current one
+		// is rewritten in place every interval, and VTT cue URLs carry no cache
+		// bust) must revalidate; segments and the one-shot poster are immutable.
+		switch {
+		case strings.Contains(rel, "sprites/"):
 			w.Header().Set("Cache-Control", "no-cache")
 		default:
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			switch strings.ToLower(filepath.Ext(full)) {
+			case ".m3u8", ".vtt", ".json":
+				w.Header().Set("Cache-Control", "no-cache")
+			default:
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
 		}
 
 		http.ServeContent(w, r, stat.Name(), stat.ModTime(), f)

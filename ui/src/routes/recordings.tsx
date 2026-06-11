@@ -9,29 +9,15 @@ import { InfoBar } from '../components/InfoBar';
 import { DataTable, type DataTableColumn } from '../components/primitives/DataTable';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
-import { api, API_BASE_URL } from '../lib/api';
+import { api } from '../lib/api';
+import { apiUrl } from '../lib/api_fetch';
+import { formatBytes, formatClock, formatStarted } from '../components/streams/format';
 import type { components } from '../lib/api.generated';
 
 type Recording = components['schemas']['RecordingStatusData'];
 
-function formatStarted(iso: string | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
-}
-
-function formatBytes(bytes: number | undefined): string {
-  if (!bytes || bytes <= 0) return '—';
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
 function formatLength(sec: number | undefined): string {
-  if (!sec || sec <= 0) return '—';
-  const s = Math.round(sec);
-  const m = Math.floor(s / 60);
-  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  return !sec || sec <= 0 ? '—' : formatClock(sec);
 }
 
 // Recordings lists every recording session (active in-memory + completed on
@@ -80,7 +66,9 @@ export default function Recordings() {
       header: '',
       cell: (r) => (
         <img
-          src={`${API_BASE_URL}/api/streams/${encodeURIComponent(r.stream_id)}/recordings/${encodeURIComponent(r.recording_id)}/poster.jpg`}
+          src={apiUrl(
+            `/api/streams/${encodeURIComponent(r.stream_id)}/recordings/${encodeURIComponent(r.recording_id)}/poster.jpg`,
+          )}
           alt=""
           loading="lazy"
           className="h-10 w-auto rounded border border-border"

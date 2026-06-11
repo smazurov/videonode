@@ -31,13 +31,22 @@ type RecordingConsumer struct {
 
 	startedAt time.Time
 
+	// onFailure is invoked at most once, off the media path, when a muxer
+	// write fails unrecoverably (e.g. disk full). Set by the manager.
+	onFailure func(err error)
+	failOnce  sync.Once
+
 	mu     sync.Mutex
 	closed bool
 }
 
 // newRecordingConsumer wires a muxer + reader callbacks for the stream's video
-// (required) and Opus audio (optional) tracks. A zero thumbCfg disables the
-// thumbnail track.
+// track. A zero thumbCfg disables the thumbnail track.
+//
+// Audio is intentionally not recorded yet: the relay's generic handler
+// delivers nil access units for Opus (server.go setupGenericHandler), and an
+// init.mp4 that declares an audio track which never receives samples stalls
+// MSE playback. Record video-only until the relay depacketizes Opus.
 func newRecordingConsumer(
 	stream *Stream,
 	recordingID, dir string,
@@ -52,13 +61,7 @@ func newRecordingConsumer(
 		isH265  bool
 		haveVid bool
 
-		aCodec     mp4codecs.Codec
-		aTimescale uint32
-
 		videoMedia *description.Media
-		videoForma format.Format
-		audioMedia *description.Media
-		audioForma format.Format
 	)
 
 	for _, medi := range desc.Medias {
@@ -68,23 +71,13 @@ func newRecordingConsumer(
 				if !haveVid {
 					vCodec = &mp4codecs.H264{SPS: f.SPS, PPS: f.PPS}
 					isH265, haveVid = false, true
-					videoMedia, videoForma = medi, forma
+					videoMedia = medi
 				}
 			case *format.H265:
 				if !haveVid {
 					vCodec = &mp4codecs.H265{VPS: f.VPS, SPS: f.SPS, PPS: f.PPS}
 					isH265, haveVid = true, true
-					videoMedia, videoForma = medi, forma
-				}
-			case *format.Opus:
-				if aCodec == nil {
-					ch := f.ChannelCount
-					if ch <= 0 {
-						ch = 2
-					}
-					aCodec = &mp4codecs.Opus{ChannelCount: ch}
-					aTimescale = uint32(f.ClockRate())
-					audioMedia, audioForma = medi, forma
+					videoMedia = medi
 				}
 			}
 		}
@@ -94,7 +87,7 @@ func newRecordingConsumer(
 		return nil, ErrNoSupportedCodecs
 	}
 
-	mux, err := newRecMuxer(dir, vCodec, isH265, aCodec, aTimescale, float64(segSec))
+	mux, err := newRecMuxer(dir, vCodec, isH265, float64(segSec))
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +102,10 @@ func newRecordingConsumer(
 	}
 
 	if thumbCfg.fetch != nil {
-		tw, terr := newThumbnailWriter(dir, thumbCfg, c.startedAt, logger)
+		// Anchor storyboard offsets to media t=0 (first accepted keyframe),
+		// not consumer creation — the encoder can take seconds to spawn.
+		thumbCfg.mediaStart = mux.mediaStartTime
+		tw, terr := newThumbnailWriter(dir, thumbCfg, logger)
 		if terr != nil {
 			_ = mux.close()
 			return nil, terr
@@ -119,15 +115,12 @@ func newRecordingConsumer(
 	}
 
 	c.reader = NewReader(stream, recordingID)
-	c.setupCallbacks(videoMedia, videoForma, isH265, audioMedia, audioForma)
+	c.setupCallbacks(videoMedia, isH265)
 
 	return c, nil
 }
 
-func (c *RecordingConsumer) setupCallbacks(
-	videoMedia *description.Media, _ format.Format, isH265 bool,
-	audioMedia *description.Media, _ format.Format,
-) {
+func (c *RecordingConsumer) setupCallbacks(videoMedia *description.Media, isH265 bool) {
 	c.reader.OnUnit(videoMedia, func(pts, dts int64, au [][]byte) error {
 		var keyframe bool
 		if isH265 {
@@ -136,14 +129,22 @@ func (c *RecordingConsumer) setupCallbacks(
 			keyframe = h264.IsRandomAccess(au)
 		}
 		off := max(pts-dts, 0)
-		return c.mux.writeVideo(dts, int32(off), au, keyframe)
+		err := c.mux.writeVideo(dts, int32(off), au, keyframe)
+		if err != nil {
+			// Reader.writeUnit discards callback errors, so surface the
+			// failure here exactly once and let the manager finalize.
+			c.failOnce.Do(func() {
+				c.logger.Error("recording write failed",
+					logging.KeyStreamID, c.streamID,
+					logging.KeySession, c.recordingID,
+					logging.KeyError, err)
+				if c.onFailure != nil {
+					go c.onFailure(err)
+				}
+			})
+		}
+		return err
 	})
-
-	if audioMedia != nil {
-		c.reader.OnUnit(audioMedia, func(pts, _ int64, packets [][]byte) error {
-			return c.mux.writeAudio(pts, packets)
-		})
-	}
 }
 
 // Stop detaches the reader, finalizes the playlist + thumbnail track, and is
@@ -169,17 +170,23 @@ func (c *RecordingConsumer) Stop() error {
 	return nil
 }
 
-// info returns a point-in-time status snapshot.
+// info returns a point-in-time status snapshot. Size and duration come from
+// the muxer's own counters, so status polling never touches the disk.
 func (c *RecordingConsumer) info() RecordingInfo {
 	c.mu.Lock()
 	active := !c.closed
 	c.mu.Unlock()
+	size := c.mux.bytesWritten()
+	if c.thumbs != nil {
+		size += c.thumbs.bytesWritten()
+	}
 	return RecordingInfo{
-		RecordingID: c.recordingID,
-		StreamID:    c.streamID,
-		Session:     c.recordingID, // recordingID is the session dir name
-		Active:      active,
-		StartedAt:   c.startedAt.UTC(),
-		Segments:    c.mux.segmentCount(),
+		RecordingID:     c.recordingID,
+		StreamID:        c.streamID,
+		Active:          active,
+		StartedAt:       c.startedAt.UTC(),
+		Segments:        c.mux.segmentCount(),
+		SizeBytes:       size,
+		DurationSeconds: c.mux.durationSeconds(),
 	}
 }

@@ -11,15 +11,10 @@ import { EntityDetailLayout } from '../components/primitives/EntityDetailLayout'
 import { Button } from '../components/Button';
 import { RecordingPlayer } from '../components/streams/RecordingPlayer';
 import { api } from '../lib/api';
+import { formatStarted } from '../components/streams/format';
 import type { components } from '../lib/api.generated';
 
 type Recording = components['schemas']['RecordingStatusData'];
-
-function formatStarted(iso: string | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
-}
 
 // RecordingDetail plays back a single recording session; an active session
 // can be stopped here, a finished one deleted. Recordings are created on a
@@ -84,7 +79,7 @@ export default function RecordingDetail() {
           subtitle={
             <span className="font-mono text-xs">
               {streamId}
-              {status?.started_at ? ` · ${formatStarted(status.started_at)}` : ''}
+              {status?.started_at ? ` · ${formatStarted(status.started_at, '')}` : ''}
             </span>
           }
           actions={
