@@ -496,6 +496,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Recordings
+         * @description List recording sessions (active in-memory + completed on disk).
+         */
+        get: operations["list-recordings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources": {
         parameters: {
             query?: never;
@@ -618,6 +638,54 @@ export interface paths {
          * @description Partially update a stream's slim configuration
          */
         patch: operations["update-stream"];
+        trace?: never;
+    };
+    "/api/streams/{stream_id}/recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Recording Status
+         * @description Get the active recording status for a stream.
+         */
+        get: operations["get-recording"];
+        put?: never;
+        /**
+         * Start Recording
+         * @description Start recording a stream to fMP4/HLS on disk. Pins the encoder up for the recording's duration.
+         */
+        post: operations["start-recording"];
+        /**
+         * Stop Recording
+         * @description Stop the active recording for a stream and finalize the playlist.
+         */
+        delete: operations["stop-recording"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/streams/{stream_id}/recordings/{session}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Recording
+         * @description Delete a completed recording session's files from disk.
+         */
+        delete: operations["delete-recording"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/streams/{stream_id}/{protocol}/consumers/{client_id}": {
@@ -1300,6 +1368,35 @@ export interface components {
              */
             type: "composer.updated";
         };
+        EntityRecordingCreated: {
+            id: string;
+            payload: components["schemas"]["RecordingStatusData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "recording.created";
+        };
+        EntityRecordingDeleted: {
+            id: string;
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "recording.deleted";
+        };
+        EntityRecordingUpdated: {
+            id: string;
+            payload: components["schemas"]["RecordingStatusData"];
+            timestamp: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "recording.updated";
+        };
         EntitySourceConsumers: {
             id: string;
             payload: components["schemas"]["SourceConsumersInfo"];
@@ -1788,6 +1885,75 @@ export interface components {
             client_ip: string;
             connected_since: string;
             id: string;
+        };
+        RecordingListData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RecordingListData.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Number of recordings
+             * @example 3
+             */
+            count: number;
+            /** @description Recording sessions (active + on-disk) */
+            recordings: components["schemas"]["RecordingStatusData"][] | null;
+        };
+        RecordingStatusData: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RecordingStatusData.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Whether the recording is currently capturing
+             * @example true
+             */
+            active: boolean;
+            /**
+             * Format: double
+             * @description Recorded length in seconds (elapsed time while active)
+             * @example 95.7
+             */
+            duration_seconds: number;
+            /**
+             * @description HLS playlist URL
+             * @example /api/streams/stream-001/recordings/20260610T120000Z/index.m3u8
+             */
+            playlist_url?: string;
+            /**
+             * @description Recording session id
+             * @example 20260610T120000Z
+             */
+            recording_id: string;
+            /**
+             * Format: int64
+             * @description HLS segments written so far
+             * @example 12
+             */
+            segments: number;
+            /**
+             * Format: int64
+             * @description Bytes on disk for this session
+             * @example 12582912
+             */
+            size_bytes: number;
+            /**
+             * Format: date-time
+             * @description UTC start time
+             */
+            started_at: string;
+            /**
+             * @description Recorded stream
+             * @example stream-001
+             */
+            stream_id: string;
+            /** @description WebVTT storyboard track URL (Media Chrome hover preview) */
+            thumbnails_vtt_url?: string;
         };
         Resolution: {
             /**
@@ -3267,7 +3433,7 @@ export interface operations {
                         /** @description The retry time in milliseconds. */
                         retry?: number;
                     } | {
-                        data: components["schemas"]["EntitySourceCreated"] | components["schemas"]["EntitySourceUpdated"] | components["schemas"]["EntitySourceDeleted"] | components["schemas"]["EntitySourceStatus"] | components["schemas"]["EntitySourceConsumers"] | components["schemas"]["EntityComposerCreated"] | components["schemas"]["EntityComposerUpdated"] | components["schemas"]["EntityComposerDeleted"] | components["schemas"]["EntityStreamCreated"] | components["schemas"]["EntityStreamUpdated"] | components["schemas"]["EntityStreamDeleted"] | components["schemas"]["EntityStreamStatus"] | components["schemas"]["EntityStreamMetrics"] | components["schemas"]["EntityStreamConsumers"];
+                        data: components["schemas"]["EntitySourceCreated"] | components["schemas"]["EntitySourceUpdated"] | components["schemas"]["EntitySourceDeleted"] | components["schemas"]["EntitySourceStatus"] | components["schemas"]["EntitySourceConsumers"] | components["schemas"]["EntityComposerCreated"] | components["schemas"]["EntityComposerUpdated"] | components["schemas"]["EntityComposerDeleted"] | components["schemas"]["EntityStreamCreated"] | components["schemas"]["EntityStreamUpdated"] | components["schemas"]["EntityStreamDeleted"] | components["schemas"]["EntityStreamStatus"] | components["schemas"]["EntityStreamMetrics"] | components["schemas"]["EntityStreamConsumers"] | components["schemas"]["EntityRecordingCreated"] | components["schemas"]["EntityRecordingUpdated"] | components["schemas"]["EntityRecordingDeleted"];
                         /**
                          * @description The event name.
                          * @constant
@@ -3690,6 +3856,44 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingListData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4318,6 +4522,260 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stream identifier */
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingStatusData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "start-recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stream identifier */
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingStatusData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "stop-recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stream identifier */
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingStatusData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stream identifier */
+                stream_id: string;
+                /** @description Recording session id */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

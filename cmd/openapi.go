@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -27,6 +28,8 @@ func CreateOpenAPICmd() *cobra.Command {
 				StreamProvider:    noopStreamProvider{},
 				WebRTCManager:     &streaming.WebRTCManager{},
 				ProcessesProvider: noopProcessesProvider{},
+				RecordingManager: streaming.NewRecordingManager(
+					noopStreamProvider{}, streaming.RecordingConfig{Dir: "./recordings"}, nil, slog.Default()),
 			}
 			// Wire the entity services so all CRUD routes surface in the
 			// spec; the in-memory store never touches disk and a nil

@@ -15,6 +15,7 @@ import { useStreamStore } from '../../hooks/useStreamStore';
 import { buildStreamURL } from '../../lib/api';
 import type { components } from '../../lib/api.generated';
 import { resolveUpstream, type UpstreamRef } from './upstream';
+import { codecBitrate } from './format';
 
 type StreamData = components['schemas']['StreamData'];
 
@@ -35,13 +36,6 @@ interface StreamListProps {
 function encoderStatusTone(stream: StreamData): { status: StatusPillStatus; label: string } {
   const s = poolStateToPill(stream.status);
   return { status: s, label: s };
-}
-
-function codecBitrate(stream: StreamData): string {
-  const codec = stream.encoder?.codec || '—';
-  const bitrate = stream.encoder?.bitrate;
-  if (!bitrate) return codec.toLowerCase();
-  return `${codec.toLowerCase()} ${bitrate}`;
 }
 
 function UpstreamBadge({ upstream }: { readonly upstream: UpstreamRef }) {

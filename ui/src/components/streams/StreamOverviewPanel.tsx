@@ -7,6 +7,8 @@ import { SectionHeader } from '../primitives/SectionHeader';
 import { Badge } from '../Badge';
 import { WebRTCPlayer } from '../webrtc';
 import { resolveUpstream } from './upstream';
+import { codecBitrate } from './format';
+import { RecordingControls } from './RecordingControls';
 import { cn } from '../../utils';
 
 interface StreamOverviewPanelProps {
@@ -38,8 +40,8 @@ export function StreamOverviewPanel({ streamId, className, videoHidden = false }
   return (
     <section className={cn('space-y-4 rounded-lg border border-border bg-surface-raised p-4', className)}>
       <SectionHeader
-        title="Live preview"
-        description="WebRTC playback of this stream"
+        title="Overview"
+        description="Live preview, pipeline state, and recording"
         actions={<StatusPill status={status} />}
       />
 
@@ -61,7 +63,7 @@ export function StreamOverviewPanel({ streamId, className, videoHidden = false }
         </LivePreviewFrame>
       )}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-md border border-border bg-surface-muted/30 p-3">
           <div className="text-xs uppercase tracking-wide text-fg-muted">Upstream</div>
           <div className="mt-1">
@@ -78,10 +80,9 @@ export function StreamOverviewPanel({ streamId, className, videoHidden = false }
         </div>
         <div className="rounded-md border border-border bg-surface-muted/30 p-3">
           <div className="text-xs uppercase tracking-wide text-fg-muted">Encoder</div>
-          <div className="mt-1">
-            <StatusPill status={status} />
-          </div>
+          <div className="mt-1.5 font-mono text-sm text-fg">{codecBitrate(stream)}</div>
         </div>
+        <RecordingControls streamId={streamId} />
       </div>
     </section>
   );

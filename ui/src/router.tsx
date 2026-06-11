@@ -22,6 +22,9 @@ const routes = {
   StreamDetail: lazy(() => import("./routes/stream-detail")),
   EditStream: lazy(() => import("./routes/edit-stream")),
 
+  Recordings: lazy(() => import("./routes/recordings")),
+  RecordingDetail: lazy(() => import("./routes/recording-detail")),
+
   Logs: lazy(() => import("./routes/logs")),
 };
 
@@ -136,6 +139,24 @@ export const router = createBrowserRouter([
         element: (
           <Guarded>
             <routes.EditStream />
+          </Guarded>
+        ),
+      },
+
+      // Recordings
+      {
+        path: "recordings",
+        element: (
+          <Guarded>
+            <routes.Recordings />
+          </Guarded>
+        ),
+      },
+      {
+        path: "recordings/:streamId/:session",
+        element: (
+          <Guarded>
+            <routes.RecordingDetail />
           </Guarded>
         ),
       },

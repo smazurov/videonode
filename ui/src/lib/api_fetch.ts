@@ -44,6 +44,42 @@ export function fetchWithTimeout(
   return fetch(input, { ...init, signal }).finally(() => clearTimeout(timer));
 }
 
+// fetchJSONRaw GETs a same-origin URL and parses JSON. Used for recording
+// artifacts that are static files served outside the typed OpenAPI surface.
+// Returns null on any transport/parse failure or non-2xx.
+export async function fetchJSONRaw<T>(url: string): Promise<T | null> {
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return null;
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+// fetchTextRaw mirrors fetchJSONRaw for plain-text artifacts (thumbnails.vtt).
+export async function fetchTextRaw(url: string): Promise<string | null> {
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return null;
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
+// fetchBitmapRaw GETs an image (sprite sheet) and decodes it off the main
+// thread. Returns null on any failure.
+export async function fetchBitmapRaw(url: string): Promise<ImageBitmap | null> {
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return null;
+    return await createImageBitmap(await response.blob());
+  } catch {
+    return null;
+  }
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);

@@ -96,6 +96,12 @@ type Options struct {
 	// Snapshot preview settings
 	PreviewMaxFPS int `help:"Max fps for snapshot preview streams" default:"10" toml:"preview.max_fps" env:"PREVIEW_MAX_FPS"`
 
+	// Recording settings
+	RecordingDir              string `help:"Recording output directory" default:"./recordings" toml:"recording.dir" env:"RECORDING_DIR"`
+	RecordingSegmentSeconds   int    `help:"Target HLS segment length in seconds" default:"6" toml:"recording.segment_seconds" env:"RECORDING_SEGMENT_SECONDS"`
+	RecordingThumbnailSeconds int    `help:"Scrub-thumbnail interval in seconds (0 disables)" default:"5" toml:"recording.thumbnail_seconds" env:"RECORDING_THUMBNAIL_SECONDS"`
+	RecordingThumbnailWidth   int    `help:"Scrub-thumbnail width in pixels" default:"240" toml:"recording.thumbnail_width" env:"RECORDING_THUMBNAIL_WIDTH"`
+
 	// Native pipeline binaries. When present + executable, single V4L2
 	// streams and GPU canvases route through these instead of the legacy
 	// ffmpeg-direct path. Empty path == component unavailable; legacy
@@ -175,12 +181,20 @@ func main() {
 			srtServer = streaming.NewSRTServer(streamingServer, srtConfig, logging.GetLogger("srt"))
 		}
 
+		// Recording manager (manual start/stop, fMP4/HLS to disk). Assigned
+		// after the snapshot cache is built (it backs the thumbnail track);
+		// referenced here so a producer replacement finalizes any recording.
+		var recordingManager *streaming.RecordingManager
+
 		// Close WebRTC and SRT consumers when stream producer is replaced (enables client reconnection)
 		streamingServer.SetOnProducerReplaced(func(streamID string) {
 			streamingLogger.Info("Producer replaced, closing consumers", logging.KeyStreamID, streamID)
 			webrtcManager.CloseStreamConsumers(streamID)
 			if srtServer != nil {
 				srtServer.CloseStreamConsumers(streamID)
+			}
+			if recordingManager != nil {
+				recordingManager.CloseStreamConsumers(streamID)
 			}
 		})
 
@@ -369,6 +383,23 @@ func main() {
 			snapshots.FFmpegEncoder{},
 		)
 
+		// Recording: stream-copy the encoded relay to fMP4/HLS on disk. The
+		// thumbnail track pulls JPEGs from the snapshot cache (no extra
+		// decode/encode beyond a downscale), keyed off the stream's upstream.
+		recordingThumbSrc := func(ctx context.Context, kind, id string) ([]byte, int, int, error) {
+			entry, err := snapshotCache.Get(ctx, snapshots.Kind(kind), id)
+			if err != nil {
+				return nil, 0, 0, err
+			}
+			return entry.JPEG, entry.Width, entry.Height, nil
+		}
+		recordingManager = streaming.NewRecordingManager(streamingServer, streaming.RecordingConfig{
+			Dir:            opts.RecordingDir,
+			SegmentSec:     opts.RecordingSegmentSeconds,
+			ThumbnailSec:   opts.RecordingThumbnailSeconds,
+			ThumbnailWidth: opts.RecordingThumbnailWidth,
+		}, recordingThumbSrc, logging.GetLogger("recording"))
+
 		apiOpts := &api.Options{
 			Authenticator:      authenticator,
 			StreamService:      streamSvc,
@@ -379,6 +410,7 @@ func main() {
 			EventRegistry:      eventRegistry,
 			WebRTCManager:      webrtcManager,
 			SRTServer:          srtServer,
+			RecordingManager:   recordingManager,
 			StreamProvider:     streamingServer,
 			SnapshotCache:      snapshotCache,
 			PrometheusHandler:  promhttp.Handler(), // Prometheus metrics via promauto
@@ -516,6 +548,11 @@ func main() {
 				if err := ctlServer.Stop(); err != nil {
 					logger.Error("Error stopping control manager", logging.KeyError, err)
 				}
+			}
+
+			// Finalize any in-flight recordings before tearing down processes.
+			if recordingManager != nil {
+				recordingManager.StopAll()
 			}
 
 			// Stop all supervised stream/source/composer processes.

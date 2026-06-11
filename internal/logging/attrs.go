@@ -119,6 +119,7 @@ const (
 	KeyInterlaced     = "interlaced"
 	KeyOverheadBW     = "overhead_bw"
 	KeyPayloadSize    = "payload_size"
+	KeySession        = "session"
 )
 
 // HTTP requests.

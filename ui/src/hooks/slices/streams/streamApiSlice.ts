@@ -10,9 +10,11 @@ import { StreamStore } from '../../useStreamStore';
 import type { components } from '../../../lib/api.generated';
 
 type StreamRequestData = components['schemas']['StreamRequestData'];
+type RecordingStatusData = components['schemas']['RecordingStatusData'];
 
 const STREAMS_PATH = '/api/streams' as const;
 const STREAM_ID_PATH = '/api/streams/{stream_id}' as const;
+const RECORDING_PATH = '/api/streams/{stream_id}/recording' as const;
 
 export interface StreamAPISlice {
   fetchStreams: () => Promise<void>;
@@ -24,6 +26,9 @@ export interface StreamAPISlice {
     data: Partial<StreamRequestData>,
   ) => Promise<Stream>;
   deleteStream: (streamId: string) => Promise<void>;
+  startRecording: (streamId: string) => Promise<RecordingStatusData>;
+  stopRecording: (streamId: string) => Promise<RecordingStatusData>;
+  getRecording: (streamId: string) => Promise<RecordingStatusData | null>;
 }
 
 export const createStreamAPISlice: StateCreator<
@@ -100,5 +105,35 @@ export const createStreamAPISlice: StateCreator<
       }),
       'Failed to delete stream',
     );
+  },
+
+  startRecording: async (streamId) => {
+    const data = unwrap(
+      await api.POST(RECORDING_PATH, {
+        params: { path: { stream_id: streamId } },
+      }),
+      'Failed to start recording',
+    );
+    return data as RecordingStatusData;
+  },
+
+  stopRecording: async (streamId) => {
+    const data = unwrap(
+      await api.DELETE(RECORDING_PATH, {
+        params: { path: { stream_id: streamId } },
+      }),
+      'Failed to stop recording',
+    );
+    return data as RecordingStatusData;
+  },
+
+  // getRecording returns null when the stream isn't recording (404), so a
+  // missing recording is a normal state rather than a thrown error.
+  getRecording: async (streamId) => {
+    const { data, error } = await api.GET(RECORDING_PATH, {
+      params: { path: { stream_id: streamId } },
+    });
+    if (error) return null;
+    return data as RecordingStatusData;
   },
 });

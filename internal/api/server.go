@@ -39,6 +39,7 @@ type Server struct {
 	sourceEntity       *events.Entity[models.SourceData]
 	composerEntity     *events.Entity[models.ComposerData]
 	streamEntity       *events.Entity[models.StreamData]
+	recordingEntity    *events.Entity[models.RecordingStatusData]
 	controlServer      *pipelinectl.Manager
 	logger             logging.Logger
 	sseClients         atomic.Int64
@@ -175,12 +176,13 @@ type Options struct {
 		Available() []string
 		Patterns() []string
 	}
-	WebRTCManager     *streaming.WebRTCManager // WebRTC signaling manager
-	SRTServer         *streaming.SRTServer     // SRT consumer server (optional)
-	StreamProvider    streaming.StreamProvider // Stream access for WebRTC
-	SnapshotCache     *snapshots.Cache         // In-memory JPEG cache for snapshot/preview endpoints
-	ControlServer     *pipelinectl.Manager     // Optional control plane for native sidecars
-	ProcessesProvider ProcessesProvider        // Optional: enables GET /api/processes when set
+	WebRTCManager     *streaming.WebRTCManager    // WebRTC signaling manager
+	SRTServer         *streaming.SRTServer        // SRT consumer server (optional)
+	RecordingManager  *streaming.RecordingManager // Recording manager (optional): enables /api/.../recording
+	StreamProvider    streaming.StreamProvider    // Stream access for WebRTC
+	SnapshotCache     *snapshots.Cache            // In-memory JPEG cache for snapshot/preview endpoints
+	ControlServer     *pipelinectl.Manager        // Optional control plane for native sidecars
+	ProcessesProvider ProcessesProvider           // Optional: enables GET /api/processes when set
 	// StreamingRTSPPort is the daemon's RTSP listen address as configured
 	// at startup (":8554" by default). Used in API responses (rtsp_url
 	// field) so clients dial the actual published port, not a hardcoded
@@ -273,6 +275,19 @@ func NewServer(opts *Options) *Server {
 						return models.StreamData{}, err
 					}
 					return server.streamToAPI(*st), nil
+				},
+			})
+		}
+		if opts.RecordingManager != nil {
+			mgr := opts.RecordingManager
+			// RoutePrefix is empty on purpose: recordings are stream
+			// sub-resources (no POST /api/recordings create), published
+			// explicitly from the handlers rather than by route middleware.
+			server.recordingEntity = events.Register(opts.EventRegistry, events.Registration[models.RecordingStatusData]{
+				Type: "recording",
+				IDOf: recordingEventID,
+				Loader: func(_ context.Context, id string) (models.RecordingStatusData, error) {
+					return loadRecordingByEventID(mgr, id)
 				},
 			})
 		}
@@ -573,6 +588,12 @@ func (s *Server) registerRoutes() {
 	// Snapshot/preview endpoints (in-memory JPEG cache + multipart MJPEG)
 	if s.options.SnapshotCache != nil {
 		snapshots.RegisterAPI(s.mux, s.options.SnapshotCache)
+	}
+
+	// Recording control (Huma) + static playback file serving (raw mux).
+	if s.options.RecordingManager != nil {
+		s.registerRecordingRoutes()
+		streaming.RegisterRecordingFiles(s.mux, s.options.RecordingManager.Dir())
 	}
 
 	// SSE endpoints

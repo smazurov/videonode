@@ -14,6 +14,7 @@ const NAV_TABS = [
   { to: "/sources", label: "Sources" },
   { to: "/composers", label: "Composers" },
   { to: "/streams", label: "Streams" },
+  { to: "/recordings", label: "Recordings" },
   { to: "/logs", label: "Logs" },
 ] as const;
 

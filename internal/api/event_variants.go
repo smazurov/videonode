@@ -35,5 +35,9 @@ func registerEntityVariants() {
 		events.RegisterVariant[streaming.StreamStatusPayload]("stream", "status")
 		events.RegisterVariant[streaming.StreamMetricsPayload]("stream", "metrics")
 		events.RegisterVariant[streaming.StreamConsumersPayload]("stream", "consumers")
+
+		events.RegisterVariant[models.RecordingStatusData]("recording", "created")
+		events.RegisterVariant[models.RecordingStatusData]("recording", "updated")
+		events.RegisterDeleteVariant("recording")
 	})
 }
