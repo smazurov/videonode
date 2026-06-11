@@ -20,3 +20,6 @@ composer/build/
 composer/compile_commands.json
 .claude/skills/playwright-cli/
 .playwright*/
+
+# Recording sessions (fMP4/HLS + storyboards) written by the daemon
+recordings/
