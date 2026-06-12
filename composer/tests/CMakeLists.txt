@@ -61,6 +61,10 @@ if(HAVE_PLACEBO AND HAVE_GBM)
         DEPS csc gbm_alloc
         LABELS render)
 
+    vn_add_test(csc_placebo_bgra
+        DEPS csc gbm_alloc
+        LABELS render)
+
     vn_add_test(pl_compose_fd_leak
         DEPS pl_compose gbm_alloc
         LABELS render)
@@ -75,6 +79,14 @@ if(HAVE_PLACEBO AND HAVE_GBM)
 
     vn_add_test(nv12_ring_overwrite
         DEPS gbm_alloc
+        LABELS render)
+
+    vn_add_test(nv12_stage_roundtrip
+        DEPS nv12_buf
+        LABELS render)
+
+    vn_add_test(udmabuf_import_readback
+        DEPS pl_compose nv12_buf
         LABELS render)
 
     vn_add_test(pipeline_tearing

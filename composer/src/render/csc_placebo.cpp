@@ -118,6 +118,7 @@ struct CscTextures {
     pl_tex dst_y = nullptr;
     pl_tex dst_uv = nullptr;
     bool src_is_nv12 = false;
+    bool src_rgb_swapped = false;
     int src_w = 0, src_h = 0;
     int dst_w = 0, dst_h = 0;
     bool dst_bt709 = false;
@@ -136,6 +137,10 @@ void set_frame_rgb(pl_frame& f, const CscTextures& t) {
     f.planes[0].components = 4;
     for (int i = 0; i < 4; ++i)
         f.planes[0].component_mapping[i] = i;
+    if (t.src_rgb_swapped) {
+        f.planes[0].component_mapping[0] = 2;
+        f.planes[0].component_mapping[2] = 0;
+    }
     f.repr.sys = PL_COLOR_SYSTEM_RGB;
     f.repr.levels = PL_COLOR_LEVELS_FULL;
     set_crop(f, t);
@@ -190,11 +195,13 @@ void set_frame_uyvy(pl_frame& f, const CscTextures& t) {
 }
 
 bool import_bgra(pl_gpu gpu, TexBag& bag, const csc::ConvertParams& src, CscTextures& t) {
-    pl_fmt fmt = pl_find_named_fmt(gpu, "bgra8");
-    if (!fmt)
-        fmt = pl_find_named_fmt(gpu, "rgba8");
+    // GL's dma-buf import derives the fourcc from the component layout, so
+    // a "bgra8" import still samples byte0 (=B) into channel 0 and swaps
+    // R/B. Import byte-straight as rgba8 and swap R<->B in the mapping.
+    pl_fmt fmt = pl_find_named_fmt(gpu, "rgba8");
     if (!fmt)
         return false;
+    t.src_rgb_swapped = true;
     const int pitch = src.wstride > 0 ? src.wstride : src.width * 4;
     t.src_rgb = bag.add({.gpu = gpu,
                          .fmt = fmt,
