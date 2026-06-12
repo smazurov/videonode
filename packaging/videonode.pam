@@ -1,0 +1,10 @@
+# PAM stack for the videonode-session helper (web Basic-Auth verification).
+# Installed to /etc/pam.d/videonode. Target: Debian trixie.
+#
+# The pam_succeed_if gate mirrors the daemon's Go-side videonode-group check:
+# the helper is setuid root and executable by anyone, so without this gate it
+# would act as a password oracle for arbitrary local accounts. With it, the
+# helper only ever verifies passwords of accounts that may log in anyway.
+auth      requisite   pam_succeed_if.so quiet user ingroup videonode
+@include common-auth
+@include common-account

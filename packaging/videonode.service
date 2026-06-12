@@ -20,7 +20,12 @@ RestartSec=5
 # stdout so systemd doesn't capture a second plain-text copy of every line.
 StandardOutput=null
 StandardError=journal
-SupplementaryGroups=video render shadow audio
+# No shadow group: password verification is privilege-separated into the
+# setuid-root videonode-session helper, so neither the daemon nor any child
+# it spawns (ffmpeg, videonode-*) can read /etc/shadow. Do not add
+# NoNewPrivileges=true (or hardening that implies it) — it would block the
+# helper's setuid transition and silently break Linux auth.
+SupplementaryGroups=video render audio
 Environment=ALSA_CONFIG_PATH=/usr/share/videonode/videonode.asound.conf
 
 [Install]

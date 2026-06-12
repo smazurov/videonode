@@ -50,6 +50,20 @@ contents:
     file_info:
       mode: 0755
 
+  # Setuid root: the privilege-separated PAM helper. The daemon (and every
+  # process it spawns) runs without the shadow group; this is the only binary
+  # that can read /etc/shadow, via the PAM stack in /etc/pam.d/videonode.
+  - src: ./dist/videonode-session
+    dst: /usr/bin/videonode-session
+    file_info:
+      mode: 04755
+      owner: root
+      group: root
+
+  - src: ./packaging/videonode.pam
+    dst: /etc/pam.d/videonode
+    type: config
+
   - src: ./packaging/videonode.service
     dst: /usr/lib/systemd/system/videonode.service
 

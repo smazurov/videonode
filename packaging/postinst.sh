@@ -6,10 +6,11 @@ case "$1" in
         systemd-sysusers videonode.conf
         systemd-tmpfiles --create videonode.conf
 
-        # Grant the daemon read access to /etc/shadow so the Linux auth
-        # backend can validate user passwords without unix_chkpwd.
-        if getent group shadow >/dev/null 2>&1; then
-            usermod -aG shadow videonode >/dev/null 2>&1 || true
+        # Pre-privsep packages granted the daemon the shadow group so it could
+        # read /etc/shadow in-process; password checks now run in the setuid
+        # videonode-session helper, so revoke the leftover grant on upgrade.
+        if id -nG videonode 2>/dev/null | tr ' ' '\n' | grep -qx shadow; then
+            gpasswd -d videonode shadow >/dev/null 2>&1 || true
         fi
 
         # Add the invoking admin (sudo apt install/upgrade) to the videonode

@@ -83,7 +83,8 @@ jobs:
       - name: Compute runtime deps (dpkg-shlibdeps)
         run: |
           scripts/gen-deb-depends.sh \
-            dist/videonode-source dist/videonode-sink dist/videonode-composer > dist/depends.txt
+            dist/videonode-source dist/videonode-sink dist/videonode-composer \
+            dist/videonode-session > dist/depends.txt
           echo "Generated .deb depends:"; cat dist/depends.txt
 
       - uses: actions/upload-artifact@v7
@@ -119,7 +120,7 @@ jobs:
           sudo apt-get install -y lintian
       - name: Package
         run: |
-          chmod +x dist/videonode dist/videonode-source dist/videonode-sink dist/videonode-composer
+          chmod +x dist/videonode dist/videonode-source dist/videonode-sink dist/videonode-composer dist/videonode-session
           # Overwrite the static fallback depends with the dpkg-shlibdeps list
           # computed against the real binaries in the trixie build job.
           yq -i '.depends = (load_str("dist/depends.txt") | split("\n") | map(select(. != "")))' nfpm.yaml
@@ -129,7 +130,10 @@ jobs:
             nfpm package --packager ${{ matrix.format }} --target dist/
       - name: Lint
         # latest-changelog-entry-without-new-date: we cut multiple releases per day.
-        run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary,latest-changelog-entry-without-new-date dist/*.${{ matrix.format }}
+        # elevated-privileges (and its pre-rename alias setuid-binary):
+        # videonode-session is deliberately setuid root — it is the
+        # privilege-separated PAM helper (see packaging/videonode.pam + nfpm.yaml).
+        run: lintian --tag-display-limit 0 --suppress-tags statically-linked-binary,latest-changelog-entry-without-new-date,elevated-privileges,setuid-binary dist/*.${{ matrix.format }}
       - uses: actions/upload-artifact@v7
         with:
           name: pkg-${{ matrix.arch }}-${{ matrix.format }}
