@@ -112,11 +112,11 @@ Follow these steps in order.
 
 The post-install script creates a `videonode` system user, writes default configuration to `/etc/videonode/config.toml`, enables `videonode.service`, and starts it immediately.
 
-The package installs the Go daemon (`/usr/bin/videonode`), the three native pipeline binaries (`videonode-source`, `videonode-sink`, `videonode-composer`), the `videonode.service` systemd unit, and the default `/etc/videonode/config.toml`. It does not bundle the Rockchip hardware stack (ffmpeg with `h264_rkmpp`, RGA, MPP); install that separately as described under [Install required runtime dependencies](#install-required-runtime-dependencies). The service logs a warning when those libraries are missing.
+The package installs the Go daemon (`/usr/bin/videonode`), the three native pipeline binaries (`videonode-source`, `videonode-sink`, `videonode-composer`), the `videonode-session` login helper with its PAM stack (`/etc/pam.d/videonode`), the `videonode.service` systemd unit, and the default `/etc/videonode/config.toml`. It does not bundle the Rockchip hardware stack (ffmpeg with `h264_rkmpp`, RGA, MPP); install that separately as described under [Install required runtime dependencies](#install-required-runtime-dependencies). The service logs a warning when those libraries are missing.
 
 ## Web UI authentication
 
-VideoNode authenticates web UI logins against the Linux user database (`/etc/shadow`). Two things must be true for a user to log in:
+VideoNode authenticates web UI logins against the Linux user database via PAM. Two things must be true for a user to log in:
 
 1. The user has a regular Linux account on the box.
 2. The user is a member of the `videonode` group.
@@ -127,7 +127,7 @@ If you ran `apt install` with `sudo`, the postinst script enrolls `$SUDO_USER` i
 sudo adduser "$USER" videonode
 ```
 
-You'll need to log out and back in (or run `newgrp videonode`) for the new group membership to take effect for new shells. The daemon itself has read access to `/etc/shadow` via its membership in the `shadow` group, granted automatically at install time.
+You'll need to log out and back in (or run `newgrp videonode`) for the new group membership to take effect for new shells. The daemon itself never reads `/etc/shadow`: password checks run in `videonode-session`, a setuid-root helper installed with the package that performs the PAM conversation and returns a yes/no verdict.
 
 To add another operator later, run the same `adduser ... videonode` command for their account.
 

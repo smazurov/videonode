@@ -194,7 +194,7 @@ Use `go doc -all <path>` for complete documentation including unexported symbols
 
 ### API Design
 - **OpenAPI Documentation**: Automatically generated at `/docs` endpoint
-- **Authentication**: All endpoints except `/api/health` require auth — Linux (`/etc/shadow`) by default, Basic Auth fallback when shadow is unreadable
+- **Authentication**: All endpoints except `/api/health` require auth — Linux (PAM via the setuid `videonode-session` helper) by default, Basic Auth fallback when the helper is not installed
 - **RESTful Design**: Standard HTTP methods and status codes
 - **Error Handling**: Structured error responses with Huma v2 error format
 - **SSE Support**: Real-time updates via Server-Sent Events at `/api/events/*`

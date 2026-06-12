@@ -106,7 +106,7 @@ The mapping is `VIDEONODE_<ENV_TAG>`, where the env tag corresponds to the secti
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `type` | string | `"linux"` | Authentication type. `"linux"` verifies credentials against `/etc/shadow` in pure Go (yescrypt, SHA-256/512, MD5-APR1) and requires the user to be in the `videonode` group; `"basic"` uses the username and password fields below. If `/etc/shadow` is unreadable, the daemon silently falls back to basic auth. |
+| `type` | string | `"linux"` | Authentication type. `"linux"` verifies credentials via PAM (the setuid `videonode-session` helper and `/etc/pam.d/videonode`) and requires the user to be in the `videonode` group; `"basic"` uses the username and password fields below. If the helper is not installed, the daemon falls back to basic auth and logs a warning. |
 | `username` | string | `"videonode"` | Basic auth username. Used when `type = "basic"` or when Linux auth is unavailable. |
 | `password` | string | `"videonode"` | Basic auth password. Used when `type = "basic"` or when Linux auth is unavailable. |
 
