@@ -82,7 +82,7 @@ if(HAVE_PLACEBO AND HAVE_GBM)
         LABELS render)
 
     vn_add_test(nv12_stage_roundtrip
-        DEPS nv12_buf
+        DEPS nv12_buf gbm_alloc
         LABELS render)
 
     vn_add_test(udmabuf_import_readback
