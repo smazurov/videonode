@@ -60,13 +60,36 @@ struct LiveSource {
     std::string scm_path;
 };
 
+using DialRetryMap = std::map<std::string, std::chrono::steady_clock::time_point>;
+
+constexpr std::chrono::milliseconds kDialRetryInterval{1000};
+
+bool dial_slot_(const SlotBinding& b, std::map<std::string, LiveSource>& live) {
+    auto s = std::make_unique<scm_rights_source::ScmRightsSource>();
+    scm_rights_source::InitParams p;
+    p.socket_path = b.scm_path;
+    p.dial = true;
+    // Single connect attempt: this runs on the render thread, and a down
+    // producer must not stall the other slots.
+    p.dial_timeout_ms = 0;
+    if (!s->init(p) || !s->start())
+        return false;
+    LiveSource ls;
+    ls.src = std::move(s);
+    ls.scm_path = b.scm_path;
+    live[b.slot] = std::move(ls);
+    vn::log::info("canvas_loop: dialed slot %s -> %s (%s)", b.slot.c_str(), b.source_id.c_str(),
+                  b.scm_path.c_str());
+    return true;
+}
+
 void reconcile_sources_(std::map<std::string, LiveSource>& live,
-                        const std::vector<SlotBinding>& bindings) {
+                        const std::vector<SlotBinding>& bindings, DialRetryMap& retry_at) {
     std::vector<std::string> to_drop;
     for (const auto& [slot, ls] : live) {
         auto it = std::find_if(bindings.begin(), bindings.end(),
                                [&](const SlotBinding& b) { return b.slot == slot; });
-        if (it == bindings.end() || it->scm_path != ls.scm_path)
+        if (it == bindings.end() || it->scm_path != ls.scm_path || (ls.src && !ls.src->running()))
             to_drop.push_back(slot);
     }
     for (const auto& slot : to_drop) {
@@ -78,29 +101,17 @@ void reconcile_sources_(std::map<std::string, LiveSource>& live,
             vn::log::info("canvas_loop: dropped slot %s", slot.c_str());
         }
     }
+    const auto now = std::chrono::steady_clock::now();
     for (const auto& b : bindings) {
         if (live.find(b.slot) != live.end())
             continue;
-        auto s = std::make_unique<scm_rights_source::ScmRightsSource>();
-        scm_rights_source::InitParams p;
-        p.socket_path = b.scm_path;
-        p.dial = true;
-        if (!s->init(p)) {
-            vn::log::error("canvas_loop: init slot %s (%s) failed", b.slot.c_str(),
-                           b.scm_path.c_str());
+        auto rit = retry_at.find(b.slot);
+        if (rit != retry_at.end() && now < rit->second)
             continue;
-        }
-        if (!s->start()) {
-            vn::log::error("canvas_loop: start slot %s (%s) failed", b.slot.c_str(),
-                           b.scm_path.c_str());
-            continue;
-        }
-        LiveSource ls;
-        ls.src = std::move(s);
-        ls.scm_path = b.scm_path;
-        live[b.slot] = std::move(ls);
-        vn::log::info("canvas_loop: dialed slot %s -> %s (%s)", b.slot.c_str(), b.source_id.c_str(),
-                      b.scm_path.c_str());
+        if (dial_slot_(b, live))
+            retry_at.erase(b.slot);
+        else
+            retry_at[b.slot] = now + kDialRetryInterval;
     }
 }
 
@@ -441,7 +452,7 @@ bool complete_frame_(LoopState& ls, nativerpc::ComposerService* composer_svc) {
 
 bool process_render_iteration_(LoopState& ls, const Snapshot& snap,
                                std::map<std::string, LiveSource>& live_sources,
-                               const CanvasLoopConfig& cfg) {
+                               DialRetryMap& dial_retry, const CanvasLoopConfig& cfg) {
     int fps = snap.canvas_fps ? int(snap.canvas_fps) : cfg.target_fps;
     if (!should_render_(ls, cfg.composer_svc)) {
         idle_tick_(ls, cfg.stats, fps);
@@ -457,7 +468,7 @@ bool process_render_iteration_(LoopState& ls, const Snapshot& snap,
         return true;
     }
 
-    reconcile_sources_(live_sources, snap.slots);
+    reconcile_sources_(live_sources, snap.slots, dial_retry);
 
     if (!submit_frame_(ls, snap, live_sources)) {
         ls.loop_error = true;
@@ -478,6 +489,7 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
         return 1;
 
     std::map<std::string, LiveSource> live_sources;
+    DialRetryMap dial_retry;
     LoopState ls;
     ls.scm_out = scm_out_owned.get();
     ls.next_fps_sample = start + std::chrono::seconds(1);
@@ -506,7 +518,7 @@ int RunCanvasLoop(CanvasLoopConfig cfg) {
                 continue;
         }
 
-        if (!process_render_iteration_(ls, snap, live_sources, cfg)) {
+        if (!process_render_iteration_(ls, snap, live_sources, dial_retry, cfg)) {
             cfg.running.store(false);
             break;
         }

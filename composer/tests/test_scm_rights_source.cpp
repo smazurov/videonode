@@ -124,3 +124,17 @@ TEST(ScmRightsSource, StopUnblocksPendingAccept) {
     EXPECT_TRUE(start_returned);
     EXPECT_FALSE(start_result);
 } // namespace
+
+TEST(ScmRightsSource, DialZeroTimeoutFailsImmediately) {
+    scm_rights_source::ScmRightsSource src;
+    scm_rights_source::InitParams p;
+    p.socket_path = make_tempdir_socket("nobody-listening");
+    p.dial = true;
+    p.dial_timeout_ms = 0;
+    EXPECT_TRUE(src.init(p));
+
+    auto t0 = std::chrono::steady_clock::now();
+    EXPECT_FALSE(src.start());
+    auto elapsed = std::chrono::steady_clock::now() - t0;
+    EXPECT_LT(elapsed, std::chrono::seconds(1));
+}

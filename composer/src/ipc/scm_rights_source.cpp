@@ -94,12 +94,13 @@ bool ScmRightsSource::init(const InitParams& p) {
 bool ScmRightsSource::start() {
     unique_fd client;
     if (params_.dial) {
-        // Dial the producer's socket. Retry briefly so we don't lose to a
-        // race where the producer hasn't bound yet.
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-        while (std::chrono::steady_clock::now() < deadline && !stop_requested_.load()) {
+        // Retry until the deadline so we don't lose to a race where the
+        // producer hasn't bound yet; always attempt at least once.
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(params_.dial_timeout_ms);
+        while (!stop_requested_.load()) {
             client = scm_socket::ConnectClient(params_.socket_path);
-            if (client)
+            if (client || std::chrono::steady_clock::now() >= deadline)
                 break;
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }

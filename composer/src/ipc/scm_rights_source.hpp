@@ -70,6 +70,9 @@ struct InitParams {
     // the producer is a long-lived sidecar that listens for N consumers.
     std::string socket_path;
     bool dial = false;
+    // Dial mode: keep retrying connect until this elapses. 0 = single
+    // attempt, for callers that must not block (canvas render loop).
+    int dial_timeout_ms = 30000;
 };
 
 class ScmRightsSource {
