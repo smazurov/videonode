@@ -11,14 +11,12 @@ type Result struct {
 
 // Rejection reasons surfaced through Result.Reason for logging and diagnostics.
 const (
-	ReasonUnknownUser      = "unknown_user"
-	ReasonNotInGroup       = "not_in_group"
-	ReasonInvalidPassword  = "invalid_password"
-	ReasonAccountLocked    = "account_locked"
-	ReasonAccountExpired   = "account_expired"
-	ReasonShadowReadDenied = "shadow_read_denied"
-	ReasonUnsupportedHash  = "unsupported_hash"
-	ReasonSystemError      = "system_error"
+	ReasonUnknownUser     = "unknown_user"
+	ReasonNotInGroup      = "not_in_group"
+	ReasonInvalidPassword = "invalid_password"
+	ReasonAccountLocked   = "account_locked"
+	ReasonAccountExpired  = "account_expired"
+	ReasonSystemError     = "system_error"
 )
 
 func reasonText(reason string) string {
@@ -33,10 +31,6 @@ func reasonText(reason string) string {
 		return "account locked"
 	case ReasonAccountExpired:
 		return "account expired"
-	case ReasonShadowReadDenied:
-		return "/etc/shadow not readable"
-	case ReasonUnsupportedHash:
-		return "unsupported password hash"
 	default:
 		return "rejected"
 	}

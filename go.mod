@@ -3,7 +3,6 @@ module github.com/smazurov/videonode
 go 1.25.0
 
 require (
-	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5
 	github.com/bluenviron/gortsplib/v5 v5.5.3
 	github.com/bluenviron/mediacommon/v2 v2.8.3
 	github.com/coreos/go-systemd/v22 v22.7.0
@@ -12,7 +11,6 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-logfmt/logfmt v0.6.1
 	github.com/kelindar/event v1.5.2
-	github.com/openwall/yescrypt-go v1.0.0
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/pion/interceptor v0.1.45
 	github.com/pion/rtcp v1.2.16
