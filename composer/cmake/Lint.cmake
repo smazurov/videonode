@@ -4,6 +4,7 @@ find_program(CLANG_FORMAT clang-format)
 # CONFIGURE_DEPENDS so cmake re-globs when files appear/disappear.
 file(GLOB_RECURSE _vn_lint_sources CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/src/*.cpp"
+    "${CMAKE_SOURCE_DIR}/src/*.c"
     "${CMAKE_SOURCE_DIR}/src/*.hpp"
     "${CMAKE_SOURCE_DIR}/src/*.h"
     "${CMAKE_SOURCE_DIR}/tools/*.cpp"

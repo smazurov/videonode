@@ -1,0 +1,18 @@
+# Scoped override for the one C translation unit in the tree. The parent
+# checkset's gsl-based rules (owning-memory, pro-bounds-pointer-arithmetic)
+# are not expressible in C — there is no gsl::owner or std::span — and the
+# PAM conversation API requires handing calloc/strdup'd memory to libpam.
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  readability-function-size
+
+WarningsAsErrors: '*'
+
+CheckOptions:
+  readability-function-size.LineThreshold: 120
+  readability-function-size.StatementThreshold: 100
+  readability-function-size.BranchThreshold: 12
+  readability-function-size.ParameterThreshold: 6
+  readability-function-size.NestingThreshold: 5

@@ -53,6 +53,20 @@ if(LIBMPP_LIB)
     target_link_libraries(mpp_iface INTERFACE ${LIBMPP_LIB})
 endif()
 
+# libpam — only consumed by the videonode-session setuid auth helper. Optional
+# so host builds without pam headers (Fedora sans pam-devel) still configure;
+# the release path always has libpam0g-dev (build-deb-arm64.sh) and packaging
+# fails loudly if the helper binary is missing from dist/.
+find_library(LIBPAM_LIB pam)
+find_path(LIBPAM_INCLUDE_DIR security/pam_appl.h)
+set(HAVE_PAM FALSE)
+if(LIBPAM_LIB AND LIBPAM_INCLUDE_DIR)
+    set(HAVE_PAM TRUE)
+    add_library(pam_iface INTERFACE)
+    target_link_libraries(pam_iface INTERFACE ${LIBPAM_LIB})
+    target_include_directories(pam_iface INTERFACE ${LIBPAM_INCLUDE_DIR})
+endif()
+
 # Shared EGL/GLES/GBM/DRM bundle.
 add_library(gles_bundle INTERFACE)
 target_link_libraries(gles_bundle INTERFACE
@@ -77,6 +91,7 @@ message(STATUS "  GBM (libgbm-dev):             ${GBM_VERSION}")
 message(STATUS "  libturbojpeg (libjpeg-turbo): ${TURBOJPEG_VERSION}")
 message(STATUS "  librga (Rockchip):            ${HAVE_RGA}")
 message(STATUS "  librockchip_mpp (Rockchip):   ${HAVE_MPP}")
+message(STATUS "  libpam (videonode-session):   ${HAVE_PAM}")
 message(STATUS "  libplacebo:                   ${PLACEBO_VERSION}")
 if(HAVE_VULKAN)
     message(STATUS "  Vulkan:                       ${VULKAN_VERSION}")

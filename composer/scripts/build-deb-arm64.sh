@@ -52,7 +52,7 @@ $SUDO apt-get update -qq
 DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y --no-install-recommends \
     cmake ninja-build pkg-config g++ ca-certificates curl git \
     libegl-dev libgles-dev libgbm-dev libdrm-dev \
-    libturbojpeg0-dev \
+    libturbojpeg0-dev libpam0g-dev \
     libplacebo-dev libvulkan-dev \
     libabsl-dev \
     libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc \
