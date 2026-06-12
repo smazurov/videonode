@@ -13,7 +13,10 @@
 
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
 #include "src/render/gbm_alloc.hpp"
+#include <fcntl.h>
 #include <gbm.h>
+#include <linux/udmabuf.h>
+#include <sys/ioctl.h>
 #endif
 
 namespace nv12_buf {
@@ -54,6 +57,8 @@ struct GbmImpl {
     int stage_idx = 0;
     int staged_y_fd[kStageBufs] = {-1, -1};
     int staged_uv_fd[kStageBufs] = {-1, -1};
+    int staged_y_dmabuf[kStageBufs] = {-1, -1};
+    int staged_uv_dmabuf[kStageBufs] = {-1, -1};
     void* staged_y_map[kStageBufs] = {};
     void* staged_uv_map[kStageBufs] = {};
     size_t staged_y_size = 0;
@@ -120,6 +125,10 @@ Buffer::~Buffer() {
             ::close(g->staged_y_fd[i]);
         if (g->staged_uv_fd[i] >= 0)
             ::close(g->staged_uv_fd[i]);
+        if (g->staged_y_dmabuf[i] >= 0)
+            ::close(g->staged_y_dmabuf[i]);
+        if (g->staged_uv_dmabuf[i] >= 0)
+            ::close(g->staged_uv_dmabuf[i]);
     }
     gbm_alloc::free(g->nv);
 #else
@@ -294,15 +303,76 @@ void unmap(Buffer& b) {
 #if defined(HAVE_GBM) && !defined(HAVE_RGA)
 
 namespace {
+size_t page_align_(size_t n) {
+    static const size_t page = static_cast<size_t>(::sysconf(_SC_PAGESIZE));
+    return (n + page - 1) & ~(page - 1);
+}
+
 int create_memfd_(const char* name, size_t size) {
-    int fd = static_cast<int>(::syscall(SYS_memfd_create, name, MFD_CLOEXEC));
+    int fd = static_cast<int>(::syscall(SYS_memfd_create, name, MFD_CLOEXEC | MFD_ALLOW_SEALING));
     if (fd < 0)
         return -1;
-    if (::ftruncate(fd, static_cast<off_t>(size)) < 0) {
+    if (::ftruncate(fd, static_cast<off_t>(size)) < 0 ||
+        ::fcntl(fd, F_ADD_SEALS, F_SEAL_SHRINK) < 0) {
         ::close(fd);
         return -1;
     }
     return fd;
+}
+
+// Re-exports the memfd's cached pages as a real dma-buf: GPU consumers
+// import it while CPU consumers keep mmapping the same pages (b547659).
+int wrap_udmabuf_(int memfd, size_t size) {
+    static const int dev = ::open("/dev/udmabuf", O_RDWR | O_CLOEXEC);
+    if (dev < 0)
+        return -1;
+    struct udmabuf_create req = {};
+    req.memfd = static_cast<uint32_t>(memfd);
+    req.flags = UDMABUF_FLAGS_CLOEXEC;
+    req.size = size;
+    return ::ioctl(dev, UDMABUF_CREATE, &req);
+}
+
+void drop_stage_slot_(GbmImpl& g, int si) {
+    int* fds[] = {&g.staged_y_fd[si], &g.staged_uv_fd[si], &g.staged_y_dmabuf[si],
+                  &g.staged_uv_dmabuf[si]};
+    for (int* fd : fds) {
+        if (*fd >= 0) {
+            ::close(*fd);
+            *fd = -1;
+        }
+    }
+}
+
+bool init_stage_slot_(GbmImpl& g, int si, size_t y_bytes, size_t uv_bytes) {
+    const size_t y_alloc = page_align_(y_bytes);
+    const size_t uv_alloc = page_align_(uv_bytes);
+    g.staged_y_fd[si] = create_memfd_("nv12-y", y_alloc);
+    g.staged_uv_fd[si] = create_memfd_("nv12-uv", uv_alloc);
+    if (g.staged_y_fd[si] < 0 || g.staged_uv_fd[si] < 0) {
+        vn::log::error("nv12_buf::stage_for_read: memfd_create failed");
+        drop_stage_slot_(g, si);
+        return false;
+    }
+    g.staged_y_size = y_alloc;
+    g.staged_uv_size = uv_alloc;
+    g.staged_y_map[si] =
+        ::mmap(nullptr, y_alloc, PROT_READ | PROT_WRITE, MAP_SHARED, g.staged_y_fd[si], 0);
+    g.staged_uv_map[si] =
+        ::mmap(nullptr, uv_alloc, PROT_READ | PROT_WRITE, MAP_SHARED, g.staged_uv_fd[si], 0);
+    if (g.staged_y_map[si] == MAP_FAILED || g.staged_uv_map[si] == MAP_FAILED) {
+        vn::log::error("nv12_buf::stage_for_read: mmap failed");
+        g.staged_y_map[si] = nullptr;
+        g.staged_uv_map[si] = nullptr;
+        drop_stage_slot_(g, si);
+        return false;
+    }
+    g.staged_y_dmabuf[si] = wrap_udmabuf_(g.staged_y_fd[si], y_alloc);
+    g.staged_uv_dmabuf[si] = wrap_udmabuf_(g.staged_uv_fd[si], uv_alloc);
+    if (g.staged_y_dmabuf[si] < 0 || g.staged_uv_dmabuf[si] < 0)
+        vn::log::warn("nv12_buf: udmabuf unavailable; staged frames broadcast as memfd "
+                      "(GPU consumers cannot import)");
+    return true;
 }
 } // namespace
 
@@ -318,38 +388,8 @@ void stage_for_read(Buffer& b) {
     int si = g->stage_idx;
     g->stage_idx = (si + 1) % GbmImpl::kStageBufs;
 
-    if (g->staged_y_fd[si] < 0) {
-        g->staged_y_fd[si] = create_memfd_("nv12-y", y_bytes);
-        g->staged_uv_fd[si] = create_memfd_("nv12-uv", uv_bytes);
-        if (g->staged_y_fd[si] < 0 || g->staged_uv_fd[si] < 0) {
-            vn::log::error("nv12_buf::stage_for_read: memfd_create failed");
-            if (g->staged_y_fd[si] >= 0) {
-                ::close(g->staged_y_fd[si]);
-                g->staged_y_fd[si] = -1;
-            }
-            if (g->staged_uv_fd[si] >= 0) {
-                ::close(g->staged_uv_fd[si]);
-                g->staged_uv_fd[si] = -1;
-            }
-            return;
-        }
-        g->staged_y_size = y_bytes;
-        g->staged_uv_size = uv_bytes;
-        g->staged_y_map[si] =
-            ::mmap(nullptr, y_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, g->staged_y_fd[si], 0);
-        g->staged_uv_map[si] =
-            ::mmap(nullptr, uv_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, g->staged_uv_fd[si], 0);
-        if (g->staged_y_map[si] == MAP_FAILED || g->staged_uv_map[si] == MAP_FAILED) {
-            vn::log::error("nv12_buf::stage_for_read: mmap failed");
-            g->staged_y_map[si] = nullptr;
-            g->staged_uv_map[si] = nullptr;
-            ::close(g->staged_y_fd[si]);
-            g->staged_y_fd[si] = -1;
-            ::close(g->staged_uv_fd[si]);
-            g->staged_uv_fd[si] = -1;
-            return;
-        }
-    }
+    if (g->staged_y_fd[si] < 0 && !init_stage_slot_(*g, si, y_bytes, uv_bytes))
+        return;
 
     {
         std::lock_guard<std::mutex> lock(gbm_alloc::gbm_device_mu());
@@ -371,8 +411,9 @@ void stage_for_read(Buffer& b) {
         }
     }
 
-    b.staged_y_fd = g->staged_y_fd[si];
-    b.staged_uv_fd = g->staged_uv_fd[si];
+    const bool use_dmabuf = g->staged_y_dmabuf[si] >= 0 && g->staged_uv_dmabuf[si] >= 0;
+    b.staged_y_fd = use_dmabuf ? g->staged_y_dmabuf[si] : g->staged_y_fd[si];
+    b.staged_uv_fd = use_dmabuf ? g->staged_uv_dmabuf[si] : g->staged_uv_fd[si];
 }
 
 #else

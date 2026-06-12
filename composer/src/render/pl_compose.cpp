@@ -17,6 +17,7 @@
 #include <libplacebo/vulkan.h>
 
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -98,6 +99,14 @@ struct SlotRenderCtx {
     uint64_t src_mod;
 };
 
+void log_import_fail(const char* plane, int w, int h) {
+    static std::atomic<int> count{0};
+    if (count.fetch_add(1) < 3)
+        vn::log::error("pl_compose: %s plane dma-buf import failed (%dx%d); "
+                       "slot renders black — source fd not an importable dma-buf?",
+                       plane, w, h);
+}
+
 void render_slot(const SlotRenderCtx& ctx, const SourceSlot& slot) {
     if (slot.src_y_fd < 0 || slot.src_uv_fd < 0)
         return;
@@ -123,6 +132,7 @@ void render_slot(const SlotRenderCtx& ctx, const SourceSlot& slot) {
     tp_y.shared_mem.stride_w = src_y_pitch;
     pl_tex tex_y = pl_tex_create(ctx.gpu, &tp_y);
     if (!tex_y) {
+        log_import_fail("y", slot.src_w, slot.src_h);
         ::close(fd_y);
         return;
     }
@@ -142,6 +152,7 @@ void render_slot(const SlotRenderCtx& ctx, const SourceSlot& slot) {
     tp_uv.shared_mem.stride_w = src_uv_pitch;
     pl_tex tex_uv = pl_tex_create(ctx.gpu, &tp_uv);
     if (!tex_uv) {
+        log_import_fail("uv", slot.src_w, slot.src_h);
         pl_tex_destroy(ctx.gpu, &tex_y);
         ::close(fd_y);
         ::close(fd_uv);
