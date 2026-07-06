@@ -10,7 +10,6 @@ require (
 	github.com/datarhei/gosrt v0.11.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-logfmt/logfmt v0.6.1
-	github.com/kelindar/event v1.5.2
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/pion/interceptor v0.1.45
 	github.com/pion/rtcp v1.2.16

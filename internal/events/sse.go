@@ -1,9 +1,9 @@
 package events
 
-// SubscribeToChannel bridges a typed kelindar/event subscription to a channel.
-// Needed for SSE integration where Huma expects a channel-based select loop.
-// The send is non-blocking: if the channel is full the event is dropped so a
-// slow consumer can never stall the dispatcher.
+// SubscribeToChannel bridges a typed bus subscription to a channel. Needed
+// for SSE integration where Huma expects a channel-based select loop. The
+// send is non-blocking: if the channel is full the event is dropped so a slow
+// consumer can never stall the publisher (delivery runs on its goroutine).
 func SubscribeToChannel[T Event](bus *Bus, ch chan<- any) func() {
 	return Subscribe(bus, func(e T) {
 		select {

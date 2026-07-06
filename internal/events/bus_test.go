@@ -221,6 +221,47 @@ func TestSubscribeToChannel(t *testing.T) {
 	}
 }
 
+// TestBus_ReentrantPublish pins the invariant that no bus lock is held while
+// handlers run: the logging callback publishes LogEntryEvent, so a handler
+// that logs re-enters Publish.
+func TestBus_ReentrantPublish(t *testing.T) {
+	bus := New()
+	logged := make(chan LogEntryEvent, 1)
+
+	unsubLog := Subscribe(bus, func(e LogEntryEvent) { logged <- e })
+	defer unsubLog()
+
+	unsub := Subscribe(bus, func(_ DeviceDiscoveryEvent) {
+		Publish(bus, LogEntryEvent{Level: "info", Message: "from handler"})
+	})
+	defer unsub()
+
+	Publish(bus, DeviceDiscoveryEvent{Action: "added"})
+
+	select {
+	case <-logged:
+	case <-time.After(time.Second):
+		t.Fatal("re-entrant Publish did not deliver (deadlock?)")
+	}
+}
+
+type collidingEvent struct{}
+
+func (collidingEvent) Type() uint32 { return TypeDeviceDiscovery }
+
+func TestBus_DuplicateTypeCodePanics(t *testing.T) {
+	bus := New()
+	unsub := Subscribe(bus, func(_ DeviceDiscoveryEvent) {})
+	defer unsub()
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Subscribe with a colliding Type() code should panic")
+		}
+	}()
+	Subscribe(bus, func(_ collidingEvent) {})
+}
+
 func TestSubscribeToChannel_NonBlocking(_ *testing.T) {
 	bus := New()
 	ch := make(chan any) // No buffer

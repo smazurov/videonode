@@ -5,9 +5,9 @@ import (
 	"github.com/smazurov/videonode/internal/hostmetrics"
 )
 
-// Event type constants for kelindar/event. These are runtime-only topic keys
-// (never serialized), so they may be renumbered freely when types are added
-// or removed.
+// Event type constants for the bus. These are runtime-only topic keys (never
+// serialized), so they may be renumbered freely when types are added or
+// removed — but they must stay unique; Subscribe panics on a collision.
 const (
 	TypeDeviceDiscovery uint32 = iota + 1
 	TypeLogEntry
@@ -19,7 +19,8 @@ const (
 	TypeProcessRemoved
 )
 
-// Event interface required by kelindar/event.
+// Event is implemented by every bus event; Type() routes an event to the
+// subscribers keyed on the same code.
 type Event interface {
 	Type() uint32
 }

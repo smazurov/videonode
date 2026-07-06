@@ -19,7 +19,7 @@ type EntityEvent struct {
 	Timestamp string `json:"timestamp"`
 }
 
-// Type identifies EntityEvent on the kelindar/event bus. Distinct from the
+// Type identifies EntityEvent on the event bus. Distinct from the
 // Kind field (the wire discriminator); do not rename to Type (field/method
 // clash).
 func (EntityEvent) Type() uint32 { return TypeEntity }

@@ -46,7 +46,7 @@ func TestRegistry_LifecyclePublishesEntityEvent(t *testing.T) {
 
 	srcEntity.PublishCreated(store["hdmi0"])
 
-	// kelindar/event delivery is async — give it a moment.
+	// Poll defensively so the test doesn't encode dispatch timing.
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		gotMu.Lock()
@@ -168,7 +168,7 @@ func TestRegistry_DependencyFanOutTouchesReferencedEntity(t *testing.T) {
 	streamStore["s1"] = fakeStream{ID: "s1", Upstream: "source:hdmi0"}
 	streamEntity.PublishCreated(streamStore["s1"])
 
-	// Wait for async dispatch.
+	// Poll defensively so the test doesn't encode dispatch timing.
 	deadline := time.Now().Add(300 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		evMu.Lock()
