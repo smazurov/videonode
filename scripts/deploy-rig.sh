@@ -9,6 +9,10 @@
 #   - native helpers come from <rig>:${RIG_BIN_DIR} (built by build-on-rig.sh)
 #   - the go supervisor is staged to <rig>:${STAGE_PATH} by build-go-arm64.sh
 #   - config is /etc/videonode/{config.toml,streams.toml}
+#   - linux auth needs /usr/bin/videonode-session setuid root (04755) plus
+#     /etc/pam.d/videonode; the helper builds only when the rig has
+#     libpam0g-dev (HAVE_PAM). Unit ships from packaging/videonode.service
+#     (no shadow group) into /usr/lib/systemd/system + daemon-reload.
 #
 # Flow: preflight -> [host sanity build] -> stop service
 #       -> [composer sync + rig build] -> [go UI+cross-build+stage]
@@ -64,6 +68,8 @@ echo "=== 5. install into /usr/bin + start service ==="
 # start we hard-gate on `is-active`: if the service did not come up we dump the
 # journal and exit non-zero so the orchestrator FAILs loudly instead of
 # reporting a green deploy over a dead service.
+scp -o BatchMode=yes -o ConnectTimeout=10 -q \
+  packaging/videonode.pam packaging/videonode.service "${RIG}:/tmp/"
 "${SSH[@]}" "
   set -euo pipefail
   s() { sudo \"\$@\"; }
@@ -72,8 +78,22 @@ echo "=== 5. install into /usr/bin + start service ==="
     s cp -f '${RIG_BIN_DIR}'/videonode-source   /usr/bin/
     s cp -f '${RIG_BIN_DIR}'/videonode-sink     /usr/bin/
     s cp -f '${RIG_BIN_DIR}'/videonode-composer /usr/bin/
+    # videonode-session builds into src/session/, not src/bin/ (scoped .clang-tidy)
+    if [[ ! -f '${RIG_BIN_DIR}'/../session/videonode-session ]]; then
+      echo 'FAIL: videonode-session missing from rig build (libpam0g-dev absent at configure?) — linux auth would break' >&2
+      exit 1
+    fi
+    s install -o root -g root -m 4755 '${RIG_BIN_DIR}'/../session/videonode-session /usr/bin/videonode-session
   fi
   s chmod +x /usr/bin/videonode /usr/bin/videonode-source /usr/bin/videonode-sink /usr/bin/videonode-composer
+  s install -o root -g root -m 0644 /tmp/videonode.pam /etc/pam.d/videonode
+  s install -o root -g root -m 0644 /tmp/videonode.service /usr/lib/systemd/system/videonode.service
+  # Pre-privsep deploys granted the daemon user the shadow group; revoke it
+  # (mirrors packaging/postinst.sh) — password checks now run in the helper.
+  if id -nG videonode 2>/dev/null | tr ' ' '\n' | grep -qx shadow; then
+    s gpasswd -d videonode shadow >/dev/null
+  fi
+  s systemctl daemon-reload
   s systemctl start videonode.service
   sleep 2
   if ! systemctl is-active --quiet videonode.service; then
