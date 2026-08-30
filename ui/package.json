@@ -80,12 +80,5 @@
     "vite": "^8.0.14",
     "vite-plugin-version-mark": "^0.2.2",
     "vitest": "^4.1.7"
-  },
-  "pnpm": {
-    "peerDependencyRules": {
-      "allowedVersions": {
-        "openapi-typescript>typescript": "6"
-      }
-    }
   }
 }

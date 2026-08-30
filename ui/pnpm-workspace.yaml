@@ -2,3 +2,7 @@ allowBuilds:
   '@swc/core': true
   esbuild: true
   msw: true
+
+peerDependencyRules:
+  allowedVersions:
+    openapi-typescript>typescript: '6'
