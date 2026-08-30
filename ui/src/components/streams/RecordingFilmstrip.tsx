@@ -156,9 +156,9 @@ export function RecordingFilmstrip({
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const dw = (width / tiles.length) * dpr;
       const dh = cssH * dpr;
-      tiles.forEach((cue, i) => {
+      for (const [i, cue] of tiles.entries()) {
         const bmp = cache.get(cue.url)?.bmp;
-        if (!bmp) return;
+        if (!bmp) continue;
         const sx = cue.xywh?.x ?? 0;
         const sy = cue.xywh?.y ?? 0;
         const sw = cue.xywh?.w ?? bmp.width;
@@ -166,7 +166,7 @@ export function RecordingFilmstrip({
         // object-cover: crop the source horizontally to the tile's aspect.
         const wantW = Math.min(sw, (dw / dh) * sh);
         ctx.drawImage(bmp, sx + (sw - wantW) / 2, sy, wantW, sh, i * dw, 0, dw, dh);
-      });
+      }
     };
     void draw();
     return () => {
