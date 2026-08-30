@@ -39,7 +39,7 @@ export default defineConfig(() => {
       chunkSizeWarningLimit: 1000
     },
     server: {
-      host: "localhost",
+      host: "127.0.0.1",
       port: parseInt(process.env.VITE_DEV_PORT || "5173", 10),
       proxy: {
         "/api": `http://localhost${process.env.VIDEONODE_SERVER_PORT || ":8090"}`,
