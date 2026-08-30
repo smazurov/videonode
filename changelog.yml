@@ -1,3 +1,30 @@
+- semver: 4.2.0
+  date: 2026-08-30T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 485db82
+      note: "Stream recording writes H264 or H265 video to keyframe-aligned fMP4/HLS segments without a second encode; the new recording UI supports live playback, poster frames, storyboard hover previews, filmstrip seeking, session size and duration, and start/stop/delete controls"
+    - commit: 393f481
+      note: "Recording sessions now finalize cleanly after write failures, producer replacement, or shutdown; same-second restarts no longer overwrite earlier sessions, active storyboard images avoid stale browser caches, and reported size and duration include the final flushed segment"
+    - commit: 6e70147
+      note: "Sources can run a shell command that emits yuv4mpegpipe frames; VideoNode reads geometry and frame rate from the Y4M header, reports the detected format to dependent encoders, falls back to NO SIGNAL on EOF, and retries the command once per second"
+    - commit: 5d69332
+      note: "Staged source frames are exported through udmabuf before GPU import, fixing black composer slots when the source uses cached memfd-backed buffers and making import failures visible in the log"
+    - commit: 0784f23
+      note: "Composer inputs reconnect after a source process restarts instead of freezing on the last frame; retries are non-blocking and limited to once per second per slot"
+    - commit: 90ec17d
+      note: "Composer output preserves red and blue correctly during BGRA-to-NV12 conversion, fixing swapped colors in canvas snapshots, SCM broadcasts, and downstream streams"
+    - commit: d06dbaf
+      note: "Linux password authentication now runs through the packaged videonode-session PAM helper; the daemon and its child processes no longer inherit shadow-group access, and upgrades revoke the old membership"
+    - commit: d72b7f7
+      note: "SSE event delivery no longer leaves 2 kHz dispatcher goroutines behind after clients disconnect, removing the measured 16 to 20 percent idle CPU load on RK3588 after the first UI connection"
+    - commit: 2329b0c
+      note: "A composer's video coverage can be exported as an OBS alpha mask from the composer and stream pages, so the canvas layers over other scene content instead of arriving as one opaque rectangle; download a canvas-sized PNG for the Image Mask/Blend filter, or copy a browser-source URL whose player clips the live video to the same regions with no OBS plugin"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.1.1
   date: 2026-06-09T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
