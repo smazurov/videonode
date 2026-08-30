@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -8,6 +8,7 @@ import {
   EyeIcon,
   EyeSlashIcon,
   PencilSquareIcon,
+  SwatchIcon,
   TrashIcon,
   VideoCameraIcon,
 } from '@heroicons/react/24/outline';
@@ -31,6 +32,8 @@ import { StreamConsumersPanel } from '../components/streams/StreamConsumersPanel
 import { StreamEncoderPanel } from '../components/streams/StreamEncoderPanel';
 import { StreamConsumerTargetsPanel } from '../components/streams/StreamConsumerTargetsPanel';
 import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
+import { MaskExportDialog } from '../components/composers/MaskExportDialog';
+import { useUpstreamComposerMask } from '../hooks/useComposerMask';
 
 import { WebRTCPlayer } from '../components/webrtc';
 import { api } from '../lib/api';
@@ -99,6 +102,8 @@ export default function StreamDetail() {
   const pipelineEnabled = useStreamStore((state) => state.pipelineEnabled);
 
   const { mode: previewMode, setMode: setPreviewMode } = useStreamPreviewMode(streamId ?? '');
+  const mask = useUpstreamComposerMask(streamId ?? '');
+  const [maskOpen, setMaskOpen] = useState(false);
 
   useEffect(() => {
     if (lastUpdated === null) {
@@ -203,6 +208,15 @@ export default function StreamDetail() {
                 LeadingIcon={PencilSquareIcon}
                 text="Edit"
               />
+              {mask && (
+                <Button
+                  theme="light"
+                  size="SM"
+                  onClick={() => setMaskOpen(true)}
+                  LeadingIcon={SwatchIcon}
+                  text="OBS mask"
+                />
+              )}
               <Button
                 theme="danger"
                 size="SM"
@@ -259,6 +273,15 @@ export default function StreamDetail() {
             description={`Live logs for stream ${streamId}.`}
           />
         </EntityDetailLayout>
+
+        {mask && (
+          <MaskExportDialog
+            mask={mask}
+            streamId={streamId}
+            open={maskOpen}
+            onClose={() => setMaskOpen(false)}
+          />
+        )}
       </DashboardLayout.MainContent>
     </DashboardLayout>
   );

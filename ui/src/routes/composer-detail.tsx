@@ -6,6 +6,7 @@ import {
   ArrowPathIcon,
   DocumentArrowDownIcon,
   DocumentArrowUpIcon,
+  SwatchIcon,
 } from '@heroicons/react/24/outline';
 
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -25,6 +26,8 @@ import { ComposerLivePreview } from '../components/composers/ComposerLivePreview
 import { ComposerDeleteDialog } from '../components/composers/ComposerDeleteDialog';
 import { ComposerExportDialog } from '../components/composers/ComposerExportDialog';
 import { ComposerImportDialog } from '../components/composers/ComposerImportDialog';
+import { MaskExportDialog } from '../components/composers/MaskExportDialog';
+import { useComposerMask } from '../hooks/useComposerMask';
 import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 import type { ComposerData } from '../lib/composer-types';
 import { canvasFpsOrDefault } from '../lib/composer-types';
@@ -73,8 +76,11 @@ export default function ComposerDetail() {
     [streamIds, streamsById],
   );
 
+  const mask = useComposerMask(composer);
+
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [maskOpen, setMaskOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
 
@@ -172,6 +178,13 @@ export default function ComposerDetail() {
               <Button
                 theme="light"
                 size="SM"
+                text="OBS mask"
+                LeadingIcon={SwatchIcon}
+                onClick={() => setMaskOpen(true)}
+              />
+              <Button
+                theme="light"
+                size="SM"
                 text="Restart"
                 LeadingIcon={ArrowPathIcon}
                 disabled={!isRestartable(data.status)}
@@ -212,6 +225,15 @@ export default function ComposerDetail() {
           open={exportOpen}
           onClose={() => setExportOpen(false)}
         />
+
+        {mask && (
+          <MaskExportDialog
+            mask={mask}
+            streamId={data.downstream_stream_ids?.[0]}
+            open={maskOpen}
+            onClose={() => setMaskOpen(false)}
+          />
+        )}
 
         <ComposerImportDialog
           open={importOpen}

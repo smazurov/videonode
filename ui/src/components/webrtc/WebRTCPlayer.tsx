@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { ArrowPathIcon, PlayIcon, SignalSlashIcon } from '@heroicons/react/24/outline';
 import { whepConnect, whepTeardown } from '../../lib/whep';
 import { StatsOverlay } from './StatsOverlay';
+import { clipPathData } from '../composers/canvas-mask';
+import type { Rect, Size } from '../composers/region-content';
 import { cn } from '../../utils';
 
 const RECONNECT_BASE_MS = 2000;
@@ -13,6 +15,11 @@ interface Props {
   readonly className?: string;
   readonly muted?: boolean;
   readonly showStats?: boolean;
+  // Canvas-absolute video footprints of the upstream composer. Supplying both
+  // clips everything else away, so the page composites with alpha and an OBS
+  // browser source sees only video where the compositor painted it.
+  readonly maskRects?: readonly Rect[];
+  readonly maskCanvas?: Size;
 }
 
 type ConnectionState = 'connecting' | 'connected' | 'offline';
@@ -98,7 +105,14 @@ async function performSignaling(
   return sessionId;
 }
 
-export function WebRTCPlayer({ streamId, className = '', muted = true, showStats = false }: Props) {
+export function WebRTCPlayer({
+  streamId,
+  className = '',
+  muted = true,
+  showStats = false,
+  maskRects,
+  maskCanvas,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -112,6 +126,11 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [playBlocked, setPlayBlocked] = useState(false);
+
+  // useId embeds colons, which are legal in an id but awkward in url(#…).
+  const clipId = `vn-mask-${useId().replaceAll(':', '')}`;
+  const clipPath = maskRects?.length && maskCanvas ? clipPathData(maskRects, maskCanvas) : '';
+  const clipping = clipPath !== '';
 
   useEffect(() => {
     if (typeof RTCPeerConnection === 'undefined') {
@@ -240,21 +259,35 @@ export function WebRTCPlayer({ streamId, className = '', muted = true, showStats
   const isConnecting = connectionState === 'connecting';
 
   return (
-    <div className={cn('relative bg-black', className)}>
+    <div className={cn('relative', clipping ? 'bg-transparent' : 'bg-black', className)}>
+      {clipping && (
+        <svg width="0" height="0" className="absolute" aria-hidden="true">
+          <defs>
+            <clipPath id={clipId} clipPathUnits="objectBoundingBox">
+              <path d={clipPath} />
+            </clipPath>
+          </defs>
+        </svg>
+      )}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={muted}
-        className="w-full h-full object-contain"
+        // object-fill while clipped: the clip is in fractions of the element box,
+        // so video and clip only line up when the video fills that box exactly.
+        className={cn('w-full h-full', clipping ? 'object-fill' : 'object-contain')}
+        style={clipping ? { clipPath: `url(#${clipId})` } : undefined}
       />
-      {isOffline && (
+      {/* While clipped these full-bleed overlays would flash an opaque rectangle
+          across the whole OBS scene on every dropout, so they are suppressed. */}
+      {isOffline && !clipping && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black text-fg-inverse">
           <SignalSlashIcon className="w-14 h-14 text-danger" />
           <span className="text-lg font-semibold uppercase tracking-wider">Stream offline</span>
         </div>
       )}
-      {isConnecting && (
+      {isConnecting && !clipping && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black text-fg-inverse">
           <ArrowPathIcon className="w-12 h-12 animate-spin text-fg-subtle" />
           <span className="text-sm font-medium uppercase tracking-wider text-fg-subtle">Connecting…</span>

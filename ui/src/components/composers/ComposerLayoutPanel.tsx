@@ -6,8 +6,8 @@ import { Card } from '../Card';
 import { Checkbox } from '../Checkbox';
 import { InputField } from '../InputField';
 import { KonvaCanvasEditor } from './KonvaCanvasEditor';
-import type { SourceDims } from './KonvaCanvasEditor';
 import { LayoutSlotInspector } from './LayoutSlotInspector';
+import { buildSourceDims } from './canvas-mask';
 import type { ComposerData, LayoutSlot } from '../../lib/composer-types';
 import { useComposerStore } from '../../hooks/useComposerStore';
 import { useLayoutEditorStore } from '../../hooks/useLayoutEditorStore';
@@ -30,19 +30,10 @@ export function ComposerLayoutPanel({ composer }: Readonly<ComposerLayoutPanelPr
   );
 
   const sourcesById = useSourceStore((s) => s.sourcesById);
-  const sourceDims = useMemo(() => {
-    const m = new Map<string, SourceDims>();
-    for (const inp of composer.inputs) {
-      const id = inp.ref.replace(/^source:/, '');
-      const src = sourcesById[id];
-      const live = src?.latest_status?.format;
-      const cfg = src?.format;
-      const w = live?.w ?? cfg?.width;
-      const h = live?.h ?? cfg?.height;
-      if (w && h) m.set(inp.ref, { w, h });
-    }
-    return m;
-  }, [composer.inputs, sourcesById]);
+  const sourceDims = useMemo(
+    () => buildSourceDims(composer.inputs, sourcesById),
+    [composer.inputs, sourcesById],
+  );
 
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [gridSize, setGridSize] = useState(10);
