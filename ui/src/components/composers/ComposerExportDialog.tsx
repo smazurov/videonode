@@ -4,37 +4,13 @@ import { ClipboardDocumentIcon, DocumentArrowDownIcon } from '@heroicons/react/2
 
 import { Button } from '../Button';
 import { Spinner } from '../Spinner';
+import { copyText } from '../../lib/clipboard';
 import { useComposerStore } from '../../hooks/useComposerStore';
 
 interface ComposerExportDialogProps {
   readonly composerId: string;
   readonly open: boolean;
   readonly onClose: () => void;
-}
-
-// The async Clipboard API is unavailable in insecure contexts (plain HTTP on a
-// LAN host), so fall back to a hidden-textarea execCommand copy there.
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.top = '0';
-  ta.style.left = '0';
-  ta.style.opacity = '0';
-  ta.style.pointerEvents = 'none';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  try {
-    // eslint-disable-next-line sonarjs/deprecation -- the only copy path in insecure (LAN HTTP) contexts; Clipboard API is unavailable there
-    if (!document.execCommand('copy')) throw new Error('copy command rejected');
-  } finally {
-    ta.remove();
-  }
 }
 
 // Shows a composer's TOML for copy-paste, with copy-to-clipboard and download
