@@ -460,6 +460,8 @@ func (s *Server) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.Respon
 				setupH264Handler(ctx, stream, ss, medi, f, s.logger)
 			case *format.H265:
 				setupH265Handler(ctx, stream, ss, medi, f, s.logger)
+			case *format.Opus:
+				setupOpusHandler(ctx, stream, ss, medi, f, s.logger)
 			default:
 				setupGenericHandler(ctx, stream, ss, medi, forma, s.logger)
 			}
@@ -556,6 +558,37 @@ func setupH265Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, s
 		// For H265, DTS = PTS for now (simplified)
 		stream.WriteRTP(medi, forma, pkt)
 		stream.WriteUnit(medi, forma, pts, pts, au)
+	})
+}
+
+// setupOpusHandler configures Opus RTP depacketization so downstream
+// consumers (SRT/MPEG-TS, recording) receive real access units instead of nil.
+func setupOpusHandler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma *format.Opus, logger logging.Logger) {
+	dec, err := forma.CreateDecoder()
+	if err != nil {
+		logger.Error("Failed to create Opus decoder", logging.KeyError, err)
+		return
+	}
+
+	ctx.Session.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
+		if ss != nil {
+			if err := ss.WritePacketRTP(medi, pkt); err != nil {
+				logger.Debug("RTSP relay write error", logging.KeyError, err)
+			}
+		}
+
+		pts, ok := ctx.Session.PacketPTS(medi, pkt)
+		if !ok {
+			return
+		}
+
+		frame, err := dec.Decode(pkt)
+		if err != nil {
+			return
+		}
+
+		stream.WriteRTP(medi, forma, pkt)
+		stream.WriteUnit(medi, forma, pts, pts, [][]byte{frame})
 	})
 }
 
