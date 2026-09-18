@@ -1,3 +1,14 @@
+- semver: 4.2.1
+  date: 2026-09-18T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: ba9d503
+      note: "SRT output now carries Opus audio: the RTSP relay depacketizes Opus into real access units instead of declaring an empty audio track in the MPEG-TS PMT, so OBS Media Source and other SRT readers no longer hang waiting for audio frames"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.2.0
   date: 2026-08-30T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>

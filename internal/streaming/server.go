@@ -455,14 +455,7 @@ func (s *Server) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.Respon
 	// Set up RTP handlers for each media in the stream
 	for _, medi := range stream.Description().Medias {
 		for _, forma := range medi.Formats {
-			switch f := forma.(type) {
-			case *format.H264:
-				setupH264Handler(ctx, stream, ss, medi, f, s.logger)
-			case *format.H265:
-				setupH265Handler(ctx, stream, ss, medi, f, s.logger)
-			default:
-				setupGenericHandler(ctx, stream, ss, medi, forma, s.logger)
-			}
+			setupFormatHandler(ctx.Session, stream, ss, medi, forma, s.logger)
 		}
 	}
 
@@ -470,8 +463,31 @@ func (s *Server) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.Respon
 	return &base.Response{StatusCode: base.StatusOK}, nil
 }
 
+// rtpSession is the subset of *gortsplib.ServerSession the per-format RTP
+// handlers need. Defined here so the handlers can be unit-tested with a fake.
+type rtpSession interface {
+	OnPacketRTP(medi *description.Media, forma format.Format, cb gortsplib.OnPacketRTPFunc)
+	PacketPTS(medi *description.Media, pkt *rtp.Packet) (int64, bool)
+}
+
+// setupFormatHandler picks the RTP depacketizer for forma and registers it on
+// the session. Formats with a dedicated handler deliver real access units to
+// stream.WriteUnit; everything else falls through to the generic RTP-only path.
+func setupFormatHandler(sess rtpSession, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma format.Format, logger logging.Logger) {
+	switch f := forma.(type) {
+	case *format.H264:
+		setupH264Handler(sess, stream, ss, medi, f, logger)
+	case *format.H265:
+		setupH265Handler(sess, stream, ss, medi, f, logger)
+	case *format.Opus:
+		setupOpusHandler(sess, stream, ss, medi, f, logger)
+	default:
+		setupGenericHandler(sess, stream, ss, medi, forma, logger)
+	}
+}
+
 // setupH264Handler configures H264 RTP depacketization and distribution.
-func setupH264Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma *format.H264, logger logging.Logger) {
+func setupH264Handler(sess rtpSession, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma *format.H264, logger logging.Logger) {
 	dec, err := forma.CreateDecoder()
 	if err != nil {
 		logger.Error("Failed to create H264 decoder", logging.KeyError, err)
@@ -481,7 +497,7 @@ func setupH264Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, s
 	var dtsExtractor *h264.DTSExtractor
 	var firstIDRReceived bool
 
-	ctx.Session.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
+	sess.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
 		// Feed RTSP playback consumers with raw RTP
 		if ss != nil {
 			if err := ss.WritePacketRTP(medi, pkt); err != nil {
@@ -489,7 +505,7 @@ func setupH264Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, s
 			}
 		}
 
-		pts, ok := ctx.Session.PacketPTS(medi, pkt)
+		pts, ok := sess.PacketPTS(medi, pkt)
 		if !ok {
 			return
 		}
@@ -529,21 +545,21 @@ func setupH264Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, s
 }
 
 // setupH265Handler configures H265 RTP depacketization.
-func setupH265Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma *format.H265, logger logging.Logger) {
+func setupH265Handler(sess rtpSession, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma *format.H265, logger logging.Logger) {
 	dec, err := forma.CreateDecoder()
 	if err != nil {
 		logger.Error("Failed to create H265 decoder", logging.KeyError, err)
 		return
 	}
 
-	ctx.Session.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
+	sess.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
 		if ss != nil {
 			if err := ss.WritePacketRTP(medi, pkt); err != nil {
 				logger.Debug("RTSP relay write error", logging.KeyError, err)
 			}
 		}
 
-		pts, ok := ctx.Session.PacketPTS(medi, pkt)
+		pts, ok := sess.PacketPTS(medi, pkt)
 		if !ok {
 			return
 		}
@@ -559,16 +575,47 @@ func setupH265Handler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, s
 	})
 }
 
-// setupGenericHandler handles other formats (audio, etc.).
-func setupGenericHandler(ctx *gortsplib.ServerHandlerOnRecordCtx, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma format.Format, logger logging.Logger) {
-	ctx.Session.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
+// setupOpusHandler configures Opus RTP depacketization so downstream
+// consumers (SRT/MPEG-TS, recording) receive real access units instead of nil.
+func setupOpusHandler(sess rtpSession, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma *format.Opus, logger logging.Logger) {
+	dec, err := forma.CreateDecoder()
+	if err != nil {
+		logger.Error("Failed to create Opus decoder", logging.KeyError, err)
+		return
+	}
+
+	sess.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
 		if ss != nil {
 			if err := ss.WritePacketRTP(medi, pkt); err != nil {
 				logger.Debug("RTSP relay write error", logging.KeyError, err)
 			}
 		}
 
-		pts, ok := ctx.Session.PacketPTS(medi, pkt)
+		pts, ok := sess.PacketPTS(medi, pkt)
+		if !ok {
+			return
+		}
+
+		frame, err := dec.Decode(pkt)
+		if err != nil {
+			return
+		}
+
+		stream.WriteRTP(medi, forma, pkt)
+		stream.WriteUnit(medi, forma, pts, pts, [][]byte{frame})
+	})
+}
+
+// setupGenericHandler handles other formats (audio, etc.).
+func setupGenericHandler(sess rtpSession, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma format.Format, logger logging.Logger) {
+	sess.OnPacketRTP(medi, forma, func(pkt *rtp.Packet) {
+		if ss != nil {
+			if err := ss.WritePacketRTP(medi, pkt); err != nil {
+				logger.Debug("RTSP relay write error", logging.KeyError, err)
+			}
+		}
+
+		pts, ok := sess.PacketPTS(medi, pkt)
 		if !ok {
 			return
 		}

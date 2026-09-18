@@ -43,10 +43,10 @@ type RecordingConsumer struct {
 // newRecordingConsumer wires a muxer + reader callbacks for the stream's video
 // track. A zero thumbCfg disables the thumbnail track.
 //
-// Audio is intentionally not recorded yet: the relay's generic handler
-// delivers nil access units for Opus (server.go setupGenericHandler), and an
-// init.mp4 that declares an audio track which never receives samples stalls
-// MSE playback. Record video-only until the relay depacketizes Opus.
+// Audio is intentionally not recorded yet: the relay now depacketizes Opus
+// (server.go setupOpusHandler) and delivers real access units, but the fMP4
+// init segment / MSE playback path has no audio track yet. Recording stays
+// video-only until that path grows an audio track.
 func newRecordingConsumer(
 	stream *Stream,
 	recordingID, dir string,
