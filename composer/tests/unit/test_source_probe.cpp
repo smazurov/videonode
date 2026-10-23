@@ -64,12 +64,14 @@ TEST(SourceProbe, SourceChangeEventMarksTransitioning) {
     EXPECT_EQ(int(Health::Transitioning), int(p.health()));
 }
 
-TEST(SourceProbe, StreamingRestartedClearsTransitioning) {
+TEST(SourceProbe, SourceChangeReopenStaysTransitioningUntilFirstFrame) {
     v4l2::Streamer cap;
     SourceProbe p(cap);
     p.note_dqbuf_success({});
     p.note_event(make_source_change_event());
-    p.note_streaming_restarted();
+    p.attach();
+    EXPECT_EQ(int(Health::Transitioning), int(p.health()));
+    p.note_dqbuf_success({});
     EXPECT_EQ(int(Health::Live), int(p.health()));
 }
 

@@ -90,6 +90,7 @@ void Streamer::close() {
     }
     streaming_ = false;
     io_memory_ = V4L2_MEMORY_MMAP;
+    source_change_errno_ = EBADF;
 }
 
 Streamer::~Streamer() {
@@ -388,8 +389,11 @@ bool Streamer::subscribe_source_change() {
     }
     v4l2_event_subscription sub{};
     sub.type = V4L2_EVENT_SOURCE_CHANGE;
-    if (xioctl(fd_, VIDIOC_SUBSCRIBE_EVENT, &sub) < 0)
+    if (xioctl(fd_, VIDIOC_SUBSCRIBE_EVENT, &sub) < 0) {
+        source_change_errno_ = errno;
         return false;
+    }
+    source_change_errno_ = 0;
     return true;
 }
 
@@ -411,16 +415,6 @@ bool Streamer::drain_events(bool* drained) {
             *drained = true;
         vn::log::info("v4l2_capture: drained event type=0x%x seq=%u", ev.type, ev.sequence);
     }
-}
-
-bool Streamer::restart_streaming() {
-    if (!stream_off())
-        return false;
-    for (const auto& b : bufs_) {
-        if (!queue_buffer(b.index))
-            return false;
-    }
-    return stream_on();
 }
 
 bool Streamer::stream_off() {

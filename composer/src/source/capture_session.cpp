@@ -339,6 +339,8 @@ CaptureOpenStatus try_open_capture(CaptureSession& s, const Args& a, nv12_buf::A
             return CaptureOpenStatus::Failed;
         }
     }
+    // Failure is expected on UVC; SourceProbe::attach reports it for HDMI-class devices.
+    (void)s.cap.subscribe_source_change();
     if (!negotiate_format_(s, a))
         return CaptureOpenStatus::Failed;
     if (s.mode == DecodeMode::Mjpeg) {

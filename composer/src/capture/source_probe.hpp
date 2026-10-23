@@ -73,11 +73,6 @@ class SourceProbe {
     // health reports the bring-up state (initializing) rather than no_signal.
     void note_device_acquiring();
 
-    // mark_renegotiating is called by the main loop after it consumed a
-    // SOURCE_CHANGE and successfully restarted streaming, so the probe
-    // can transition out of Transitioning on the next successful DQBUF.
-    void note_streaming_restarted();
-
     // note_format_change is called by the control-plane handler before
     // tearing down + reopening the capture device with new args. Puts
     // the probe into Transitioning so the main loop knows we're in flux;

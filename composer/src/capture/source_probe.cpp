@@ -69,8 +69,7 @@ bool SourceProbe::attach() {
     // alone so a format-change reopen stays Transitioning until its first
     // frame.
     device_gone_ = false;
-    bool subscribed = cap_.subscribe_source_change();
-    int subscribe_errno = errno;
+    int subscribe_errno = cap_.source_change_errno();
     // Cable / signal truth comes from VIDIOC_QUERY_DV_TIMINGS, not from
     // V4L2_CID_DV_RX_POWER_PRESENT (rk_hdmirx reports power_present=1 even
     // with the cable physically unplugged). The Go side learned this the
@@ -81,7 +80,7 @@ bool SourceProbe::attach() {
         note_dv_timings_present(s);
         // SOURCE_CHANGE failure only matters on HDMI-class devices; UVC
         // webcams reject the subscribe and that's expected.
-        if (!subscribed)
+        if (subscribe_errno != 0)
             vn::log::error("v4l2_capture: VIDIOC_SUBSCRIBE_EVENT: %s", strerror(subscribe_errno));
     }
     return true;
@@ -209,11 +208,6 @@ void SourceProbe::note_dqbuf_failure(int e) {
     if (e == ETIMEDOUT || e == EAGAIN || e == EIO) {
         ++consecutive_failures_;
     }
-}
-
-void SourceProbe::note_streaming_restarted() {
-    source_change_pending_ = false;
-    consecutive_failures_ = 0;
 }
 
 void SourceProbe::note_format_change() {
