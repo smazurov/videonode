@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -102,10 +103,10 @@ class Streamer {
     [[nodiscard]] bool stream_on();
     [[nodiscard]] bool stream_off();
 
-    // Must subscribe BEFORE stream_on or the kernel buffers events without
-    // notifying. drain_events() returns true if any events were drained —
-    // caller should treat that as "stream is stale, do a STREAMOFF/QBUF*/STREAMON cycle."
+    // Subscribe before get_format so a timings change after the format read can't go unseen.
     [[nodiscard]] bool subscribe_source_change();
+    // 0 once subscribed, else the subscribe errno (EBADF if never attempted).
+    [[nodiscard]] int source_change_errno() const { return source_change_errno_; }
     [[nodiscard]] bool drain_events(bool* drained = nullptr);
 
     // The kernel wakes poll(POLLPRI) when the control's value changes.
@@ -136,10 +137,6 @@ class Streamer {
     // DV_RX_POWER_PRESENT control (rk_hdmirx lies about that one).
     [[nodiscard]] DvTimingsState query_dv_timings_state() const;
 
-    // The kernel's ring is reset; existing dma-buf fds remain valid
-    // (we re-queue the same buffers).
-    [[nodiscard]] bool restart_streaming();
-
     // Valid until the next request_buffers() call or close().
     [[nodiscard]] const std::vector<BufferRef>& buffers() const { return bufs_; }
 
@@ -160,6 +157,7 @@ class Streamer {
     std::string device_path_;
     bool multiplanar_ = false;
     bool streaming_ = false;
+    int source_change_errno_ = EBADF;
     uint32_t io_memory_ = 1; // V4L2_MEMORY_MMAP; DMABUF after request_buffers_dmabuf
     std::vector<BufferRef> bufs_;
     std::vector<std::pair<void*, size_t>> in_maps_;

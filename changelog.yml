@@ -1,3 +1,14 @@
+- semver: 4.2.2
+  date: 2026-10-24T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: fca2fa6
+      note: "HDMI sources no longer come up at 640x480 with garbage video after a cold boot: when the HDMI receiver reports a new input mode, the source reopens the capture device so the format and buffers match the real resolution, and it subscribes to mode-change events before reading the format so an early change can't be missed"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.2.1
   date: 2026-09-18T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>

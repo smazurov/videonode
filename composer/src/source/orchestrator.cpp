@@ -65,20 +65,19 @@ void handle_v4l2_events_(LoopState& st) {
     std::vector<v4l2_event> evs;
     if (!st.cap.cap.drain_events_typed(evs))
         return;
-    bool need_restart = false;
+    bool source_changed = false;
     for (const auto& e : evs) {
         st.probe.note_event(e);
         if (e.type == V4L2_EVENT_SOURCE_CHANGE)
-            need_restart = true;
+            source_changed = true;
     }
-    if (!need_restart)
+    if (!source_changed)
         return;
-    if (st.cap.cap.restart_streaming()) {
-        st.probe.note_streaming_restarted();
-    } else {
-        teardown_session_(st.cap);
-        st.need_reinit = true;
-    }
+    // rk_hdmirx sizes the format from its timings at G_FMT, so a new mode needs a full reopen.
+    teardown_session_(st.cap);
+    st.last_good_decoded = {};
+    std::lock_guard<std::mutex> lock(st.gctx.set_format_mu);
+    *st.gctx.need_reinit_for_format_change = true;
 }
 
 std::optional<csc::PixelFormat> to_csc(jpeg_dec::PixelFormat f) {
@@ -358,7 +357,7 @@ void poll_and_dispatch_(LoopState& st) {
     }
     if (act.drain_events)
         handle_v4l2_events_(st);
-    if (act.dequeue && !handle_dqbuf_(st)) {
+    if (act.dequeue && st.cap.active && !handle_dqbuf_(st)) {
         // POLLIN can stay asserted while VIDIOC_DQBUF returns EINVAL/EAGAIN:
         // the rockchip hdmirx driver latches the fd readable on signal loss but
         // has no frame to hand over. The poll-timeout pacing above is then
