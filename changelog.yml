@@ -1,3 +1,18 @@
+- semver: 4.3.0
+  date: 2026-10-26T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: b1812c4
+      note: "Stream details now show encoder progress, frame advancement, and independent video/audio track health alongside the encoder stats; packet arrivals are distinguished from nonempty media units, silent audio remains valid activity, and stale FPS is no longer shown as current"
+    - commit: b1812c4
+      note: "Health snapshots are available through REST and the existing once-per-second SSE metrics stream, continue aging when output stops, and reset across encoder or publisher replacement; waiting, idle, stalled, packet-only, and disconnected telemetry states remain distinct"
+    - commit: b1812c4
+      note: "Media health is observation only: the initial stall threshold is five seconds, HDMI-loss behavior and threshold suitability still need hardware validation, and this release does not automatically restart encoders or suppress audio"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.2.2
   date: 2026-10-24T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
