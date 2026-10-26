@@ -38,10 +38,10 @@ var (
 
 // FFmpegStreamMetrics holds current metric values for a stream.
 type FFmpegStreamMetrics struct {
-	FPS             float64
-	DroppedFrames   float64
-	DuplicateFrames float64
-	Speed           float64
+	FPS             float64 `json:"fps"`
+	DroppedFrames   float64 `json:"dropped_frames"`
+	DuplicateFrames float64 `json:"duplicate_frames"`
+	Speed           float64 `json:"speed"`
 }
 
 // SetFFmpegFPS sets the current FPS for a stream.

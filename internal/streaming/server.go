@@ -474,6 +474,7 @@ type rtpSession interface {
 // the session. Formats with a dedicated handler deliver real access units to
 // stream.WriteUnit; everything else falls through to the generic RTP-only path.
 func setupFormatHandler(sess rtpSession, stream *Stream, ss *gortsplib.ServerStream, medi *description.Media, forma format.Format, logger logging.Logger) {
+	sess = observedRTPSession{rtpSession: sess, stream: stream}
 	switch f := forma.(type) {
 	case *format.H264:
 		setupH264Handler(sess, stream, ss, medi, f, logger)

@@ -752,6 +752,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ActivityHealth: {
+            /**
+             * Format: int64
+             * @description Milliseconds since the last observation; absent before the first observation
+             */
+            age_ms?: number;
+            /** Format: int64 */
+            count: number;
+            /** @enum {string} */
+            state: "never_received" | "flowing" | "stalled" | "unsupported";
+        };
         AudioConfigData: {
             /**
              * @description Audio bitrate
@@ -1317,6 +1328,16 @@ export interface components {
             /** @description Available video encoders */
             video_encoders: components["schemas"]["EncoderInfo"][] | null;
         };
+        EncoderHealth: {
+            ffmpeg: components["schemas"]["FFmpegHealth"];
+            /**
+             * Format: int64
+             * @description Encoder run identity; zero when no run is registered
+             */
+            started_at_us: number;
+            /** @enum {string} */
+            state: "idle" | "starting" | "running" | "stopping" | "error";
+        };
         EncoderInfo: {
             /**
              * @description Human-readable description
@@ -1551,6 +1572,22 @@ export interface components {
              * @example https://example.com/errors/example
              */
             type: string;
+        };
+        FFmpegHealth: {
+            /** @description Frame count and time since it last advanced, independent of progress-report arrivals */
+            frames: components["schemas"]["ActivityHealth"];
+            progress: components["schemas"]["ActivityHealth"];
+            stats: components["schemas"]["FFmpegStreamMetrics"];
+        };
+        FFmpegStreamMetrics: {
+            /** Format: double */
+            dropped_frames: number;
+            /** Format: double */
+            duplicate_frames: number;
+            /** Format: double */
+            fps: number;
+            /** Format: double */
+            speed: number;
         };
         FormatInfo: {
             /**
@@ -2251,6 +2288,8 @@ export interface components {
             enabled: boolean;
             /** @description Encoder configuration */
             encoder?: components["schemas"]["EncoderConfigData"];
+            /** @description Current-run encoder progress and media-output health */
+            health?: components["schemas"]["StreamHealth"];
             /**
              * @description Human-readable stream name
              * @example Main Archive
@@ -2288,6 +2327,19 @@ export interface components {
              */
             upstream: string;
         };
+        StreamHealth: {
+            encoder: components["schemas"]["EncoderHealth"];
+            /**
+             * Format: int64
+             * @description Publisher identity; zero when no current publisher has announced
+             */
+            publisher_started_at_us: number;
+            /** Format: date-time */
+            sampled_at: string;
+            /** Format: int64 */
+            stall_after_ms: number;
+            tracks: components["schemas"]["TrackHealth"][];
+        };
         StreamListData: {
             /**
              * Format: uri
@@ -2323,8 +2375,11 @@ export interface components {
             duplicate_frames: number;
             /** Format: double */
             fps: number;
+            health?: components["schemas"]["StreamHealth"];
             /** Format: double */
             packets_out: number;
+            /** Format: double */
+            speed: number;
         };
         StreamRequestData: {
             /**
@@ -2380,6 +2435,15 @@ export interface components {
             name?: string;
             /** @description Upstream reference */
             upstream?: string;
+        };
+        TrackHealth: {
+            codec: string;
+            /** Format: int64 */
+            index: number;
+            packets: components["schemas"]["ActivityHealth"];
+            type: string;
+            /** @description Nonempty access units; one video frame can contain several NAL units */
+            units: components["schemas"]["ActivityHealth"];
         };
         WebRTCClientInfo: {
             /** Format: int64 */

@@ -3,6 +3,9 @@ import { Area, AreaChart, XAxis, YAxis } from 'recharts';
 import { useStreamStore } from '../../hooks/useStreamStore';
 import { type MetricsSample } from '../../hooks/slices/streams/streamDataSlice';
 import { useProcesses } from '../../hooks/useProcesses';
+import { useConnectionStatus } from '../../hooks/useConnectionStatus';
+import { StreamHealthDetails } from './StreamHealthDetails';
+import { ffmpegStatsFresh, latestHealth } from '../../lib/stream-health';
 import { formatUptime } from '../../lib/formatUptime';
 import { KVInspector, type KVEntry } from '../primitives/KVInspector';
 import { SectionHeader } from '../primitives/SectionHeader';
@@ -46,9 +49,11 @@ interface MetricRowProps {
   readonly values: ReadonlyArray<number | null>;
   readonly formatValue: (n: number) => string;
   readonly tone: 'success' | 'accent';
+  readonly stale?: boolean;
+  readonly current?: number | null | undefined;
 }
 
-function MetricRow({ label, values, formatValue, tone }: MetricRowProps) {
+function MetricRow({ label, values, formatValue, tone, stale = false, current }: MetricRowProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -73,7 +78,7 @@ function MetricRow({ label, values, formatValue, tone }: MetricRowProps) {
     return m > 0 ? m * 1.15 : 1;
   }, [data]);
 
-  const latest = lastNumber(values);
+  const latest = current === undefined ? lastNumber(values) : current;
   const toneClass = tone === 'success' ? 'text-success' : 'text-accent';
 
   return (
@@ -112,8 +117,9 @@ function MetricRow({ label, values, formatValue, tone }: MetricRowProps) {
       )}
       <div className="relative z-10 flex flex-col px-2 py-1.5">
         <span className="text-xs uppercase tracking-wide text-fg-muted">{label}</span>
-        <span className="font-mono text-sm text-fg">
+        <span className={cn('font-mono text-sm', stale ? 'text-fg-subtle' : 'text-fg')}>
           {latest != null ? formatValue(latest) : '—'}
+          {stale && latest != null && <span className="ml-2 text-xs">last reported · stale</span>}
         </span>
       </div>
     </div>
@@ -123,6 +129,12 @@ function MetricRow({ label, values, formatValue, tone }: MetricRowProps) {
 export function StreamMetricsPanel({ streamId, className }: StreamMetricsPanelProps) {
   const metrics = useStreamStore((state) => state.metricsById[streamId]);
   const metricsTs = useStreamStore((state) => state.metricsTsById[streamId]);
+  const restHealth = useStreamStore((state) => state.streamsById[streamId]?.health);
+  const connected = useConnectionStatus() === 'online';
+  const health = latestHealth(restHealth, metrics?.health);
+  const stats = health?.encoder.ffmpeg.stats;
+  const fresh = connected && !!health && ffmpegStatsFresh(health);
+  const hasProgress = (health?.encoder.ffmpeg.progress.count ?? 0) > 0;
   const bitrate = useStreamStore((state) => state.streamsById[streamId]?.encoder?.bitrate);
   const history = useStreamStore((state) => state.metricsHistoryById[streamId]) ?? EMPTY_HISTORY;
   const { processes } = useProcesses({ enabled: true });
@@ -143,26 +155,31 @@ export function StreamMetricsPanel({ streamId, className }: StreamMetricsPanelPr
     { label: 'Target bitrate', value: bitrate ?? '—', mono: true },
     {
       label: 'Dropped / Duplicate',
-      value: `${metrics?.dropped_frames ?? '0'} / ${metrics?.duplicate_frames ?? '0'}`,
+      value: `${stats?.dropped_frames ?? metrics?.dropped_frames ?? '—'} / ${stats?.duplicate_frames ?? metrics?.duplicate_frames ?? '—'}`,
       mono: true,
     },
+    { label: fresh ? 'Processing speed' : 'Last processing speed (stale)', value: hasProgress && stats ? `${stats.speed.toFixed(2)}×` : '—', mono: true },
   ];
 
   return (
     <section className={cn('rounded-lg border border-border bg-surface-raised p-4', className)}>
       <SectionHeader title="Metrics" description="Live stream stats from the encoder" />
       <div className="mt-3 space-y-2">
+        <StreamHealthDetails health={health} connected={connected} />
         <MetricRow
           label="FPS"
           values={fpsValues}
           formatValue={(n) => `${n.toFixed(1)} fps`}
           tone="success"
+          stale={!fresh}
+          current={hasProgress ? stats?.fps : null}
         />
         <MetricRow
           label="Bitrate"
           values={bitrateValues}
           formatValue={formatBitrate}
           tone="accent"
+          stale={!connected}
         />
         <KVInspector entries={entries} dense />
       </div>

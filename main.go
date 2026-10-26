@@ -400,6 +400,18 @@ func main() {
 			ThumbnailWidth: opts.RecordingThumbnailWidth,
 		}, recordingThumbSrc, logging.GetLogger("recording"))
 
+		telemetry := streaming.NewTelemetry(nativePipeline, streamingServer, func() []string {
+			if entityStore == nil {
+				return nil
+			}
+			specs := entityStore.ListPipelineStreams()
+			ids := make([]string, len(specs))
+			for i, spec := range specs {
+				ids[i] = spec.ID
+			}
+			return ids
+		})
+
 		apiOpts := &api.Options{
 			Authenticator:      authenticator,
 			StreamService:      streamSvc,
@@ -412,6 +424,7 @@ func main() {
 			SRTServer:          srtServer,
 			RecordingManager:   recordingManager,
 			StreamProvider:     streamingServer,
+			StreamHealth:       telemetry,
 			SnapshotCache:      snapshotCache,
 			PrometheusHandler:  promhttp.Handler(), // Prometheus metrics via promauto
 			ControlServer:      ctlServer,
@@ -436,7 +449,7 @@ func main() {
 		if opts.SSEEnabled {
 			sseExporter = exporters.NewSSEExporter(eventRegistry, func() bool {
 				return server.SSEClientCount() > 0
-			})
+			}, telemetry)
 		}
 
 		hooks.OnStart(func() {

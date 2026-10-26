@@ -223,7 +223,7 @@ func applyStreamPatch(st *pipeline.Stream, body models.StreamUpdateRequestData) 
 // streamToAPI converts a pipeline.Stream into the slim API view, filling
 // in runtime-derived fields (RTSP/SRT URLs).
 func (s *Server) streamToAPI(st pipeline.Stream) models.StreamData {
-	return models.StreamData{
+	out := models.StreamData{
 		StreamID:          st.ID,
 		Name:              st.Name,
 		Upstream:          st.Upstream,
@@ -237,6 +237,11 @@ func (s *Server) streamToAPI(st pipeline.Stream) models.StreamData {
 		CreatedAt:         st.CreatedAt,
 		UpdatedAt:         st.UpdatedAt,
 	}
+	if s.options != nil && s.options.StreamHealth != nil {
+		health := s.options.StreamHealth.Snapshot(st.ID)
+		out.Health = &health
+	}
+	return out
 }
 
 func audioFromAPI(a models.AudioConfigData) pipeline.AudioConfig {
