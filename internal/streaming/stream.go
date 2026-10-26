@@ -37,6 +37,7 @@ type Stream struct {
 	mu          sync.RWMutex
 	logger      logging.Logger
 	onNoReaders func(streamID string)
+	health      *mediaHealth
 }
 
 // NewStream creates a new stream with the given session description.
@@ -46,6 +47,7 @@ func NewStream(id string, desc *description.Session, logger logging.Logger) *Str
 		desc:    desc,
 		readers: make(map[*Reader]struct{}),
 		logger:  logger,
+		health:  newMediaHealth(desc),
 	}
 }
 
@@ -116,6 +118,12 @@ func (s *Stream) WriteRTP(medi *description.Media, forma format.Format, pkt *rtp
 // This is used after RTP depacketization.
 // PTS and DTS are in 90kHz clock units.
 func (s *Stream) WriteUnit(medi *description.Media, forma format.Format, pts int64, dts int64, au [][]byte) {
+	for _, unit := range au {
+		if len(unit) > 0 {
+			s.health.record(medi, forma, true)
+			break
+		}
+	}
 	s.mu.RLock()
 	readers := make([]*Reader, 0, len(s.readers))
 	for r := range s.readers {

@@ -1225,6 +1225,16 @@ func (p *Pipeline) entityLock(key string) *sync.Mutex {
 // onStateChange touches the owning entity when a pool stage transitions so
 // its SSE snapshot refreshes with the new pool-derived status field.
 func (p *Pipeline) onStateChange(id string, _, newState process.State, _ error) {
+	if newState == process.StateStarting && strings.HasPrefix(id, "encoder:") {
+		p.mu.Lock()
+		c := p.collectors[strings.TrimPrefix(id, "encoder:")]
+		p.mu.Unlock()
+		if c != nil {
+			if err := c.BeginRun(p.pool.GetStatus(id).StartedAt.UnixMicro()); err != nil {
+				p.logger.Warn("reset encoder progress failed", logging.KeyPoolID, id, logging.KeyError, err)
+			}
+		}
+	}
 	if p.cfg.Registry != nil {
 		switch {
 		case strings.HasPrefix(id, "producer:"):

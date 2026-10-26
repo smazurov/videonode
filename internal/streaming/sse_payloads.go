@@ -10,11 +10,13 @@ type StreamStatusPayload struct {
 
 // StreamMetricsPayload is the payload of a "stream.metrics" SSE event.
 type StreamMetricsPayload struct {
-	FPS             float64 `json:"fps"`
-	DroppedFrames   float64 `json:"dropped_frames"`
-	DuplicateFrames float64 `json:"duplicate_frames"`
-	BytesOut        float64 `json:"bytes_out"`
-	PacketsOut      float64 `json:"packets_out"`
+	FPS             float64       `json:"fps"`
+	DroppedFrames   float64       `json:"dropped_frames"`
+	DuplicateFrames float64       `json:"duplicate_frames"`
+	BytesOut        float64       `json:"bytes_out"`
+	PacketsOut      float64       `json:"packets_out"`
+	Speed           float64       `json:"speed"`
+	Health          *StreamHealth `json:"health,omitempty"`
 }
 
 // StreamConsumersPayload is the payload of a "stream.consumers" SSE event:

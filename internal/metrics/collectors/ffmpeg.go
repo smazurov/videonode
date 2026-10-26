@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -27,8 +28,15 @@ type FFmpegCollector struct {
 	cancel     context.CancelFunc
 	stopOnce   sync.Once
 
-	fpsMu sync.Mutex
-	fps   fpsTracker
+	mu         sync.Mutex
+	fps        fpsTracker
+	progress   metrics.Activity
+	frames     metrics.Activity
+	stats      metrics.FFmpegStreamMetrics
+	generation uint64
+	runID      int64
+	conns      map[net.Conn]struct{}
+	stopped    bool
 }
 
 // fpsEMAAlpha controls how fast the smoothed FPS tracks the instantaneous
@@ -95,165 +103,194 @@ func NewFFmpegCollector(socketPath, streamID string) *FFmpegCollector {
 		logger:     logging.GetLogger("streams").With(logging.KeyStreamID, streamID),
 		socketPath: socketPath,
 		streamID:   streamID,
+		conns:      make(map[net.Conn]struct{}),
 	}
 }
 
-// Start begins collecting FFmpeg data.
+// Start binds the progress socket before returning so encoders can connect immediately.
 func (f *FFmpegCollector) Start(ctx context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.stopped {
+		return errors.New("FFmpeg collector is stopped")
+	}
+	if f.listener != nil {
+		return errors.New("FFmpeg collector is already started")
+	}
+	if err := os.Remove(f.socketPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	listener, err := net.Listen("unix", f.socketPath)
+	if err != nil {
+		return err
+	}
+	f.listener = listener
+	f.logger.Debug("Listening for FFmpeg progress", logging.KeySocket, f.socketPath)
 	f.ctx, f.cancel = context.WithCancel(ctx)
-	go f.startSocketListener()
+	go f.acceptConnections(listener)
+	context.AfterFunc(f.ctx, func() { _ = f.Stop() })
 	return nil
 }
 
-// Stop stops the FFmpeg collector.
+// Stop closes the listener and active progress readers, and removes metrics.
 func (f *FFmpegCollector) Stop() error {
-	var stopErr error
 	f.stopOnce.Do(func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.stopped = true
 		if f.cancel != nil {
 			f.cancel()
 		}
 		if f.listener != nil {
 			f.listener.Close()
-			f.listener = nil
 		}
-		if f.socketPath != "" {
-			os.Remove(f.socketPath)
+		for conn := range f.conns {
+			conn.Close()
 		}
 		metrics.DeleteFFmpegMetrics(f.streamID)
-		f.fpsMu.Lock()
-		f.fps.reset()
-		f.fpsMu.Unlock()
+		f.reset()
 	})
-	return stopErr
+	return nil
 }
 
-func (f *FFmpegCollector) startSocketListener() {
-	f.logger.Info("Starting socket listener", logging.KeySocket, f.socketPath)
-
-	if err := os.Remove(f.socketPath); err != nil && !os.IsNotExist(err) {
-		f.logger.Warn("Failed to clean up old socket file", logging.KeyError, err)
+// BeginRun discards observations and connections belonging to the previous encoder.
+func (f *FFmpegCollector) BeginRun(runID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.stopped {
+		return errors.New("FFmpeg collector is stopped")
 	}
-
-	listener, err := net.Listen("unix", f.socketPath)
-	if err != nil {
-		f.logger.Error("Failed to create Unix socket listener", logging.KeyError, err)
-		return
+	f.runID = runID
+	f.generation++
+	for conn := range f.conns {
+		conn.Close()
 	}
+	f.reset()
+	metrics.DeleteFFmpegMetrics(f.streamID)
+	// Rebind to discard queued connections from the old run, not just accepted ones.
+	if f.listener != nil {
+		f.listener.Close()
+		f.listener = nil
+	}
+	if f.ctx != nil {
+		listener, err := net.Listen("unix", f.socketPath)
+		if err != nil {
+			return err
+		}
+		f.listener = listener
+		go f.acceptConnections(listener)
+	}
+	return nil
+}
 
-	f.listener = listener
+func (f *FFmpegCollector) reset() {
+	f.fps.reset()
+	f.progress = metrics.Activity{}
+	f.frames = metrics.Activity{}
+	f.stats = metrics.FFmpegStreamMetrics{}
+}
+
+// Health returns the last reported values with report and frame-advance freshness.
+func (f *FFmpegCollector) Health(runID int64, now time.Time) metrics.FFmpegHealth {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if runID != f.runID {
+		empty := metrics.Activity{}.Snapshot(now)
+		return metrics.FFmpegHealth{Progress: empty, Frames: empty}
+	}
+	return metrics.FFmpegHealth{
+		Progress: f.progress.Snapshot(now),
+		Frames:   f.frames.Snapshot(now),
+		Stats:    f.stats,
+	}
+}
+
+func (f *FFmpegCollector) acceptConnections(listener net.Listener) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		f.mu.Lock()
+		if f.stopped || listener != f.listener {
+			f.mu.Unlock()
+			conn.Close()
+			return
+		}
+		generation := f.generation
+		f.conns[conn] = struct{}{}
+		f.mu.Unlock()
+		go f.handleConnection(conn, generation)
+	}
+}
+
+func (f *FFmpegCollector) handleConnection(conn net.Conn, generation uint64) {
 	defer func() {
-		listener.Close()
-		os.Remove(f.socketPath)
+		conn.Close()
+		f.mu.Lock()
+		delete(f.conns, conn)
+		f.mu.Unlock()
 	}()
 
-	for {
-		select {
-		case <-f.ctx.Done():
-			return
-		default:
-		}
-
-		if ul, ok := listener.(*net.UnixListener); ok {
-			ul.SetDeadline(time.Now().Add(1 * time.Second))
-		}
-
-		conn, acceptErr := listener.Accept()
-		if acceptErr != nil {
-			var netErr net.Error
-			if errors.As(acceptErr, &netErr) {
-				continue
-			}
-			select {
-			case <-f.ctx.Done():
-				return
-			default:
-				if strings.Contains(acceptErr.Error(), "use of closed network connection") {
-					return
-				}
-				f.logger.Warn("Error accepting connection", logging.KeyError, acceptErr)
-				continue
-			}
-		}
-
-		go f.handleConnection(conn)
-	}
-}
-
-func (f *FFmpegCollector) handleConnection(conn net.Conn) {
-	defer conn.Close()
-
 	scanner := bufio.NewScanner(conn)
-	progressData := make(map[string]string)
-
+	data := make(map[string]string)
 	for scanner.Scan() {
-		select {
-		case <-f.ctx.Done():
-			return
-		default:
-		}
-
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+		key, value, ok := strings.Cut(strings.TrimSpace(scanner.Text()), "=")
+		if !ok {
 			continue
 		}
-
-		if strings.Contains(line, "=") {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				progressData[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
-			}
-		}
-
-		if strings.Contains(line, "progress=") {
-			f.sendProgressMetrics(progressData)
-			progressData = make(map[string]string)
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		data[key] = value
+		if key == "progress" {
+			f.sendProgressMetrics(data, generation, time.Now())
+			clear(data)
 		}
 	}
 }
 
-func (f *FFmpegCollector) sendProgressMetrics(data map[string]string) {
-	if !f.updateFPS(data) {
-		// Fall back to ffmpeg's reported (cumulative-average) fps if we can't
-		// parse the frame counter — better a lagging value than no value.
-		if fps, err := strconv.ParseFloat(data["fps"], 64); err == nil {
-			metrics.SetFFmpegFPS(f.streamID, fps)
+func (f *FFmpegCollector) sendProgressMetrics(data map[string]string, generation uint64, now time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.stopped || generation != f.generation {
+		return
+	}
+	f.progress.Record(now)
+	if frame, err := strconv.ParseUint(data["frame"], 10, 64); err == nil {
+		if frame < f.frames.Count {
+			f.frames = metrics.Activity{}
 		}
+		if frame > f.frames.Count {
+			f.frames.Last = now
+		}
+		f.frames.Count = frame
+		if fps, ok := f.fps.update(frame, now); ok {
+			f.stats.FPS = fps
+		} else if reported, valid := parseProgressNumber(data["fps"]); valid {
+			f.stats.FPS = reported
+		}
+	} else if fps, valid := parseProgressNumber(data["fps"]); valid {
+		f.stats.FPS = fps
 	}
-	if dropped, err := strconv.ParseFloat(data["drop_frames"], 64); err == nil {
-		metrics.SetFFmpegDroppedFrames(f.streamID, dropped)
+	if dropped, valid := parseProgressNumber(data["drop_frames"]); valid {
+		f.stats.DroppedFrames = dropped
 	}
-	if dup, err := strconv.ParseFloat(data["dup_frames"], 64); err == nil {
-		metrics.SetFFmpegDuplicateFrames(f.streamID, dup)
+	if dup, valid := parseProgressNumber(data["dup_frames"]); valid {
+		f.stats.DuplicateFrames = dup
 	}
-	speedStr := strings.TrimSuffix(data["speed"], "x")
-	if speed, err := strconv.ParseFloat(strings.TrimSpace(speedStr), 64); err == nil {
-		metrics.SetFFmpegSpeed(f.streamID, speed)
+	speed := strings.TrimSpace(strings.TrimSuffix(data["speed"], "x"))
+	if value, valid := parseProgressNumber(speed); valid {
+		f.stats.Speed = value
 	}
-
-	// FFmpeg emits `progress=end` on the final block of a session. Reset so
-	// the next session re-seeds the EMA from its own first sample.
+	metrics.SetFFmpegFPS(f.streamID, f.stats.FPS)
+	metrics.SetFFmpegDroppedFrames(f.streamID, f.stats.DroppedFrames)
+	metrics.SetFFmpegDuplicateFrames(f.streamID, f.stats.DuplicateFrames)
+	metrics.SetFFmpegSpeed(f.streamID, f.stats.Speed)
 	if data["progress"] == "end" {
-		f.fpsMu.Lock()
 		f.fps.reset()
-		f.fpsMu.Unlock()
 	}
 }
 
-// updateFPS computes a delta-based smoothed FPS from the progress block's
-// `frame` counter and publishes it to the metrics registry. Returns true if a
-// value was published, false if the caller should fall back to ffmpeg's
-// reported fps (e.g. missing/unparseable frame field, or first sample).
-func (f *FFmpegCollector) updateFPS(data map[string]string) bool {
-	frame, err := strconv.ParseUint(data["frame"], 10, 64)
-	if err != nil {
-		return false
-	}
-	f.fpsMu.Lock()
-	smoothed, ok := f.fps.update(frame, time.Now())
-	f.fpsMu.Unlock()
-	if !ok {
-		return false
-	}
-	metrics.SetFFmpegFPS(f.streamID, smoothed)
-	return true
+func parseProgressNumber(raw string) (float64, bool) {
+	value, err := strconv.ParseFloat(raw, 64)
+	return value, err == nil && !math.IsNaN(value) && !math.IsInf(value, 0)
 }

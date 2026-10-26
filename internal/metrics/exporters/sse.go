@@ -21,6 +21,7 @@ type EntityPublisher interface {
 type SSEExporter struct {
 	registry       EntityPublisher
 	hasSubscribers func() bool
+	health         streaming.HealthProvider
 	interval       time.Duration
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -30,9 +31,10 @@ type SSEExporter struct {
 // NewSSEExporter creates an SSE metrics exporter. A nil hasSubscribers
 // gathers every tick; otherwise the per-tick registry gather is skipped
 // when it returns false.
-func NewSSEExporter(registry EntityPublisher, hasSubscribers func() bool) *SSEExporter {
+func NewSSEExporter(registry EntityPublisher, hasSubscribers func() bool, health streaming.HealthProvider) *SSEExporter {
 	return &SSEExporter{
 		registry:       registry,
+		health:         health,
 		hasSubscribers: hasSubscribers,
 		interval:       1 * time.Second,
 	}
@@ -73,12 +75,19 @@ func (s *SSEExporter) run() {
 
 func (s *SSEExporter) publishMetrics() {
 	allMetrics, egress, err := metrics.GetStreamMetricsFromRegistry()
-	if err != nil {
+	if err != nil && s.health == nil {
 		return
 	}
 
-	// Collect all stream IDs from both sources.
+	var health map[string]streaming.StreamHealth
+	if s.health != nil {
+		health = s.health.Snapshots()
+	}
+	// Include configured streams even before their first progress or media packet.
 	streamIDs := make(map[string]struct{})
+	for id := range health {
+		streamIDs[id] = struct{}{}
+	}
 	for id := range allMetrics {
 		streamIDs[id] = struct{}{}
 	}
@@ -88,11 +97,20 @@ func (s *SSEExporter) publishMetrics() {
 
 	for streamID := range streamIDs {
 		ffm := allMetrics[streamID]
-		var fps, dropped, dup float64
+		var fps, dropped, dup, speed float64
 		if ffm != nil {
 			fps = ffm.FPS
 			dropped = ffm.DroppedFrames
 			dup = ffm.DuplicateFrames
+			speed = ffm.Speed
+		}
+		var snapshot *streaming.StreamHealth
+		if h, ok := health[streamID]; ok {
+			snapshot = &h
+			stats := h.Encoder.FFmpeg.Stats
+			fps, dropped, dup, speed = stats.FPS, stats.DroppedFrames, stats.DuplicateFrames, stats.Speed
+		} else if s.health != nil {
+			continue // Historical gauges must not resurrect deleted streams.
 		}
 
 		eg := egress[streamID]
@@ -108,6 +126,8 @@ func (s *SSEExporter) publishMetrics() {
 			DuplicateFrames: dup,
 			BytesOut:        bytesOut,
 			PacketsOut:      packetsOut,
+			Speed:           speed,
+			Health:          snapshot,
 		})
 	}
 }

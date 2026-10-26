@@ -181,6 +181,7 @@ type Options struct {
 	SRTServer         *streaming.SRTServer        // SRT consumer server (optional)
 	RecordingManager  *streaming.RecordingManager // Recording manager (optional): enables /api/.../recording
 	StreamProvider    streaming.StreamProvider    // Stream access for WebRTC
+	StreamHealth      streaming.HealthProvider    // Shared REST/SSE telemetry snapshots
 	SnapshotCache     *snapshots.Cache            // In-memory JPEG cache for snapshot/preview endpoints
 	ControlServer     *pipelinectl.Manager        // Optional control plane for native sidecars
 	ProcessesProvider ProcessesProvider           // Optional: enables GET /api/processes when set

@@ -1,4 +1,5 @@
 import { StateCreator } from 'zustand';
+import { ffmpegStatsFresh, latestHealth } from '../../../lib/stream-health';
 
 import type { Stream } from '../types';
 import { StreamStore } from '../../useStreamStore';
@@ -164,9 +165,18 @@ export const createStreamDataSlice: StateCreator<
         const ts = Number.isNaN(parsed) ? Date.now() : parsed;
         set((state) => {
           const payload = event.payload;
-          const fps = Number.isFinite(payload.fps) ? payload.fps : null;
+          if (payload.health && latestHealth(state.streamsById[event.id]?.health, payload.health) !== payload.health) {
+            return {};
+          }
+          const previous = state.metricsById[event.id];
+          if (payload.health && latestHealth(previous?.health, payload.health) !== payload.health) {
+            return {};
+          }
+          const fresh = !payload.health || ffmpegStatsFresh(payload.health);
+          const fps = fresh && Number.isFinite(payload.fps) ? payload.fps : null;
           const bytesOut = Number.isFinite(payload.bytes_out) ? payload.bytes_out : null;
-          const prevHistory = state.metricsHistoryById[event.id] ?? [];
+          const sameRun = previous?.health?.encoder.started_at_us === payload.health?.encoder.started_at_us;
+          const prevHistory = sameRun ? state.metricsHistoryById[event.id] ?? [] : [];
           const last = prevHistory[prevHistory.length - 1];
           let bitrateBps: number | null = null;
           if (last && bytesOut != null && last.bytesOut != null && ts > last.ts) {
