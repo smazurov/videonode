@@ -246,19 +246,21 @@ func (s *Server) streamToAPI(st pipeline.Stream) models.StreamData {
 
 func audioFromAPI(a models.AudioConfigData) pipeline.AudioConfig {
 	return pipeline.AudioConfig{
-		Devices: append([]string(nil), a.Devices...),
-		Codec:   a.Codec,
-		Bitrate: a.Bitrate,
-		Filters: a.Filters,
+		Devices:  append([]string(nil), a.Devices...),
+		Codec:    a.Codec,
+		Bitrate:  a.Bitrate,
+		Filters:  a.Filters,
+		OffsetMS: a.OffsetMS,
 	}
 }
 
 func audioToAPI(a pipeline.AudioConfig) models.AudioConfigData {
 	return models.AudioConfigData{
-		Devices: append([]string(nil), a.Devices...),
-		Codec:   a.Codec,
-		Bitrate: a.Bitrate,
-		Filters: a.Filters,
+		Devices:  append([]string(nil), a.Devices...),
+		Codec:    a.Codec,
+		Bitrate:  a.Bitrate,
+		Filters:  a.Filters,
+		OffsetMS: a.OffsetMS,
 	}
 }
 

@@ -3,7 +3,7 @@ import { InputField } from '../InputField';
 import { Select } from '../Select';
 import { MultiSelect, type MultiSelectOption } from '../MultiSelect';
 import { useAudioDevices } from '../../hooks/useAudioDevices';
-import type { AudioCodec, AudioConfig } from './types';
+import { MAX_AUDIO_OFFSET_MS, type AudioCodec, type AudioConfig } from './types';
 
 interface AudioFieldsProps {
   value: AudioConfig;
@@ -46,6 +46,7 @@ export function AudioFields({
 
   const codecErr = errors['audio.codec'] ? { error: errors['audio.codec'] } : {};
   const bitrateErr = errors['audio.bitrate'] ? { error: errors['audio.bitrate'] } : {};
+  const offsetErr = errors['audio.offset_ms'] ? { error: errors['audio.offset_ms'] } : {};
 
   return (
     <section className="space-y-4">
@@ -89,15 +90,35 @@ export function AudioFields({
           {...bitrateErr}
         />
       </div>
-      <InputField
-        label="Mix filter (optional)"
-        type="text"
-        value={value.filters ?? ''}
-        onChange={(e) => update('filters', e.target.value || undefined)}
-        placeholder="amix=inputs=2:duration=shortest"
-        disabled={disabled}
-        hint="Custom ffmpeg -filter_complex audio chain."
-      />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+        <div className="md:col-span-3">
+          <InputField
+            label="Mix filter (optional)"
+            type="text"
+            value={value.filters ?? ''}
+            onChange={(e) => update('filters', e.target.value || undefined)}
+            placeholder="amix=inputs=2:duration=shortest"
+            disabled={disabled}
+            hint="Custom ffmpeg -filter_complex audio chain."
+          />
+        </div>
+        <InputField
+          label="A/V offset (ms)"
+          type="number"
+          min={-MAX_AUDIO_OFFSET_MS}
+          max={MAX_AUDIO_OFFSET_MS}
+          step={10}
+          value={value.offset_ms ?? ''}
+          onChange={(e) => {
+            const n = e.target.value === '' ? undefined : parseInt(e.target.value, 10);
+            update('offset_ms', n === undefined || Number.isNaN(n) || n === 0 ? undefined : n);
+          }}
+          placeholder="0"
+          disabled={disabled}
+          hint="Positive delays audio, negative delays video."
+          {...offsetErr}
+        />
+      </div>
     </section>
   );
 }

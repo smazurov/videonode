@@ -153,8 +153,10 @@ Three binaries (see `src/bin/`) supervised by the Go daemon:
 - **`videonode-source`** (one per V4L2 device) — captures frames, converts
   to NV12 via RGA or GLES CSC backend, fans dma-buf fds out to ≤16
   consumers over a Unix socket using SCM_RIGHTS.
-- **`videonode-sink`** — single consumer, mmaps each dma-buf and writes
-  raw NV12 to stdout. Piped into ffmpeg for transcoding.
+- **`videonode-sink`** — single consumer per stream. `--mux nut` (what the
+  daemon runs) paces NV12 frames and muxes one PCM track per `--audio-device`
+  it captures into a NUT stream on stdout; `--mux raw` writes raw NV12 per
+  frame. Piped into ffmpeg for transcoding. Internals live in `sink/`.
 - **`videonode-composer`** — GPU compositor on Mali-G610 (Panthor on rig,
   radeonsi on Fedora dev box). Reads up to two source sockets, composes
   BGRA via EGL/GLES, writes to stdout.
@@ -184,6 +186,7 @@ Library layout under `src/`:
 - `render/` — CSC dispatch + GLES/RGA backends, GBM/dma_heap NV12 allocators, GPU compositor, EGL context, canvas loop, NO-SIGNAL placeholder painter, composer gRPC service impl (`composer_service`)
 - `process/` — child-process supervision, ffmpeg-pipe wrapper
 - `source/` — `videonode-source`'s orchestrator + capture session + broadcast helpers + source gRPC service impl (`source_service`)
+- `sink/` — `videonode-sink`'s NUT writer, A/V timeline (video pacer, audio clock DLL, audio track, rate-limited audio health log), ALSA capture thread, producer link, raw/NUT sessions
 - `bin/` — the three binary entry points
 
 Vendored Rockchip stubs are gone — host builds either link real librga /

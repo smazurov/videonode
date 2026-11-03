@@ -4,6 +4,9 @@ processes:
   # Backend with hot reload (includes embedded RTSP server)
   backend:
     command: "air"
+    environment:
+      # vn-sink opens capture devices through the same plug -> dsnoop config the package installs.
+      - "ALSA_CONFIG_PATH=${PWD}/packaging/videonode.asound.conf"
     availability:
       restart: "on_failure"
 

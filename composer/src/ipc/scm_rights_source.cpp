@@ -105,8 +105,9 @@ bool ScmRightsSource::start() {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         if (!client) {
-            vn::log::error("scm_rights_source: dial %s failed: %s", params_.socket_path.c_str(),
-                           strerror(errno));
+            if (!params_.quiet_dial_failure)
+                vn::log::error("scm_rights_source: dial %s failed: %s", params_.socket_path.c_str(),
+                               strerror(errno));
             return false;
         }
         vn::log::info("scm_rights_source: dialed %s", params_.socket_path.c_str());

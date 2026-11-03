@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"strconv"
 
 	"github.com/smazurov/videonode/internal/ffmpeg"
 	"github.com/smazurov/videonode/internal/logging"
@@ -11,9 +12,11 @@ import (
 )
 
 // EncoderStage is the per-Stream Encoder process: `vn-sink | ffmpeg`.
-// VN-sink dials either a producer's SCM socket (NV12 → Y4M) or a
-// composer's `--scm-out` socket (BGRA → raw), and pipes to ffmpeg which
-// encodes and publishes to the daemon's local RTSP relay (OutputURL).
+// VN-sink dials a producer's or composer's SCM socket, captures the
+// stream's ALSA devices itself, and pipes paced NV12 video plus gapless PCM
+// tracks as one NUT stream to ffmpeg, which encodes and publishes to the
+// daemon's local RTSP relay (OutputURL). Audio device stalls or unplugs
+// therefore never stall ffmpeg's video.
 //
 // One EncoderStage per stream, always present. Restart isolation works
 // because vn-sink retry-dials its source SCM, so encoder respawn doesn't
@@ -41,7 +44,7 @@ func (e *EncoderStage) Kind() Kind { return KindEncoder }
 // StreamID returns the user-facing stream id.
 func (e *EncoderStage) StreamID() string { return e.OwnerStreamID }
 
-// Command builds the shell command `vn-sink --socket X | ffmpeg ...`.
+// Command builds the shell command `vn-sink --socket X --mux nut ... | ffmpeg ...`.
 func (e *EncoderStage) Command() ([]string, []string, error) {
 	if e.Media.Video == nil {
 		return nil, nil, errors.New("encoder: media.video is nil")
@@ -56,7 +59,7 @@ func (e *EncoderStage) Command() ([]string, []string, error) {
 		return nil, nil, errors.New("encoder: VNSinkBin path is required")
 	}
 
-	sinkArgv := []string{e.VNSinkBin, "--socket", e.Media.Video.SocketPath()}
+	sinkArgv := e.sinkArgv()
 	params := e.buildFFmpegParams()
 
 	var ffmpegCmd string
@@ -68,6 +71,37 @@ func (e *EncoderStage) Command() ([]string, []string, error) {
 
 	cmd := shellJoinArgv(sinkArgv) + " | " + ffmpegCmd
 	return []string{"/bin/sh", "-c", cmd}, nil, nil
+}
+
+// defaultSinkFPS paces vn-sink when the upstream reports no frame rate.
+const defaultSinkFPS = 30
+
+// sinkArgv builds vn-sink's argv: NUT mux, the pacing frame rate, and one
+// --audio-device per configured ALSA device (mapped through the capture
+// config so dsnoop sharing applies).
+func (e *EncoderStage) sinkArgv() []string {
+	fps := e.Media.Video.FPS()
+	if fps <= 0 {
+		fps = defaultSinkFPS
+	}
+	argv := []string{
+		e.VNSinkBin,
+		"--socket", e.Media.Video.SocketPath(),
+		"--mux", "nut",
+		"--fps", strconv.Itoa(fps),
+	}
+	audio := e.Media.Audio.Config
+	if len(audio.Devices) == 0 {
+		return argv
+	}
+	for _, d := range audio.Devices {
+		argv = append(argv, "--audio-device", ffmpeg.MapCaptureDevice(d))
+	}
+	argv = append(argv, "--audio-rate", "48000", "--audio-channels", "2")
+	if offset := max(-MaxAudioOffsetMS, min(MaxAudioOffsetMS, audio.OffsetMS)); offset != 0 {
+		argv = append(argv, "--audio-offset-ms", strconv.Itoa(offset))
+	}
+	return argv
 }
 
 // buildFFmpegParams projects EncoderConfig + MediaSource + OutputURL onto
@@ -96,15 +130,11 @@ func (e *EncoderStage) buildFFmpegParams() *ffmpeg.Params {
 		p.RCMode = "VBR"
 	}
 
-	if alsa := e.Media.Audio; len(alsa.Config.Devices) > 0 {
-		devs := make([]string, len(alsa.Config.Devices))
-		for i, d := range alsa.Config.Devices {
-			devs[i] = ffmpeg.MapCaptureDevice(d)
-		}
-		p.AudioInputs = devs
-		p.AudioCodec = alsa.Config.Codec
-		p.AudioBitrate = alsa.Config.Bitrate
-		p.AudioFilters = alsa.Config.Filters
+	if audio := e.Media.Audio.Config; len(audio.Devices) > 0 {
+		p.InputPipe.AudioTracks = len(audio.Devices)
+		p.AudioCodec = audio.Codec
+		p.AudioBitrate = audio.Bitrate
+		p.AudioFilters = audio.Filters
 	}
 
 	if e.OutputURL != "" {
@@ -120,17 +150,13 @@ func ProgressSocketPathFor(streamID string) string {
 	return filepath.Join(NativeUdsDir, "progress-"+sanitizeForFilename(streamID)+".sock")
 }
 
-// pipeInputFor maps a FrameSource to the ffmpeg.PipeInput shape. Sources and
-// composers both emit raw NV12; the colorimetry tag distinguishes them.
+// pipeInputFor maps a FrameSource to the ffmpeg.PipeInput shape. The sink
+// emits self-describing NUT (NV12 dims and rate in its headers); the
+// colorimetry tag, which NUT cannot carry, distinguishes sources and composers.
 func pipeInputFor(fs FrameSource) *ffmpeg.PipeInput {
-	w, h := fs.Dims()
 	return &ffmpeg.PipeInput{
-		Format:      "rawvideo",
-		PixelFormat: "nv12",
-		Width:       w,
-		Height:      h,
-		FPS:         fs.FPS(),
-		Color:       ffmpeg.ColorTagsForMatrix(fs.Colorimetry()),
+		Format: "nut",
+		Color:  ffmpeg.ColorTagsForMatrix(fs.Colorimetry()),
 	}
 }
 

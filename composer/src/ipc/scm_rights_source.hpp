@@ -73,6 +73,8 @@ struct InitParams {
     // Dial mode: keep retrying connect until this elapses. 0 = single
     // attempt, for callers that must not block (canvas render loop).
     int dial_timeout_ms = 30000;
+    // Callers that retry in a loop log the outage themselves instead of once per attempt.
+    bool quiet_dial_failure = false;
 };
 
 class ScmRightsSource {

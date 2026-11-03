@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useStreamStore } from './useStreamStore';
 import type { components } from '../lib/api.generated';
-import type {
-  AudioConfig,
-  EncoderConfig,
-  StreamFormValue,
+import {
+  MAX_AUDIO_OFFSET_MS,
+  type AudioConfig,
+  type EncoderConfig,
+  type StreamFormValue,
 } from '../components/streams/types';
 
 type StreamData = components['schemas']['StreamData'];
@@ -103,6 +104,10 @@ function validate({ mode, value, existingIds }: ValidateOpts): Record<string, st
   }
   if (value.encoder.gop !== undefined && value.encoder.gop < 0) {
     errors['encoder.gop'] = 'GOP must be non-negative';
+  }
+  const offset = value.audio.offset_ms;
+  if (offset !== undefined && Math.abs(offset) > MAX_AUDIO_OFFSET_MS) {
+    errors['audio.offset_ms'] = `Offset must be within ±${MAX_AUDIO_OFFSET_MS} ms`;
   }
 
   return errors;

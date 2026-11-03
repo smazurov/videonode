@@ -778,6 +778,12 @@ export interface components {
             devices?: string[] | null;
             /** @description Optional shared filter chain */
             filters?: string;
+            /**
+             * Format: int64
+             * @description Audio/video sync offset in milliseconds; positive delays audio
+             * @example 80
+             */
+            offset_ms?: number;
         };
         AudioDevice: {
             /**

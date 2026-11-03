@@ -66,6 +66,7 @@ export default withMermaid(
             { text: 'Streaming outputs', link: '/operating/streaming-outputs' },
             { text: 'Composers', link: '/operating/composers' },
             { text: 'Encoders', link: '/operating/encoders' },
+            { text: 'Audio', link: '/operating/audio' },
             { text: 'Observability', link: '/operating/observability' },
           ],
         },

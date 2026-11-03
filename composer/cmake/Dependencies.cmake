@@ -26,6 +26,9 @@ pkg_check_modules(EGL    REQUIRED IMPORTED_TARGET egl)
 pkg_check_modules(GLESV2 REQUIRED IMPORTED_TARGET glesv2)
 pkg_check_modules(DRM    REQUIRED IMPORTED_TARGET libdrm)
 
+# ALSA — videonode-sink captures audio itself so device stalls never reach ffmpeg.
+pkg_check_modules(ALSA REQUIRED IMPORTED_TARGET alsa)
+
 # TurboJPEG — software MJPEG decode fallback when Rockchip MPP is absent (host builds).
 pkg_check_modules(TURBOJPEG REQUIRED IMPORTED_TARGET libturbojpeg)
 

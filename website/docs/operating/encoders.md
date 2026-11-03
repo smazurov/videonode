@@ -85,6 +85,6 @@ The stream form has a **Custom encoder args** field, an escape hatch that's spli
 -c:v h264_vaapi -profile:v high -b:v 8M -g 60 -f rtsp rtsp://localhost:8554/cam-lobby
 ```
 
-Custom args replace the entire encoder side of the command. VideoNode supplies only the ffmpeg input flags; everything from `-c:v` through the output target is yours, including the RTSP publish. To keep the stream reachable over RTSP/SRT/WebRTC, end your args with `-f rtsp rtsp://localhost:8554/<stream_id>`. Without that, the encoder runs but publishes nowhere.
+Custom args replace the entire encoder side of the command. VideoNode supplies only the ffmpeg input flags; everything from `-c:v` through the output target is yours, including the RTSP publish. The input is a single NUT stream: video is `0:v:0`, and each configured audio device is a PCM track at `0:a:0`, `0:a:1`, and so on, which your args must map and encode if you want audio. To keep the stream reachable over RTSP/SRT/WebRTC, end your args with `-f rtsp rtsp://localhost:8554/<stream_id>`. Without that, the encoder runs but publishes nowhere.
 
 In a config file, this is the `custom_encoder_args` field under `[streams.<stream_id>.encoder]` in `streams.toml`.

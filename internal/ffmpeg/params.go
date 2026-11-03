@@ -37,17 +37,11 @@ type Params struct {
 	AudioCodec   string
 	AudioBitrate string
 
-	// AudioFilters, for multi-input audio, is a mix filtergraph (e.g.
-	// "amix=inputs=2:duration=shortest") applied after per-input aresample to
-	// produce a single mixed output track; for single-input audio it is an
-	// -af chain. Empty keeps the default one-track-per-input behavior.
+	// AudioFilters, for pipe audio tracks, is a mix filtergraph (e.g.
+	// "amix=inputs=2:duration=shortest") applied after per-track aresample to
+	// produce a single mixed output track; for single-device audio it is an
+	// -af chain. Empty keeps the default one-output-track-per-input behavior.
 	AudioFilters string
-
-	// AudioInputs, when non-empty, supersedes AudioDevice and declares
-	// one ALSA input per entry. With no AudioFilters the builder emits an
-	// aresample-per-input filter_complex with one output track per input;
-	// with AudioFilters set it mixes them into a single track.
-	AudioInputs []string
 
 	ProgressSocket string
 	OutputURL      string
@@ -65,11 +59,14 @@ type Params struct {
 // ffmpeg `-f` muxer; rawvideo also needs PixelFormat + dims + framerate
 // at the input stage (it is not self-describing).
 type PipeInput struct {
-	Format      string // "yuv4mpegpipe" or "rawvideo"
+	Format      string // "nut", "yuv4mpegpipe" or "rawvideo"
 	PixelFormat string // e.g. "bgra"; only used for rawvideo
 	Width       int    // only used for rawvideo
 	Height      int    // only used for rawvideo
 	FPS         int    // only used for rawvideo
+	// AudioTracks is the number of PCM tracks vn-sink muxes into a nut pipe
+	// after the video stream; each becomes one output track (or feeds the mix).
+	AudioTracks int
 	// Color tags the colorimetry of the raw frames. Raw pipe input carries
 	// no embedded metadata, so these are emitted on both the input (so
 	// ffmpeg interprets correctly) and the encoder output (the stream VUI).

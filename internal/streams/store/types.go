@@ -97,10 +97,11 @@ type V2Stream struct {
 
 // V2AudioConfig is the per-stream audio routing.
 type V2AudioConfig struct {
-	Devices []string `toml:"devices,omitempty" json:"devices,omitempty"`
-	Codec   string   `toml:"codec,omitempty" json:"codec,omitempty"`
-	Bitrate string   `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
-	Filters string   `toml:"filters,omitempty" json:"filters,omitempty"`
+	Devices  []string `toml:"devices,omitempty" json:"devices,omitempty"`
+	Codec    string   `toml:"codec,omitempty" json:"codec,omitempty"`
+	Bitrate  string   `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
+	Filters  string   `toml:"filters,omitempty" json:"filters,omitempty"`
+	OffsetMS int      `toml:"offset_ms,omitempty" json:"offset_ms,omitempty"`
 }
 
 // V2EncoderConfig is the user-facing encoder hint.

@@ -40,13 +40,18 @@ type Stream struct {
 // AudioConfig is the per-stream audio routing. Devices are ALSA device
 // names; each entry produces one output audio track in the published
 // stream. RTSP/SRT/MPEG-TS all carry multi-track audio; SDP advertises
-// one m=audio line per track.
+// one m=audio line per track. OffsetMS shifts audio against video for lip
+// sync; positive delays audio.
 type AudioConfig struct {
-	Devices []string `toml:"devices,omitempty" json:"devices,omitempty"`
-	Codec   string   `toml:"codec,omitempty" json:"codec,omitempty"`
-	Bitrate string   `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
-	Filters string   `toml:"filters,omitempty" json:"filters,omitempty"`
+	Devices  []string `toml:"devices,omitempty" json:"devices,omitempty"`
+	Codec    string   `toml:"codec,omitempty" json:"codec,omitempty"`
+	Bitrate  string   `toml:"bitrate,omitempty" json:"bitrate,omitempty"`
+	Filters  string   `toml:"filters,omitempty" json:"filters,omitempty"`
+	OffsetMS int      `toml:"offset_ms,omitempty" json:"offset_ms,omitempty"`
 }
+
+// MaxAudioOffsetMS bounds AudioConfig.OffsetMS in either direction.
+const MaxAudioOffsetMS = 2000
 
 // EncoderConfig is the user-facing encoder hint persisted in streams.toml
 // and surfaced via the API. The concrete ffmpeg encoder name, global args,

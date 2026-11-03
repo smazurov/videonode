@@ -12,15 +12,11 @@ vn_add_executable(videonode-source
     SOURCES videonode_source_main.cpp
     DEPS    orchestrator absl_bundle)
 
-# videonode-sink — single-stream NV12 carrier. Dials a videonode-source SCM
-# socket, mmaps each incoming dma-buf and writes the NV12 bytes to stdout.
-# Pipe into ffmpeg for transcoding to RTSP.
+# videonode-sink — dials a producer SCM socket and feeds ffmpeg on stdout:
+# raw NV12 (--mux raw) or paced NV12 + ALSA PCM tracks in NUT (--mux nut).
 vn_add_executable(videonode-sink
     SOURCES videonode_sink_main.cpp
-    DEPS    scm_rights_source absl_bundle)
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    target_compile_options(videonode-sink PRIVATE -msse4.1)
-endif()
+    DEPS    raw_session nut_session)
 
 # videonode-composer — Mali-GPU canvas compositor. Reads NV12 dma-bufs
 # from N videonode-source sockets, composes BGRA via EGL/GLES, writes the

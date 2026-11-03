@@ -130,6 +130,7 @@ func pipelineStreamFromV2(v V2Stream) streams.PipelineStream {
 	s.Audio.Codec = v.Audio.Codec
 	s.Audio.Bitrate = v.Audio.Bitrate
 	s.Audio.Filters = v.Audio.Filters
+	s.Audio.OffsetMS = v.Audio.OffsetMS
 
 	s.Encoder.Codec = v.Encoder.Codec
 	s.Encoder.Bitrate = v.Encoder.Bitrate
@@ -154,6 +155,7 @@ func pipelineStreamToV2(s streams.PipelineStream) V2Stream {
 	v.Audio.Codec = s.Audio.Codec
 	v.Audio.Bitrate = s.Audio.Bitrate
 	v.Audio.Filters = s.Audio.Filters
+	v.Audio.OffsetMS = s.Audio.OffsetMS
 
 	v.Encoder.Codec = s.Encoder.Codec
 	v.Encoder.Bitrate = s.Encoder.Bitrate

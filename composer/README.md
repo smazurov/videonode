@@ -35,7 +35,7 @@ managed processes:
 | Binary | Purpose |
 |---|---|
 | `videonode-source` | V4L2 capture + RGA color-space conversion. Publishes NV12 dma-bufs to N consumers over a Unix socket via SCM_RIGHTS. Self-supervises (`PR_SET_PDEATHSIG`), auto-detects format, paints "NO SIGNAL" placeholder when the cable's out. |
-| `videonode-sink` | Single-stream NV12 carrier. Dials a `videonode-source` socket, mmaps each dma-buf and writes raw NV12 bytes to stdout. Pipe into ffmpeg for transcoding. |
+| `videonode-sink` | Per-stream encoder feed. Dials a producer socket and, with `--mux nut`, writes paced NV12 plus one PCM track per `--audio-device` it captures as a NUT stream (`--mux raw`: raw NV12 bytes). Pipe into ffmpeg for transcoding. |
 | `videonode-composer` | GPU canvas compositor. Reads NV12 dma-bufs from N `videonode-source` sockets (daemon requires ≥1), composites a BGRA canvas via libplacebo (Vulkan primary, OpenGL fallback). Default mode writes raw BGRA to stdout; with `--scm_out` it converts the canvas back to NV12 and broadcasts the dma-bufs to consumers over SCM_RIGHTS. |
 
 All three respond to `--help` (defaults rendered from the actual `Args`
@@ -47,7 +47,7 @@ struct, never hardcoded) and `--version`.
 # host (Fedora / Ubuntu dev box):
 sudo dnf install clang-tools-extra cmake ninja-build pkgconf-pkg-config \
                  mesa-libEGL-devel mesa-libGLES-devel mesa-libgbm-devel \
-                 libdrm-devel
+                 libdrm-devel alsa-lib-devel
 # (RGA / MPP are optional: on a host build without them, those code paths
 # are compiled out via HAVE_RGA / HAVE_MPP. On the rig the real .so's link in.)
 

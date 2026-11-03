@@ -19,7 +19,10 @@ export interface AudioConfig {
   codec: AudioCodec;
   bitrate?: string;
   filters?: string;
+  offset_ms?: number;
 }
+
+export const MAX_AUDIO_OFFSET_MS = 2000;
 
 export interface StreamFormValue {
   stream_id: string;

@@ -6,12 +6,15 @@ import (
 	"strings"
 )
 
-// alsaThreadQueueSize sets ffmpeg's -thread_queue_size for ALSA capture
-// inputs. It must be large enough that the demuxer thread keeps draining the
-// capture device into userspace during consumer-pacing gaps; a small queue
-// blocks the demuxer (queue-full), the kernel capture ring then overruns
-// (xrun), and aresample backfills the gap with silence.
+// alsaThreadQueueSize sets ffmpeg's -thread_queue_size for the legacy direct
+// ALSA input so the demuxer keeps draining the capture ring during pacing gaps.
 const alsaThreadQueueSize = 8192
+
+// pipeAudioResample stretches each nut audio track to its pts. The sink
+// stamps audio with the device's smoothed capture clock, so async keeps device
+// clock drift from accumulating against video without inserting or dropping
+// samples.
+const pipeAudioResample = "aresample=async=1000:min_hard_comp=0.100000:first_pts=0"
 
 // commandHead returns the ffmpeg base prefix. Strips `-nostdin` when the
 // caller is feeding ffmpeg via a stdin pipe (InputPipe), otherwise uses
@@ -64,11 +67,9 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -i " + p.DevicePath)
 	}
 
-	// The single AudioDevice path keeps legacy behavior verbatim for back-compat.
-	switch {
-	case len(p.AudioInputs) > 0:
-		writeMultiAudioInputs(&cmd, p.AudioInputs)
-	case p.AudioDevice != "":
+	// The single AudioDevice path keeps legacy behavior verbatim for back-compat;
+	// nut pipe audio needs no extra inputs.
+	if pipeAudioTracks(p) == 0 && p.AudioDevice != "" {
 		fmt.Fprintf(&cmd, " -thread_queue_size %d", alsaThreadQueueSize)
 
 		if slices.Contains(p.Options, OptionWallclockWithGenpts) {
@@ -85,17 +86,16 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -fps_mode passthrough")
 	}
 
-	// Single-input audio takes an -af chain; multi-input audio routes its
-	// filter through the filter_complex mix below instead.
-	if p.AudioFilters != "" && len(p.AudioInputs) == 0 {
+	// Single-device audio takes an -af chain; pipe audio routes its filter
+	// through the filter_complex mix below instead.
+	if p.AudioFilters != "" && p.AudioDevice != "" && pipeAudioTracks(p) == 0 {
 		cmd.WriteString(" -af " + p.AudioFilters)
 	}
 
-	// Multi-audio uses filter_complex (aresample per input + per-track map).
-	// Must come after global timing flags but before -c:v so ffmpeg sees
-	// the stream selection before the encoder picks them up.
-	if len(p.AudioInputs) > 0 {
-		writeMultiAudioFilterComplex(&cmd, len(p.AudioInputs), p.AudioFilters)
+	// Pipe audio uses filter_complex (aresample per track + per-track map).
+	// Must come before -c:v so ffmpeg sees the stream selection first.
+	if n := pipeAudioTracks(p); n > 0 {
+		writePipeAudioFilterComplex(&cmd, n, p.AudioFilters)
 	}
 
 	if p.VideoFilters != "" {
@@ -160,7 +160,7 @@ func BuildCommand(p *Params) string {
 		cmd.WriteString(" -bsf:v dump_extra=freq=keyframe")
 	}
 
-	if p.AudioDevice != "" || len(p.AudioInputs) > 0 {
+	if p.AudioDevice != "" || pipeAudioTracks(p) > 0 {
 		bitrate := p.AudioBitrate
 		if bitrate == "" {
 			bitrate = "128k"
@@ -222,6 +222,11 @@ func writePipeInput(cmd *strings.Builder, pi *PipeInput) {
 		}
 		writeColorTags(cmd, pi.Color)
 		cmd.WriteString(" -i pipe:0")
+	case "nut":
+		// Headers describe every stream, so skip probing to start encoding sooner.
+		cmd.WriteString(" -probesize 32 -analyzeduration 0 -f nut")
+		writeColorTags(cmd, pi.Color)
+		cmd.WriteString(" -i pipe:0")
 	case "yuv4mpegpipe", "":
 		cmd.WriteString(" -f yuv4mpegpipe -i pipe:0")
 	default:
@@ -229,23 +234,21 @@ func writePipeInput(cmd *strings.Builder, pi *PipeInput) {
 	}
 }
 
-// writeMultiAudioInputs emits one `-thread_queue_size ... -f alsa ... -i <dev>`
-// fragment per device. Maps are emitted later via writeMultiAudioFilterComplex.
-func writeMultiAudioInputs(cmd *strings.Builder, devices []string) {
-	for _, dev := range devices {
-		fmt.Fprintf(cmd, " -thread_queue_size %d", alsaThreadQueueSize)
-		cmd.WriteString(" -f alsa -sample_fmt s16 -ar 48000 -ac 2")
-		cmd.WriteString(" -i " + dev)
+// pipeAudioTracks reports how many PCM tracks ride inside a nut pipe input.
+func pipeAudioTracks(p *Params) int {
+	if p.InputPipe == nil || p.InputPipe.Format != "nut" {
+		return 0
 	}
+	return p.InputPipe.AudioTracks
 }
 
-// writeMultiAudioFilterComplex emits the filter_complex audio chain plus the
-// output map flags for N audio inputs (at ffmpeg indices [1..N]; video is
-// input 0). Each input first goes through aresample (async drift correction).
-// Without mixFilter, every input becomes its own output track. With mixFilter
-// (e.g. "amix=inputs=2:duration=shortest"), the resampled inputs feed that
+// writePipeAudioFilterComplex emits the filter_complex audio chain plus the
+// output map flags for N audio tracks inside pipe input 0 (after the video
+// stream). Each track first goes through aresample (drift correction).
+// Without mixFilter, every track becomes its own output track. With mixFilter
+// (e.g. "amix=inputs=2:duration=shortest"), the resampled tracks feed that
 // filtergraph and collapse into a single mixed output track.
-func writeMultiAudioFilterComplex(cmd *strings.Builder, audioCount int, mixFilter string) {
+func writePipeAudioFilterComplex(cmd *strings.Builder, audioCount int, mixFilter string) {
 	var fc strings.Builder
 	resampleLabel := "a"
 	if mixFilter != "" {
@@ -255,7 +258,7 @@ func writeMultiAudioFilterComplex(cmd *strings.Builder, audioCount int, mixFilte
 		if k > 0 {
 			fc.WriteString(";")
 		}
-		fmt.Fprintf(&fc, "[%d:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[%s%d]", k+1, resampleLabel, k)
+		fmt.Fprintf(&fc, "[0:a:%d]%s[%s%d]", k, pipeAudioResample, resampleLabel, k)
 	}
 
 	if mixFilter != "" {
@@ -266,12 +269,12 @@ func writeMultiAudioFilterComplex(cmd *strings.Builder, audioCount int, mixFilte
 		fc.WriteString(mixFilter)
 		fc.WriteString("[aout]")
 		cmd.WriteString(" -filter_complex " + fc.String())
-		cmd.WriteString(" -map 0:v -map [aout]")
+		cmd.WriteString(" -map 0:v:0 -map [aout]")
 		return
 	}
 
 	cmd.WriteString(" -filter_complex " + fc.String())
-	cmd.WriteString(" -map 0:v")
+	cmd.WriteString(" -map 0:v:0")
 	for k := range audioCount {
 		fmt.Fprintf(cmd, " -map [a%d]", k)
 	}
@@ -327,10 +330,7 @@ func BuildInputArgs(p *Params) string {
 		cmd.WriteString(" -i " + p.DevicePath)
 	}
 
-	switch {
-	case len(p.AudioInputs) > 0:
-		writeMultiAudioInputs(&cmd, p.AudioInputs)
-	case p.AudioDevice != "":
+	if pipeAudioTracks(p) == 0 && p.AudioDevice != "" {
 		fmt.Fprintf(&cmd, " -thread_queue_size %d -f alsa -sample_fmt s16 -ar 48000 -ac 2 -i %s", alsaThreadQueueSize, p.AudioDevice)
 	}
 

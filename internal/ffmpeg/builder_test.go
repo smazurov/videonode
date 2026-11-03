@@ -72,32 +72,51 @@ func TestBuildCommand_PipeInput_ColorTags(t *testing.T) {
 	}
 }
 
-func TestBuildCommand_MultiAudio_FilterComplex(t *testing.T) {
+func TestBuildCommand_NutPipeInput(t *testing.T) {
 	got := BuildCommand(&Params{
-		InputPipe:   &PipeInput{Format: "yuv4mpegpipe"},
-		Encoder:     "libx264",
-		AudioInputs: []string{"hw:0,0", "hw:1,0"},
-		Outputs:     []OutputTarget{{Type: "rtsp", URL: "rtsp://x"}},
+		InputPipe: &PipeInput{
+			Format: "nut",
+			Color:  ColorTags{Space: "bt709", Range: "tv"},
+		},
+		Encoder: "h264_rkmpp",
+		Outputs: []OutputTarget{{Type: "rtsp", URL: "rtsp://x"}},
+	})
+
+	if !strings.Contains(got, "-probesize 32 -analyzeduration 0 -f nut -colorspace bt709 -color_range tv -i pipe:0") {
+		t.Errorf("expected nut pipe input with input-side color tags; got %q", got)
+	}
+	for _, unwanted := range []string{"-pix_fmt", "-framerate", "-filter_complex", "-c:a", "-f alsa"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("video-only nut input must not emit %q; got %q", unwanted, got)
+		}
+	}
+}
+
+func TestBuildCommand_NutPipeAudioTracks(t *testing.T) {
+	got := BuildCommand(&Params{
+		InputPipe: &PipeInput{Format: "nut", AudioTracks: 2},
+		Encoder:   "libx264",
+		Outputs:   []OutputTarget{{Type: "rtsp", URL: "rtsp://x"}},
 	})
 
 	for _, want := range []string{
-		"-thread_queue_size 8192 -f alsa -sample_fmt s16 -ar 48000 -ac 2 -i hw:0,0",
-		"-thread_queue_size 8192 -f alsa -sample_fmt s16 -ar 48000 -ac 2 -i hw:1,0",
-		"-filter_complex [1:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a0];[2:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[a1]",
-		"-map 0:v -map [a0] -map [a1]",
+		"-filter_complex [0:a:0]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[a0];[0:a:1]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[a1]",
+		"-map 0:v:0 -map [a0] -map [a1]",
 		"-c:a libopus -b:a 128k -ar 48000",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %q", want, got)
 		}
 	}
+	if strings.Contains(got, "-f alsa") || strings.Contains(got, "-thread_queue_size") {
+		t.Errorf("nut pipe audio must not open ALSA in ffmpeg; got %q", got)
+	}
 }
 
-func TestBuildCommand_Audio_CodecBitrateAndMix(t *testing.T) {
+func TestBuildCommand_NutPipeAudio_CodecBitrateAndMix(t *testing.T) {
 	got := BuildCommand(&Params{
-		InputPipe:    &PipeInput{Format: "yuv4mpegpipe"},
+		InputPipe:    &PipeInput{Format: "nut", AudioTracks: 2},
 		Encoder:      "libx264",
-		AudioInputs:  []string{"hw:0,0", "hw:1,0"},
 		AudioCodec:   "aac",
 		AudioBitrate: "192k",
 		AudioFilters: "amix=inputs=2:duration=shortest",
@@ -105,8 +124,8 @@ func TestBuildCommand_Audio_CodecBitrateAndMix(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"-filter_complex [1:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[s0];[2:a]aresample=async=1:min_hard_comp=0.100000:first_pts=0[s1];[s0][s1]amix=inputs=2:duration=shortest[aout]",
-		"-map 0:v -map [aout]",
+		"-filter_complex [0:a:0]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[s0];[0:a:1]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[s1];[s0][s1]amix=inputs=2:duration=shortest[aout]",
+		"-map 0:v:0 -map [aout]",
 		"-c:a aac -b:a 192k -ar 48000",
 	} {
 		if !strings.Contains(got, want) {
@@ -114,7 +133,18 @@ func TestBuildCommand_Audio_CodecBitrateAndMix(t *testing.T) {
 		}
 	}
 	if strings.Contains(got, " -af ") {
-		t.Errorf("multi-input audio must not emit -af, got %q", got)
+		t.Errorf("pipe audio must not emit -af, got %q", got)
+	}
+}
+
+func TestBuildCommand_AudioTracksIgnoredForNonNutPipe(t *testing.T) {
+	got := BuildCommand(&Params{
+		InputPipe: &PipeInput{Format: "yuv4mpegpipe", AudioTracks: 2},
+		Encoder:   "libx264",
+		Outputs:   []OutputTarget{{Type: "rtsp", URL: "rtsp://x"}},
+	})
+	if strings.Contains(got, "-filter_complex") || strings.Contains(got, "-c:a") {
+		t.Errorf("audio tracks only exist inside nut; got %q", got)
 	}
 }
 
@@ -188,15 +218,16 @@ func TestBuildInputArgs_PipeY4M(t *testing.T) {
 	}
 }
 
-func TestBuildInputArgs_PipeWithMultiAudio(t *testing.T) {
+func TestBuildInputArgs_NutPipeWithAudio(t *testing.T) {
 	got := BuildInputArgs(&Params{
-		InputPipe:   &PipeInput{Format: "yuv4mpegpipe"},
-		AudioInputs: []string{"hw:0,0", "hw:1,0"},
+		InputPipe: &PipeInput{Format: "nut", AudioTracks: 2},
 	})
-	if !strings.Contains(got, "-i hw:0,0") || !strings.Contains(got, "-i hw:1,0") {
-		t.Errorf("missing audio inputs; got %q", got)
+	if !strings.Contains(got, "-f nut -i pipe:0") {
+		t.Errorf("expected nut pipe input; got %q", got)
 	}
-	if strings.Contains(got, "-filter_complex") {
-		t.Errorf("BuildInputArgs must not emit -filter_complex; got %q", got)
+	for _, unwanted := range []string{"-filter_complex", "-f alsa", "-c:v"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("BuildInputArgs must not emit %q; got %q", unwanted, got)
+		}
 	}
 }

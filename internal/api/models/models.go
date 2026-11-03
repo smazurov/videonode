@@ -84,10 +84,11 @@ type EncodersResponse struct {
 
 // AudioConfigData mirrors pipeline.AudioConfig: ALSA devices + codec + bitrate.
 type AudioConfigData struct {
-	Devices []string `json:"devices,omitempty" doc:"ALSA device names; one output audio track per entry"`
-	Codec   string   `json:"codec,omitempty" example:"opus" doc:"Audio codec (opus, aac, ...)"`
-	Bitrate string   `json:"bitrate,omitempty" example:"128k" doc:"Audio bitrate"`
-	Filters string   `json:"filters,omitempty" doc:"Optional shared filter chain"`
+	Devices  []string `json:"devices,omitempty" doc:"ALSA device names; one output audio track per entry"`
+	Codec    string   `json:"codec,omitempty" example:"opus" doc:"Audio codec (opus, aac, ...)"`
+	Bitrate  string   `json:"bitrate,omitempty" example:"128k" doc:"Audio bitrate"`
+	Filters  string   `json:"filters,omitempty" doc:"Optional shared filter chain"`
+	OffsetMS int      `json:"offset_ms,omitempty" minimum:"-2000" maximum:"2000" example:"80" doc:"Audio/video sync offset in milliseconds; positive delays audio"`
 }
 
 // EncoderConfigData mirrors pipeline.EncoderConfig.

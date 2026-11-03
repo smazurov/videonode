@@ -2,10 +2,10 @@ package pipeline
 
 // MediaSource is the encoder-input abstraction. Wraps the upstream frame
 // source (a Source's SCM socket or a Composer's SCM-out socket) and the
-// audio source (today: direct ALSA).
+// ALSA devices vn-sink captures alongside it.
 type MediaSource struct {
 	Video FrameSource
-	Audio ALSADirectAudio
+	Audio SinkAudio
 }
 
 // FrameKind tags the wire format the source emits, so consumers (the
@@ -15,7 +15,7 @@ type FrameKind int
 // FrameKind values select the wire format vn-sink emits for ffmpeg.
 const (
 	FrameKindUnknown FrameKind = iota
-	// FrameKindNV12Raw — raw NV12 bytes (Y + UV planes) on stdout. Both
+	// FrameKindNV12Raw — NV12 frames (Y + UV planes) on the SCM socket. Both
 	// sources and composers emit this.
 	FrameKindNV12Raw
 )
@@ -79,9 +79,9 @@ func (c ComposerFrameSource) FPS() int { return c.Fps }
 // Colorimetry — the composer always outputs BT.709 limited.
 func (c ComposerFrameSource) Colorimetry() string { return "bt709" }
 
-// ALSADirectAudio opens ALSA from the ffmpeg process. Its devices are
-// projected onto ffmpeg.Params.AudioInputs in EncoderStage.buildFFmpegParams;
-// the shared builder emits the per-device input fragments.
-type ALSADirectAudio struct {
+// SinkAudio lists the ALSA devices vn-sink opens for a stream. The sink owns
+// each device (silence while absent, reopen on replug) and muxes it as a PCM
+// track into its NUT output, so ffmpeg never touches ALSA.
+type SinkAudio struct {
 	Config AudioConfig
 }

@@ -861,7 +861,7 @@ func (p *Pipeline) buildEncoder(s Stream) (*EncoderStage, error) {
 
 	return &EncoderStage{
 		OwnerStreamID:     s.ID,
-		Media:             MediaSource{Video: video, Audio: ALSADirectAudio{Config: s.Audio}},
+		Media:             MediaSource{Video: video, Audio: SinkAudio{Config: s.Audio}},
 		Cfg:               s.Encoder,
 		Resolved:          resolved,
 		OutputURL:         localRTSPURL(p.cfg.RTSPPort, s.ID),
