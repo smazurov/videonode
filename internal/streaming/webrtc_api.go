@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"strings"
+	"time"
 
+	"github.com/bluenviron/gortsplib/v5/pkg/ntp"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/nack"
 	"github.com/pion/interceptor/pkg/report"
@@ -328,11 +330,31 @@ func (r *rtcpMonitorReader) Read(b []byte, a interceptor.Attributes) (int, inter
 		case *rtcp.FullIntraRequest:
 			IncrementFIRs(r.streamID, r.peerID)
 		case *rtcp.ReceiverReport:
+			now := time.Now()
 			for _, report := range p.Reports {
 				RecordJitter(r.streamID, r.peerID, report.Jitter)
+				if rtt, ok := rttFromReport(now, report.LastSenderReport, report.Delay); ok {
+					RecordRTT(r.streamID, r.peerID, rtt)
+				}
 			}
 		}
 	}
 
 	return n, attr, err
+}
+
+// rttFromReport derives the round trip from an RTCP reception report
+// (RFC 3550 section 6.4.1): arrival - LSR - DLSR, all in NTP short format
+// (1/65536 s). LSR stays zero until the peer has received one of our sender
+// reports, so those reports carry no RTT.
+func rttFromReport(now time.Time, lsr, dlsr uint32) (time.Duration, bool) {
+	if lsr == 0 {
+		return 0, false
+	}
+	arrival := uint32(ntp.Encode(now) >> 16)
+	rtt := int32(arrival - lsr - dlsr)
+	if rtt < 0 {
+		return 0, false
+	}
+	return time.Duration(rtt) * time.Second / 65536, true
 }

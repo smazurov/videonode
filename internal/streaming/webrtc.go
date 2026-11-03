@@ -515,6 +515,7 @@ func (m *WebRTCManager) StreamPeerInfo(streamID string) []WebRTCClientInfo {
 			ConnectedSince: p.connectedAt.UTC().Format(time.RFC3339),
 			BytesSent:      p.bytesSent.Load(),
 			JitterMs:       PeerJitterMs(p.peerID),
+			RTTMs:          PeerRTTMs(p.peerID),
 		}
 	}
 	return out

@@ -2,12 +2,16 @@ package streaming
 
 import (
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var peerJitterCache sync.Map // peerID -> float64 (milliseconds)
+var (
+	peerJitterCache sync.Map // peerID -> float64 (milliseconds)
+	peerRTTCache    sync.Map // peerID -> float64 (milliseconds)
+)
 
 var (
 	// Per-stream egress counters (from producer to all consumers).
@@ -69,6 +73,14 @@ var (
 		Name:      "peer_jitter",
 		Help:      "Interarrival jitter per peer (RTP timestamp units, divide by 90000 for seconds)",
 	}, []string{"stream_id", "peer_id"})
+
+	// Per-peer round trip (from RTCP Receiver Reports answering our Sender Reports).
+	webrtcPeerRTT = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "videonode",
+		Subsystem: "webrtc",
+		Name:      "peer_rtt_ms",
+		Help:      "Round-trip time per peer in milliseconds, from RTCP receiver reports",
+	}, []string{"stream_id", "peer_id"})
 )
 
 // IncrementRTCPPackets records RTCP packets received from a peer.
@@ -105,6 +117,21 @@ func PeerJitterMs(peerID string) float64 {
 	return 0
 }
 
+// RecordRTT records a peer's round trip derived from an RTCP receiver report.
+func RecordRTT(streamID, peerID string, rtt time.Duration) {
+	ms := float64(rtt) / float64(time.Millisecond)
+	webrtcPeerRTT.WithLabelValues(streamID, peerID).Set(ms)
+	peerRTTCache.Store(peerID, ms)
+}
+
+// PeerRTTMs returns the last recorded round trip for a peer in milliseconds.
+func PeerRTTMs(peerID string) float64 {
+	if v, ok := peerRTTCache.Load(peerID); ok {
+		return v.(float64)
+	}
+	return 0
+}
+
 // DeletePeerMetrics removes all metrics for a peer when disconnected.
 func DeletePeerMetrics(streamID, peerID string) {
 	webrtcPeerRTCPPackets.DeleteLabelValues(streamID, peerID)
@@ -113,6 +140,8 @@ func DeletePeerMetrics(streamID, peerID string) {
 	webrtcPeerFIRs.DeleteLabelValues(streamID, peerID)
 	webrtcPeerJitter.DeleteLabelValues(streamID, peerID)
 	peerJitterCache.Delete(peerID)
+	webrtcPeerRTT.DeleteLabelValues(streamID, peerID)
+	peerRTTCache.Delete(peerID)
 }
 
 // IncrementPacketsSent records packets and bytes sent for a stream.

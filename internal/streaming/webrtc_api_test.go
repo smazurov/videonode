@@ -3,6 +3,8 @@ package streaming
 import (
 	"testing"
 	"time"
+
+	"github.com/bluenviron/gortsplib/v5/pkg/ntp"
 )
 
 // isICEChar reports whether r is in RFC 5245's ice-char set
@@ -78,5 +80,33 @@ func TestDisconnectPeer_RecentlyClosedIsIdempotent(t *testing.T) {
 	}
 	if _, ok := m.recentlyClosed["stale"]; ok {
 		t.Error("an expired recentlyClosed entry should be pruned on lookup")
+	}
+}
+
+func TestRTTFromReport(t *testing.T) {
+	now := time.Date(2026, 11, 2, 20, 0, 0, 0, time.UTC)
+	// NTP short format (1/65536 s) of a time, as the peer echoes it in LSR.
+	short := func(t time.Time) uint32 { return uint32(ntp.Encode(t) >> 16) }
+	tests := []struct {
+		name   string
+		lsr    uint32
+		dlsr   uint32
+		want   time.Duration
+		wantOK bool
+	}{
+		{"no sender report seen yet", 0, 0, 0, false},
+		{"sent 100ms ago, held 30ms", short(now.Add(-100 * time.Millisecond)), 30 * 65536 / 1000, 70 * time.Millisecond, true},
+		{"delay longer than elapsed", short(now.Add(-10 * time.Millisecond)), 65536, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := rttFromReport(now, tt.lsr, tt.dlsr)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if diff := got - tt.want; diff < -time.Millisecond || diff > time.Millisecond {
+				t.Errorf("rtt = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

@@ -37,6 +37,7 @@ Each connected WebRTC peer contributes a row of RTCP-feedback series, labeled by
 | `videonode_webrtc_peer_plis_total` | counter | PLI requests (decoder asked for a keyframe). |
 | `videonode_webrtc_peer_firs_total` | counter | FIR requests (full intra request). |
 | `videonode_webrtc_peer_jitter` | gauge | Interarrival jitter in RTP timestamp units. Divide by 90000 for seconds. |
+| `videonode_webrtc_peer_rtt_ms` | gauge | Round-trip time in milliseconds, from RTCP receiver reports. |
 
 ### SRT per-consumer metrics
 

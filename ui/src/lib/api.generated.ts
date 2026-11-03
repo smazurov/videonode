@@ -2459,6 +2459,11 @@ export interface components {
             id: string;
             /** Format: double */
             jitter_ms: number;
+            /**
+             * Format: double
+             * @description Round trip from RTCP receiver reports; 0 until the peer answers a sender report
+             */
+            rtt_ms: number;
         };
     };
     responses: never;
