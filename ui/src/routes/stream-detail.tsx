@@ -21,21 +21,18 @@ import { DashboardLayout } from '../components/DashboardLayout';
 import { InfoBar } from '../components/InfoBar';
 import { Button } from '../components/Button';
 import { EntityDetailLayout } from '../components/primitives/EntityDetailLayout';
-import { LivePreviewFrame } from '../components/primitives/LivePreviewFrame';
-import { StreamOverviewPanel } from '../components/streams/StreamOverviewPanel';
 import {
   useStreamPreviewMode,
   type StreamPreviewMode,
 } from '../components/streams/useStreamPreviewMode';
-import { StreamMetricsPanel } from '../components/streams/StreamMetricsPanel';
-import { StreamConsumersPanel } from '../components/streams/StreamConsumersPanel';
-import { StreamEncoderPanel } from '../components/streams/StreamEncoderPanel';
-import { StreamConsumerTargetsPanel } from '../components/streams/StreamConsumerTargetsPanel';
+import { StreamStatusPanel } from '../components/streams/StreamStatusPanel';
+import { StreamOutputPanel } from '../components/streams/StreamOutputPanel';
+import { StreamViewersPanel } from '../components/streams/StreamViewersPanel';
+import { StreamPreviewPanel } from '../components/streams/StreamPreviewPanel';
 import { EntityLogsPanel } from '../components/logs/EntityLogsPanel';
 import { MaskExportDialog } from '../components/composers/MaskExportDialog';
 import { useUpstreamComposerMask } from '../hooks/useComposerMask';
 
-import { WebRTCPlayer } from '../components/webrtc';
 import { api } from '../lib/api';
 import { isRestartable } from '../lib/pool-status';
 import { latestHealth } from '../lib/stream-health';
@@ -84,6 +81,51 @@ function PreviewModeToggle({
         ))}
       </MenuItems>
     </Menu>
+  );
+}
+
+// Status and Output side by side (like a source's Status and Format). The
+// small preview takes the left column from lg; stacked, Status comes first so
+// health is never pushed below the video. The large preview spans the top.
+function StreamOverview({
+  streamId,
+  previewMode,
+  canPreview,
+  refreshKey,
+  onHidePreview,
+}: {
+  readonly streamId: string;
+  readonly previewMode: StreamPreviewMode;
+  readonly canPreview: boolean;
+  readonly refreshKey: number;
+  readonly onHidePreview: () => void;
+}) {
+  const preview = (large: boolean) => (
+    <StreamPreviewPanel
+      streamId={streamId}
+      canPreview={canPreview}
+      refreshKey={refreshKey}
+      onHide={onHidePreview}
+      showStats={large}
+    />
+  );
+  if (previewMode === 'small') {
+    return (
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <div className="lg:col-start-2 lg:row-start-1"><StreamStatusPanel streamId={streamId} /></div>
+        <div className="lg:col-start-1 lg:row-span-2 lg:row-start-1">{preview(false)}</div>
+        <div className="lg:col-start-2 lg:row-start-2"><StreamOutputPanel streamId={streamId} /></div>
+      </div>
+    );
+  }
+  return (
+    <>
+      {previewMode === 'large' && preview(true)}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <StreamStatusPanel streamId={streamId} />
+        <StreamOutputPanel streamId={streamId} />
+      </div>
+    </>
   );
 }
 
@@ -175,11 +217,47 @@ export default function StreamDetail() {
   // Mount the player whenever the pipeline is on, even if the stream is idle:
   // the offer it sends is what lazily wakes the encoder (lazy-encoder-on-reader).
   const canPreview = pipelineEnabled !== false;
-  const showSmallPreview = previewMode === 'small';
   // stream.status in the store only refreshes on refetch, so it stays "idle"
   // after a viewer lazily starts the encoder; the health push carries the
   // live pool state every second.
   const encoderState = latestHealth(stream.health, metrics?.health)?.encoder.state ?? stream.status;
+
+  const actions = (
+    <>
+      <PreviewModeToggle mode={previewMode} onChange={setPreviewMode} />
+      <Button
+        theme="light"
+        size="SM"
+        onClick={handleRestart}
+        disabled={!isRestartable(encoderState)}
+        LeadingIcon={ArrowPathIcon}
+        text="Restart"
+      />
+      <Button
+        theme="light"
+        size="SM"
+        onClick={() => navigate(`/streams/${encodeURIComponent(streamId)}/edit`)}
+        LeadingIcon={PencilSquareIcon}
+        text="Edit"
+      />
+      {mask && (
+        <Button
+          theme="light"
+          size="SM"
+          onClick={() => setMaskOpen(true)}
+          LeadingIcon={SwatchIcon}
+          text="OBS mask"
+        />
+      )}
+      <Button
+        theme="danger"
+        size="SM"
+        onClick={handleDelete}
+        LeadingIcon={TrashIcon}
+        text="Delete"
+      />
+    </>
+  );
 
   return (
     <DashboardLayout onLogout={logout} bottomBar={<InfoBar />}>
@@ -190,94 +268,17 @@ export default function StreamDetail() {
             { label: streamId },
           ]}
           title={streamId}
-          subtitle={
-            <span className="font-mono text-xs">
-              {stream.encoder?.codec ? `${stream.encoder.codec.toLowerCase()} ` : ''}
-              {stream.encoder?.bitrate ?? ''}
-            </span>
-          }
-          actions={
-            <>
-              <PreviewModeToggle mode={previewMode} onChange={setPreviewMode} />
-              <Button
-                theme="light"
-                size="SM"
-                onClick={handleRestart}
-                disabled={!isRestartable(encoderState)}
-                LeadingIcon={ArrowPathIcon}
-                text="Restart"
-              />
-              <Button
-                theme="light"
-                size="SM"
-                onClick={() => navigate(`/streams/${encodeURIComponent(streamId)}/edit`)}
-                LeadingIcon={PencilSquareIcon}
-                text="Edit"
-              />
-              {mask && (
-                <Button
-                  theme="light"
-                  size="SM"
-                  onClick={() => setMaskOpen(true)}
-                  LeadingIcon={SwatchIcon}
-                  text="OBS mask"
-                />
-              )}
-              <Button
-                theme="danger"
-                size="SM"
-                onClick={handleDelete}
-                LeadingIcon={TrashIcon}
-                text="Delete"
-              />
-            </>
-          }
+          actions={actions}
         >
-          <StreamOverviewPanel streamId={streamId} videoHidden={previewMode !== 'large'} />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <StreamMetricsPanel streamId={streamId} />
-            <StreamEncoderPanel streamId={streamId} />
-          </div>
-          {showSmallPreview ? (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="lg:col-span-1">
-                <section className="space-y-2 rounded-lg border border-border bg-surface-raised p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs uppercase tracking-wide text-fg-muted">
-                      Preview
-                    </span>
-                    <span className="text-[10px] uppercase tracking-wide text-fg-subtle">
-                      WebRTC
-                    </span>
-                  </div>
-                  <LivePreviewFrame
-                    state={canPreview ? 'ready' : 'idle'}
-                    idleMessage="Pipeline stopped"
-                    mediaClassName="bg-black"
-                  >
-                    {canPreview && (
-                      <WebRTCPlayer
-                        key={`small:${streamId}:${refreshKey}`}
-                        streamId={streamId}
-                        className="w-full h-full"
-                        muted
-                      />
-                    )}
-                  </LivePreviewFrame>
-                </section>
-              </div>
-              <div className="lg:col-span-2">
-                <StreamConsumersPanel streamId={streamId} />
-              </div>
-            </div>
-          ) : (
-            <StreamConsumersPanel streamId={streamId} />
-          )}
-          <StreamConsumerTargetsPanel streamId={streamId} />
-          <EntityLogsPanel
-            filter={{ key: 'stream_id', id: streamId }}
-            description={`Live logs for stream ${streamId}.`}
+          <StreamOverview
+            streamId={streamId}
+            previewMode={previewMode}
+            canPreview={canPreview}
+            refreshKey={refreshKey}
+            onHidePreview={() => setPreviewMode('off')}
           />
+          <StreamViewersPanel streamId={streamId} />
+          <EntityLogsPanel filter={{ key: 'stream_id', id: streamId }} />
         </EntityDetailLayout>
 
         {mask && (

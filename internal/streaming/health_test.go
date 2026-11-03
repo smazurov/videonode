@@ -153,3 +153,45 @@ func BenchmarkMediaHealthRecord(b *testing.B) {
 		s.health.record(medi, medi.Formats[0], false)
 	}
 }
+
+func TestStreamHealth_RelayLagFromFirstPacketToEgress(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		forma := &format.H265{PayloadTyp: 96}
+		medi := &description.Media{Type: description.MediaTypeVideo, Formats: []format.Format{forma}}
+		s := NewStream("relay", &description.Session{Medias: []*description.Media{medi}}, logging.GetLogger("health-test"))
+		sess := &fakeRTPSession{}
+		setupFormatHandler(sess, s, nil, medi, forma, logging.GetLogger("health-test"))
+		packet := func(ts uint32) {
+			sess.cb(&rtp.Packet{Header: rtp.Header{Version: 2, PayloadType: 96, Timestamp: ts}, Payload: []byte{1 << 1, 1, 0}})
+		}
+		relay := func() *float64 { return s.Health(time.Now())[0].RelayMS }
+
+		if got := relay(); got != nil {
+			t.Fatalf("relay = %v before any egress, want absent", *got)
+		}
+
+		// A frame's packets share a timestamp; lag runs from its first packet.
+		packet(900)
+		time.Sleep(5 * time.Millisecond)
+		packet(900)
+		time.Sleep(3 * time.Millisecond)
+		s.health.recordEgress(medi, time.Now())
+		if got := relay(); got == nil || *got != 8 {
+			t.Fatalf("relay = %v, want 8ms from the frame's first packet", got)
+		}
+
+		// The next frame starts its own clock.
+		packet(1800)
+		time.Sleep(time.Millisecond)
+		s.health.recordEgress(medi, time.Now())
+		if got := *relay(); got >= 8 || got <= 1 {
+			t.Fatalf("relay = %v, want smoothing toward 1ms", got)
+		}
+
+		// Without WebRTC egress the value goes away rather than going stale.
+		time.Sleep(metrics.HealthTimeout)
+		if got := relay(); got != nil {
+			t.Fatalf("relay = %v with no egress for %v, want absent", *got, metrics.HealthTimeout)
+		}
+	})
+}

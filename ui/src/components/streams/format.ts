@@ -27,3 +27,8 @@ export function formatStarted(iso: string | undefined, fallback = '—'): string
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? fallback : d.toLocaleString();
 }
+
+export function formatBitrate(bps: number): string {
+  if (bps < 1_000_000) return `${Math.round(bps / 1000)} Kbps`;
+  return `${(bps / 1_000_000).toFixed(1)} Mbps`;
+}

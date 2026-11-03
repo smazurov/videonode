@@ -32,7 +32,7 @@ export function SourceLivePreview({
     : undefined;
 
   return (
-    <Card padding="lg">
+    <Card padding="lg" className="space-y-4">
       <SectionHeader
         title="Live preview"
         description={pipelineOff ? 'Pipeline stopped.' : `Streaming at ${fps.toFixed(1)} Hz.`}

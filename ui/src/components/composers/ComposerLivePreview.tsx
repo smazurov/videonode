@@ -32,7 +32,7 @@ export function ComposerLivePreview({
     : undefined;
 
   return (
-    <Card padding="lg">
+    <Card padding="lg" className="space-y-4">
       <SectionHeader
         title="Live preview"
         description={pipelineOff ? 'Pipeline stopped.' : `Composer canvas streaming at ${fps.toFixed(1)} Hz.`}

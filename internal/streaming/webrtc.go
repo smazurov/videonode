@@ -250,6 +250,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer, clientIP string) (peerID
 					peer.bytesSent.Add(int64(size))
 					_ = currentTrack.WriteRTP(pkt)
 				}
+				stream.health.recordEgress(currentMedia, time.Now())
 				return nil
 			})
 		} else if encoder, has := peer.h265Encoders[currentMedia]; has {
@@ -275,6 +276,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer, clientIP string) (peerID
 					peer.bytesSent.Add(int64(size))
 					_ = currentTrack.WriteRTP(pkt)
 				}
+				stream.health.recordEgress(currentMedia, time.Now())
 				return nil
 			})
 		} else {
@@ -284,6 +286,7 @@ func (m *WebRTCManager) CreateConsumer(streamID, offer, clientIP string) (peerID
 				IncrementPacketsSent(streamID, size)
 				peer.bytesSent.Add(int64(size))
 				_ = currentTrack.WriteRTP(pkt)
+				stream.health.recordEgress(currentMedia, time.Now())
 			})
 		}
 	}

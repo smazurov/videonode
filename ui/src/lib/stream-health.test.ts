@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activityLabel, encoderActive, ffmpegStatsFresh, latestHealth, type StreamHealth } from './stream-health';
+import { encoderActive, ffmpegStatsFresh, latestHealth, type StreamHealth } from './stream-health';
 
 function snapshot(state: StreamHealth['encoder']['state'] = 'running'): StreamHealth {
   return {
@@ -45,13 +45,5 @@ describe('stream health presentation', () => {
     expect(latestHealth(older, newer)).toBe(newer);
     expect(latestHealth(undefined, older)).toBe(older);
     expect(latestHealth(newer, undefined)).toBe(newer);
-  });
-
-  it('distinguishes missing data, stalled data, and unsupported depacketization', () => {
-    expect(activityLabel({ state: 'never_received', count: 0 }).label).toBe('Waiting');
-    expect(activityLabel({ state: 'stalled', count: 4, age_ms: 8100 })).toMatchObject({
-      label: 'Stalled', tone: 'error', detail: 'Last arrival 8.1s ago',
-    });
-    expect(activityLabel({ state: 'unsupported', count: 0 }).label).toBe('Packet-only');
   });
 });

@@ -1,5 +1,5 @@
 import { StateCreator } from 'zustand';
-import { ffmpegStatsFresh, latestHealth } from '../../../lib/stream-health';
+import { ffmpegStatsFresh, flowCounts, flowRates, latestHealth, maxRelayMs } from '../../../lib/stream-health';
 
 import type { Stream } from '../types';
 import { StreamStore } from '../../useStreamStore';
@@ -26,6 +26,12 @@ export interface MetricsSample {
   // Throughput derived from consecutive bytes_out/ts deltas (config bitrate is
   // static, so it can't be trended).
   readonly bitrateBps: number | null;
+  // Health counters by flow key (see lib/stream-health flowCounts) and their
+  // per-second rates against the previous sample.
+  readonly counts: Readonly<Record<string, number>>;
+  readonly rates: Readonly<Record<string, number | null>>;
+  // Worst per-track relay lag at this sample (ms); null without WebRTC viewers.
+  readonly relayMs: number | null;
 }
 
 export interface StreamDataSlice {
@@ -184,7 +190,10 @@ export const createStreamDataSlice: StateCreator<
             const dBytes = bytesOut - last.bytesOut;
             if (dtSec > 0 && dBytes >= 0) bitrateBps = (dBytes * 8) / dtSec;
           }
-          const nextHistory = [...prevHistory, { ts, fps, bytesOut, bitrateBps }];
+          const counts = flowCounts(payload.health);
+          const rates = flowRates(last, ts, counts);
+          const relayMs = maxRelayMs(payload.health) ?? null;
+          const nextHistory = [...prevHistory, { ts, fps, bytesOut, bitrateBps, counts, rates, relayMs }];
           if (nextHistory.length > METRICS_HISTORY_LENGTH) nextHistory.shift();
           return {
             metricsById: { ...state.metricsById, [event.id]: payload },

@@ -14,13 +14,15 @@ type RecordingStatus = components['schemas']['RecordingStatusData'];
 
 interface RecordingControlsProps {
   readonly streamId: string;
+  /** Drop the tile chrome and title when the host already provides them. */
+  readonly bare?: boolean;
 }
 
 // RecordingControls is the compact recording cell on the stream overview
 // panel: record/stop, a running timer, the latest storyboard frame, and a
 // link to the recordings route for playback. State syncs over recording.*
 // SSE events via useRecordingStore — no polling.
-export function RecordingControls({ streamId }: RecordingControlsProps) {
+export function RecordingControls({ streamId, bare = false }: RecordingControlsProps) {
   const startRecording = useStreamStore((s) => s.startRecording);
   const stopRecording = useStreamStore((s) => s.stopRecording);
 
@@ -109,8 +111,8 @@ export function RecordingControls({ streamId }: RecordingControlsProps) {
   }, [streamId, stopRecording, upsertRecording]);
 
   return (
-    <div className="rounded-md border border-border bg-surface-muted/30 p-3">
-      <div className="flex items-center justify-between gap-2">
+    <div className={bare ? undefined : 'rounded-md border border-border bg-surface-muted/30 p-3'}>
+      <div className={bare ? 'hidden' : 'flex items-center justify-between gap-2'}>
         <div className="text-xs uppercase tracking-wide text-fg-muted">Recording</div>
         {active && (
           <span className="flex items-center gap-1.5 text-xs font-medium text-danger">
@@ -119,7 +121,7 @@ export function RecordingControls({ streamId }: RecordingControlsProps) {
           </span>
         )}
       </div>
-      <div className="mt-1 flex items-center justify-between gap-3">
+      <div className={bare ? 'flex items-center gap-4' : 'mt-1 flex items-center justify-between gap-3'}>
         {status ? (
           <div className="flex min-w-0 items-center gap-2">
             <Link
@@ -201,7 +203,8 @@ function SpriteThumb({
         height: heightPx,
         backgroundImage: `url(${src})`,
         backgroundPosition: `-${cue.xywh.x * scale}px -${cue.xywh.y * scale}px`,
-        backgroundSize: `${SPRITE_GRID * cue.xywh.w * scale}px ${SPRITE_GRID * cue.xywh.h * scale}px`,
+        // In-progress sheets contain only filled rows; preserve their aspect ratio.
+        backgroundSize: `${SPRITE_GRID * cue.xywh.w * scale}px auto`,
       }}
     />
   );

@@ -7,6 +7,7 @@ export {
   type LivePreviewState,
 } from "./LivePreviewFrame";
 export { SectionHeader, type SectionHeaderProps } from "./SectionHeader";
+export { Sparkline } from "./Sparkline";
 export { StatusPill, type StatusPillProps, type StatusPillStatus } from "./StatusPill";
 export { Toolbar, type ToolbarProps } from "./Toolbar";
 export {

@@ -2447,6 +2447,11 @@ export interface components {
             /** Format: int64 */
             index: number;
             packets: components["schemas"]["ActivityHealth"];
+            /**
+             * Format: double
+             * @description Smoothed time from a frame's first packet arriving from the encoder to the frame being written to WebRTC viewers; absent while no WebRTC viewer receives this track
+             */
+            relay_ms?: number;
             type: string;
             /** @description Nonempty access units; one video frame can contain several NAL units */
             units: components["schemas"]["ActivityHealth"];
