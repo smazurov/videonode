@@ -66,6 +66,10 @@ if(HAVE_PLACEBO AND HAVE_GBM)
         DEPS csc gbm_alloc
         LABELS render)
 
+    vn_add_test(csc_placebo_nv12_dmaheap
+        DEPS csc gbm_alloc dma_heap
+        LABELS render)
+
     vn_add_test(pl_compose_fd_leak
         DEPS pl_compose gbm_alloc
         LABELS render)

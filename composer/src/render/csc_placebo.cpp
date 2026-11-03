@@ -9,19 +9,33 @@
 #include <libplacebo/log.h>
 #include <libplacebo/opengl.h>
 #include <libplacebo/renderer.h>
+#include <linux/dma-buf.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
-#include <unistd.h>
-
+#include <algorithm>
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <span>
 #include <vector>
-
-#include <unistd.h>
 
 namespace csc_placebo {
 
 namespace {
+
+// Plane geometry the driver refused to import as a dma-buf. Latched so later
+// frames go straight to the CPU-upload path instead of re-failing the import.
+struct RejectKey {
+    pl_fmt fmt = nullptr;
+    int w = 0;
+    int h = 0;
+    int pitch = 0;
+    int offset = 0;
+    bool operator==(const RejectKey&) const = default;
+};
 
 struct State {
     egl_ctx::EglCtx ctx;
@@ -29,6 +43,8 @@ struct State {
     pl_opengl gl = nullptr;
     pl_gpu gpu = nullptr;
     pl_renderer renderer = nullptr;
+    std::vector<RejectKey> import_rejects;
+    std::vector<pl_tex> upload_texs; // reusable CPU-upload targets, one per fmt+size
     bool ready = false;
 };
 
@@ -83,8 +99,73 @@ ImportedTex import_plane(const PlaneImport& p) {
     return {.tex = tex, .fd = fd_dup};
 }
 
+// Upload targets are keyed by fmt+size; a source that keeps changing
+// geometry would otherwise grow the cache without bound.
+constexpr size_t kMaxUploadTexs = 8;
+
+pl_tex upload_tex_for(State& s, pl_fmt fmt, int w, int h) {
+    for (pl_tex t : s.upload_texs) {
+        if (t->params.format == fmt && t->params.w == w && t->params.h == h)
+            return t;
+    }
+    if (s.upload_texs.size() >= kMaxUploadTexs) {
+        for (pl_tex& t : s.upload_texs)
+            pl_tex_destroy(s.gpu, &t);
+        s.upload_texs.clear();
+    }
+    struct pl_tex_params tp = {};
+    tp.w = w;
+    tp.h = h;
+    tp.format = fmt;
+    tp.sampleable = true;
+    tp.host_writable = true;
+    pl_tex tex = pl_tex_create(s.gpu, &tp);
+    if (tex)
+        s.upload_texs.push_back(tex);
+    return tex;
+}
+
+void dma_buf_sync(int fd, uint64_t flags) {
+    struct dma_buf_sync sync = {.flags = flags};
+    (void)::ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync);
+}
+
+// Fallback for sampleable planes the driver refuses to import: map the
+// dma-buf and upload it into a cached texture. radeonsi rejects linear
+// pitches that aren't 256-byte aligned, and UVC fixes bytesperline at the
+// frame width, so e.g. 1920-wide raw NV12 can never be imported there.
+pl_tex upload_plane(State& s, const PlaneImport& p) {
+    const off_t end = ::lseek(p.fd, 0, SEEK_END);
+    const size_t row_bytes = static_cast<size_t>(p.w) * p.fmt->texel_size;
+    const size_t need = static_cast<size_t>(p.offset) +
+                        (static_cast<size_t>(p.pitch) * static_cast<size_t>(p.h - 1)) + row_bytes;
+    if (end < 0 || static_cast<size_t>(end) < need)
+        return nullptr;
+    const auto size = static_cast<size_t>(end);
+
+    pl_tex tex = upload_tex_for(s, p.fmt, p.w, p.h);
+    if (!tex)
+        return nullptr;
+
+    void* map = ::mmap(nullptr, size, PROT_READ, MAP_SHARED, p.fd, 0);
+    if (map == MAP_FAILED)
+        return nullptr;
+    std::span<uint8_t> bytes(static_cast<uint8_t*>(map), size);
+    dma_buf_sync(p.fd, DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ);
+    struct pl_tex_transfer_params tx = {};
+    tx.tex = tex;
+    tx.row_pitch = static_cast<size_t>(p.pitch);
+    tx.ptr = bytes.subspan(static_cast<size_t>(p.offset)).data();
+    tx.no_import = true; // copy now; the mapping is gone once we return
+    const bool ok = pl_tex_upload(s.gpu, &tx);
+    dma_buf_sync(p.fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+    ::munmap(map, size);
+    return ok ? tex : nullptr;
+}
+
 // Owns imported textures; destroys each tex and closes its dup'd fd on
-// scope exit, so convert() needs no per-error-path cleanup.
+// scope exit, so convert() needs no per-error-path cleanup. Upload-fallback
+// textures belong to State and are reused across frames.
 class TexBag {
   public:
     explicit TexBag(pl_gpu gpu) : gpu_(gpu) {}
@@ -98,10 +179,33 @@ class TexBag {
     TexBag& operator=(const TexBag&) = delete;
 
     pl_tex add(const PlaneImport& p) {
-        ImportedTex t = import_plane(p);
-        if (t.tex)
-            items_.push_back(t);
-        return t.tex;
+        State& s = state();
+        const RejectKey key{.fmt = p.fmt, .w = p.w, .h = p.h, .pitch = p.pitch, .offset = p.offset};
+        if (std::ranges::find(s.import_rejects, key) == s.import_rejects.end()) {
+            ImportedTex t = import_plane(p);
+            if (t.tex) {
+                items_.push_back(t);
+                return t.tex;
+            }
+            if (p.renderable) {
+                static std::atomic<bool> warned{false};
+                if (!warned.exchange(true))
+                    vn::log::warn("csc_placebo: dma-buf import of %dx%d %s target failed "
+                                  "(pitch %d)",
+                                  p.w, p.h, p.fmt->name, p.pitch);
+                return nullptr;
+            }
+            s.import_rejects.push_back(key);
+            vn::log::info("csc_placebo: GPU rejected dma-buf import of %dx%d %s plane (pitch %d, "
+                          "offset %d); using CPU upload",
+                          p.w, p.h, p.fmt->name, p.pitch, p.offset);
+        }
+        pl_tex tex = upload_plane(s, p);
+        static std::atomic<bool> upload_warned{false};
+        if (!tex && !upload_warned.exchange(true))
+            vn::log::warn("csc_placebo: CPU upload of %dx%d %s plane failed", p.w, p.h,
+                          p.fmt->name);
+        return tex;
     }
 
   private:
@@ -440,6 +544,10 @@ void shutdown() {
     State& s = state();
     if (!s.ready)
         return;
+    for (pl_tex& t : s.upload_texs)
+        pl_tex_destroy(s.gpu, &t);
+    s.upload_texs.clear();
+    s.import_rejects.clear();
     if (s.renderer)
         pl_renderer_destroy(&s.renderer);
     if (s.gl)
