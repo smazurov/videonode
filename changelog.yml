@@ -1,3 +1,26 @@
+- semver: 4.4.0
+  date: 2026-11-04T00:00:00Z
+  packager: Stepan Mazurov <smazurov@gmail.com>
+  changes:
+    - commit: 3374a6e
+      note: "An audio device that stalls or is unplugged no longer freezes video: videonode-sink now captures the stream's ALSA devices itself and hands ffmpeg one interleaved stream, fills gaps with silence, and picks the device back up after a replug without restarting the stream; audio.offset_ms corrects lip sync, streams with two or more audio devices start again, and the stream page, health API, and videonode_sink_* metrics show each device as live, missing, or sending no samples, with xruns and substituted silence"
+    - commit: dd4f501
+      note: "The stream page is rebuilt to match the source and composer pages: a Status card names the first problem between source and viewers, draws the pipeline from sources through the composer, encoder, and relay to viewers, and charts encoded fps, relay lag, and egress; counters that moved in the last 10 seconds (repeated, dropped, or duplicated frames, audio dropouts) show as chips under it, so short blips clear on their own. An Output card holds the RTSP and SRT URLs, the WebRTC player, encoder and audio settings, and recording, and a Viewers card lists clients across protocols with RTT and jitter"
+    - commit: dd4f501
+      note: "Track health reports relay_ms, how long the relay holds a frame from its first packet arriving from the encoder until it is written to WebRTC viewers (absent without WebRTC viewers); the stream page charts it and warns at 200 ms or more"
+    - commit: 3e17b13
+      note: "WebRTC peers report round-trip time from RTCP receiver reports, as rtt_ms on each client and the videonode_webrtc_peer_rtt_ms gauge, matching what SRT consumers already report"
+    - commit: 6a33e46
+      note: "Sources no longer go silently blank on GPUs that reject a dma-buf plane import: when radeonsi refuses a plane whose row pitch isn't 256-byte aligned (for example 1920-wide raw NV12 from a UVC device such as the Hollyland Lyra), the plane is uploaded from a CPU mapping instead, and the fallback is logged once"
+    - commit: 627e1e3
+      note: "The stream page's Restart button is enabled as soon as a viewer starts the encoder, instead of staying greyed out while the page still showed the encoder as idle"
+    - commit: eb1877b
+      note: "On phones, detail-page actions and log controls wrap instead of running off screen, and a log message moves below its prefix instead of wrapping one character per line"
+  deb:
+    urgency: low
+    distributions:
+      - stable
+
 - semver: 4.3.0
   date: 2026-10-26T00:00:00Z
   packager: Stepan Mazurov <smazurov@gmail.com>
