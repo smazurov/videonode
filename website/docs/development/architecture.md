@@ -24,6 +24,7 @@ ffmpeg keeps its output streams within about 100 ms of each other. When it reads
 - Video is placed on a 1/fps grid by arrival time, and the last frame repeats when the producer goes quiet or restarts, so the encoder's video timeline keeps moving.
 - The NUT stream is written in v4 pipe mode with a single syncpoint, because ffmpeg's NUT demuxer keeps every syncpoint it reads for the lifetime of the input.
 - Stalls, unplugs, and recoveries are logged once per state change; xruns, filled silence, and dropped late audio are summarized at most once per 30 s, only when nonzero.
+- Machine-readable status goes to the daemon over the stream's existing progress socket, the same one ffmpeg's `-progress` writes to. The sink opens its connection with a `sink_wire=1` hello, so the collector parses it separately from ffmpeg's reports. It sends a block once a second and immediately on any state change, from its own thread, keeping only the newest block, so a slow or missing daemon never stalls the media. The daemon exposes the result as `health.encoder.sink` and the `videonode_sink_*` metrics.
 
 ## Zero-copy frame passing with SCM_RIGHTS
 

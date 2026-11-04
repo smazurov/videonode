@@ -4,9 +4,11 @@ import { SectionHeader } from '../primitives/SectionHeader';
 import { StatusPill, type StatusPillStatus } from '../primitives/StatusPill';
 import { poolStateToPill } from '../../lib/pool-status';
 import { ENCODED_FLOW, packetFlow, unitFlow, type StreamHealth } from '../../lib/stream-health';
-import { secondsAgo, type Tone } from '../../lib/stream-status';
+import { secondsAgo, upstreamFramesLine, type Tone } from '../../lib/stream-status';
 import type { MetricsSample } from '../../hooks/slices/streams/streamDataSlice';
 import { MetricRow } from './MetricRow';
+import { HOVER_HINT } from '../primitives/hoverHint';
+import { cn } from '../../utils';
 import { StreamPipelineDiagram } from './StreamPipelineDiagram';
 import { useStreamPipeline } from './useStreamPipeline';
 import { formatBitrate } from './format';
@@ -30,15 +32,23 @@ function trackLine(track: StreamHealth['tracks'][number], history: readonly Metr
   return `${track.type}: ${pkts == null ? '—' : Math.round(pkts)} pkt/s → ${out}${perFrame}`;
 }
 
-function relayTooltip(health: StreamHealth | undefined, active: boolean, history: readonly MetricsSample[]): string {
-  const lines = ['Relay lag: a frame arriving from the encoder until it is sent to WebRTC viewers.'];
-  if (active && health) lines.push(...(health.tracks ?? []).map((t) => trackLine(t, history)));
+function encodedTooltip(health: StreamHealth | undefined, active: boolean): string {
+  const stats = active ? health?.encoder.ffmpeg.stats : undefined;
+  if (!stats) return 'Encoder not running';
+  const lines = [`Speed ${stats.speed.toFixed(2)}×`, `ffmpeg: ${stats.dropped_frames} dropped · ${stats.duplicate_frames} duplicated`];
+  const upstream = upstreamFramesLine(health);
+  if (upstream) lines.push(upstream);
   return lines.join('\n');
+}
+
+function relayTooltip(health: StreamHealth | undefined, active: boolean, history: readonly MetricsSample[]): string | undefined {
+  if (!active || !health || (health.tracks ?? []).length === 0) return undefined;
+  return health.tracks.map((t) => trackLine(t, history)).join('\n');
 }
 
 function egressTooltip(watching: number, worstRtt: number | undefined): string {
   const rtt = worstRtt == null ? '' : ` · worst RTT ${worstRtt.toFixed(1)} ms`;
-  return `${watching} watching${rtt}\nWebRTC + SRT traffic (RTSP readers and recording not counted)`;
+  return `${watching} watching${rtt}\nWebRTC and SRT viewer traffic`;
 }
 
 // One chart per stage: the headline number sits on the chart, the rest is in
@@ -58,7 +68,6 @@ interface StreamStatusPanelProps {
 /** Health sentence, pipeline from source to viewers, and per-stage trends. */
 export function StreamStatusPanel({ streamId }: StreamStatusPanelProps) {
   const p = useStreamPipeline(streamId);
-  const stats = p.active ? p.health?.encoder.ffmpeg.stats : undefined;
   const worstRtt = p.viewers.reduce<number | undefined>((m, v) => (v.rtt && (m == null || v.rtt > m) ? v.rtt : m), undefined);
   const { tone, headline, detail } = p.summary;
   return (
@@ -67,7 +76,7 @@ export function StreamStatusPanel({ streamId }: StreamStatusPanelProps) {
         title="Status"
         description={
           tone === 'ok'
-            ? 'Live pipeline from source to viewers.'
+            ? undefined
             : <span className={SUMMARY_TEXT[tone]}>{headline}{detail ? ` — ${detail}` : ''}</span>
         }
         actions={
@@ -87,7 +96,7 @@ export function StreamStatusPanel({ streamId }: StreamStatusPanelProps) {
           formatValue={(n) => `${n.toFixed(1)} fps`}
           tone="success"
           stale={!p.active}
-          title={stats ? `Speed ${stats.speed.toFixed(2)}×\nDropped ${stats.dropped_frames} · Duplicated ${stats.duplicate_frames}` : 'Encoder not running'}
+          title={encodedTooltip(p.health, p.active)}
         />
         <Chart
           label="Relay lag"
@@ -107,9 +116,19 @@ export function StreamStatusPanel({ streamId }: StreamStatusPanelProps) {
           title={egressTooltip(p.viewers.length, worstRtt)}
         />
       </div>
-      <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-subtle">
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-subtle">
         {p.facts && <span>{p.facts}</span>}
         {p.uptime && <span>Uptime <span className="text-fg">{p.uptime}</span></span>}
+        {p.events.length > 0 && (
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Last 10s:</span>
+            {p.events.map((e) => (
+              <span key={e.key} title={e.title} className={cn(HOVER_HINT, e.tone === 'warn' ? 'text-warning' : 'text-fg-muted')}>
+                {e.label}
+              </span>
+            ))}
+          </span>
+        )}
       </div>
     </Card>
   );

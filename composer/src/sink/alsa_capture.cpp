@@ -200,12 +200,11 @@ AlsaCapture::ReadOutcome AlsaCapture::read_once_(std::vector<int16_t>& buf) {
 void AlsaCapture::handle_idle_() {
     idle_ns_ += kWaitMs * kNsPerMs;
     if (idle_ns_ >= p_.reopen_after_stall_ns) {
-        close_(DeviceState::Stalled,
-               "reopening after " + std::to_string(idle_ns_ / kNsPerMs) + " ms without samples");
+        close_(DeviceState::Stalled, {});
         return;
     }
     if (idle_ns_ >= p_.stall_ns)
-        set_state_(DeviceState::Stalled, p_.device);
+        set_state_(DeviceState::Stalled, {});
 }
 
 void AlsaCapture::thread_main_() {
@@ -215,7 +214,7 @@ void AlsaCapture::thread_main_() {
         if (!pcm_) {
             std::string err;
             if (!open_(err)) {
-                set_state_(DeviceState::Absent, p_.device + ": " + err);
+                set_state_(DeviceState::Absent, err);
                 sleep_interruptible_(p_.retry_ns);
                 continue;
             }
@@ -228,10 +227,10 @@ void AlsaCapture::thread_main_() {
             break;
         case ReadOutcome::Xrun:
             if (!recover_xrun_())
-                close_(DeviceState::Absent, p_.device + ": capture would not restart");
+                close_(DeviceState::Absent, "capture would not restart");
             break;
         case ReadOutcome::Lost:
-            close_(DeviceState::Absent, p_.device + ": " + snd_strerror(last_err_));
+            close_(DeviceState::Absent, snd_strerror(last_err_));
             break;
         }
     }

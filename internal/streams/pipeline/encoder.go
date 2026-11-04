@@ -89,6 +89,7 @@ func (e *EncoderStage) sinkArgv() []string {
 		"--socket", e.Media.Video.SocketPath(),
 		"--mux", "nut",
 		"--fps", strconv.Itoa(fps),
+		"--status-socket", ProgressSocketPathFor(e.OwnerStreamID),
 	}
 	audio := e.Media.Audio.Config
 	if len(audio.Devices) == 0 {
@@ -145,7 +146,8 @@ func (e *EncoderStage) buildFFmpegParams() *ffmpeg.Params {
 }
 
 // ProgressSocketPathFor returns the Unix socket path where the
-// FFmpegCollector listens for progress data from ffmpeg's -progress flag.
+// EncoderCollector listens for ffmpeg's -progress reports and vn-sink's
+// --status-socket reports.
 func ProgressSocketPathFor(streamID string) string {
 	return filepath.Join(NativeUdsDir, "progress-"+sanitizeForFilename(streamID)+".sock")
 }

@@ -22,6 +22,21 @@ std::string with_detail(std::string line, const std::string& detail) {
     return line;
 }
 
+// The words the stream page uses, so logs and UI agree.
+const char* human_state(DeviceState s) {
+    switch (s) {
+    case DeviceState::Opening:
+        return "opening";
+    case DeviceState::Live:
+        return "live";
+    case DeviceState::Stalled:
+        return "no samples";
+    case DeviceState::Absent:
+        return "missing";
+    }
+    return "?";
+}
+
 } // namespace
 
 const char* device_state_name(DeviceState s) {
@@ -49,18 +64,17 @@ void AudioHealthLog::log_transition(DeviceState from, DeviceState to, const std:
             log_(false, prefix + "live");
         } else {
             const double outage = static_cast<double>(now_ns - degraded_since_ns_) / kNsPerSec;
-            log_(false, prefix + "live again after " + fmt_seconds(outage) + " " +
-                            device_state_name(from));
+            log_(false,
+                 prefix + "live again after " + fmt_seconds(outage) + " " + human_state(from));
         }
         return;
     }
     if (to == DeviceState::Stalled) {
-        log_(true, with_detail(prefix + "no samples arriving; filling silence", detail));
+        log_(true, with_detail(prefix + "no samples; sending silence", detail));
         return;
     }
     if (to == DeviceState::Absent) {
-        log_(true,
-             with_detail(prefix + "device unavailable; filling silence and retrying", detail));
+        log_(true, with_detail(prefix + "missing; sending silence, retrying", detail));
     }
 }
 
@@ -69,7 +83,9 @@ void AudioHealthLog::on_state(DeviceState s, const std::string& detail, int64_t 
         return;
     const DeviceState from = state_;
     state_ = s;
+    state_changed_ns_ = now_ns;
     const bool degraded = s == DeviceState::Stalled || s == DeviceState::Absent;
+    detail_ = degraded ? detail : std::string();
     if (degraded && degraded_since_ns_ < 0)
         degraded_since_ns_ = now_ns;
 
@@ -90,6 +106,7 @@ void AudioHealthLog::on_state(DeviceState s, const std::string& detail, int64_t 
 
 void AudioHealthLog::on_xrun() {
     ++xruns_;
+    ++xruns_total_;
 }
 
 void AudioHealthLog::log_settled_state(int64_t now_ns) {
@@ -124,7 +141,7 @@ void AudioHealthLog::tick(int64_t now_ns, int64_t silence_frames_total,
                            fmt_seconds(static_cast<double>(dropped) / rate) + " late audio dropped";
         if (suppressed_transitions_ > 0)
             line += ", " + std::to_string(suppressed_transitions_) +
-                    " state changes not logged; now " + device_state_name(state_);
+                    " state changes not logged; now " + human_state(state_);
         log_(true, line);
     }
     window_start_ns_ = now_ns;

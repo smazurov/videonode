@@ -14,6 +14,7 @@ func (p *Pipeline) EncoderHealth(streamID string, now time.Time) metrics.Encoder
 	out := metrics.EncoderHealth{
 		State:  string(info.State),
 		FFmpeg: metrics.FFmpegHealth{Progress: empty, Frames: empty},
+		Sink:   metrics.EmptySinkHealth(now),
 	}
 	if !info.StartedAt.IsZero() {
 		out.StartedAtUS = info.StartedAt.UnixMicro()
@@ -26,6 +27,7 @@ func (p *Pipeline) EncoderHealth(streamID string, now time.Time) metrics.Encoder
 	p.mu.Unlock()
 	if c != nil {
 		out.FFmpeg = c.Health(out.StartedAtUS, now)
+		out.Sink = c.SinkHealth(out.StartedAtUS, now)
 	}
 	return out
 }

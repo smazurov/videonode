@@ -13,6 +13,7 @@ struct NutSessionArgs {
     int audio_rate = 48000;
     int audio_channels = 2;
     int audio_offset_ms = 0;
+    std::string status_socket;
     int settle_ms = 200;
     int first_frame_timeout_s = 30;
     bool verbose = false;

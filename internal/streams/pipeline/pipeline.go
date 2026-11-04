@@ -113,8 +113,8 @@ type Pipeline struct {
 	logger logging.Logger
 
 	mu         sync.Mutex
-	stages     map[string]Stage                       // pool key → stage
-	collectors map[string]*collectors.FFmpegCollector // stream id → progress collector
+	stages     map[string]Stage                        // pool key → stage
+	collectors map[string]*collectors.EncoderCollector // stream id → progress collector
 
 	entityLocksMu sync.Mutex
 	entityLocks   map[string]*sync.Mutex
@@ -130,7 +130,7 @@ func New(cfg Config, logger logging.Logger) *Pipeline {
 		cfg:         cfg,
 		logger:      logger,
 		stages:      make(map[string]Stage),
-		collectors:  make(map[string]*collectors.FFmpegCollector),
+		collectors:  make(map[string]*collectors.EncoderCollector),
 		entityLocks: make(map[string]*sync.Mutex),
 	}
 	poolOpts := &process.PoolOptions{
@@ -1103,7 +1103,7 @@ func (p *Pipeline) RestartProcess(poolID string) error {
 // reusing the cached stage. No-op when the encoder is idle (lazy
 // lifecycle: no reader attached → no process, and force-starting would
 // leave a consumer-less encoder running). A running or crashed encoder is
-// restarted/revived. The FFmpegCollector and the upstream source/composer
+// restarted/revived. The EncoderCollector and the upstream source/composer
 // are unaffected — vn-sink retry-dials the upstream SCM.
 func (p *Pipeline) restartEncoder(streamID string) error {
 	if streamID == "" {
@@ -1169,7 +1169,7 @@ func (p *Pipeline) SnapshotComposer(ctx context.Context, composerID string) (sna
 	}, nil
 }
 
-// ensureCollector starts an FFmpegCollector for the given stream if one
+// ensureCollector starts an EncoderCollector for the given stream if one
 // isn't already running. The collector creates its Unix socket before
 // returning, so it's ready to receive data when FFmpeg spawns.
 func (p *Pipeline) ensureCollector(streamID string) {
@@ -1184,7 +1184,7 @@ func (p *Pipeline) ensureCollector(streamID string) {
 		return
 	}
 	sockPath := ProgressSocketPathFor(streamID)
-	c := collectors.NewFFmpegCollector(sockPath, streamID)
+	c := collectors.NewEncoderCollector(sockPath, streamID)
 	if err := c.Start(context.Background()); err != nil {
 		p.logger.Warn("ensureCollector: start failed", logging.KeyStreamID, streamID, logging.KeyError, err)
 		return
@@ -1194,7 +1194,7 @@ func (p *Pipeline) ensureCollector(streamID string) {
 	p.mu.Unlock()
 }
 
-// stopCollector stops and removes the FFmpegCollector for the given
+// stopCollector stops and removes the EncoderCollector for the given
 // stream. Idempotent.
 func (p *Pipeline) stopCollector(streamID string) {
 	p.mu.Lock()

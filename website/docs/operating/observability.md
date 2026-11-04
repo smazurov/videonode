@@ -19,6 +19,7 @@ curl -u videonode:videonode http://localhost:8090/api/metrics | jq '.[].name'
 All metrics use the `videonode_` prefix. The families include:
 
 - `videonode_ffmpeg_*`: per-stream encoder stats (`fps`, `dropped_frames_total`, `duplicate_frames_total`, `processing_speed`), labeled by `stream_id`
+- `videonode_sink_*`: what `videonode-sink` sees on the encoder's inputs. `audio_up` is 1 while an audio device delivers samples and 0 while silence is substituted; `audio_xruns_total`, `audio_silence_seconds_total`, and `audio_dropped_seconds_total` count the current encoder run. These are labeled by `stream_id`, `track`, and `device`. `video_upstream_up` and `video_repeated_frames_total` cover the producer connection and are labeled by `stream_id`.
 - `videonode_producer_*`: per-source process stats (`rss_bytes`, `cpu_percent`), labeled by `source_id`
 - `videonode_webrtc_*` and `videonode_srt_*`: per-stream egress counters plus per-peer and per-consumer feedback (see below)
 - `videonode_mpp_*`: Rockchip MPP device load and utilization (see below)

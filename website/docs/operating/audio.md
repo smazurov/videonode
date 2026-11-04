@@ -16,7 +16,17 @@ Opus is the default and the only codec the WebRTC output can carry. AAC works fo
 
 - While a device is missing or stops delivering samples, its track carries silence. Players that wait on audio keep playing.
 - A device that disappears is retried every 500 ms, and one that goes quiet for 2 s is reopened. Real audio returns on its own after a replug, without restarting the stream.
-- Stalls and recoveries are logged once per state change (for example `audio [0] vncap:CARD=Lyra,DEV=0: device unavailable; filling silence and retrying`, then `live again after 12.3s absent`). Xruns, filled silence, and late audio that had to be dropped are summarized in one line at most every 30 s, only when something happened.
+- Stalls and recoveries are logged once per state change (for example `audio [0] vncap:CARD=Lyra,DEV=0: missing; sending silence, retrying (No such device)`, then `live again after 12.3s missing`). Xruns, filled silence, and late audio that had to be dropped are summarized in one line at most every 30 s, only when something happened.
+
+## Watching audio health
+
+Only `videonode-sink` can tell real samples from the silence it substitutes; the relay sees audio packets either way. On the stream page, each audio track sits under the encoder's video input with a wire into the encoder. A missing device, or one sending no samples, turns red and becomes the status headline. Xruns or substituted silence in the last 10 s show as amber `dropouts`. A dotted device name has a tooltip with the outage reason and start time, or the xrun and silence counts. The same view is in the stream's health:
+
+```bash
+curl -s -u videonode:videonode http://localhost:8090/api/streams/<stream_id> | jq '.health.encoder.sink.audio'
+```
+
+Each entry carries the `device`, its `state` (`live`, `stalled`, `absent`, or `opening`) with `since_us`, the `error` behind an absent state (for example `No such device`), and run totals for `xruns`, `silence_ms`, and `dropped_ms`. The same data streams over the `/api/events` metrics feed and as the `videonode_sink_audio_*` Prometheus series; `videonode_sink_audio_up == 0` is the alert condition.
 
 ## Lip sync
 

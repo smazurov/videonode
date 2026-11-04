@@ -11,7 +11,7 @@ import (
 )
 
 func TestFFmpegHealth_ReportsDoNotImplyFrames(t *testing.T) {
-	c := NewFFmpegCollector("", t.Name())
+	c := NewEncoderCollector("", t.Name())
 	defer c.Stop()
 	now := time.Now()
 	c.sendProgressMetrics(map[string]string{"frame": "30", "fps": "30", "speed": "1x"}, 0, now)
@@ -31,7 +31,7 @@ func TestFFmpegHealth_ReportsDoNotImplyFrames(t *testing.T) {
 }
 
 func TestFFmpegHealth_RunResetRejectsOldReports(t *testing.T) {
-	c := NewFFmpegCollector("", t.Name())
+	c := NewEncoderCollector("", t.Name())
 	defer c.Stop()
 	now := time.Now()
 	c.sendProgressMetrics(map[string]string{"frame": "99", "fps": "30"}, 0, now)
@@ -55,7 +55,7 @@ func TestFFmpegHealth_RunResetRejectsOldReports(t *testing.T) {
 
 func TestFFmpegHealth_StopClosesSilentConnection(t *testing.T) {
 	skipOnMacOS(t)
-	c := NewFFmpegCollector(filepath.Join(t.TempDir(), "progress.sock"), t.Name())
+	c := NewEncoderCollector(filepath.Join(t.TempDir(), "progress.sock"), t.Name())
 	if err := c.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestFFmpegHealth_StopClosesSilentConnection(t *testing.T) {
 
 func TestFFmpegHealth_RebindDiscardsPreviousRunConnections(t *testing.T) {
 	skipOnMacOS(t)
-	c := NewFFmpegCollector(filepath.Join(t.TempDir(), "progress.sock"), t.Name())
+	c := NewEncoderCollector(filepath.Join(t.TempDir(), "progress.sock"), t.Name())
 	if err := c.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestFFmpegHealth_RebindDiscardsPreviousRunConnections(t *testing.T) {
 }
 
 func TestFFmpegHealth_InvalidNumbersDoNotReplaceStats(t *testing.T) {
-	c := NewFFmpegCollector("", t.Name())
+	c := NewEncoderCollector("", t.Name())
 	defer c.Stop()
 	now := time.Now()
 	c.sendProgressMetrics(map[string]string{"fps": "30", "speed": "1x"}, 0, now)

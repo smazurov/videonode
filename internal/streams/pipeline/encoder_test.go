@@ -41,6 +41,7 @@ func TestEncoderStage_Command_AudioCapturedByVNSink(t *testing.T) {
 
 	for _, want := range []string{
 		"/usr/bin/videonode-sink --socket /tmp/vn-bus-composer-c.sock --mux nut --fps 30",
+		"--status-socket /tmp/videonode-native/progress-s1.sock",
 		"--audio-device vncap:CARD=Lyra,DEV=0 --audio-device vncap:CARD=3,DEV=0",
 		"--audio-rate 48000 --audio-channels 2 --audio-offset-ms 80",
 	} {
@@ -60,7 +61,7 @@ func TestEncoderStage_Command_AudioCapturedByVNSink(t *testing.T) {
 
 func TestEncoderStage_Command_VideoOnly(t *testing.T) {
 	sink, ff := encoderShell(t, newTestEncoder(AudioConfig{}, 60))
-	if !strings.HasSuffix(sink, "--mux nut --fps 60") {
+	if !strings.HasSuffix(sink, "--mux nut --fps 60 --status-socket /tmp/videonode-native/progress-s1.sock") {
 		t.Errorf("unexpected vn-sink argv %q", sink)
 	}
 	if strings.Contains(ff, "-c:a") || strings.Contains(ff, "-filter_complex") {

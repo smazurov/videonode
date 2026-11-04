@@ -29,8 +29,9 @@ TEST(AudioHealthLog, LogsEachTransitionOnce) {
     ASSERT_EQ(l.got.size(), 3U);
     EXPECT_FALSE(l.got[0].first);
     EXPECT_TRUE(l.got[1].first);
-    EXPECT_NE(l.got[1].second.find("No such device"), std::string::npos);
-    EXPECT_NE(l.got[2].second.find("after 12.0s"), std::string::npos);
+    EXPECT_NE(l.got[1].second.find("missing; sending silence, retrying (No such device)"),
+              std::string::npos);
+    EXPECT_NE(l.got[2].second.find("live again after 12.0s missing"), std::string::npos);
 }
 
 TEST(AudioHealthLog, OpeningRetriesDoNotRelog) {
@@ -69,7 +70,7 @@ TEST(AudioHealthLog, FlapEndingDegradedIsLoggedOnceSettled) {
     h.tick(6 * kSec, 0, 0);
     ASSERT_EQ(l.got.size(), 2U);
     EXPECT_TRUE(l.got.back().first);
-    EXPECT_NE(l.got.back().second.find("no samples arriving"), std::string::npos);
+    EXPECT_NE(l.got.back().second.find("no samples; sending silence"), std::string::npos);
     h.tick(7 * kSec, 0, 0);
     EXPECT_EQ(l.got.size(), 2U);
 }

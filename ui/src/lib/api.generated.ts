@@ -893,6 +893,47 @@ export interface components {
             /** @description List of available audio devices */
             devices: components["schemas"]["AudioDevice"][] | null;
         };
+        AudioInputHealth: {
+            /** @description ALSA capture device vn-sink opened */
+            device: string;
+            /**
+             * Format: int64
+             * @description Device audio dropped for arriving too late this run
+             */
+            dropped_ms: number;
+            /** @description Why the device is absent, e.g. No such device */
+            error?: string;
+            /**
+             * Format: double
+             * @description Estimated device sample rate
+             */
+            rate_hz?: number;
+            /**
+             * Format: int64
+             * @description Silence substituted for missing device audio this run
+             */
+            silence_ms: number;
+            /**
+             * Format: int64
+             * @description Unix microseconds when the device entered its current state
+             */
+            since_us?: number;
+            /**
+             * @description live delivers samples; stalled and absent are covered with silence
+             * @enum {string}
+             */
+            state: "opening" | "live" | "stalled" | "absent";
+            /**
+             * Format: int64
+             * @description Audio track index in the published stream
+             */
+            track: number;
+            /**
+             * Format: int64
+             * @description Capture overruns this run
+             */
+            xruns: number;
+        };
         CanvasDimsData: {
             /**
              * @description Canvas background color sources composite on top of, as #RRGGBB or #RRGGBBAA hex (empty = opaque black)
@@ -1336,6 +1377,8 @@ export interface components {
         };
         EncoderHealth: {
             ffmpeg: components["schemas"]["FFmpegHealth"];
+            /** @description vn-sink input status; absent from daemons that predate sink reports */
+            sink?: components["schemas"]["SinkHealth"];
             /**
              * Format: int64
              * @description Encoder run identity; zero when no run is registered
@@ -2020,6 +2063,30 @@ export interface components {
             id: string;
             /** Format: double */
             rtt_ms: number;
+        };
+        SinkHealth: {
+            /** @description One entry per configured audio device, in output track order */
+            audio: components["schemas"]["AudioInputHealth"][] | null;
+            /** @description Freshness of vn-sink status reports for this run */
+            reports: components["schemas"]["ActivityHealth"];
+            video: components["schemas"]["SinkVideoHealth"];
+        };
+        SinkVideoHealth: {
+            /**
+             * Format: int64
+             * @description Frames dropped for arriving faster than the stream rate this run
+             */
+            dropped_frames: number;
+            /**
+             * Format: int64
+             * @description Frames repeated to cover upstream gaps this run
+             */
+            repeated_frames: number;
+            /**
+             * @description Producer socket state as seen by vn-sink
+             * @enum {string}
+             */
+            upstream: "unknown" | "connected" | "reconnecting";
         };
         SourceBroadcastInfo: {
             /** Format: int32 */

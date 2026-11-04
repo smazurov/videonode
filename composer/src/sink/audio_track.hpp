@@ -38,6 +38,7 @@ class AudioTrack {
     [[nodiscard]] int64_t silence_frames() const { return silence_frames_; }
     [[nodiscard]] int64_t dropped_frames() const { return dropped_frames_; }
     [[nodiscard]] bool started() const { return started_; }
+    [[nodiscard]] double rate_hz() const { return clock_.initialized() ? clock_.rate_hz() : 0.0; }
 
   private:
     struct Pending {

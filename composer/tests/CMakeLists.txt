@@ -24,6 +24,7 @@ vn_add_test(snapshot
     LABELS snapshot)
 vn_add_test(scm_socket          DEPS scm_socket                   LABELS ipc)
 vn_add_test(nut_ffprobe         DEPS nut_writer                   LABELS sink)
+vn_add_test(status_reporter     DEPS status_reporter Threads::Threads LABELS sink)
 
 vn_add_test(scm_rights_source
     DEPS scm_rights_source

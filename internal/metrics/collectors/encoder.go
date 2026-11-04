@@ -1,4 +1,4 @@
-// Package collectors provides metrics collectors for FFmpeg and MPP.
+// Package collectors provides metrics collectors for the encoder stage.
 package collectors
 
 import (
@@ -18,8 +18,11 @@ import (
 	"github.com/smazurov/videonode/internal/metrics"
 )
 
-// FFmpegCollector collects FFmpeg progress data via Unix socket.
-type FFmpegCollector struct {
+// EncoderCollector collects encoder-stage status on one per-stream Unix
+// socket: ffmpeg's -progress reports and vn-sink's status reports. Each
+// connection is routed by its first line; only a sink_wire hello marks a
+// vn-sink connection, everything else is parsed as ffmpeg progress.
+type EncoderCollector struct {
 	logger     *slog.Logger
 	socketPath string
 	streamID   string
@@ -33,6 +36,7 @@ type FFmpegCollector struct {
 	progress   metrics.Activity
 	frames     metrics.Activity
 	stats      metrics.FFmpegStreamMetrics
+	sink       sinkState
 	generation uint64
 	runID      int64
 	conns      map[net.Conn]struct{}
@@ -97,9 +101,9 @@ func (t *fpsTracker) reset() {
 	*t = fpsTracker{}
 }
 
-// NewFFmpegCollector creates a new FFmpeg collector.
-func NewFFmpegCollector(socketPath, streamID string) *FFmpegCollector {
-	return &FFmpegCollector{
+// NewEncoderCollector creates a new FFmpeg collector.
+func NewEncoderCollector(socketPath, streamID string) *EncoderCollector {
+	return &EncoderCollector{
 		logger:     logging.GetLogger("streams").With(logging.KeyStreamID, streamID),
 		socketPath: socketPath,
 		streamID:   streamID,
@@ -108,14 +112,14 @@ func NewFFmpegCollector(socketPath, streamID string) *FFmpegCollector {
 }
 
 // Start binds the progress socket before returning so encoders can connect immediately.
-func (f *FFmpegCollector) Start(ctx context.Context) error {
+func (f *EncoderCollector) Start(ctx context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.stopped {
-		return errors.New("FFmpeg collector is stopped")
+		return errors.New("encoder collector is stopped")
 	}
 	if f.listener != nil {
-		return errors.New("FFmpeg collector is already started")
+		return errors.New("encoder collector is already started")
 	}
 	if err := os.Remove(f.socketPath); err != nil && !os.IsNotExist(err) {
 		return err
@@ -125,7 +129,7 @@ func (f *FFmpegCollector) Start(ctx context.Context) error {
 		return err
 	}
 	f.listener = listener
-	f.logger.Debug("Listening for FFmpeg progress", logging.KeySocket, f.socketPath)
+	f.logger.Debug("Listening for encoder progress", logging.KeySocket, f.socketPath)
 	f.ctx, f.cancel = context.WithCancel(ctx)
 	go f.acceptConnections(listener)
 	context.AfterFunc(f.ctx, func() { _ = f.Stop() })
@@ -133,7 +137,7 @@ func (f *FFmpegCollector) Start(ctx context.Context) error {
 }
 
 // Stop closes the listener and active progress readers, and removes metrics.
-func (f *FFmpegCollector) Stop() error {
+func (f *EncoderCollector) Stop() error {
 	f.stopOnce.Do(func() {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -148,17 +152,18 @@ func (f *FFmpegCollector) Stop() error {
 			conn.Close()
 		}
 		metrics.DeleteFFmpegMetrics(f.streamID)
+		metrics.DeleteSinkMetrics(f.streamID)
 		f.reset()
 	})
 	return nil
 }
 
 // BeginRun discards observations and connections belonging to the previous encoder.
-func (f *FFmpegCollector) BeginRun(runID int64) error {
+func (f *EncoderCollector) BeginRun(runID int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.stopped {
-		return errors.New("FFmpeg collector is stopped")
+		return errors.New("encoder collector is stopped")
 	}
 	f.runID = runID
 	f.generation++
@@ -167,6 +172,7 @@ func (f *FFmpegCollector) BeginRun(runID int64) error {
 	}
 	f.reset()
 	metrics.DeleteFFmpegMetrics(f.streamID)
+	metrics.DeleteSinkMetrics(f.streamID)
 	// Rebind to discard queued connections from the old run, not just accepted ones.
 	if f.listener != nil {
 		f.listener.Close()
@@ -183,15 +189,16 @@ func (f *FFmpegCollector) BeginRun(runID int64) error {
 	return nil
 }
 
-func (f *FFmpegCollector) reset() {
+func (f *EncoderCollector) reset() {
 	f.fps.reset()
 	f.progress = metrics.Activity{}
 	f.frames = metrics.Activity{}
 	f.stats = metrics.FFmpegStreamMetrics{}
+	f.sink = sinkState{}
 }
 
 // Health returns the last reported values with report and frame-advance freshness.
-func (f *FFmpegCollector) Health(runID int64, now time.Time) metrics.FFmpegHealth {
+func (f *EncoderCollector) Health(runID int64, now time.Time) metrics.FFmpegHealth {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if runID != f.runID {
@@ -205,7 +212,7 @@ func (f *FFmpegCollector) Health(runID int64, now time.Time) metrics.FFmpegHealt
 	}
 }
 
-func (f *FFmpegCollector) acceptConnections(listener net.Listener) {
+func (f *EncoderCollector) acceptConnections(listener net.Listener) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -224,7 +231,7 @@ func (f *FFmpegCollector) acceptConnections(listener net.Listener) {
 	}
 }
 
-func (f *FFmpegCollector) handleConnection(conn net.Conn, generation uint64) {
+func (f *EncoderCollector) handleConnection(conn net.Conn, generation uint64) {
 	defer func() {
 		conn.Close()
 		f.mu.Lock()
@@ -233,22 +240,46 @@ func (f *FFmpegCollector) handleConnection(conn net.Conn, generation uint64) {
 	}()
 
 	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		return
+	}
+	first := strings.TrimSpace(scanner.Text())
+	if version, ok := strings.CutPrefix(first, sinkHelloKey+"="); ok {
+		if version != sinkWireVersion {
+			f.logger.Warn("Rejecting vn-sink status connection with unsupported wire version", logging.KeyVersion, version)
+			return
+		}
+		readBlocks(scanner, "", "status", func(data map[string]string) {
+			f.applySinkStatus(data, generation, time.Now())
+		})
+		return
+	}
+	readBlocks(scanner, first, "progress", func(data map[string]string) {
+		f.sendProgressMetrics(data, generation, time.Now())
+	})
+}
+
+// readBlocks feeds key=value lines into blocks closed by the terminator key.
+func readBlocks(scanner *bufio.Scanner, first, terminator string, onBlock func(map[string]string)) {
 	data := make(map[string]string)
-	for scanner.Scan() {
-		key, value, ok := strings.Cut(strings.TrimSpace(scanner.Text()), "=")
-		if !ok {
-			continue
+	line := first
+	for {
+		if key, value, ok := strings.Cut(line, "="); ok {
+			key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+			data[key] = value
+			if key == terminator {
+				onBlock(data)
+				clear(data)
+			}
 		}
-		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
-		data[key] = value
-		if key == "progress" {
-			f.sendProgressMetrics(data, generation, time.Now())
-			clear(data)
+		if !scanner.Scan() {
+			return
 		}
+		line = strings.TrimSpace(scanner.Text())
 	}
 }
 
-func (f *FFmpegCollector) sendProgressMetrics(data map[string]string, generation uint64, now time.Time) {
+func (f *EncoderCollector) sendProgressMetrics(data map[string]string, generation uint64, now time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.stopped || generation != f.generation {

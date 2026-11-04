@@ -30,6 +30,9 @@ class AudioHealthLog {
     void tick(int64_t now_ns, int64_t silence_frames_total, int64_t dropped_frames_total);
 
     [[nodiscard]] DeviceState state() const { return state_; }
+    [[nodiscard]] int64_t state_changed_ns() const { return state_changed_ns_; }
+    [[nodiscard]] const std::string& detail() const { return detail_; }
+    [[nodiscard]] int64_t xruns_total() const { return xruns_total_; }
 
   private:
     void log_transition(DeviceState from, DeviceState to, const std::string& detail,
@@ -41,6 +44,9 @@ class AudioHealthLog {
     HealthLogParams p_;
     DeviceState state_ = DeviceState::Opening;
     DeviceState logged_state_ = DeviceState::Opening;
+    int64_t state_changed_ns_ = -1;
+    std::string detail_;
+    int64_t xruns_total_ = 0;
     bool ever_live_ = false;
     int64_t degraded_since_ns_ = -1;
     int64_t last_transition_log_ns_ = -1;

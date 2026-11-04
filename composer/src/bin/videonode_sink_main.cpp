@@ -49,6 +49,7 @@ void print_help() {
             "  --audio-rate N               capture rate in Hz (default %d)\n"
             "  --audio-channels N           capture channels (default %d)\n"
             "  --audio-offset-ms N          shift audio vs video; positive delays audio\n"
+            "  --status-socket PATH         push status blocks to this daemon socket\n"
             "\n"
             "raw emits NV12 bytes (Y plane, then UV plane) per frame:\n"
             "  ffmpeg -f rawvideo -pix_fmt nv12 -video_size WxH -framerate N -i pipe:0\n"
@@ -83,6 +84,8 @@ void print_help() {
         a.mux = value;
     else if (flag == "--audio-device")
         a.nut.audio_devices.push_back(value);
+    else if (flag == "--status-socket")
+        a.nut.status_socket = value;
     else
         return false;
     return true;

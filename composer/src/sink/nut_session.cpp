@@ -7,6 +7,8 @@
 #include "src/sink/mono_clock.hpp"
 #include "src/sink/nut_writer.hpp"
 #include "src/sink/nv12_pack.hpp"
+#include "src/sink/status_report.hpp"
+#include "src/sink/status_reporter.hpp"
 #include "src/sink/video_link.hpp"
 #include "src/sink/video_pacer.hpp"
 
@@ -24,11 +26,13 @@ namespace {
 constexpr int64_t kNsPerMs = 1'000'000;
 constexpr int64_t kAudioTickNs = 10 * kNsPerMs;
 constexpr int64_t kVideoSummaryNs = 30'000'000'000;
+constexpr int64_t kStatusPeriodNs = 1'000'000'000;
 
 struct AudioLane {
     std::unique_ptr<AlsaCapture> capture;
     AudioTrack track;
     AudioHealthLog health;
+    std::string device;
 };
 
 void log_line(bool warn, const std::string& line) {
@@ -50,7 +54,11 @@ class NutSession {
           writer_([](std::span<const uint8_t> b) { return write_full(STDOUT_FILENO, b); }),
           link_({.socket_path = a.socket_path,
                  .settle_ms = a.settle_ms,
-                 .initial_dial_timeout_ms = a.first_frame_timeout_s * 1000}) {}
+                 .initial_dial_timeout_ms = a.first_frame_timeout_s * 1000}) {
+        if (!a.status_socket.empty())
+            reporter_ = std::make_unique<StatusReporter>(
+                StatusReporter::Params{.socket_path = a.status_socket});
+    }
 
     [[nodiscard]] int run();
 
@@ -67,6 +75,9 @@ class NutSession {
     void poll_for_work(const std::shared_ptr<scm_rights_source::ScmRightsSource>& src,
                        int64_t now) const;
     void summarize_video(int64_t now);
+    [[nodiscard]] bool status_changed() const;
+    [[nodiscard]] SinkStatus collect_status(int64_t now) const;
+    void report_status(int64_t now);
 
     NutSessionArgs a_;
     std::atomic<bool>& running_;
@@ -83,6 +94,10 @@ class NutSession {
     int64_t video_window_ns_ = 0;
     int64_t repeats_base_ = 0;
     int64_t drops_base_ = 0;
+    std::unique_ptr<StatusReporter> reporter_;
+    int64_t last_status_ns_ = 0;
+    std::vector<DeviceState> last_states_;
+    bool last_upstream_ = false;
 };
 
 void NutSession::build_lanes() {
@@ -96,7 +111,8 @@ void NutSession::build_lanes() {
             .capture = std::make_unique<AlsaCapture>(AlsaCaptureParams{
                 .device = dev, .sample_rate = a_.audio_rate, .channels = a_.audio_channels}),
             .track = AudioTrack(tp),
-            .health = AudioHealthLog("[" + std::to_string(k) + "] " + dev, &log_line, hp)});
+            .health = AudioHealthLog("[" + std::to_string(k) + "] " + dev, &log_line, hp),
+            .device = dev});
         lane->capture->start();
         lanes_.push_back(std::move(lane));
     }
@@ -121,6 +137,7 @@ NutSession::Step NutSession::wait_first_frame() {
         }
         if (!pump_audio(mono_ns()))
             return Step::Exit;
+        report_status(mono_ns());
         if (mono_ns() > deadline) {
             vn::log::fatal("videonode-sink: timeout waiting for first frame on %s",
                            a_.socket_path.c_str());
@@ -256,11 +273,59 @@ NutSession::Step NutSession::tick() {
     if (const auto slot = pacer_->repeat_due(now); slot && !write_video(*slot))
         return Step::Exit;
     summarize_video(now);
+    report_status(now);
     return Step::Continue;
+}
+
+bool NutSession::status_changed() const {
+    if ((link_.current() != nullptr) != last_upstream_ || lanes_.size() != last_states_.size())
+        return true;
+    for (size_t k = 0; k < lanes_.size(); ++k) {
+        if (lanes_[k]->health.state() != last_states_[k])
+            return true;
+    }
+    return false;
+}
+
+SinkStatus NutSession::collect_status(int64_t now) const {
+    SinkStatus s;
+    s.upstream_connected = link_.current() != nullptr;
+    if (pacer_) {
+        s.repeated_frames = pacer_->repeats();
+        s.dropped_frames = pacer_->drops();
+    }
+    const int64_t rate = a_.audio_rate > 0 ? a_.audio_rate : 48000;
+    for (const auto& lane : lanes_) {
+        const AudioHealthLog& h = lane->health;
+        const int64_t changed = h.state_changed_ns();
+        s.audio.push_back({.device = lane->device,
+                           .state = h.state(),
+                           .state_age_ms = changed < 0 ? -1 : (now - changed) / kNsPerMs,
+                           .error = h.detail(),
+                           .xruns = h.xruns_total(),
+                           .silence_ms = lane->track.silence_frames() * 1000 / rate,
+                           .dropped_ms = lane->track.dropped_frames() * 1000 / rate,
+                           .rate_hz = lane->track.rate_hz()});
+    }
+    return s;
+}
+
+void NutSession::report_status(int64_t now) {
+    if (!reporter_ || (!status_changed() && now - last_status_ns_ < kStatusPeriodNs))
+        return;
+    const SinkStatus s = collect_status(now);
+    last_status_ns_ = now;
+    last_upstream_ = s.upstream_connected;
+    last_states_.clear();
+    for (const AudioInputStatus& a : s.audio)
+        last_states_.push_back(a.state);
+    reporter_->publish(format_status_block(s));
 }
 
 int NutSession::run() {
     build_lanes();
+    if (reporter_)
+        reporter_->start();
     link_.start();
     Step s = wait_first_frame();
     while (s == Step::Continue && running_.load())
@@ -268,6 +333,8 @@ int NutSession::run() {
     link_.stop();
     for (auto& lane : lanes_)
         lane->capture->stop();
+    if (reporter_)
+        reporter_->stop();
     return s == Step::Fail ? 1 : 0;
 }
 

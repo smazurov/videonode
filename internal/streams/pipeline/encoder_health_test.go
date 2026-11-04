@@ -29,7 +29,7 @@ func TestEncoderHealth_UsesCurrentRunProgress(t *testing.T) {
 	}
 	p := newPipelineWithPool(pool)
 	path := filepath.Join(t.TempDir(), "progress.sock")
-	c := collectors.NewFFmpegCollector(path, t.Name())
+	c := collectors.NewEncoderCollector(path, t.Name())
 	if err := c.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,7 @@ func skipOnMacOS(t *testing.T) {
 	}
 }
 
-func TestFFmpegCollectorProgressParsing(t *testing.T) {
+func TestEncoderCollectorProgressParsing(t *testing.T) {
 	skipOnMacOS(t)
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ffmpeg.sock")
@@ -26,7 +26,7 @@ func TestFFmpegCollectorProgressParsing(t *testing.T) {
 
 	metrics.DeleteFFmpegMetrics(streamID)
 
-	collector := NewFFmpegCollector(socketPath, streamID)
+	collector := NewEncoderCollector(socketPath, streamID)
 	ctx := t.Context()
 
 	if err := collector.Start(ctx); err != nil {
@@ -87,7 +87,7 @@ progress=continue
 	}
 }
 
-func TestFFmpegCollectorMultipleProgressUpdates(t *testing.T) {
+func TestEncoderCollectorMultipleProgressUpdates(t *testing.T) {
 	skipOnMacOS(t)
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ffmpeg2.sock")
@@ -95,7 +95,7 @@ func TestFFmpegCollectorMultipleProgressUpdates(t *testing.T) {
 
 	metrics.DeleteFFmpegMetrics(streamID)
 
-	collector := NewFFmpegCollector(socketPath, streamID)
+	collector := NewEncoderCollector(socketPath, streamID)
 	ctx := t.Context()
 
 	if err := collector.Start(ctx); err != nil {
@@ -156,14 +156,14 @@ func TestFFmpegCollectorMultipleProgressUpdates(t *testing.T) {
 	}
 }
 
-func TestFFmpegCollectorStop(t *testing.T) {
+func TestEncoderCollectorStop(t *testing.T) {
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ffmpeg3.sock")
 	streamID := "test-stream-ffmpeg-stop"
 
 	metrics.DeleteFFmpegMetrics(streamID)
 
-	collector := NewFFmpegCollector(socketPath, streamID)
+	collector := NewEncoderCollector(socketPath, streamID)
 	ctx := t.Context()
 
 	if err := collector.Start(ctx); err != nil {
@@ -202,7 +202,7 @@ func TestFFmpegCollectorStop(t *testing.T) {
 	}
 }
 
-func TestFFmpegCollectorCleanupOldSocket(t *testing.T) {
+func TestEncoderCollectorCleanupOldSocket(t *testing.T) {
 	skipOnMacOS(t)
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ffmpeg4.sock")
@@ -215,7 +215,7 @@ func TestFFmpegCollectorCleanupOldSocket(t *testing.T) {
 	}
 	f.Close()
 
-	collector := NewFFmpegCollector(socketPath, streamID)
+	collector := NewEncoderCollector(socketPath, streamID)
 	ctx := t.Context()
 
 	if err := collector.Start(ctx); err != nil {
@@ -238,7 +238,7 @@ func TestFFmpegCollectorCleanupOldSocket(t *testing.T) {
 	conn.Close()
 }
 
-func TestFFmpegCollectorHandleConnection(t *testing.T) {
+func TestEncoderCollectorHandleConnection(t *testing.T) {
 	skipOnMacOS(t)
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ffmpeg5.sock")
@@ -246,7 +246,7 @@ func TestFFmpegCollectorHandleConnection(t *testing.T) {
 
 	metrics.DeleteFFmpegMetrics(streamID)
 
-	collector := NewFFmpegCollector(socketPath, streamID)
+	collector := NewEncoderCollector(socketPath, streamID)
 	ctx := t.Context()
 
 	if err := collector.Start(ctx); err != nil {

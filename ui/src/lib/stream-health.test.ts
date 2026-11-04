@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { encoderActive, ffmpegStatsFresh, latestHealth, type StreamHealth } from './stream-health';
+import {
+  EARLY_DROP_FLOW,
+  ENCODED_FLOW,
+  FFMPEG_DROP_FLOW,
+  FFMPEG_DUP_FLOW,
+  REPEATED_FLOW,
+  encoderActive,
+  ffmpegStatsFresh,
+  flowCounts,
+  latestHealth,
+  recentIncrease,
+  silenceFlow,
+  xrunFlow,
+  type StreamHealth,
+} from './stream-health';
 
 function snapshot(state: StreamHealth['encoder']['state'] = 'running'): StreamHealth {
   return {
@@ -45,5 +59,33 @@ describe('stream health presentation', () => {
     expect(latestHealth(older, newer)).toBe(newer);
     expect(latestHealth(undefined, older)).toBe(older);
     expect(latestHealth(newer, undefined)).toBe(newer);
+  });
+
+  it('counts sink flows only once vn-sink has reported for this run', () => {
+    const h = snapshot();
+    const ffmpegOnly = { [ENCODED_FLOW]: 300, [FFMPEG_DUP_FLOW]: 0, [FFMPEG_DROP_FLOW]: 0 };
+    expect(flowCounts(h)).toEqual(ffmpegOnly);
+    h.encoder.sink = {
+      reports: { state: 'flowing', count: 3, age_ms: 100 },
+      video: { upstream: 'connected', repeated_frames: 8, dropped_frames: 1 },
+      audio: [{ track: 0, device: 'hw:0,0', state: 'absent', xruns: 2, silence_ms: 9400, dropped_ms: 30 }],
+    };
+    expect(flowCounts(h)).toEqual({
+      ...ffmpegOnly, [REPEATED_FLOW]: 8, [EARLY_DROP_FLOW]: 1,
+      [silenceFlow(0)]: 9400, [xrunFlow(0)]: 2,
+    });
+    h.encoder.sink.reports = { state: 'never_received', count: 0 };
+    expect(flowCounts(h)).toEqual(ffmpegOnly);
+  });
+
+  it('measures counter growth over the recent window only', () => {
+    const at = (sec: number, n: number) => ({ ts: sec * 1000, counts: { x: n } });
+    const steady = [at(0, 5), at(5, 5), at(9, 5), at(12, 7), at(20, 9)];
+    expect(recentIncrease(steady, 'x')).toBe(4);
+    expect(recentIncrease([at(0, 1), at(30, 1)], 'x')).toBe(0);
+    expect(recentIncrease([at(0, 50), at(1, 3)], 'x')).toBe(3);
+    expect(recentIncrease([at(0, 50), at(1, 3), at(2, 4)], 'x')).toBe(4);
+    expect(recentIncrease([at(0, 1)], 'x')).toBe(0);
+    expect(recentIncrease([at(0, 1), at(1, 4)], 'missing')).toBe(0);
   });
 });
