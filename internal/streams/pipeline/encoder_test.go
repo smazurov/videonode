@@ -48,7 +48,7 @@ func TestEncoderStage_Command_AudioCapturedByVNSink(t *testing.T) {
 			t.Errorf("vn-sink argv missing %q in %q", want, sink)
 		}
 	}
-	for _, want := range []string{"-f nut", "-i pipe:0", "[0:a:0]", "[0:a:1]", "-map 0:v:0 -map [a0] -map [a1]", "-c:a libopus"} {
+	for _, want := range []string{"-f nut", "-i pipe:0", "[0:a:0]", "[0:a:1]", "-map 0:v:0 -map '[a0]' -map '[a1]'", "-c:a libopus"} {
 		if !strings.Contains(ff, want) {
 			t.Errorf("ffmpeg missing %q in %q", want, ff)
 		}

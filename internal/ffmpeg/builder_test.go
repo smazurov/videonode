@@ -1,6 +1,8 @@
 package ffmpeg
 
 import (
+	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -100,8 +102,8 @@ func TestBuildCommand_NutPipeAudioTracks(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"-filter_complex [0:a:0]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[a0];[0:a:1]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[a1]",
-		"-map 0:v:0 -map [a0] -map [a1]",
+		"-filter_complex '[0:a:0]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[a0];[0:a:1]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[a1]'",
+		"-map 0:v:0 -map '[a0]' -map '[a1]'",
 		"-c:a libopus -b:a 128k -ar 48000",
 	} {
 		if !strings.Contains(got, want) {
@@ -124,8 +126,8 @@ func TestBuildCommand_NutPipeAudio_CodecBitrateAndMix(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"-filter_complex [0:a:0]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[s0];[0:a:1]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[s1];[s0][s1]amix=inputs=2:duration=shortest[aout]",
-		"-map 0:v:0 -map [aout]",
+		"-filter_complex '[0:a:0]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[s0];[0:a:1]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[s1];[s0][s1]amix=inputs=2:duration=shortest[aout]'",
+		"-map 0:v:0 -map '[aout]'",
 		"-c:a aac -b:a 192k -ar 48000",
 	} {
 		if !strings.Contains(got, want) {
@@ -229,5 +231,39 @@ func TestBuildInputArgs_NutPipeWithAudio(t *testing.T) {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("BuildInputArgs must not emit %q; got %q", unwanted, got)
 		}
+	}
+}
+
+// TestBuildCommand_NutPipeAudioSurvivesShell runs the command through sh and
+// checks the filter graph and map labels arrive as single, unglobbed args.
+func TestBuildCommand_NutPipeAudioSurvivesShell(t *testing.T) {
+	got := BuildCommand(&Params{
+		InputPipe:    &PipeInput{Format: "nut", AudioTracks: 2},
+		Encoder:      "libx264",
+		AudioFilters: "amix=inputs=2:weights='1 0.5'",
+		Outputs:      []OutputTarget{{Type: "rtsp", URL: "rtsp://x"}},
+	})
+	dir := t.TempDir()
+	for _, glob := range []string{"a", "0"} {
+		if err := exec.Command("touch", dir+"/"+glob).Run(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script := "printf '%s\\n' " + strings.TrimPrefix(got, "ffmpeg ")
+	cmd := exec.Command("/bin/sh", "-c", script)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("sh rejected the command: %v\n%s", err, got)
+	}
+	args := strings.Split(strings.TrimSpace(string(out)), "\n")
+	want := "[0:a:0]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[s0];" +
+		"[0:a:1]aresample=async=1000:min_hard_comp=0.100000:first_pts=0[s1];" +
+		"[s0][s1]amix=inputs=2:weights='1 0.5'[aout]"
+	if !slices.Contains(args, want) {
+		t.Errorf("filter graph not delivered as one argument; got args %q", args)
+	}
+	if !slices.Contains(args, "[aout]") {
+		t.Errorf("map label not delivered intact; got args %q", args)
 	}
 }

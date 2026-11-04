@@ -89,7 +89,7 @@ func BuildCommand(p *Params) string {
 	// Single-device audio takes an -af chain; pipe audio routes its filter
 	// through the filter_complex mix below instead.
 	if p.AudioFilters != "" && p.AudioDevice != "" && pipeAudioTracks(p) == 0 {
-		cmd.WriteString(" -af " + p.AudioFilters)
+		cmd.WriteString(" -af " + ShellQuote(p.AudioFilters))
 	}
 
 	// Pipe audio uses filter_complex (aresample per track + per-track map).
@@ -99,7 +99,7 @@ func BuildCommand(p *Params) string {
 	}
 
 	if p.VideoFilters != "" {
-		cmd.WriteString(" -vf " + p.VideoFilters)
+		cmd.WriteString(" -vf " + ShellQuote(p.VideoFilters))
 	}
 
 	cmd.WriteString(" -c:v " + p.Encoder)
@@ -268,15 +268,16 @@ func writePipeAudioFilterComplex(cmd *strings.Builder, audioCount int, mixFilter
 		}
 		fc.WriteString(mixFilter)
 		fc.WriteString("[aout]")
-		cmd.WriteString(" -filter_complex " + fc.String())
-		cmd.WriteString(" -map 0:v:0 -map [aout]")
+		cmd.WriteString(" -filter_complex " + ShellQuote(fc.String()))
+		cmd.WriteString(" -map 0:v:0 -map " + ShellQuote("[aout]"))
 		return
 	}
 
-	cmd.WriteString(" -filter_complex " + fc.String())
+	// The command runs under sh -c: unquoted, ';' would end it and [a0] would glob.
+	cmd.WriteString(" -filter_complex " + ShellQuote(fc.String()))
 	cmd.WriteString(" -map 0:v:0")
 	for k := range audioCount {
-		fmt.Fprintf(cmd, " -map [a%d]", k)
+		cmd.WriteString(" -map " + ShellQuote(fmt.Sprintf("[a%d]", k)))
 	}
 }
 
