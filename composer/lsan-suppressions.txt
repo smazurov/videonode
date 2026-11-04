@@ -7,6 +7,12 @@
 # Format: leak:<substring> matches against function names and DSO basenames
 # in the leak backtrace. See
 # https://github.com/google/sanitizers/wiki/AddressSanitizerLeakSanitizer
+#
+# Vulkan drivers need no entry here: the dev-asan test preset sets
+# VK_LOADER_DISABLE_DYNAMIC_LIBRARY_UNLOADING=1. Otherwise vkDestroyInstance
+# unloads the driver (e.g. radv), its static pointers to process-lifetime
+# state vanish with it, and that state shows up as direct leaks from
+# <unknown module> that no suppression can match.
 
 # Mesa EGL/DRI loader keeps driver state alive until process exit (33MB+
 # of strdup'd extension strings, driver-config blobs, etc.). Visible as
