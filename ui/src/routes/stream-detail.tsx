@@ -38,6 +38,7 @@ import { useUpstreamComposerMask } from '../hooks/useComposerMask';
 import { WebRTCPlayer } from '../components/webrtc';
 import { api } from '../lib/api';
 import { isRestartable } from '../lib/pool-status';
+import { latestHealth } from '../lib/stream-health';
 
 const MODE_OPTIONS: ReadonlyArray<{
   value: StreamPreviewMode;
@@ -92,6 +93,7 @@ export default function StreamDetail() {
   const logout = useAuthStore((s) => s.logout);
 
   const stream = useStreamStore((state) => (streamId ? state.streamsById[streamId] : undefined));
+  const metrics = useStreamStore((state) => (streamId ? state.metricsById[streamId] : undefined));
   const lastUpdated = useStreamStore((state) => state.lastUpdated);
   const fetchStreams = useStreamStore((state) => state.fetchStreams);
   const deleteStreamAction = useStreamStore((state) => state.deleteStream);
@@ -174,6 +176,10 @@ export default function StreamDetail() {
   // the offer it sends is what lazily wakes the encoder (lazy-encoder-on-reader).
   const canPreview = pipelineEnabled !== false;
   const showSmallPreview = previewMode === 'small';
+  // stream.status in the store only refreshes on refetch, so it stays "idle"
+  // after a viewer lazily starts the encoder; the health push carries the
+  // live pool state every second.
+  const encoderState = latestHealth(stream.health, metrics?.health)?.encoder.state ?? stream.status;
 
   return (
     <DashboardLayout onLogout={logout} bottomBar={<InfoBar />}>
@@ -197,7 +203,7 @@ export default function StreamDetail() {
                 theme="light"
                 size="SM"
                 onClick={handleRestart}
-                disabled={!isRestartable(stream.status)}
+                disabled={!isRestartable(encoderState)}
                 LeadingIcon={ArrowPathIcon}
                 text="Restart"
               />
