@@ -1,18 +1,18 @@
 Package: videonode
-Version: 4.3.0
+Version: 4.4.0
 Architecture: arm64
 Maintainer: Stepan Mazurov <smazurov@gmail.com>
-Installed-Size: 27420
-Depends: base-files (>= 13~), libabsl20240722 (>= 20240722.0-1), libc6 (>= 2.38), libegl1, libgbm1 (>= 17.1.0~rc2), libgcc-s1 (>= 3.0), libgrpc++1.51t64 (>= 1.51.1), libgrpc29t64 (>= 1.51.1), libpam0g (>= 0.99.7.1), libplacebo349 (>= 7.349.0), libprotobuf32t64 (>= 3.21.12), libstdc++6 (>= 13.1), libturbojpeg0 (>= 1:2.0.2)
+Installed-Size: 27549
+Depends: base-files (>= 13~), libabsl20240722 (>= 20240722.0-1), libasound2t64 (>= 1.0.16), libc6 (>= 2.38), libegl1, libgbm1 (>= 17.1.0~rc2), libgcc-s1 (>= 3.0), libgrpc++1.51t64 (>= 1.51.1), libgrpc29t64 (>= 1.51.1), libpam0g (>= 0.99.7.1), libplacebo349 (>= 7.349.0), libprotobuf32t64 (>= 3.21.12), libstdc++6 (>= 13.1), libturbojpeg0 (>= 1:2.0.2)
 Homepage: https://github.com/smazurov/videonode
 Priority: optional
 Section: video
-Filename: pool/main/v/videonode/videonode_4.3.0_arm64.deb
-Size: 10691700
-SHA512: e922d02daf1ef6217f577dd2ee5d497852967e697f4761499c5f19a3459037b226b6f4e1340f45dfa957fbb5140b6973bab529c532f37d8c8e59eef673227617
-SHA256: 61f0724ef7fb1875d98783af0473c419d5403134cde731c27cd4609b4a5ade91
-SHA1: 6d9c3da5031c7ebfa7df2dd1d562f872728b28a3
-MD5sum: fc0993641a1417b9b6478113033ede95
+Filename: pool/main/v/videonode/videonode_4.4.0_arm64.deb
+Size: 10754244
+SHA512: 7533ecb9d9465b60b8dc0e58baf9c7984a07506f54c6235e2205009bce08cada566d33363864417f96ab23059d619c42fce899a8aefc05d55252235ed8cbfad3
+SHA256: a2ad58f1fa4bdafdd8fe1b4a849da476afaed9f6cc3cba418e09ee8f0bad8c27
+SHA1: 5507c32d5b89fbd7a98086a44f0d9271476a5733
+MD5sum: 2daafe5b3a3bc0d6b5f2f870a421e1c7
 Description: RK3588 video streaming server with native dma-buf pipeline.
  Turns V4L2 capture devices into RTSP, WebRTC, and SRT streams
  with GPU-accelerated compositing via EGL/GLES on Mali-G610.
@@ -26,10 +26,10 @@ Homepage: https://github.com/smazurov/videonode
 Priority: optional
 Section: 
 Filename: pool/main/v/videonode-keyring/videonode-keyring_1779921143_all.deb
-Size: 1016
-SHA512: c424f7a2db465801a239dd05d88afa8129bf3c95f0f5dc7722e26a86ee9f4681a07437719cbd4cbc546d7343b86f802e827585e9016584aaf66156de21a65e8c
-SHA256: 5386334ce4f16b25b0c1025cae86a78306a20a22078c7d17905330f7588fe944
-SHA1: 47e9a578ee249aec16646a6af954e4dbf6075d68
-MD5sum: 899c7fa5909b132e69ff461d0e19ab4c
+Size: 1014
+SHA512: e2c3ac57d296d16e4cd16140313e976416e9eb5f45a4ccfed15418c0e13b49148555f3e58fe470c6c27e5f3c493bb7a9a82912634ad6d86a9ad56ca68df80bd4
+SHA256: cefc46690d8d0fbce9b714c6bc5a4a21ab195faa15d205a9ef9a208339f095cf
+SHA1: 764dd474eef84ae6bb13a5a7133fc9affd4963ea
+MD5sum: b19127867d4de4ffba895b5215d263fd
 Description: videonode keyring
 
