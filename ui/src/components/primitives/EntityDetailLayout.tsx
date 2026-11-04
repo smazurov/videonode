@@ -54,7 +54,7 @@ export function EntityDetailLayout({
           <h1 className="truncate text-2xl font-bold text-fg">{title}</h1>
           {subtitle && <div className="mt-1 text-sm text-fg-muted">{subtitle}</div>}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        {actions && <div className="flex flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>}
       </div>
 
       <div className={cn('grid gap-4', sidebar ? 'grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)]' : 'grid-cols-1')}>

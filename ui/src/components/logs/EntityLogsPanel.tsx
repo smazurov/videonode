@@ -49,9 +49,9 @@ export function EntityLogsPanel({
 
   return (
     <Card padding="lg">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <SectionHeader title={title} description={description} />
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-3 sm:shrink-0">
           <div className="flex items-center gap-1.5">
             <div className={`w-2 h-2 rounded-full ${statusColor}`} />
             <span className="text-xs text-fg-muted">{connectionStatus}</span>

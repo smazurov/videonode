@@ -52,7 +52,7 @@ export function LogRow({ log, inlineAttributes = [] }: LogRowProps) {
       }`}
       onClick={() => hasHiddenAttributes && setExpanded(!expanded)}
     >
-      <div className="flex items-start">
+      <div className="flex flex-wrap items-start sm:flex-nowrap">
         <span className="text-fg-subtle shrink-0">{formatTime(log.timestamp)}</span>
         <span className={`${levelColor} ml-2 shrink-0`}>[{log.level.toUpperCase().padEnd(5)}]</span>
         <span className="text-info ml-1 shrink-0">[{log.module}]</span>
@@ -67,7 +67,7 @@ export function LogRow({ log, inlineAttributes = [] }: LogRowProps) {
             </span>
           );
         })}
-        <span className="text-fg ml-2 break-all">{log.message}</span>
+        <span className="text-fg ml-2 min-w-0 break-all">{log.message}</span>
         {typeof log.attributes['suppressed'] === 'number' && log.attributes['suppressed'] > 0 && (
           <span
             key={String(log.attributes['suppressed'])}
