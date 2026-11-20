@@ -2,8 +2,14 @@
 
 Generated at build time from [`changelog.yml`](https://github.com/smazurov/videonode/blob/main/changelog.yml). Cross-reference [GitHub Releases](https://github.com/smazurov/videonode/releases) for download links and signed artifacts.
 
+{{ $entries := .Entries -}}
 {{ range .Entries -}}
-{{ if not (contains "-rc" .Semver) -}}
+{{ $show := true -}}
+{{ if contains "-rc" .Semver -}}
+{{ $final := regexReplaceAll "-rc.*$" .Semver "" -}}
+{{ range $entries }}{{ if eq .Semver $final }}{{ $show = false }}{{ end }}{{ end -}}
+{{ end -}}
+{{ if $show -}}
 ## {{ .Semver }}
 
 _{{ date_in_zone "2006-01-02" .Date "UTC" }}_
